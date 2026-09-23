@@ -1,0 +1,47 @@
+# --- Dati grezzi -------------------------------------------------------------
+# I dati non vivono mai in questo repository: il dataset completo pesa circa
+# 2,5 GB e risiede altrove sul filesystem. I percorsi sono parametri di
+# configurazione.
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+
+# --- Artefatti intermedi e output della pipeline -----------------------------
+# Le cartelle di output sono parametri di configurazione: se ne viene usata una
+# con un nome diverso da questi, va aggiunta qui.
+*.rds
+*.RDS
+# Eccezione: le fixture dei test sono dati di prova versionati, non artefatti
+# di esecuzione, e vanno tracciate senza ricorrere a git add -f.
+!tests/**/*.rds
+!tests/**/*.RDS
+results/
+output/
+outputs/
+runs/
+work/
+
+# --- Python ------------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- R -----------------------------------------------------------------------
+.Rhistory
+.RData
+.Rproj.user/
+
+# --- Ambiente e sistema ------------------------------------------------------
+.env
+.DS_Store

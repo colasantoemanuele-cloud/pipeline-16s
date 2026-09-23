@@ -1,0 +1,55 @@
+[build-system]
+# Anche il backend di costruzione e' bloccato: una build riproducibile non puo'
+# dipendere dalla versione di setuptools scaricata al momento.
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amplicon16s"
+version = "0.1.0"
+description = "Pipeline per l'analisi di dati 16S rRNA da sequenziamento Illumina single-end"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Emanuele Colasanto" }]
+keywords = ["16S", "rRNA", "amplicon", "microbiome", "dada2", "phyloseq"]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+# Le dipendenze sono bloccate a versione esatta: la riproducibilita' del
+# risultato a distanza di mesi e' un requisito del progetto. Ogni dipendenza
+# aggiunta in seguito va fissata con "==", non con ">=".
+dependencies = [
+    # Lettura del file di configurazione. La libreria standard non sa leggere
+    # YAML, quindi una dipendenza e' inevitabile a prescindere dallo
+    # strumento scelto per la validazione.
+    "pyyaml==6.0.3",
+    # Schema dei parametri. La configurazione e' il punto di controllo
+    # dell'intera esecuzione: serve il rifiuto delle chiavi sconosciute, i
+    # vincoli di dominio e i messaggi che indicano la chiave esatta.
+    "pydantic==2.13.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1"]
+
+[project.scripts]
+amplicon16s = "amplicon16s.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["amplicon16s*", "amplicon16s_eco*"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "dati_reali: richiede il dataset di riferimento sul filesystem; si salta quando non c'e'",
+]

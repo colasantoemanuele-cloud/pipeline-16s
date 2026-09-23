@@ -1,0 +1,39 @@
+# Il contesto di build contiene solo ciò che serve a costruire l'immagine.
+# Tutto il resto è escluso: riduce il trasferimento e impedisce che artefatti
+# locali finiscano dentro l'immagine.
+
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Dati e artefatti: non entrano mai nell'immagine, i percorsi sono parametri
+# di configurazione.
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.rds
+*.RDS
+results/
+output/
+outputs/
+runs/
+work/
+
+.Rhistory
+.RData
+.Rproj.user/
+.env
+.DS_Store
