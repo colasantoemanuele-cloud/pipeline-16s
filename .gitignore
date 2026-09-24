@@ -25,6 +25,9 @@ work/
 # --- Python ------------------------------------------------------------------
 .venv/
 venv/
+# Lock di uv, generato quando l'ambiente viene creato con uv: le dipendenze
+# sono gia' bloccate con == in pyproject.toml, che resta l'unica fonte.
+uv.lock
 __pycache__/
 *.py[cod]
 *.egg-info/

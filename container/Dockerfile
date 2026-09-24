@@ -63,6 +63,11 @@ COPY tests/ tests/
 # La configurazione di esempio e' un'istanza dello schema e i test la
 # verificano: senza, la suite non potrebbe girare dentro l'immagine.
 COPY config/ config/
+# Gli script R e le loro funzioni condivise. Il pacchetto Python e' installato
+# in modo non modificabile e non sta piu' accanto a R/: la variabile dice al
+# ponte dove trovarli.
+COPY R/ R/
+ENV AMPLICON16S_R_DIR=/opt/amplicon16s/R
 
 RUN uv pip install --python "${VIRTUAL_ENV}/bin/python" ".[dev]"
 

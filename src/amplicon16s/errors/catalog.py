@@ -26,6 +26,13 @@ ma la natura dell'azione correttiva: ridurre la dimensione di un lotto o
 aumentare i dati di una stima non modifica alcuna assunzione metodologica,
 mentre spostare una soglia è una decisione scientifica e non può essere presa
 da un programma. Un test verifica nei due versi che l'elenco resti quello.
+
+**I codici del ponte verso R.** I codici ``E-R-*`` non appartengono a una
+fase ma al ponte (:mod:`amplicon16s.rbridge`) che esegue gli script R di tutte
+le fasi. Descrivono ciò che la fase non può dichiarare da sé: un interprete
+assente, un processo morto prima di scrivere l'esito, un errore che lo script
+non ha ricondotto a un codice. Sono tutti a revisione umana: nessuno di questi
+guasti ha un'azione correttiva che non richieda di capirne prima la causa.
 """
 
 from __future__ import annotations
@@ -74,7 +81,8 @@ class VoceCatalogo:
 
     codice: str
     #: Fase a cui il codice appartiene: ``S0``…``S14`` per le fasi della
-    #: pipeline, ``G15`` per il gate di coerenza della configurazione.
+    #: pipeline, ``G15`` per il gate di coerenza della configurazione, ``R``
+    #: per il ponte che esegue gli script R.
     fase: str
     #: Che cosa è andato storto, in una riga.
     sintesi: str
@@ -462,6 +470,46 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "La validazione finale dell'oggetto non e' superata.",
         "Non usare ps_final.rds: conserva 12_final e il log in 99_logs, che "
         "insieme indicano quale controllo non e' stato superato.",
+        _UMANA,
+    ),
+    # ------------------------------------------------------------------ R ---
+    _v(
+        "E-R-01", "R",
+        "L'interprete R o gli script R della pipeline non sono disponibili.",
+        "Installa R oppure indica l'interprete con la variabile d'ambiente "
+        "AMPLICON16S_RSCRIPT; se gli script non vengono trovati, indica la "
+        "cartella R/ del repository con AMPLICON16S_R_DIR. Nel container "
+        "entrambi sono gia' presenti: se l'errore compare li', l'immagine non "
+        "e' quella prevista.",
+        _UMANA,
+    ),
+    _v(
+        "E-R-02", "R",
+        "Il processo R e' terminato senza dichiarare un esito valido.",
+        "Il processo si e' interrotto prima di poter scrivere l'esito: per un "
+        "segnale, per un guasto dell'interprete, o per un errore avvenuto "
+        "prima che lo script caricasse le funzioni condivise. Il codice di "
+        "uscita accompagna l'errore e l'uscita di errore del processo e' nel "
+        "log strutturato in 99_logs: parti da li', perche' rieseguire senza "
+        "conoscerne la causa ripeterebbe il guasto.",
+        _UMANA,
+    ),
+    _v(
+        "E-R-03", "R",
+        "Lo script R si e' interrotto con un errore privo di un codice del "
+        "catalogo.",
+        "E' un difetto dello script, non dei dati: ogni condizione prevista "
+        "va dichiarata con un codice del catalogo. Il messaggio originale di R "
+        "accompagna l'errore; segnalalo insieme al log in 99_logs.",
+        _UMANA,
+    ),
+    _v(
+        "E-R-04", "R",
+        "Memoria esaurita in un processo R di una fase che non prevede il "
+        "retry.",
+        "Aumenta la memoria disponibile al container oppure riduci "
+        "run.threads, poi riprendi l'esecuzione: per questa fase non esiste "
+        "un'azione correttiva automatica che lasci intatte le sue assunzioni.",
         _UMANA,
     ),
 )
