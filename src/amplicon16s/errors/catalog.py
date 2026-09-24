@@ -33,6 +33,12 @@ le fasi. Descrivono ciò che la fase non può dichiarare da sé: un interprete
 assente, un processo morto prima di scrivere l'esito, un errore che lo script
 non ha ricondotto a un codice. Sono tutti a revisione umana: nessuno di questi
 guasti ha un'azione correttiva che non richieda di capirne prima la causa.
+
+**Il codice del grafo.** ``E-GRAFO-01`` segnala una fase avviata prima che le
+fasi da cui dipende fossero concluse, qualunque sia la fase. Non va confuso
+con ``E-S13-01``, che riguarda la sola precedenza di metodo fra
+decontaminazione e filtro di prevalenza: un codice per ogni significato, cosi'
+il log non attribuisce a S13 violazioni che riguardano altre fasi.
 """
 
 from __future__ import annotations
@@ -82,7 +88,7 @@ class VoceCatalogo:
     codice: str
     #: Fase a cui il codice appartiene: ``S0``…``S14`` per le fasi della
     #: pipeline, ``G15`` per il gate di coerenza della configurazione, ``R``
-    #: per il ponte che esegue gli script R.
+    #: per il ponte che esegue gli script R, ``GRAFO`` per l'ordine delle fasi.
     fase: str
     #: Che cosa è andato storto, in una riga.
     sintesi: str
@@ -451,9 +457,12 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     # ---------------------------------------------------------------- S13 ---
     _v(
         "E-S13-01", "S13",
-        "Una fase e' stata eseguita prima di una da cui dipende.",
-        "Riparti da un'esecuzione pulita, oppure usa 'amplicon16s resume', che "
-        "ricostruisce l'ordine dagli artefatti gia' prodotti.",
+        "Il filtro di prevalenza e' stato avviato prima che la decontaminazione "
+        "fosse conclusa.",
+        "La prevalenza va calcolata su dati gia' decontaminati: un contaminante "
+        "diffuso supererebbe il filtro proprio perche' compare ovunque. Completa "
+        "S12 prima di S13; se l'errore compare durante una ripresa, e' un "
+        "difetto dell'orchestrazione: segnalalo insieme al log in 99_logs.",
         _UMANA,
     ),
     _v(
@@ -470,6 +479,17 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "La validazione finale dell'oggetto non e' superata.",
         "Non usare ps_final.rds: conserva 12_final e il log in 99_logs, che "
         "insieme indicano quale controllo non e' stato superato.",
+        _UMANA,
+    ),
+    # -------------------------------------------------------------- GRAFO ---
+    _v(
+        "E-GRAFO-01", "GRAFO",
+        "Una fase e' stata avviata prima che le fasi da cui dipende fossero "
+        "concluse.",
+        "Le fasi mancanti sono indicate nell'errore: eseguile prima, oppure "
+        "riprendi l'esecuzione, che le esegue nell'ordine del grafo. Se l'errore "
+        "compare durante una ripresa, e' un difetto dell'orchestrazione e non "
+        "dei dati: segnalalo insieme al log in 99_logs.",
         _UMANA,
     ),
     # ------------------------------------------------------------------ R ---

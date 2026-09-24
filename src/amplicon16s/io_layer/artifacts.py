@@ -3,12 +3,19 @@
 Sotto ``io.out_root`` la pipeline scrive una cartella per fase, numerata in
 modo che l'ordine sul filesystem coincida con l'ordine di esecuzione.
 
-Ogni artefatto scritto viene registrato nel **manifesto della sua fase**, con
-il checksum e la dimensione. Il manifesto è per fase e non unico perché il suo
-uso principale è la domanda «questa fase è già stata completata?»: con un
-manifesto per cartella la risposta si ottiene leggendo un file solo, e una
-fase che non è mai partita non ha manifesto da distinguere da una che è andata
-a metà.
+Ogni artefatto scritto viene registrato nel **manifesto della sua cartella**,
+con il checksum e la dimensione. Quel manifesto risponde alla domanda «i file
+di questa cartella sono ancora quelli scritti?», e ogni scrittura lo aggiorna.
+
+**Il completamento di una fase ha un manifesto proprio.** Le cartelle sono
+quattordici e le fasi quindici, e alcune fasi condividono una cartella: S11 e
+S12 scrivono in ``11_controls``, S13 e S14 in ``12_final``. Con il solo
+manifesto di cartella, la conclusione di S11 renderebbe «completa» la cartella
+e con essa S12, che non ha mai girato. Ogni fase conclusa scrive quindi il
+proprio :class:`ManifestoPasso` (``manifest_S11.json``, ``manifest_S12.json``)
+con i propri artefatti e ciò su cui è stata calcolata. Lo scrive per ultimo e
+in modo atomico: una fase interrotta a metà non ne ha uno, e una fase che
+riscrive un file di un'altra ne rompe il checksum invece di sembrare conclusa.
 
 Gli artefatti non nascono tutti qui: le fasi di calcolo sono processi R che
 scrivono i propri file da sé. Per questo :meth:`AlberoOutput.registra` esiste
@@ -19,24 +26,37 @@ distingue i due casi.
 
 from __future__ import annotations
 
+import hashlib
 import json
-from collections.abc import Iterable, Iterator
+import os
+import tempfile
+import uuid
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
-from amplicon16s.io_layer.checksums import checksum_file
+from amplicon16s.io_layer.checksums import checksum_file, corrisponde
 
 __all__ = [
     "AlberoOutput",
     "Artefatto",
     "Fase",
+    "ManifestoPasso",
+    "ManifestoPassoNonValido",
     "NOME_MANIFESTO",
+    "nome_manifesto_passo",
 ]
 
 #: Nome del manifesto dentro ogni cartella di fase.
 NOME_MANIFESTO: Final = "manifest.json"
+
+
+def nome_manifesto_passo(passo: str) -> str:
+    """Nome del manifesto di completamento di una fase, nella sua cartella."""
+    return f"manifest_{passo}.json"
 
 
 class Fase(StrEnum):
@@ -82,6 +102,62 @@ class Artefatto:
         from amplicon16s.io_layer.checksums import corrisponde
 
         return corrisponde(self.percorso, self.checksum)
+
+
+def _canonico(documento: Mapping[str, Any]) -> str:
+    return json.dumps(
+        documento, sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+def _impronta(documento: Mapping[str, Any]) -> str:
+    return "sha256:" + hashlib.sha256(_canonico(documento).encode("utf-8")).hexdigest()
+
+
+class ManifestoPassoNonValido(ValueError):
+    """Il manifesto di una fase esiste ma è illeggibile o è stato alterato."""
+
+
+@dataclass(frozen=True)
+class ManifestoPasso:
+    """La traccia che una fase lascia quando si conclude.
+
+    ``calcolata_su`` dice su che cosa la fase è stata calcolata: la
+    configurazione, le fasi a monte, i dati esterni. ``impronta`` identifica
+    questo calcolo ed è ciò che le fasi a valle registrano come proprio
+    ingresso: ricalcolare la fase ne produce una nuova, e chi aveva registrato
+    la vecchia non risulta piu' calcolato sugli ingressi di adesso.
+    """
+
+    passo: str
+    fase: Fase
+    impronta: str
+    calcolata_su: dict[str, Any]
+    artefatti: tuple[dict[str, Any], ...]
+    metriche: dict[str, Any]
+    conclusa: str
+    esecuzione: str
+
+    def _contenuto(self) -> dict[str, Any]:
+        return {
+            "passo": self.passo,
+            "cartella": self.fase.value,
+            "calcolata_su": self.calcolata_su,
+            "artefatti": list(self.artefatti),
+            "metriche": self.metriche,
+            "conclusa": self.conclusa,
+            # Identifica l'esecuzione: due calcoli della stessa fase non hanno
+            # mai la stessa impronta, anche se producono gli stessi byte.
+            "esecuzione": self.esecuzione,
+        }
+
+    def come_documento(self) -> dict[str, Any]:
+        return {"impronta": self.impronta, **self._contenuto()}
+
+    @property
+    def nomi(self) -> tuple[str, ...]:
+        return tuple(str(v["nome"]) for v in self.artefatti)
 
 
 class AlberoOutput:
@@ -200,12 +276,15 @@ class AlberoOutput:
         return tuple(a.nome for a in self.artefatti(fase) if not a.integro)
 
     def fase_completa(self, fase: Fase, attesi: Iterable[str] | None = None) -> bool:
-        """Se la fase ha prodotto i suoi artefatti e sono ancora integri.
+        """Se la cartella contiene artefatti registrati e sono ancora integri.
 
         Senza ``attesi`` la domanda è «tutto ciò che risulta prodotto è ancora
-        integro?»; con ``attesi`` è «ci sono anche questi?». La distinzione
-        serve alla ripresa di un'esecuzione interrotta, dove un manifesto
-        parziale non significa fase conclusa.
+        integro?»; con ``attesi`` è «ci sono anche questi?».
+
+        Riguarda la cartella, non una fase del grafo: con due fasi nella
+        stessa cartella non distingue l'una dall'altra, e non sa su che cosa i
+        file sono stati calcolati. Il completamento di una fase si stabilisce
+        con :meth:`manifesto_passo` e :meth:`non_integri_del_passo`.
         """
         registrati = self.manifesto(fase)
         if not registrati:
@@ -213,3 +292,132 @@ class AlberoOutput:
         if attesi is not None and not set(attesi) <= set(registrati):
             return False
         return not self.non_integri(fase)
+
+    # ----------------------------------------------------------------- #
+    # Manifesto di una fase                                              #
+    # ----------------------------------------------------------------- #
+
+    def percorso_manifesto_passo(self, passo: str, fase: Fase) -> Path:
+        return self.cartella(fase) / nome_manifesto_passo(passo)
+
+    def rimuovi_manifesto_passo(self, passo: str, fase: Fase) -> None:
+        """Una fase che viene ricalcolata smette subito di risultare conclusa."""
+        self.percorso_manifesto_passo(passo, fase).unlink(missing_ok=True)
+
+    def concludi_passo(
+        self,
+        passo: str,
+        fase: Fase,
+        artefatti: Iterable[Artefatto],
+        calcolata_su: Mapping[str, Any],
+        metriche: Mapping[str, Any] | None = None,
+    ) -> ManifestoPasso:
+        """Scrive il manifesto di una fase conclusa, per ultimo e atomicamente."""
+        voci = []
+        for artefatto in artefatti:
+            if artefatto.fase is not fase:
+                raise ValueError(
+                    f"{passo} scrive in {fase.value}, non in {artefatto.fase.value}: "
+                    f"{artefatto.nome}"
+                )
+            voci.append(artefatto.come_voce())
+        voci.sort(key=lambda v: str(v["nome"]))
+
+        bozza = ManifestoPasso(
+            passo=passo,
+            fase=fase,
+            impronta="",
+            calcolata_su=dict(calcolata_su),
+            artefatti=tuple(voci),
+            metriche=dict(metriche or {}),
+            conclusa=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            esecuzione=uuid.uuid4().hex,
+        )
+        # Il passaggio per JSON e ritorno fissa la forma che verra' riletta:
+        # l'impronta si calcola su quella, non sugli oggetti in memoria.
+        contenuto = json.loads(_canonico(bozza._contenuto()))
+        manifesto = ManifestoPasso(
+            passo=passo,
+            fase=fase,
+            impronta=_impronta(contenuto),
+            calcolata_su=contenuto["calcolata_su"],
+            artefatti=tuple(contenuto["artefatti"]),
+            metriche=contenuto["metriche"],
+            conclusa=contenuto["conclusa"],
+            esecuzione=contenuto["esecuzione"],
+        )
+
+        self.prepara(fase)
+        percorso = self.percorso_manifesto_passo(passo, fase)
+        descrittore, temporaneo = tempfile.mkstemp(
+            prefix=".scrittura-", suffix=".json", dir=percorso.parent
+        )
+        try:
+            with os.fdopen(descrittore, "w", encoding="utf-8") as file:
+                json.dump(
+                    manifesto.come_documento(), file, indent=2, ensure_ascii=False
+                )
+                file.write("\n")
+            os.replace(temporaneo, percorso)
+        except BaseException:
+            Path(temporaneo).unlink(missing_ok=True)
+            raise
+        return manifesto
+
+    def manifesto_passo(self, passo: str, fase: Fase) -> ManifestoPasso | None:
+        """Il manifesto di una fase, o ``None`` se la fase non si è conclusa.
+
+        Solleva :class:`ManifestoPassoNonValido` se il file esiste ma non è
+        leggibile, appartiene a un'altra fase o è stato modificato dopo la
+        scrittura: l'impronta non corrisponderebbe al contenuto.
+        """
+        percorso = self.percorso_manifesto_passo(passo, fase)
+        if not percorso.is_file():
+            return None
+        try:
+            documento = json.loads(percorso.read_text(encoding="utf-8"))
+            impronta = documento.pop("impronta")
+            manifesto = ManifestoPasso(
+                passo=documento["passo"],
+                fase=Fase(documento["cartella"]),
+                impronta=impronta,
+                calcolata_su=documento["calcolata_su"],
+                artefatti=tuple(documento["artefatti"]),
+                metriche=documento["metriche"],
+                conclusa=documento["conclusa"],
+                esecuzione=documento["esecuzione"],
+            )
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+            raise ManifestoPassoNonValido(f"manifesto di {passo} illeggibile: {e}") from e
+
+        if manifesto.passo != passo or manifesto.fase is not fase:
+            raise ManifestoPassoNonValido(
+                f"il manifesto in {percorso} appartiene a {manifesto.passo}"
+            )
+        if _impronta(documento) != impronta:
+            raise ManifestoPassoNonValido(f"il manifesto di {passo} e' stato alterato")
+        return manifesto
+
+    def non_integri_del_passo(
+        self,
+        manifesto: ManifestoPasso,
+        checksum: Callable[[Path], str | None] | None = None,
+    ) -> tuple[str, ...]:
+        """Artefatti della fase che mancano o non corrispondono al checksum.
+
+        ``checksum`` restituisce il checksum di un file, o ``None`` se il file
+        manca; permette a chi valuta piu' fasi di calcolare ciascun checksum
+        una volta sola. Senza, il checksum si calcola qui.
+        """
+        cartella = self.cartella(manifesto.fase)
+        if checksum is None:
+            return tuple(
+                str(v["nome"])
+                for v in manifesto.artefatti
+                if not corrisponde(cartella / str(v["nome"]), str(v["checksum"]))
+            )
+        return tuple(
+            str(v["nome"])
+            for v in manifesto.artefatti
+            if checksum(cartella / str(v["nome"])) != str(v["checksum"])
+        )

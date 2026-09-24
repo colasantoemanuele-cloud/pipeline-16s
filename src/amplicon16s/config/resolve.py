@@ -20,6 +20,15 @@ La separazione non è una comodità: senza di essa il gate G15 non potrebbe
 girare prima della lettura dei metadati, e l'intero scopo di un controllo che
 precede qualunque calcolo verrebbe meno.
 
+**Digest e impronta dei risultati sono due cose diverse.** Il digest
+identifica la configurazione ed è calcolato su tutta, compresi i parametri che
+non toccano i risultati. L'impronta dei risultati
+(:attr:`ConfigRisolta.impronta_risultati`) serve a decidere se una fase
+conclusa è ancora valida, e ne esclude i parametri elencati in
+:data:`PARAMETRI_SENZA_EFFETTO`: altrimenti cambiare il numero di thread, o
+spostare la cartella di output, farebbe rifare ore di calcolo che darebbero
+gli stessi risultati.
+
 **Il digest** identifica la combinazione di parametri impiegata ed è calcolato
 sulla configurazione dichiarata più i derivati statici. ``prev.min_samples``
 ne è deliberatamente escluso: dipende da quanti campioni biologici contiene il
@@ -47,6 +56,7 @@ __all__ = [
     "Derivati",
     "NOME_FILE_RISOLTO",
     "PARAMETRI_DERIVATI",
+    "PARAMETRI_SENZA_EFFETTO",
     "risolvi",
     "scrivi_risolta",
 ]
@@ -55,6 +65,28 @@ __all__ = [
 #: finisce è ``Fase.CONFIG``: la creazione delle cartelle di output passa dal
 #: servizio degli artefatti, non da qui.
 NOME_FILE_RISOLTO: Final = "resolved.yaml"
+
+#: Parametri che non incidono sui risultati, esclusi dall'impronta con cui si
+#: decide se una fase conclusa è ancora valida. E' l'unico punto in cui si
+#: dichiarano, e l'elenco e' volutamente prudente: nel dubbio un parametro
+#: resta nell'impronta, perche' escluderne uno che incide farebbe consegnare
+#: risultati calcolati con un valore diverso da quello dichiarato, senza alcun
+#: errore. Per questo ``run.batch_size`` resta dentro — la suddivisione in
+#: lotti puo' toccare cio' che si stima per lotto — e cosi' ``run.lockfile``,
+#: che fissa le versioni dei pacchetti di calcolo.
+#:
+#: * ``run.threads``: quanti processori usare, non che cosa calcolare;
+#: * ``io.out_root``: dove scrivere; spostare la cartella di un'esecuzione
+#:   conclusa non deve renderla incompleta;
+#: * ``retry.enabled``, ``retry.max_attempts``: se e quante volte ritentare un
+#:   errore ammesso al retry, la cui azione correttiva per definizione non
+#:   cambia alcuna assunzione metodologica.
+PARAMETRI_SENZA_EFFETTO: Final[tuple[str, ...]] = (
+    "run.threads",
+    "io.out_root",
+    "retry.enabled",
+    "retry.max_attempts",
+)
 
 
 @dataclass(frozen=True)
@@ -101,18 +133,26 @@ def _deriva_statici(config: Config) -> Derivati:
     return Derivati(filter_minLen=minLen, asv_len_min=len_min, asv_len_max=len_max)
 
 
-def _digest(config: Config, derivati: Derivati) -> str:
+def _digest(
+    config: Config, derivati: Derivati, escludi: tuple[str, ...] = ()
+) -> str:
     """Digest della combinazione di parametri impiegata.
 
     Calcolato su una forma canonica: chiavi ordinate, separatori fissi,
     nessuno spazio. Due configurazioni identiche danno lo stesso digest anche
-    se scritte con ordine o formattazione diversi.
+    se scritte con ordine o formattazione diversi. ``escludi`` toglie i
+    parametri indicati nella forma ``gruppo.parametro``.
     """
     statici = derivati.come_chiavi()
     statici.pop("prev.min_samples")  # dipende dai dati, non dalla configurazione
 
+    parametri = config.model_dump(mode="json")
+    for chiave in escludi:
+        gruppo, nome = chiave.split(".")
+        del parametri[gruppo][nome]
+
     canonico = json.dumps(
-        {"config": config.model_dump(mode="json"), "derivati": statici},
+        {"config": parametri, "derivati": statici},
         sort_keys=True,
         ensure_ascii=False,
         separators=(",", ":"),
@@ -131,6 +171,15 @@ class ConfigRisolta:
     def digest(self) -> str:
         """Identificatore della combinazione di parametri impiegata."""
         return _digest(self.config, self.derivati)
+
+    @property
+    def impronta_risultati(self) -> str:
+        """Impronta dei soli parametri che incidono sui risultati.
+
+        E' il digest senza :data:`PARAMETRI_SENZA_EFFETTO`: due configurazioni
+        che differiscono solo in quelli danno gli stessi risultati.
+        """
+        return _digest(self.config, self.derivati, PARAMETRI_SENZA_EFFETTO)
 
     @property
     def completa(self) -> bool:

@@ -53,6 +53,9 @@ CODICI_DI_FASE = (
 #: una fase non puo' dichiarare da se'. Anch'essi elencati apposta.
 CODICI_DEL_PONTE = ("E-R-01", "E-R-02", "E-R-03", "E-R-04")
 
+#: Il codice del grafo delle fasi: una fase avviata prima delle sue dipendenze.
+CODICI_DEL_GRAFO = ("E-GRAFO-01",)
+
 #: Elenco chiuso dei codici ammessi al retry automatico.
 AMMESSI_AL_RETRY = ("E-S2-03", "E-S3-01", "E-S4-02", "E-S5-01")
 
@@ -83,7 +86,7 @@ def test_il_messaggio_dice_anche_cosa_fare(codice):
     assert v.sintesi in v.messaggio and v.azione in v.messaggio
 
 
-@pytest.mark.parametrize("codice", CODICI_DI_FASE + CODICI_DEL_PONTE)
+@pytest.mark.parametrize("codice", CODICI_DI_FASE + CODICI_DEL_PONTE + CODICI_DEL_GRAFO)
 def test_tutti_i_codici_previsti_sono_catalogati(codice):
     assert codice in CATALOGO
 
@@ -96,7 +99,9 @@ def test_la_fase_corrisponde_al_codice():
 
 def test_nessun_codice_inatteso_nel_catalogo():
     dai_gate = {c.codice for c in CONTROLLI}
-    assert set(CATALOGO) == set(CODICI_DI_FASE) | set(CODICI_DEL_PONTE) | dai_gate
+    assert set(CATALOGO) == (
+        set(CODICI_DI_FASE) | set(CODICI_DEL_PONTE) | set(CODICI_DEL_GRAFO) | dai_gate
+    )
 
 
 def test_codice_sconosciuto_solleva_un_errore_esplicito():
@@ -211,9 +216,9 @@ def test_ogni_controllo_del_gate_e_nel_catalogo(controllo):
     assert controllo.categoria is CATALOGO[controllo.codice].categoria
 
 
-@pytest.mark.parametrize("codice", CODICI_DEL_PONTE)
-def test_i_codici_del_ponte_chiedono_revisione_umana(codice):
-    """Un guasto del processo R va capito prima di ritentare."""
+@pytest.mark.parametrize("codice", CODICI_DEL_PONTE + CODICI_DEL_GRAFO)
+def test_i_codici_del_ponte_e_del_grafo_chiedono_revisione_umana(codice):
+    """Un guasto del processo R, o un ordine violato, va capito prima di ritentare."""
     assert CATALOGO[codice].categoria is Categoria.REVISIONE_UMANA
 
 

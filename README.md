@@ -160,7 +160,9 @@ Sono realizzati:
   codice che solleverà quegli errori no. Accanto ai codici di fase ci sono i quattro
   codici `E-R-*` del ponte verso R, tutti a revisione umana, per ciò che una fase non
   può dichiarare da sé: interprete assente, processo morto senza esito, errore R privo
-  di codice, memoria esaurita in una fase che non prevede il retry;
+  di codice, memoria esaurita in una fase che non prevede il retry. Il codice
+  `E-GRAFO-01`, anch'esso a revisione umana, segnala una fase avviata prima delle sue
+  dipendenze;
 - **il ponte verso R** (`src/amplicon16s/rbridge/`), l'unico punto che esegue codice R.
   Ogni script gira come processo separato, lanciato con l'`Rscript` del PATH o quello
   indicato da `AMPLICON16S_RSCRIPT`: un guasto grave di R, anche un errore di
@@ -186,11 +188,39 @@ Sono realizzati:
   per ogni passo quante letture restano a ciascun campione. Nessuno script di fase le
   usa ancora: finora le esercitano solo gli script doppioni dei test, in
   `tests/r_doppioni/`;
-- la gestione degli artefatti: l'albero delle cartelle di output sotto `io.out_root`,
-  una per fase, e un manifesto per fase che registra ogni artefatto con il suo
-  checksum. Il manifesto permette di stabilire se una fase ha prodotto i propri
-  artefatti e se sono ancora integri; gli artefatti scritti dai processi R vi si
-  registrano allo stesso modo di quelli scritti da Python;
+- la gestione degli artefatti: l'albero delle quattordici cartelle di output sotto
+  `io.out_root` e, in ciascuna, un manifesto che registra ogni file scritto con il suo
+  checksum; gli artefatti scritti dai processi R vi si registrano allo stesso modo di
+  quelli scritti da Python. Il completamento di una fase non si legge da quel
+  manifesto, che è per cartella, ma da quello proprio della fase, descritto qui sotto;
+- **la classe base delle fasi, il grafo e lo stato di un'esecuzione**
+  (`steps/base.py`, `runner/graph.py`, `runner/project.py`). Ogni fase eredita da
+  `PipelineStep` lo stesso scheletro: verifica dei prerequisiti, calcolo, validazione
+  degli artefatti, registrazione dell'esito; S0 è realizzata su questa base, con il
+  comportamento di prima. Il grafo dichiara le quindici fasi da S0 a S14 in ordine,
+  con la cartella in cui ciascuna scrive e le fasi di cui consuma gli artefatti; S9, la
+  filogenesi, è attiva solo con `phylo.enabled`, e S12 precede obbligatoriamente S13.
+  Ogni fase conclusa scrive nella propria cartella un manifesto suo, `manifest_S<n>.json`,
+  così due fasi che condividono una cartella si concludono separatamente. Il manifesto
+  registra anche su che cosa la fase è stata calcolata: l'impronta della
+  configurazione, quella di ogni fase a monte e, per S0, quella dei dati di ingresso.
+  Una fase è conclusa se il manifesto c'è, i suoi artefatti sono integri e questi
+  ingressi coincidono con quelli di adesso: cambiare un parametro o ricalcolare una
+  fase a monte la rende da rifare, insieme a tutte quelle che ne dipendono. Per
+  difetto una fase dipende dall'intera configurazione, meno i parametri che non
+  incidono sui risultati, dichiarati in un solo elenco in `config/resolve.py`:
+  `run.threads`, `io.out_root`, `retry.enabled`, `retry.max_attempts`. Cambiarli, o
+  spostare la cartella di un'esecuzione conclusa, non la rende da rifare; il digest
+  scritto in `00_config/resolved.yaml` resta calcolato sull'intera configurazione.
+  Una fase avviata prima delle fasi da cui dipende solleva `E-GRAFO-01`, oppure
+  `E-S13-01` se a mancare è la decontaminazione prima del filtro di prevalenza.
+  `ProjectRun` legge questo stato dal disco in una valutazione, a cui si chiede quali
+  fasi sono concluse, quali disattivate, quali da eseguire e quale è la prossima;
+  dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
+  una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
+  gigabyte, costerà secondi; delle quindici fasi oggi esiste come codice solo S0,
+  e le altre risultano non realizzate. Non esiste ancora l'esecuzione in sequenza
+  delle fasi da eseguire, né il suo collegamento con il comando `resume`;
 - la registrazione degli eventi su due uscite: la console per chi segue l'esecuzione e
   un file JSON Lines con rotazione sotto `99_logs`, in un formato che si interroga per
   codice, fase o categoria invece di doversi leggere;
