@@ -4,26 +4,31 @@ I gate sono i controlli che precedono l'esecuzione: servono a fermare un'analisi
 prima che venga allocato qualunque calcolo, non a metà di un'elaborazione che
 dura ore.
 
-Di quindici gate previsti è realizzato il solo **G15 — coerenza interna della
-configurazione**. Gli altri non sono ancora implementati.
+Il modulo implementa l'insieme completo dei quindici gate previsti (G01–G15):
+dalla coerenza interna della configurazione (G15), alla verifica di esistenza e
+integrità degli ingressi e delle tabelle ISA-Tab (G01–G06), fino al controllo di
+layout single-end (G07), plausibilità dei lotti (G08), compatibilità delle
+lunghezze e assenza primer con controllo positivo del motivo conservato (G09,
+G10), classificazione controlli (G11), checksum del database tassonomico (G12),
+grammatica dei file FASTQ (G13) e risorse hardware disponibili (G14).
 
 G15 intercetta una classe di errori che la validazione parametro per parametro
 non può cogliere: combinazioni di valori singolarmente validi ma insensati messi
 insieme. Una soglia di avviso più alta della soglia di arresto è fatta di due
 numeri plausibili e di una coppia che non lo è.
 
-**Rapporto con il catalogo.** I codici ``E-G15-*`` non sono un insieme a parte:
-sono voci di :mod:`amplicon16s.errors.catalog` come tutte le altre, e da lì
-prendono messaggio operativo e categoria di gestione. Qui resta la sola
-informazione che è propria del gate e non avrebbe senso nel catalogo: quali
-parametri ciascun controllo sorveglia e dove è implementato.
+**Rapporto con il catalogo.** I codici ``E-G15-*`` e ``E-S0-*`` non sono un
+insieme a parte: sono voci di :mod:`amplicon16s.errors.catalog` come tutte le
+altre, e da lì prendono messaggio operativo e categoria di gestione. Qui resta
+la sola informazione che è propria dei gate: quali parametri ciascun controllo
+sorveglia, la logica di verifica e la raccolta delle violazioni.
 
-**Rapporto con lo schema.** Quattro dei sette controlli sono già garantiti dai
-vincoli dichiarati in :mod:`amplicon16s.config.schema`. G15 non li riscrive: li
-esegue attraverso la validazione dello schema e si limita ad attribuire a
-ciascuno il proprio codice di errore. Il registro :data:`CONTROLLI` dice per
-ognuno dove è implementato, così la divisione del lavoro è leggibile nel codice
-e non solo nelle note.
+**Rapporto con lo schema.** Quattro dei controlli di coerenza sono già
+garantiti dai vincoli dichiarati in :mod:`amplicon16s.config.schema`. G15 non li
+riscrive: li esegue attraverso la validazione dello schema e si limita ad
+attribuire a ciascuno il proprio codice di errore. Il registro :data:`CONTROLLI`
+dice per ognuno dove è implementato, così la divisione del lavoro è leggibile
+nel codice e non solo nelle note.
 """
 
 from __future__ import annotations
