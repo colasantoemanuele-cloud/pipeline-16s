@@ -1,51 +1,83 @@
-"""Costruzione di scenari sintetici per i test del crosswalk.
+"""Generatore di scenari sintetici su filesystem per i test della pipeline 16S.
 
-Il dato reale è corretto, quindi non contiene i casi che i gate devono
-intercettare. Questi scenari li costruiscono in piccolo: poche righe, scritte
-su file veri in una cartella temporanea, così il percorso di lettura provato
-dai test è lo stesso che userà la pipeline e non una simulazione.
+Inquadramento nel Piano Operativo:
+    - **Settimane di riferimento**: Trasversale a **W6–W10** (Fasi **F2** e **F3**).
+    - **Scopo del modulo**: Fornisce le primitive e la factory ``crea_scenario()``
+      per materializzare su disco (tramite la fixture ``tmp_path`` di ``pytest``)
+      mini-dataset sintetici conformi o deliberatamente corrotti rispetto allo
+      standard ISA-Tab di NASA GeneLab (modellato sul dataset di riferimento
+      **OSD-734**). Il dataset reale OSD-734 è integro e supera tutti i 15 gate:
+      questo modulo permette di iniettare su file reali (archivi ``.fastq.gz``,
+      Assay Table, Study Table, Batch Table e FASTA tassonomico) tutte le
+      patologie bioinformatiche e strutturali che i gate ``G01–G14`` devono
+      intercettare senza ricorrere a mock in memoria.
+    - **Moduli sorgente coperti**:
+        * ``src/amplicon16s/metadata/crosswalk.py``
+        * ``src/amplicon16s/metadata/controls_map.py``
+        * ``src/amplicon16s/io_layer/reads.py``
+        * ``src/amplicon16s/gates/g01_g15.py``
+        * ``src/amplicon16s/steps/s00_validate.py``
 """
 
 from __future__ import annotations
 
 import csv
 import gzip
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from amplicon16s.config.schema import Config, valida
 
-#: Etichette di classificazione usate negli scenari, coerenti con i valori
-#: predefiniti della configurazione.
+#: Etichette di classificazione dei campioni nella colonna ``ctrl.column``
+#: (``Characteristics[Material Type]``), allineate ai valori predefiniti per OSD-734.
 BIOLOGICO = "Surface swab"
 POSITIVO = "Positive Control"
 NEGATIVO = "blank control"
 
-#: Un digest sintatticamente valido per run.container.
+#: Digest SHA-256 formalmente valido per il campo obbligatorio ``run.container``.
 CONTAINER = "registro.esempio/amplicon16s@sha256:" + "0" * 64
 
-#: Inizio di lettura che presenta il motivo conservato predefinito
-#: ``TAC[AG].AGG..GC.AGCGTT`` e non comincia col primer 515F.
+#: Prefisso nucleotidico che contiene il motivo conservato della regione V4
+#: (``TAC[AG].AGG..GC.AGCGTT``) ed è privo del primer forward 515F in testa.
 INIZIO_CON_MOTIVO = "TACGGAGGGTGCAAGCGTT"
 
-#: Inizio di lettura che comincia col primer 515F, senza codici degenerati.
+#: Prefisso nucleotidico che inizia col primer forward 515F (``GTGYCAGCMGCCGCGGTAA``)
+#: non rimosso, condizione che il Gate G10 deve bloccare con ``E-S0-10``.
 INIZIO_CON_PRIMER = "GTGCCAGCAGCCGCGGTAA"
 
-#: Inizio di lettura che non presenta ne' il primer ne' il motivo.
+#: Sequenza omopolimerica priva sia del primer 515F sia del motivo conservato V4,
+#: usata per simulare letture prive di segnale biologico 16S o controlli negativi.
 INIZIO_MUTO = "CCCCCCCCCCCCCCCCCCC"
 
-#: Lunghezza predefinita delle letture sintetiche.
+#: Lunghezza di lettura standard (151 nt) delle corse Illumina MiSeq di OSD-734.
 LUNGHEZZA = 151
 
 
 def lettura(inizio: str = INIZIO_CON_MOTIVO, lunghezza: int = LUNGHEZZA) -> str:
-    """Una sequenza sintetica che comincia con l'inizio dato."""
+    """Costruisce una sequenza nucleotidica sintetica di lunghezza prefissata.
+
+    **Obiettivo**: Generare una stringa di basi azotate che inizia con ``inizio``
+    ed è completata con code di adenina fino a ``lunghezza`` nucleotidi.
+
+    **Razionale Scientifico/Sistemistico**: Consente ai test dei gate G09 e G10
+    di controllare indipendentemente la presenza del primer in 5', la presenza
+    del motivo V4 e la lunghezza esatta delle letture rispetto a ``filter.truncLen``.
+    """
     return (inizio + "A" * lunghezza)[:lunghezza]
 
 
 def scrivi_fastq(percorso: Path, sequenze: list[str]) -> None:
-    """Scrive un FASTQ compresso con quattro righe per record."""
+    """Materializza su disco un archivio FASTQ compresso GZIP conforme allo standard.
+
+    **Obiettivo**: Scrivere ciascuna sequenza come record FASTQ canonico a 4 righe
+    (header ``@``, sequenza, separatore ``+``, qualità Phred ``I`` = Q40) in ``.fastq.gz``.
+
+    **Razionale Scientifico/Sistemistico**: Garantisce che lo scanner in streaming
+    ``reads.scansiona_file()`` e il Gate G13 eseguano la vera decompressione ``gzip``
+    e il parsing a 4 righe esattamente come avviene sui 960 file di OSD-734.
+    """
     with gzip.open(percorso, "wt", encoding="utf-8") as file:
         for indice, sequenza in enumerate(sequenze, start=1):
             file.write(f"@lettura{indice}\n{sequenza}\n+\n{'I' * len(sequenza)}\n")
@@ -53,35 +85,39 @@ def scrivi_fastq(percorso: Path, sequenze: list[str]) -> None:
 
 @dataclass
 class Campione:
-    """Un campione dello scenario, con tutto ciò che lo descrive."""
+    """Descrittore dichiarativo di un campione sintetico per la costruzione dello scenario.
+
+    Raccoglie gli attributi bioinformatici (accession ENA, ``Sample Name``, tipo
+    di materiale biologico o di controllo, piastra di estrazione, prefisso corsa)
+    e le proprietà fisiche del file FASTQ associato.
+    """
 
     accession: str
     nome: str
     materiale: str = BIOLOGICO
     posizione: str = "NOD1D4"
-    #: Nome del file di letture. Quando è ``None`` viene costruito
-    #: dall'accession; quando è ``""`` il file non viene creato.
+    #: Nome esplicito del file FASTQ; se ``None`` viene generato dall'accession,
+    #: mentre se ``""`` omette la creazione del file su disco per testare G06.
     file: str | None = None
-    #: Piastra e corsa, usate solo se lo scenario ha l'arricchimento.
+    #: Identificativi di piastra e corsa scritti nella ``batch_table`` opzionale (G08).
     piastra: str = "1"
     corsa: str = "corsa_A"
-    #: Modulo dichiarato dal file di arricchimento.
+    #: Valore della colonna modulo nella tabella di arricchimento dei lotti.
     modulo_arricchimento: str = "Modulo Uno"
-    #: Chiave con cui il campione compare nel file di arricchimento. Per
-    #: difetto e' il suo accession, come pretende la pipeline.
+    #: Chiave di join nella ``batch_table``; per default coincide con ``accession``.
     chiave_arricchimento: str | None = None
-    #: Inizio delle letture sintetiche scritte nel file.
+    #: Sequenza in 5' iniettata nelle letture sintetiche del file FASTQ.
     inizio_letture: str = INIZIO_CON_MOTIVO
-    #: Lunghezza delle letture e quante scriverne.
+    #: Lunghezza in nucleotidi e numerosità dei record scritti nel file FASTQ.
     lunghezza_letture: int = LUNGHEZZA
     numero_letture: int = 40
-    #: Contenuto grezzo che sostituisce il FASTQ, per provare i file guasti.
+    #: Payload binario arbitrario per simulare archivi GZIP corrotti o troncati (G13).
     contenuto_grezzo: bytes | None = None
 
 
 @dataclass
 class Scenario:
-    """Uno scenario scritto su disco, con la configurazione che lo indica."""
+    """Contenitore immutabile dello scenario materializzato su disco e della sua ``Config``."""
 
     radice: Path
     config: Config
@@ -89,6 +125,7 @@ class Scenario:
 
 
 def _scrivi_tsv(percorso: Path, intestazione: list[str], righe: list[list[Any]]) -> None:
+    """Scrive una tabella TSV con terminatori di riga POSIX (LF) per i metadati ISA-Tab."""
     with open(percorso, "w", encoding="utf-8", newline="") as file:
         scrittore = csv.writer(file, delimiter="\t", lineterminator="\n")
         scrittore.writerow(intestazione)
@@ -108,12 +145,19 @@ def crea_scenario(
     file_in_piu: list[str] | None = None,
     sovrascrivi: dict[str, Any] | None = None,
 ) -> Scenario:
-    """Scrive su disco le sorgenti di uno scenario e restituisce la configurazione.
+    """Costruisce su filesystem un ambiente sperimentale completo pronto per la validazione.
 
-    ``righe_studio_extra`` aggiunge alla tabella campioni di studio righe che
-    non appartengono a questo assay: servono a verificare che il join resti
-    ristretto. ``righe_studio_ripetute`` duplica il nome di un campione, che è
-    il modo in cui la restrizione può rompersi davvero.
+    **Obiettivo**: Generare nella directory temporanea ``radice`` gli archivi FASTQ,
+    l'Assay Table (``assay.txt``), la Study Sample Table (``studio.txt``), l'eventuale
+    Batch Table (``lotti.tsv``) e il database FASTA di riferimento con checksum MD5,
+    restituendo l'istanza ``Scenario`` con l'oggetto Pydantic ``Config`` già validato.
+
+    **Razionale Scientifico/Sistemistico**: In studi multi-omics NASA GeneLab come
+    OSD-734, la Study Table contiene più righe dell'Assay Table 16S (1.072 contro 868)
+    perché elenca anche campioni destinati ad altri assay (es. metagenomica shotgun).
+    I parametri ``righe_studio_extra`` e ``righe_studio_ripetute`` permettono di
+    riprodurre esattamente questa struttura relazionale per collaudare il join
+    ristretto (G03) e l'integrità del crosswalk su file fisici reali.
     """
     fastq = radice / "fastq"
     fastq.mkdir(parents=True, exist_ok=True)
@@ -179,10 +223,10 @@ def crea_scenario(
                 riga.append(campione.modulo_arricchimento)
         _scrivi_tsv(arricchimento, intestazione, righe)
 
+    # Genera un file FASTA di riferimento minimale e ne calcola il vero digest MD5
+    # affinché il Gate G12 passi salvo esplicita manomissione nei test.
     riferimento = radice / "riferimento.fa.gz"
     riferimento.write_bytes(b">seq1\nACGT\n")
-    import hashlib
-
     md5_riferimento = hashlib.md5(riferimento.read_bytes()).hexdigest()
 
     dati: dict[str, Any] = {
