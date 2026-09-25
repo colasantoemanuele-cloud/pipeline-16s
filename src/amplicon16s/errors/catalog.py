@@ -186,6 +186,17 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         _UMANA,
     ),
     _v(
+        "E-G15-09", "G15",
+        "retry.whitelist contiene un codice che il catalogo non ammette al "
+        "retry.",
+        "Togli il codice da retry.whitelist. Il retry automatico e' ammesso "
+        "solo per i codici la cui azione correttiva non modifica alcuna "
+        "assunzione metodologica, e il catalogo li classifica come tali; un "
+        "codice assente dal catalogo e' un refuso. L'elenco puo' essere "
+        "ristretto, non allargato.",
+        _UMANA,
+    ),
+    _v(
         "E-G15-99", "G15",
         "La configurazione non e' valida parametro per parametro.",
         "Correggi i parametri segnalati nell'elenco che accompagna l'errore: "

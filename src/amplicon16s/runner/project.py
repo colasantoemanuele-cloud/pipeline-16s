@@ -182,8 +182,10 @@ class ProjectRun:
             if fase.passo is not passo:
                 raise ValueError(f"{type(fase).__name__} realizza {fase.passo}, non {passo}")
 
-    def _risolta(self, inventario: Inventario | None) -> ConfigRisolta:
-        risolta = risolvi(self.config)
+    def _risolta(
+        self, inventario: Inventario | None, config: Config | None = None
+    ) -> ConfigRisolta:
+        risolta = risolvi(config or self.config)
         if inventario is not None:
             risolta = risolta.con_campioni_biologici(inventario.denominatore_prevalenza())
         return risolta
@@ -302,24 +304,42 @@ class ProjectRun:
     # Contesto di una fase                                               #
     # ----------------------------------------------------------------- #
 
-    def contesto(self, passo: Passo, valutazione: Valutazione | None = None) -> StepContext:
+    def contesto(
+        self,
+        passo: Passo,
+        valutazione: Valutazione | None = None,
+        *,
+        config_effettiva: Config | None = None,
+        aggiustamenti: tuple[Mapping[str, Any], ...] = (),
+    ) -> StepContext:
         """Il contesto con cui eseguire una fase, secondo la valutazione data.
 
         Senza valutazione se ne compie una nuova. Le dipendenze non concluse
         compaiono con impronta ``None``: la fase lo rileva nella verifica dei
         prerequisiti e si rifiuta di girare.
+
+        ``config_effettiva`` è la configurazione con i parametri cambiati da
+        un'azione correttiva, descritti in ``aggiustamenti``: la fase calcola
+        con quella, ma resta giudicata sulla configurazione dichiarata.
         """
         valutazione = valutazione or self.valuta()
         a_monte = {
             d: valutazione.situazioni[d].impronta
             for d in self.grafo.dipendenze_attive(passo, self.config)
         }
+        effettiva = (
+            self._risolta(valutazione.inventario, config_effettiva)
+            if config_effettiva is not None
+            else valutazione.risolta
+        )
         return StepContext(
-            risolta=valutazione.risolta,
+            risolta=effettiva,
             albero=self.albero,
             logger=self.logger,
             inventario=valutazione.inventario,
             a_monte=a_monte,
+            dichiarata=valutazione.risolta if config_effettiva is not None else None,
+            aggiustamenti=aggiustamenti,
         )
 
     def fase(self, passo: Passo) -> PipelineStep:

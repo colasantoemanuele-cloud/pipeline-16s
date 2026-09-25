@@ -138,6 +138,11 @@ class ManifestoPasso:
     metriche: dict[str, Any]
     conclusa: str
     esecuzione: str
+    #: Parametri cambiati da un'azione correttiva: codice che l'ha causata,
+    #: parametro, valore dichiarato e valore usato.
+    aggiustamenti: tuple[dict[str, Any], ...] = ()
+    #: Degradazioni registrate: la fase si e' conclusa con un ripiego.
+    degradazioni: tuple[dict[str, Any], ...] = ()
 
     def _contenuto(self) -> dict[str, Any]:
         return {
@@ -146,6 +151,8 @@ class ManifestoPasso:
             "calcolata_su": self.calcolata_su,
             "artefatti": list(self.artefatti),
             "metriche": self.metriche,
+            "aggiustamenti": list(self.aggiustamenti),
+            "degradazioni": list(self.degradazioni),
             "conclusa": self.conclusa,
             # Identifica l'esecuzione: due calcoli della stessa fase non hanno
             # mai la stessa impronta, anche se producono gli stessi byte.
@@ -311,6 +318,8 @@ class AlberoOutput:
         artefatti: Iterable[Artefatto],
         calcolata_su: Mapping[str, Any],
         metriche: Mapping[str, Any] | None = None,
+        aggiustamenti: Iterable[Mapping[str, Any]] = (),
+        degradazioni: Iterable[Mapping[str, Any]] = (),
     ) -> ManifestoPasso:
         """Scrive il manifesto di una fase conclusa, per ultimo e atomicamente."""
         voci = []
@@ -332,6 +341,8 @@ class AlberoOutput:
             metriche=dict(metriche or {}),
             conclusa=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             esecuzione=uuid.uuid4().hex,
+            aggiustamenti=tuple(dict(a) for a in aggiustamenti),
+            degradazioni=tuple(dict(d) for d in degradazioni),
         )
         # Il passaggio per JSON e ritorno fissa la forma che verra' riletta:
         # l'impronta si calcola su quella, non sugli oggetti in memoria.
@@ -345,6 +356,8 @@ class AlberoOutput:
             metriche=contenuto["metriche"],
             conclusa=contenuto["conclusa"],
             esecuzione=contenuto["esecuzione"],
+            aggiustamenti=tuple(contenuto["aggiustamenti"]),
+            degradazioni=tuple(contenuto["degradazioni"]),
         )
 
         self.prepara(fase)
@@ -386,6 +399,8 @@ class AlberoOutput:
                 metriche=documento["metriche"],
                 conclusa=documento["conclusa"],
                 esecuzione=documento["esecuzione"],
+                aggiustamenti=tuple(documento.get("aggiustamenti", ())),
+                degradazioni=tuple(documento.get("degradazioni", ())),
             )
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
             raise ManifestoPassoNonValido(f"manifesto di {passo} illeggibile: {e}") from e

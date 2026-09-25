@@ -25,5 +25,16 @@ def test_amplicon16s_eco_importabile():
 def test_sottocomandi_rispondono(comando, capsys):
     from amplicon16s.cli import main
 
-    assert main([comando]) == 0
+    with pytest.raises(SystemExit) as uscita:
+        main([comando, "--help"])
+    assert uscita.value.code == 0
     assert comando in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("comando", ["run", "resume", "validate", "report"])
+def test_sottocomandi_chiedono_la_configurazione(comando):
+    from amplicon16s.cli import main
+
+    with pytest.raises(SystemExit) as uscita:
+        main([comando])
+    assert uscita.value.code == 2

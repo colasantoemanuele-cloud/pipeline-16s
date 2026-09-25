@@ -95,6 +95,52 @@ Il primo comando restituisce l'identificatore del contenuto locale; il secondo i
 digest con cui l'immagine viene recuperata da un registry, ed è quello da citare quando
 si deve riprodurre un'analisi a distanza di tempo.
 
+## Uso della riga di comando
+
+Ogni sottocomando richiede il file di configurazione, che non viene mai modificato:
+
+```bash
+amplicon16s validate --config config.yaml   # esegue solo S0
+amplicon16s run      --config config.yaml   # esegue dall'inizio, in una cartella nuova
+amplicon16s resume   --config config.yaml   # riprende dagli artefatti esistenti
+amplicon16s report   --config config.yaml   # resoconto provvisorio dello stato
+```
+
+`run` non sovrascrive mai un'esecuzione: ogni esecuzione deve restare ispezionabile. Se
+la cartella indicata da `io.out_root` non è vuota, `run` si rifiuta e indica le due
+strade: `resume` per continuare quell'esecuzione, oppure una `io.out_root` nuova per
+cominciarne un'altra. Non esiste un'opzione per sovrascrivere. `validate` non riesegue
+S0 se è già conclusa e valida per la configurazione data.
+
+**La configurazione usata resta registrata.** All'avvio, superati i controlli di
+coerenza della configurazione e delle risorse, e prima di qualunque fase, la
+configurazione risolta viene registrata in `00_config/` con il suo digest, e una
+versione registrata non viene mai sovrascritta:
+
+- `run` scrive `resolved.yaml`;
+- `resume`, se il digest è identico a quello dell'ultima versione registrata, non
+  scrive nulla; se è diverso — anche solo per `run.threads` o un parametro di retry,
+  che sono fuori dall'impronta dei risultati ma non dal digest — conserva le versioni
+  precedenti e scrive la nuova accanto: `resolved_2.yaml`, `resolved_3.yaml` e così
+  via, ciascuna con il nome della precedente e i parametri che ne differiscono.
+  Tornare a una configurazione già usata registra a sua volta una nuova versione;
+- `validate` segue la regola di `run` su una cartella nuova e quella di `resume` se
+  S0 è già conclusa.
+
+Il log in `99_logs` registra a ogni avvio con quale versione si esegue. Un arresto ai
+controlli di avvio non registra nulla, perché nessuna fase è partita.
+
+Codici di uscita, per chi lancia la pipeline da uno script o da uno scheduler:
+
+| Codice | Significato |
+|---|---|
+| 0 | successo |
+| 1 | errore imprevisto, cioè un difetto del programma; la traccia è nel log in `99_logs` |
+| 2 | riga di comando non valida (argomenti mancanti o sconosciuti) |
+| 3 | errore di configurazione: il file non è valido, G15 lo respinge, oppure `run` trova la cartella di output già usata; nessuna fase è partita |
+| 4 | arresto con punto di ripresa dichiarato, stampato e scritto in `99_logs/punto_di_ripresa.json` e `.txt` |
+| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S0 |
+
 ## Stato dell'implementazione
 
 Sono realizzati:
@@ -107,9 +153,11 @@ Sono realizzati:
   pipeline e ne verifica tipo e dominio, respingendo le chiavi sconosciute;
   `config/config.example.yaml` ne è un'istanza completa;
 - il gate G15, che verifica la coerenza fra parametri — le combinazioni singolarmente
-  valide ma insensate messe insieme — risolve i parametri che discendono da altri e
-  registra la configurazione effettivamente usata in `00_config/resolved.yaml` con un
-  digest che ne identifica la combinazione. Tutto questo avviene prima che venga
+  valide ma insensate messe insieme — e risolve i parametri che discendono da altri.
+  La configurazione effettivamente usata viene registrata in `00_config/resolved.yaml`
+  con un digest che ne identifica la combinazione, all'avvio di ogni esecuzione e
+  senza mai sovrascrivere le versioni precedenti, come descritto nella sezione sull'uso
+  della riga di comando. Tutto questo avviene prima che venga
   allocato qualunque calcolo — è il gate che apre la sequenza di S0, perché un errore
   di configurazione va scoperto prima di aprire un solo file. Un parametro derivato,
   `prev.min_samples`, dipende dal numero di campioni biologici e viene calcolato
@@ -162,7 +210,9 @@ Sono realizzati:
   può dichiarare da sé: interprete assente, processo morto senza esito, errore R privo
   di codice, memoria esaurita in una fase che non prevede il retry. Il codice
   `E-GRAFO-01`, anch'esso a revisione umana, segnala una fase avviata prima delle sue
-  dipendenze;
+  dipendenze. G15 respinge con `E-G15-09` una `retry.whitelist` che contenga un codice
+  che il catalogo non ammette al retry: la whitelist può restringere l'elenco del
+  catalogo, non allargarlo;
 - **il ponte verso R** (`src/amplicon16s/rbridge/`), l'unico punto che esegue codice R.
   Ogni script gira come processo separato, lanciato con l'`Rscript` del PATH o quello
   indicato da `AMPLICON16S_RSCRIPT`: un guasto grave di R, anche un errore di
@@ -219,8 +269,26 @@ Sono realizzati:
   dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
   una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
   gigabyte, costerà secondi; delle quindici fasi oggi esiste come codice solo S0,
-  e le altre risultano non realizzate. Non esiste ancora l'esecuzione in sequenza
-  delle fasi da eseguire, né il suo collegamento con il comando `resume`;
+  e le altre risultano non realizzate;
+- **l'esecutore e la politica dei tentativi** (`runner/executor.py`,
+  `runner/retry.py`). A ogni avvio, con `run` come con `resume`, l'esecutore ripete
+  la verifica di coerenza della configurazione (G15) e quella delle risorse della
+  macchina (G14), senza rieseguire S0: processori e spazio su disco si controllano
+  anche quando S0 è già conclusa. Poi esegue in ordine le fasi da eseguire. Una fase
+  fallita si comporta secondo la categoria del suo codice: a revisione umana ci si
+  ferma subito; un codice ripetibile si ritenta solo se è in `retry.whitelist` e
+  `retry.enabled` è vero, entro `retry.max_attempts` tentativi totali compreso il
+  primo, e solo se la fase dichiara per quel codice un'azione correttiva, perché
+  ritentare identico darebbe lo stesso esito. L'azione correttiva cambia un parametro
+  in una copia in memoria della configurazione — oggi `run.batch_size` o `err.nbases`
+  — e il manifesto della fase registra il codice, il valore dichiarato e quello usato;
+  la fase resta giudicata sulla configurazione dichiarata, quindi una ripresa non la
+  rifà. Le degradazioni non fermano l'esecuzione: la fase le registra e proseguono nel
+  log e nel manifesto; S0 vi registra oggi E-S0-15 ed E-S1-01, emesse dai suoi gate.
+  Quando l'esecuzione si ferma, l'esecutore dichiara il punto di ripresa: fase,
+  codice, messaggio del catalogo, tentativi fatti e comando per ripartire. Le fasi da
+  S2 a S5, i cui codici sono ripetibili, non esistono ancora: il meccanismo è provato
+  con fasi doppione;
 - la registrazione degli eventi su due uscite: la console per chi segue l'esecuzione e
   un file JSON Lines con rotazione sotto `99_logs`, in un formato che si interroga per
   codice, fase o categoria invece di doversi leggere;
@@ -228,9 +296,11 @@ Sono realizzati:
   Python 3.11 ed esegue la suite di test. La catena installa anche R 4.5.2 e jsonlite
   2.0.0, le stesse versioni del container, così i test del ponte lanciano davvero gli
   script R; lì l'assenza di R fa fallire quei test invece di saltarli;
-- i quattro sottocomandi della riga di comando — `run`, `resume`, `validate` e
-  `report` — come **segnaposto non operativi**: sono invocabili e dichiarano
-  l'interfaccia prevista, ma non eseguono alcuna elaborazione.
+- i quattro sottocomandi della riga di comando, descritti sopra, con i codici di
+  uscita documentati. `report` produce oggi un **resoconto provvisorio** dello stato,
+  ricavato dai manifesti delle fasi: fasi concluse, disattivate e da eseguire,
+  aggiustamenti applicati, degradazioni registrate. Non è il report definitivo, che
+  non è ancora realizzato.
 
 L'implementazione delle fasi di analisi non è ancora iniziata.
 

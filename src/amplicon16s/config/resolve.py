@@ -46,6 +46,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Final
 
+import re
+
 import yaml
 
 from amplicon16s.config.schema import PARAMETRI_DERIVATI, Config
@@ -55,10 +57,13 @@ __all__ = [
     "ConfigRisolta",
     "Derivati",
     "NOME_FILE_RISOLTO",
+    "Registrazione",
     "PARAMETRI_DERIVATI",
     "PARAMETRI_SENZA_EFFETTO",
+    "registra_risolta",
     "risolvi",
     "scrivi_risolta",
+    "versioni_registrate",
 ]
 
 #: Nome del file con la configurazione effettivamente usata. La cartella in cui
@@ -240,26 +245,109 @@ _INTESTAZIONE = """\
 """
 
 
-def scrivi_risolta(risolta: ConfigRisolta, out_root: Path | str) -> Path:
-    """Scrive la configurazione risolta in ``00_config``.
-
-    Passa dal servizio degli artefatti, quindi il file entra nel manifesto
-    della fase con il proprio checksum come qualunque altro artefatto: la
-    configurazione usata è un artefatto dell'esecuzione, non un file a parte.
-    """
-    documento = {
+def _testo_risolta(risolta: ConfigRisolta, aggiunte: dict[str, Any] | None = None) -> str:
+    documento: dict[str, Any] = {
         "digest": risolta.digest,
+        **(aggiunte or {}),
         "derivati": list(risolta.derivati.come_chiavi()),
         "parametri": risolta.come_mappa(),
     }
-
     corpo = yaml.safe_dump(
         documento,
         sort_keys=False,
         allow_unicode=True,
         default_flow_style=False,
     )
+    return _INTESTAZIONE + corpo
 
+
+def scrivi_risolta(risolta: ConfigRisolta, out_root: Path | str) -> Path:
+    """Scrive la configurazione risolta in ``00_config``.
+
+    Passa dal servizio degli artefatti, quindi il file entra nel manifesto
+    della fase con il proprio checksum come qualunque altro artefatto: la
+    configurazione usata è un artefatto dell'esecuzione, non un file a parte.
+    Scrive sempre ``resolved.yaml``: chi deve conservare le versioni
+    precedenti usa :func:`registra_risolta`.
+    """
     albero = AlberoOutput(out_root)
-    artefatto = albero.scrivi_testo(Fase.CONFIG, NOME_FILE_RISOLTO, _INTESTAZIONE + corpo)
+    artefatto = albero.scrivi_testo(Fase.CONFIG, NOME_FILE_RISOLTO, _testo_risolta(risolta))
     return artefatto.percorso
+
+
+#: Le versioni successive alla prima: resolved_2.yaml, resolved_3.yaml, ...
+_VERSIONE: Final = re.compile(r"^resolved_(\d+)\.yaml$")
+
+
+def versioni_registrate(out_root: Path | str) -> list[Path]:
+    """Le configurazioni registrate in ``00_config``, dalla prima all'ultima."""
+    cartella = AlberoOutput(out_root).cartella(Fase.CONFIG)
+    versioni: list[tuple[int, Path]] = []
+    if (cartella / NOME_FILE_RISOLTO).is_file():
+        versioni.append((1, cartella / NOME_FILE_RISOLTO))
+    if cartella.is_dir():
+        for percorso in cartella.iterdir():
+            trovato = _VERSIONE.match(percorso.name)
+            if trovato:
+                versioni.append((int(trovato.group(1)), percorso))
+    return [p for _, p in sorted(versioni)]
+
+
+@dataclass(frozen=True)
+class Registrazione:
+    """Con quale configurazione si esegue, e se è stata registrata ora."""
+
+    percorso: Path
+    digest: str
+    #: Vero se il file è stato scritto adesso.
+    nuova: bool
+    #: Per una nuova versione, i parametri che differiscono dalla precedente.
+    differenze: tuple[str, ...] = ()
+
+
+def _appiattisci(mappa: dict[str, Any]) -> dict[str, Any]:
+    return {
+        f"{gruppo}.{chiave}": valore
+        for gruppo, parametri in mappa.items()
+        for chiave, valore in parametri.items()
+    }
+
+
+def registra_risolta(risolta: ConfigRisolta, out_root: Path | str) -> Registrazione:
+    """Registra la configurazione con cui un'esecuzione parte, senza sovrascrivere.
+
+    * nessuna configurazione registrata: scrive ``resolved.yaml``;
+    * l'ultima registrata ha lo stesso digest: non scrive nulla;
+    * l'ultima registrata ha un digest diverso: la conserva e scrive la nuova
+      accanto, ``resolved_2.yaml``, ``resolved_3.yaml`` e cosi' via, con i
+      parametri che differiscono dalla precedente.
+
+    Il confronto è con l'ultima e non con una qualunque: tornare a una
+    configurazione gia' usata e' a sua volta un cambiamento, e ricostruire
+    con quale configurazione ha girato ciascuna ripresa richiede di vederlo.
+    """
+    versioni = versioni_registrate(out_root)
+    if not versioni:
+        return Registrazione(scrivi_risolta(risolta, out_root), risolta.digest, True)
+
+    ultima = versioni[-1]
+    registrata = yaml.safe_load(ultima.read_text(encoding="utf-8"))
+    if registrata.get("digest") == risolta.digest:
+        return Registrazione(ultima, risolta.digest, False)
+
+    prima = _appiattisci(registrata.get("parametri", {}))
+    ora = _appiattisci(risolta.come_mappa())
+    differenze = tuple(
+        f"{chiave}: {prima.get(chiave)!r} -> {ora.get(chiave)!r}"
+        for chiave in sorted(set(prima) | set(ora))
+        # prev.min_samples descrive i dati, non la configurazione: fuori dal
+        # digest, fuori anche dal confronto.
+        if chiave != "prev.min_samples" and prima.get(chiave) != ora.get(chiave)
+    )
+    nome = f"resolved_{len(versioni) + 1}.yaml"
+    testo = _testo_risolta(
+        risolta,
+        {"precedente": ultima.name, "differenze_dalla_precedente": list(differenze)},
+    )
+    artefatto = AlberoOutput(out_root).scrivi_testo(Fase.CONFIG, nome, testo)
+    return Registrazione(artefatto.percorso, risolta.digest, True, differenze)

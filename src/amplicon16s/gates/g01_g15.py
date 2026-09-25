@@ -50,7 +50,7 @@ from amplicon16s.config.schema import (
     ErroreConfigurazione,
     valida,
 )
-from amplicon16s.errors.catalog import Categoria, VoceCatalogo, voce
+from amplicon16s.errors.catalog import CATALOGO, Categoria, VoceCatalogo, voce
 from amplicon16s.errors.exceptions import ErrorePipeline
 from amplicon16s.io_layer.reads import StatisticheFile, espandi_iupac, scansiona
 from amplicon16s.metadata.crosswalk import Analisi, analizza
@@ -139,6 +139,11 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
         "E-G15-08",
         ("filter.minLen", "asv.len_min", "asv.len_max", "prev.min_samples"),
         "schema",
+    ),
+    Controllo(
+        "E-G15-09",
+        ("retry.whitelist",),
+        "gate",
     ),
     Controllo(
         "E-G15-99",
@@ -352,6 +357,26 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
                 f"({config.filter.trimLeft})",
             )
         )
+
+    # E-G15-09 — la whitelist e' l'autorita' su quali codici si ritentano, ma
+    # puo' solo restringere l'elenco del catalogo: un codice che il catalogo
+    # non ammette al retry verrebbe ritentato cambiando un'assunzione.
+    for codice in config.retry.whitelist:
+        if codice not in CATALOGO:
+            violazioni.append(
+                Violazione(
+                    "E-G15-09",
+                    f"retry.whitelist contiene {codice}, che non esiste nel catalogo",
+                )
+            )
+        elif not CATALOGO[codice].ammette_retry:
+            violazioni.append(
+                Violazione(
+                    "E-G15-09",
+                    f"retry.whitelist contiene {codice}, classificato nel catalogo "
+                    f"come {CATALOGO[codice].categoria.value}: non ammette il retry",
+                )
+            )
 
     # E-G15-07 — lo schema impone gia' che l'elenco non sia vuoto; qui resta la
     # sola parte condizionale, che oggi e' sempre vera.

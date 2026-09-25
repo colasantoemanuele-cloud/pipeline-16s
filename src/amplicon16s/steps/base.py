@@ -27,7 +27,12 @@ ingressi che non esistono piu'. Il manifesto registra quindi, in
   un'impronta di quei dati.
 
 Una fase è conclusa se il suo manifesto esiste, i suoi artefatti sono integri
-e ``calcolata_su`` coincide con ciò che si otterrebbe adesso. Il confronto lo
+e ``calcolata_su`` coincide con ciò che si otterrebbe adesso.
+
+Il manifesto registra anche le **degradazioni** — la fase si è conclusa con
+un comportamento di ripiego, dichiarato con :meth:`StepContext.degrada` — e
+gli **aggiustamenti**, i parametri cambiati dall'esecutore con un'azione
+correttiva prima di ritentare, con il valore dichiarato e quello usato. Il confronto lo
 fa :class:`~amplicon16s.runner.project.ProjectRun`, con lo stesso metodo
 :meth:`PipelineStep.calcolata_su` che la fase usa per registrarlo.
 """
@@ -46,10 +51,12 @@ from typing import Any, ClassVar
 
 from amplicon16s.config.resolve import PARAMETRI_SENZA_EFFETTO, ConfigRisolta
 from amplicon16s.config.schema import Config
-from amplicon16s.errors.exceptions import errore
+from amplicon16s.errors.exceptions import DegradazioneRichiesta, errore
 from amplicon16s.io_layer.artifacts import AlberoOutput, Artefatto, Fase
+from amplicon16s.logging.logger import registra_errore
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.runner.graph import GRAFO, Grafo, Nodo, Passo
+from amplicon16s.runner.retry import Aggiustamento
 
 __all__ = [
     "Esito",
@@ -112,10 +119,45 @@ class StepContext:
     #: Impronta del manifesto di ogni dipendenza attiva, ``None`` se quella
     #: dipendenza non risulta conclusa.
     a_monte: Mapping[Passo, str | None] = field(default_factory=dict)
+    #: La configurazione dichiarata dall'utente, quando ``risolta`` porta un
+    #: parametro cambiato da un'azione correttiva. E' su questa che si giudica
+    #: se la fase e' conclusa: il valore aggiustato e' registrato a parte.
+    dichiarata: ConfigRisolta | None = None
+    #: Gli aggiustamenti che distinguono ``risolta`` da ``dichiarata``.
+    aggiustamenti: tuple[Mapping[str, Any], ...] = ()
+    #: Le degradazioni registrate durante il calcolo.
+    degradazioni: list[DegradazioneRichiesta] = field(default_factory=list)
 
     @property
     def config(self) -> Config:
+        """La configurazione con cui calcolare, aggiustamenti compresi."""
         return self.risolta.config
+
+    @property
+    def risolta_dichiarata(self) -> ConfigRisolta:
+        return self.dichiarata or self.risolta
+
+    def degrada(
+        self, codice: str | DegradazioneRichiesta, dettaglio: str = "", **contesto: Any
+    ) -> DegradazioneRichiesta:
+        """Registra che la fase prosegue con un comportamento di ripiego.
+
+        Il codice dev'essere di degradazione automatica: una condizione che
+        ferma l'esecuzione non si registra, si solleva. La degradazione va nel
+        log subito e nel manifesto quando la fase si conclude.
+        """
+        if isinstance(codice, DegradazioneRichiesta):
+            degradazione = codice
+        else:
+            creato = errore(codice, dettaglio, **contesto)
+            if not isinstance(creato, DegradazioneRichiesta):
+                raise ValueError(
+                    f"{codice} e' {creato.categoria.value}, non una degradazione"
+                )
+            degradazione = creato
+        registra_errore(self.logger, degradazione, logging.WARNING)
+        self.degradazioni.append(degradazione)
+        return degradazione
 
 
 class Esito(StrEnum):
@@ -151,6 +193,8 @@ class StepResult:
     #: Impronta del manifesto scritto; ``None`` se la fase non è conclusa.
     impronta: str | None = None
     dettaglio: Any = None
+    aggiustamenti: tuple[Mapping[str, Any], ...] = ()
+    degradazioni: tuple[Mapping[str, Any], ...] = ()
 
     @property
     def completata(self) -> bool:
@@ -174,6 +218,11 @@ class PipelineStep(ABC):
     parametri: ClassVar[tuple[str, ...] | None] = None
     #: Il grafo di riferimento.
     grafo: ClassVar[Grafo] = GRAFO
+    #: L'azione correttiva per ciascun codice ripetibile che la fase puo'
+    #: sollevare, applicata dall'esecutore al tentativo successivo. Un codice
+    #: senza aggiustamento non viene ritentato: ritentare identico darebbe lo
+    #: stesso esito.
+    aggiustamenti: ClassVar[Mapping[str, Aggiustamento]] = {}
 
     @property
     def nodo(self) -> Nodo:
@@ -190,6 +239,22 @@ class PipelineStep(ABC):
     @abstractmethod
     def calcola(self, contesto: StepContext) -> Produzione:
         """Il calcolo proprio della fase."""
+
+    def ripiega(
+        self, contesto: StepContext, degradazione: DegradazioneRichiesta
+    ) -> Produzione:
+        """Il comportamento di ripiego per una degradazione sollevata dal calcolo.
+
+        Una fase puo' registrare una degradazione con
+        :meth:`StepContext.degrada` e proseguire da se', oppure lasciarla
+        sollevare da una routine interna e dichiarare qui come ripiegare. Una
+        fase che non lo dichiara non sa proseguire: e' un difetto della fase,
+        non una condizione dei dati.
+        """
+        raise RuntimeError(
+            f"{self.passo} ha sollevato {degradazione.codice} senza dichiarare un "
+            "ripiego: una degradazione non puo' fermare l'esecuzione"
+        )
 
     def impronta_dati_esterni(self, config: Config) -> str | None:
         """Impronta dei dati letti fuori dall'albero di output, se ce ne sono.
@@ -269,8 +334,13 @@ class PipelineStep(ABC):
         self.verifica_prerequisiti(contesto)
 
         # Si fissa prima del calcolo su che cosa la fase viene calcolata: e'
-        # cio' che le e' stato dato, anche se durante il calcolo cambiasse.
-        calcolata_su = self.calcolata_su(contesto.risolta, dict(contesto.a_monte))
+        # cio' che le e' stato dato, anche se durante il calcolo cambiasse. La
+        # configurazione e' quella dichiarata: un parametro cambiato da
+        # un'azione correttiva e' registrato fra gli aggiustamenti, e non fa
+        # risultare la fase da rifare alla ripresa.
+        calcolata_su = self.calcolata_su(
+            contesto.risolta_dichiarata, dict(contesto.a_monte)
+        )
 
         # Da qui la fase non risulta piu' conclusa: se il calcolo si
         # interrompe, la ripresa la rifa' invece di fidarsi del manifesto
@@ -278,8 +348,14 @@ class PipelineStep(ABC):
         contesto.albero.rimuovi_manifesto_passo(self.passo, self.cartella)
 
         inizio = time.perf_counter()
-        produzione = self.calcola(contesto)
+        try:
+            produzione = self.calcola(contesto)
+        except DegradazioneRichiesta as degradazione:
+            contesto.degrada(degradazione)
+            produzione = self.ripiega(contesto, degradazione)
         secondi = round(time.perf_counter() - inizio, 3)
+        aggiustamenti = tuple(dict(a) for a in contesto.aggiustamenti)
+        degradazioni = tuple(d.come_evento() for d in contesto.degradazioni)
 
         self.valida_artefatti(contesto, produzione.artefatti)
 
@@ -292,6 +368,8 @@ class PipelineStep(ABC):
                 produzione.artefatti,
                 calcolata_su,
                 produzione.metriche,
+                aggiustamenti,
+                degradazioni,
             )
             impronta = manifesto.impronta
             esito = Esito.COMPLETATA
@@ -305,6 +383,8 @@ class PipelineStep(ABC):
                 "secondi": secondi,
                 "artefatti": [a.nome for a in produzione.artefatti],
                 "metriche": dict(produzione.metriche),
+                "aggiustamenti": list(aggiustamenti),
+                "degradazioni": [d["codice"] for d in degradazioni],
             },
         )
         return StepResult(
@@ -315,6 +395,8 @@ class PipelineStep(ABC):
             secondi=secondi,
             impronta=impronta,
             dettaglio=produzione.dettaglio,
+            aggiustamenti=aggiustamenti,
+            degradazioni=degradazioni,
         )
 
 

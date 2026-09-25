@@ -36,6 +36,7 @@ from typing import Any, ClassVar, Final
 
 from amplicon16s.config.resolve import risolvi
 from amplicon16s.config.schema import Config
+from amplicon16s.errors.catalog import Categoria, voce
 from amplicon16s.gates.g01_g15 import Contesto, ErroreGate, Violazione
 from amplicon16s.gates.registry import EsitoGate, esegui_tutti
 from amplicon16s.io_layer.artifacts import AlberoOutput, Fase
@@ -264,12 +265,18 @@ class ValidazioneIngressi(PipelineStep):
                 )
             )
 
+        # Gli avvisi di degradazione (E-S0-15 da G08, E-S1-01 da G09) non
+        # fermano la fase e finiscono nel suo manifesto; gli altri restano
+        # segnalazioni nel log.
         for esito in esiti:
             for avviso in esito.avvisi:
-                log.warning(
-                    avviso.dettaglio,
-                    extra={"gate": esito.gate, "codice": avviso.codice, "fase": "S0"},
-                )
+                if voce(avviso.codice).categoria is Categoria.DEGRADAZIONE_AUTOMATICA:
+                    contesto.degrada(avviso.codice, avviso.dettaglio, gate=esito.gate)
+                else:
+                    log.warning(
+                        avviso.dettaglio,
+                        extra={"gate": esito.gate, "codice": avviso.codice, "fase": "S0"},
+                    )
 
         risultato = RisultatoS0(
             esiti=esiti,
