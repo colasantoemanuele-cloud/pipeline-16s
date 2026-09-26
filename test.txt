@@ -30,8 +30,9 @@ integrazione del progetto con output dettagliato (un test per riga), lanciare:
 
     pytest tests/ -v
 
-Totale complessivo della suite: ~668 test (circa 646 sempre attivi in modalità
-locale/CI in circa 15-20 secondi + 22 test sui dati reali OSD-734 da 2.4 GB).
+Totale complessivo della suite: 685 test (663 sempre attivi in modalità
+locale/CI in circa 15-20 secondi + 22 test end-to-end su dati reali OSD-734
+da 2.4 GB).
 
 Per includere anche i 22 test end-to-end sui 960 file FASTQ reali di OSD-734,
 impostare la variabile d'ambiente che punta al file di configurazione reale:
@@ -145,7 +146,8 @@ SETTIMANA 3 (W3) : SCHEMA DI CONFIGURAZIONE PYDANTIC
     pytest tests/test_config_schema.py -k "not g15 and not derivati" -v
 
   * RISULTATO ATTESO:
-    42 passed in ~0.25s
+    46 passed in ~0.25s (Totale complessivo di tests/test_config_schema.py:
+    88 passed in ~0.45s)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Protezione dai refusi di battitura ('extra="forbid"'): nelle pipeline
@@ -183,8 +185,8 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
     pytest tests/test_config_schema.py -k "g15 or derivati or digest or resolved" -v
 
   * RISULTATO ATTESO:
-    40 passed in ~0.25s (Totale complessivo di tests/test_config_schema.py:
-    82 passed in ~0.45s)
+    42 passed in ~0.25s (Totale complessivo di tests/test_config_schema.py:
+    88 passed in ~0.45s)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Coerenza tra parametri (Gate G15): due parametri possono essere validi
@@ -331,8 +333,7 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, LOGGING JSONL, INTEGRITA' I/O E PONTE R
     pytest tests/test_rbridge.py -v
 
   * RISULTATO ATTESO:
-    ~60 test (56 passed eseguiti con successo, dipendenti dall'ambiente R,
-    in ~10.50s)
+    59 passed in ~10.50s (esegue processi Rscript reali su disco)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché non usiamo 'rpy2' in-process: librerie come DADA2 e DECIPHER
@@ -382,7 +383,7 @@ SETTIMANA 6 (W6) : CROSSWALK METADATI, CONTROLLI E JOIN RISTRETTO
     pytest tests/test_crosswalk.py -v
 
   * RISULTATO ATTESO:
-    42 passed in ~0.35s
+    43 passed in ~0.35s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Indicizzazione per Accession contro 'Sample Name': in OSD-734 lo stesso
@@ -552,7 +553,7 @@ SETTIMANE 8 E 9 (W8-W9) : GRAFO DAG, PROPAGAZIONE INVALIDITA' E RIPRESA
     pytest tests/test_graph_resume.py -v
 
   * RISULTATO ATTESO:
-    46 passed in ~1.10s
+    52 passed in ~1.10s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché S12 (decontam) deve precedere obbligatoriamente S13 (filtro di
@@ -604,7 +605,7 @@ SETTIMANA 9 (W9) : POLITICA DI RETRY AUTOMATICO, PUNTO DI RIPRESA E CLI
     pytest tests/test_retry_policy.py -v
 
   * RISULTATO ATTESO:
-    44 passed in ~1.50s
+    49 passed in ~1.50s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché non si ritenta mai a parametri identici: in una pipeline
@@ -639,17 +640,17 @@ SETTIMANA 9 (W9) : POLITICA DI RETRY AUTOMATICO, PUNTO DI RIPRESA E CLI
   Settimana | File di test                 | Test | Comando di verifica rapida
   ----------+------------------------------+------+-----------------------------------------
   W1 - W2   | tests/test_import.py         |   10 | pytest tests/test_import.py -v
-  W3 - W4   | tests/test_config_schema.py  |   82 | pytest tests/test_config_schema.py -v
+  W3 - W4   | tests/test_config_schema.py  |   88 | pytest tests/test_config_schema.py -v
   W5        | tests/test_errors_catalog.py |  272 | pytest tests/test_errors_catalog.py -v
   W5        | tests/test_artifacts.py      |   25 | pytest tests/test_artifacts.py -v
   W5        | tests/test_logging.py        |   14 | pytest tests/test_logging.py -v
-  W5 / W8   | tests/test_rbridge.py        |  ~60 | pytest tests/test_rbridge.py -v
-  W6        | tests/test_crosswalk.py      |   42 | pytest tests/test_crosswalk.py -v
+  W5 / W8   | tests/test_rbridge.py        |   59 | pytest tests/test_rbridge.py -v
+  W6        | tests/test_crosswalk.py      |   43 | pytest tests/test_crosswalk.py -v
   W6        | tests/test_join_restricted.py|    7 | pytest tests/test_join_restricted.py -v
   W7        | tests/test_gates.py          |   44 | pytest tests/test_gates.py -v
   W7 (Real) | tests/test_dati_reali.py     |   22 | pytest tests/test_dati_reali.py -v
-  W8 - W9   | tests/test_graph_resume.py   |   46 | pytest tests/test_graph_resume.py -v
-  W9        | tests/test_retry_policy.py   |   44 | pytest tests/test_retry_policy.py -v
+  W8 - W9   | tests/test_graph_resume.py   |   52 | pytest tests/test_graph_resume.py -v
+  W9        | tests/test_retry_policy.py   |   49 | pytest tests/test_retry_policy.py -v
   ----------+------------------------------+------+-----------------------------------------
-  TOTALE    | Intera suite (12 moduli)     | ~668 | pytest tests/ -v
+  TOTALE    | Intera suite (12 moduli)     |  685 | pytest tests/ -v
 ================================================================================
