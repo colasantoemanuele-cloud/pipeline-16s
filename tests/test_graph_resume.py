@@ -773,7 +773,7 @@ def test_spostare_la_cartella_di_output_non_rende_incompleta_l_esecuzione(
 
     **Razionale Scientifico/Sistemistico**: L'esclusione di ``io.out_root``
     dall'impronta dei risultati rende l'albero degli artefatti **rilocabile**
-    tra workstation, server HPC e archivi di revisione della tesi senza perdere
+    tra workstation, server HPC e archivi di revisione scientifica senza perdere
     lo stato di completamento delle fasi.
     """
     nuova_radice = tmp_path / "spostata"

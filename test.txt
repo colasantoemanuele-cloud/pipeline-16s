@@ -4,6 +4,11 @@ Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
 Piano Operativo: Settimane W1 - W9 (Fasi F1, F2, F3)
 ================================================================================
 
+Questo documento costituisce la specifica tecnica e metodologica della suite di
+test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
+i vincoli biologici e le scelte architetturali implementate nelle Settimane
+W1 - W9 del Piano Operativo.
+
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
 
@@ -21,7 +26,7 @@ PyYAML e Pytest, isolando l'esecuzione dal sistema operativo ospite.
 1.2 Esecuzione globale dell'intera suite di test
 --------------------------------------------------------------------------------
 Per eseguire in un colpo solo tutti i test unitari, strutturali e di
-integrazione del progetto con output dettagliato ( un test per riga ), lanciare:
+integrazione del progetto con output dettagliato (un test per riga), lanciare:
 
     pytest tests/ -v
 
@@ -63,9 +68,9 @@ automaticamente prima di ogni sessione per mettere a disposizione le fixture
 condivise ('dati_esempio', 'config_esempio') e il generatore di dataset
 sintetici ('crea_scenario_s0').
 
-Scelta progettuale difendibile davanti al relatore: invece di utilizzare "mock"
-in memoria che simulano l'I/O, 'tests/conftest.py' scrive su disco temporaneo
-reale ('tmp_path') archivi compressi '.fastq.gz' a 4 righe canoniche, tabelle
+Scelta architetturale e metodologica: invece di utilizzare "mock" in memoria
+che simulano l'I/O, 'tests/conftest.py' scrive su disco temporaneo reale
+('tmp_path') archivi compressi '.fastq.gz' a 4 righe canoniche, tabelle
 metadati ISA-Tab separate da tabulazione, database tassonomici FASTA, file di
 checksum MD5 e script eseguibili R. In questo modo ogni gate e ogni passo della
 pipeline vengono collaudati esercitando realmente il filesystem POSIX, il
@@ -103,7 +108,7 @@ SETTIMANE 1 E 2 (W1-W2) : PACKAGING, SMOKE TEST E CLI BASE
   * RISULTATO ATTESO:
     10 passed in ~0.20s
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Prevenzione di dipendenze circolari: garantisce fin dalla Settimana 1 che
        l'albero dei moduli sia importabile senza cicli e che il motore di
        costruzione delle matrici di abbondanza ('amplicon16s') resti
@@ -142,7 +147,7 @@ SETTIMANA 3 (W3) : SCHEMA DI CONFIGURAZIONE PYDANTIC
   * RISULTATO ATTESO:
     42 passed in ~0.25s
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Protezione dai refusi di battitura ('extra="forbid"'): nelle pipeline
        bioinformatiche tradizionali, se un ricercatore scrive nel file YAML
        'maxEEE: 2.0' (con tre E) pensando di rilassare il filtro sugli errori
@@ -181,7 +186,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
     40 passed in ~0.25s (Totale complessivo di tests/test_config_schema.py:
     82 passed in ~0.45s)
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Coerenza tra parametri (Gate G15): due parametri possono essere validi
        singolarmente ma assurdi se combinati (ad esempio, tagliare in 5' con
        'trimLeft=140' quando si tronca a 'truncLen=137', producendo letture di
@@ -227,7 +232,7 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, LOGGING JSONL, INTEGRITA' I/O E PONTE R
   * RISULTATO ATTESO:
     272 passed in ~0.35s
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
        tenta mai di "aggiustare" automaticamente un problema scientifico (come
        la contaminazione massiva dei controlli negativi o il fallimento della
@@ -260,7 +265,7 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, LOGGING JSONL, INTEGRITA' I/O E PONTE R
   * RISULTATO ATTESO:
     25 passed in ~0.25s
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Determinismo del manifesto ('sort_keys=True'): quando più thread
        scrivono file in parallelo, l'ordine temporale di completamento varia a
        ogni corsa. Ordinando lessicograficamente le voci del manifesto prima di
@@ -293,7 +298,7 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, LOGGING JSONL, INTEGRITA' I/O E PONTE R
   * RISULTATO ATTESO:
     14 passed in ~0.25s
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Auditabilità post-mortem e protezione del disco: su 960 campioni un log
        testuale libero diventa illeggibile; il formato JSON Lines permette di
        estrarre istantaneamente tutti gli avvisi o i tempi di calcolo per fase
@@ -329,7 +334,7 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, LOGGING JSONL, INTEGRITA' I/O E PONTE R
     ~60 test (56 passed eseguiti con successo, dipendenti dall'ambiente R,
     in ~10.50s)
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché non usiamo 'rpy2' in-process: librerie come DADA2 e DECIPHER
        eseguono codice C/C++ compilato; un 'segmentation fault' o un
        esaurimento di memoria dentro 'rpy2' ucciderebbe istantaneamente anche
@@ -379,7 +384,7 @@ SETTIMANA 6 (W6) : CROSSWALK METADATI, CONTROLLI E JOIN RISTRETTO
   * RISULTATO ATTESO:
     42 passed in ~0.35s
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Indicizzazione per Accession contro 'Sample Name': in OSD-734 lo stesso
        'Sample Name' biologico compare più volte nella tabella di assay quando
        un tampone è stato ri-estratto o ri-sequenziato su piastre diverse. Se
@@ -419,7 +424,7 @@ SETTIMANA 6 (W6) : CROSSWALK METADATI, CONTROLLI E JOIN RISTRETTO
   * RISULTATO ATTESO:
     7 passed in ~0.20s
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Caso reale OSD-734 (1.072 righe contro 960): nel pacchetto ufficiale
        NASA GeneLab OSD-734, la tabella di studio ('s_OSD-734.txt') elenca
        1.072 campioni complessivi, inclusi controlli di solvente con
@@ -464,7 +469,7 @@ SETTIMANA 7 (W7) : I 15 GATE DI INGRESSO, FASE S0 E DATI REALI OSD-734
   * RISULTATO ATTESO:
     44 passed in ~1.20s
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché il Gate G10 usa un controllo positivo (motivo V4) oltre all'assenza
        del primer: verificare solo che il primer 515F non sia in 5' non basta,
        perché un file FASTQ di un altro organismo o già troncato nella regione
@@ -509,7 +514,7 @@ SETTIMANA 7 (W7) : I 15 GATE DI INGRESSO, FASE S0 E DATI REALI OSD-734
     22 test (22 passed in ~24.00s con dataset reale OSD-734 collegato;
     22 skipped se non è presente AMPLICON16S_CONFIG_DATI_REALI)
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Esclusione dei 157 controlli (80 positivi + 77 negativi) dal denominatore
        di prevalenza: se il calcolo dell'1% di prevalenza usasse tutti i 960
        file anziché i soli 803 campioni biologici, la soglia salirebbe da 9 a
@@ -549,7 +554,7 @@ SETTIMANE 8 E 9 (W8-W9) : GRAFO DAG, PROPAGAZIONE INVALIDITA' E RIPRESA
   * RISULTATO ATTESO:
     46 passed in ~1.10s
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché S12 (decontam) deve precedere obbligatoriamente S13 (filtro di
        prevalenza): se filtrassimo per prevalenza prima di aver rimosso i
        contaminanti da reagente, i batteri del "kitome" (presenti in quasi
@@ -564,9 +569,9 @@ SETTIMANE 8 E 9 (W8-W9) : GRAFO DAG, PROPAGAZIONE INVALIDITA' E RIPRESA
        e 'manifest_S12.json'), la conclusione di S11 farebbe apparire già
        conclusa anche S12, saltando silenziosamente la decontaminazione.
     3. Portabilità e cambio thread a costo zero: spostare la cartella di una
-       corsa conclusa da un server di calcolo al portatile del tesista (cambiando
-       'io.out_root' e 'run.threads') non invalida i manifesti e non costringe
-       a ricalcolare alcuna fase scientifica.
+       corsa conclusa da un server di calcolo a una stazione di lavoro locale
+       (cambiando 'io.out_root' e 'run.threads') non invalida i manifesti e non
+       costringe a ricalcolare alcuna fase scientifica.
 
 
 --------------------------------------------------------------------------------
@@ -601,7 +606,7 @@ SETTIMANA 9 (W9) : POLITICA DI RETRY AUTOMATICO, PUNTO DI RIPRESA E CLI
   * RISULTATO ATTESO:
     44 passed in ~1.50s
 
-  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché non si ritenta mai a parametri identici: in una pipeline
        deterministica, rilanciare una fase fallita per 'Out-Of-Memory' con gli
        stessi identici parametri produrrebbe lo stesso identico crash,
@@ -615,8 +620,9 @@ SETTIMANA 9 (W9) : POLITICA DI RETRY AUTOMATICO, PUNTO DI RIPRESA E CLI
        dichiarata dall'utente ('batch_size = 100'), al successivo comando
        'amplicon16s resume' la pipeline rileverebbe una discrepanza di digest
        e butterebbe via il risultato appena calcolato. Registrando l'impronta
-       dichiarata e annotando a parte l'aggiustamento applicato, la ripresa
-       riconosce la fase come valida e conserva piena tracciabilità nel report.
+       dichiarata e annotando a parte l'aggiustamento applicato, il manifesto
+       documenta formalmente per la tracciabilità scientifica l'adattamento
+       senza invalidare la ripresa.
     3. Tracciabilità immutabile delle configurazioni ('resolved_2.yaml'): se
        dopo un arresto l'operatore riprende la corsa con 'resume' aumentando i
        thread da 4 a 16, la pipeline non ricalcola le fasi già concluse ma non

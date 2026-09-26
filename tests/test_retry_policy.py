@@ -269,7 +269,7 @@ def test_l_aggiustamento_e_nel_manifesto_della_fase(scenario, registro):
 
     **Razionale Scientifico/Sistemistico**: Garantisce la trasparenza
     scientifica: anche se ``batch_size`` non cambia il risultato biologico, il
-    manifesto della fase documenta per la tesi che ``S4`` è stata completata al
+    manifesto della fase documenta formalmente per la tracciabilità dello studio che ``S4`` è stata completata al
     2° tentativo usando lotti da 12 campioni anziché 24.
     """
     run, _ = _esegui(scenario.config, registro, S4=FRAGILE_S4)
