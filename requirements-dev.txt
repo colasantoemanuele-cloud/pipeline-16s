@@ -1,0 +1,3 @@
+# Dipendenze di sviluppo e verifica automatica per pipeline-16s (OSD-734)
+-r requirements.txt
+pytest==9.1.1

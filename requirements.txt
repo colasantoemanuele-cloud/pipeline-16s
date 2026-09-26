@@ -1,0 +1,3 @@
+# Dipendenze di runtime per pipeline-16s (OSD-734)
+pyyaml==6.0.3
+pydantic==2.13.5
