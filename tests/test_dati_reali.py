@@ -1,31 +1,60 @@
 """Suite di validazione end-to-end sul dataset reale di riferimento NASA GeneLab OSD-734.
 
-Inquadramento nel Piano Operativo:
-    - **Settimane di riferimento**: **Settimana 6 e Settimana 7 (W6/W7 — Fase F2:
-      Crosswalk, inventario dei campioni, 15 gate di ingresso e Fase S0 completa)**.
-    - **Scopo del modulo**: Esegue l'intera validazione dei metadati e la Fase S0
-      completa sui **960 file ``.fastq.gz`` reali (2,4 GB)** e sulle tabelle
-      ISA-Tab originali dello studio **OSD-734** (Microbial Monitoring of the
-      International Space Station). Verifica sul dato vero:
-        * La corrispondenza biunivoca 1:1 tra i 960 file FASTQ e le 960 righe
-          dell'Assay Table 16S;
-        * Il join ristretto che esclude i campioni di altri saggi (come
-          ``"solvent control"`` appartenente alla metagenomica) presenti nella
-          Study Sample Table;
-        * La ripartizione esatta nelle tre classi (**803 biologici, 80 controlli
-          positivi, 77 controlli negativi** nella configurazione di riferimento)
-          e la registrazione di ``denominatore_prevalenza = 803`` in ``inventario.json``;
-        * Il rispetto del vincolo di tempo (< 300 s, ~24 s reali) grazie alla
-          scansione in streaming a memoria costante $O(1)$ limitata a ``qc.head_reads``;
-        * Il significato biologico del controllo sul motivo V4 (Gate G10), che
-          compare sia nei biologici sia nei bianchi (poiché i bianchi amplificano
-          contaminanti batterici reali dotati di 16S) e richiede la mediana sui
-          biologici per tollerare campioni legittimi a bassa resa.
+1. Inquadramento nel Piano Operativo:
+    - **Settimana di riferimento**: **Settimana 7 (W7: Fase F2, Validazione
+      pre-analitica su scala reale OSD-734)**.
     - **Moduli sorgente coperti**:
         * ``src/amplicon16s/metadata/crosswalk.py``
         * ``src/amplicon16s/io_layer/reads.py``
         * ``src/amplicon16s/gates/g01_g15.py``
         * ``src/amplicon16s/steps/s00_validate.py``
+
+2. Meccanismo di attivazione e comando Bash:
+    - I 22 test di questo modulo sono progettati per essere saltati in modo
+      controllato (stato ``SKIPPED``) negli ambienti di Continuous Integration
+      o su stazioni di lavoro prive dei dati grezzi pesanti, evitando fallimenti
+      spuri quando il dataset non è montato localmente.
+    - Variabile d'ambiente necessaria per l'attivazione:
+      ``AMPLICON16S_CONFIG_DATI_REALI`` (deve puntare al file di configurazione
+      YAML contenente i percorsi locali del dataset OSD-734).
+    - Comando Bash completo di esecuzione:
+      ``AMPLICON16S_CONFIG_DATI_REALI=/percorso/assoluto/a/config_osd734.yaml pytest tests/test_dati_reali.py -v``
+
+3. Censimento dettagliato dei file reali richiesti (sezioni ``io:`` e ``tax:`` della configurazione):
+    1. **Archivio letture FASTQ** (``io.fastq_dir``): cartella contenente i 960
+       file grezzi compressi ``.fastq.gz`` a lettura singola (single-end
+       Illumina MiSeq, volume complessivo di circa 2.4 GB).
+    2. **Tabella di Assay ISA-Tab** (``io.assay_table``):
+       ``a_OSD-734_amplicon-sequencing_16s_Illumina MiSeq.txt`` (definisce
+       l'universo dei 960 campioni dell'amplicone 16S rRNA e mappa gli accession
+       ENA/SRA sui rispettivi file FASTQ).
+    3. **Tabella di Studio ISA-Tab** (``io.study_table``):
+       ``s_OSD-734.txt`` (raccoglie i metadati biologici e ambientali dei 1.072
+       campioni dell'intero studio multi-omico, inclusi i saggi WGS e
+       metabolomica esclusi dal join ristretto).
+    4. **Mappatura lotti e piastre di arricchimento** (``io.plate_map``):
+       ``plate_well_map_960.tsv`` (associa a ciascuno dei 960 campioni la
+       piastra di estrazione da 96 pozzetti su 10 piastre totali, la corsa di
+       sequenziamento e il modulo abitativo ISS).
+    5. **Database di riferimento tassonomico** (``tax.train_set`` e ``tax.train_set_md5``):
+       ``silva_nr99_v138_train_set.fa.gz`` (archivio FASTA compresso con
+       relativo checksum MD5 dichiarato per la classificazione tassonomica).
+
+4. Proprietà biologiche e metriche verificate:
+    - Ripartizione esatta dei 960 campioni dell'amplicone 16S: **803 campioni
+      biologici**, **80 controlli positivi** e **77 controlli negativi**
+      (totale controlli: 157), estratti dalle 1.072 righe complessive della
+      Study Table mediante join ristretto.
+    - Partizione sperimentale su **10 piastre da 96 pozzetti** (10 x 96 = 960
+      librerie) distribuite su **2 corse Illumina MiSeq**, e copertura dei
+      moduli ISS (9 moduli con Airlock ``A/L1`` tramite mappatura supplementare
+      contro 8 moduli tramite espressione regolare sulla posizione).
+    - Denominatore di prevalenza calcolato esclusivamente sui **803 campioni
+      biologici** (``prev.min_samples = ceil(0.01 * 803) = 9``), escludendo i
+      157 controlli tecnici.
+    - Tempo di scansione dell'intera Fase S0 inferiore a 60 secondi (~24 secondi
+      reali su 960 file) grazie all'ispezione in streaming a memoria costante
+      delle prime letture (``qc.head_reads``).
 """
 
 from __future__ import annotations

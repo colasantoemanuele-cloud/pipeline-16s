@@ -1,13 +1,13 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W9 (Fasi F1, F2, F3)
+Piano Operativo: Settimane W1 - W10 (Fasi F1, F2, F3)
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W9 del Piano Operativo.
+W1 - W10 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -79,7 +79,7 @@ decompressore gzip e i sottoprocessi di sistema.
 
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W9)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W10)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -576,10 +576,10 @@ SETTIMANE 8 E 9 (W8-W9) : GRAFO DAG, PROPAGAZIONE INVALIDITA' E RIPRESA
 
 
 --------------------------------------------------------------------------------
-SETTIMANA 9 (W9) : POLITICA DI RETRY AUTOMATICO, PUNTO DI RIPRESA E CLI
+SETTIMANE 9 E 10 (W9-W10) : POLITICA DI RETRY AUTOMATICO, PUNTO DI RIPRESA E CLI
 --------------------------------------------------------------------------------
   * SETTIMANA E FASE:
-    Settimana W9, Fase F3 (Esecutore del grafo, azioni correttive automatiche,
+    Settimane W9 e W10, Fase F3 (Esecutore del grafo, azioni correttive automatiche,
     gestione delle degradazioni, punto di ripresa e versionamento di
     '00_config/resolved_<n>.yaml').
 
@@ -650,7 +650,7 @@ SETTIMANA 9 (W9) : POLITICA DI RETRY AUTOMATICO, PUNTO DI RIPRESA E CLI
   W7        | tests/test_gates.py          |   44 | pytest tests/test_gates.py -v
   W7 (Real) | tests/test_dati_reali.py     |   22 | pytest tests/test_dati_reali.py -v
   W8 - W9   | tests/test_graph_resume.py   |   52 | pytest tests/test_graph_resume.py -v
-  W9        | tests/test_retry_policy.py   |   49 | pytest tests/test_retry_policy.py -v
+  W9 - W10  | tests/test_retry_policy.py   |   49 | pytest tests/test_retry_policy.py -v
   ----------+------------------------------+------+-----------------------------------------
   TOTALE    | Intera suite (12 moduli)     |  685 | pytest tests/ -v
 ================================================================================
