@@ -48,7 +48,10 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-L'installazione rende disponibile il comando `amplicon16s`. La suite di test si esegue
+È possibile installare le dipendenze sia tramite `pip install -e ".[dev]"` sia tramite
+`pip install -r requirements-dev.txt` (seguito da `pip install --no-deps -e .` per
+registrare il pacchetto in modalità modificabile). L'installazione rende disponibile il
+comando `amplicon16s`. La suite di test si esegue
 con `pytest`. I calcoli scientifici girano nell'immagine descritta qui sotto, che porta
 con sé il proprio R. I test del ponte verso R lanciano invece script R veri, e chiedono
 solo `Rscript` nel PATH (o indicato con `AMPLICON16S_RSCRIPT`) e il pacchetto `jsonlite`;
@@ -65,7 +68,8 @@ docker run --rm amplicon16s:dev
 ```
 
 Le versioni sono bloccate su entrambi i fronti: le dipendenze Python in
-`pyproject.toml`, quelle R in `renv.lock`. `renv.lock` è generato dall'immagine già
+`pyproject.toml` (e nei file `requirements.txt` / `requirements-dev.txt`), quelle R in
+`renv.lock`. `renv.lock` è generato dall'immagine già
 costruita, quindi registra le versioni effettivamente ottenute e non quelle attese; la
 build lo rilegge e fallisce se anche una sola versione non coincide. Dopo ogni modifica
 ai pacchetti R va rigenerato:
@@ -119,8 +123,8 @@ versione registrata non viene mai sovrascritta:
 
 - `run` scrive `resolved.yaml`;
 - `resume`, se il digest è identico a quello dell'ultima versione registrata, non
-  scrive nulla; se è diverso — anche solo per `run.threads` o un parametro di retry,
-  che sono fuori dall'impronta dei risultati ma non dal digest — conserva le versioni
+  scrive nulla; se è diverso (anche solo per `run.threads` o un parametro di retry,
+  che sono fuori dall'impronta dei risultati ma non dal digest), conserva le versioni
   precedenti e scrive la nuova accanto: `resolved_2.yaml`, `resolved_3.yaml` e così
   via, ciascuna con il nome della precedente e i parametri che ne differiscono.
   Tornare a una configurazione già usata registra a sua volta una nuova versione;
@@ -152,13 +156,13 @@ Sono realizzati:
 - la validazione della configurazione: lo schema copre tutti i parametri della
   pipeline e ne verifica tipo e dominio, respingendo le chiavi sconosciute;
   `config/config.example.yaml` ne è un'istanza completa;
-- il gate G15, che verifica la coerenza fra parametri — le combinazioni singolarmente
-  valide ma insensate messe insieme — e risolve i parametri che discendono da altri.
+- il gate G15, che verifica la coerenza fra parametri (le combinazioni singolarmente
+  valide ma insensate messe insieme) e risolve i parametri che discendono da altri.
   La configurazione effettivamente usata viene registrata in `00_config/resolved.yaml`
   con un digest che ne identifica la combinazione, all'avvio di ogni esecuzione e
   senza mai sovrascrivere le versioni precedenti, come descritto nella sezione sull'uso
   della riga di comando. Tutto questo avviene prima che venga
-  allocato qualunque calcolo — è il gate che apre la sequenza di S0, perché un errore
+  allocato qualunque calcolo: è il gate che apre la sequenza di S0, perché un errore
   di configurazione va scoperto prima di aprire un solo file. Un parametro derivato,
   `prev.min_samples`, dipende dal numero di campioni biologici e viene calcolato
   quando i metadati sono stati letti, non prima;
@@ -175,8 +179,8 @@ Sono realizzati:
   fornisce la colonna del modulo, il modulo viene da lì con il nome originale;
   altrimenti si ricade sull'estrazione del prefisso della posizione tramite
   `meta.module_regex`. In entrambi i casi vale la stessa regola: un campione la cui
-  posizione non è una superficie — aria, contenitori non aperti, posizioni non
-  dichiarate — resta senza modulo, perché raggrupparlo per modulo mescolerebbe l'aria
+  posizione non è una superficie (aria, contenitori non aperti, posizioni non
+  dichiarate) resta senza modulo, perché raggrupparlo per modulo mescolerebbe l'aria
   di un locale con le sue superfici. Le posizioni da considerare tali si dichiarano in
   `meta.non_surface_positions`.
 
@@ -189,7 +193,7 @@ Sono realizzati:
   leggibili e dalle tabelle apribili fino al troncamento compatibile con le lunghezze
   osservate, all'assenza del primer e alla disponibilità delle risorse.
   L'assenza del primer è accompagnata da un controllo positivo, che verifica la
-  presenza della regione amplificata dichiarata — non la qualità del campione:
+  presenza della regione amplificata dichiarata, non la qualità del campione:
   sul dataset di riferimento il motivo conservato compare nei controlli
   negativi quanto nei biologici, perché i bianchi amplificano contaminanti. È la barriera
   che precede qualunque calcolo costoso, e per restare tale nessun gate legge un file
@@ -200,9 +204,9 @@ Sono realizzati:
 - l'esito di S0 in `01_input_validation/`: l'esito di ogni gate, il crosswalk,
   l'inventario e le statistiche delle letture ispezionate, ciascuno registrato nel
   manifesto con il proprio checksum;
-- il catalogo degli errori: ogni codice porta un messaggio che dice cosa fare e una
-  categoria di gestione fra revisione umana, retry automatico, retry seguito da
-  revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
+- il catalogo degli errori (47 codici totali): ogni codice porta un messaggio che dice
+  cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
+  seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
   di tutte le fasi, comprese quelle non ancora realizzate: il catalogo esiste, il
   codice che solleverà quegli errori no. Accanto ai codici di fase ci sono i quattro
@@ -224,8 +228,8 @@ Sono realizzati:
   nulla da un fallimento dichiarato. Il ponte traduce l'esito in un'eccezione della
   gerarchia della pipeline con il codice dichiarato, registra nel manifesto gli
   artefatti dichiarati e nel log strutturato le uscite standard e di errore dello
-  script. Riconosce la memoria esaurita in entrambe le forme — l'allocazione fallita
-  intercettata da R, il processo ucciso dal sistema con `SIGKILL` — e la traduce nel
+  script. Riconosce la memoria esaurita in entrambe le forme (l'allocazione fallita
+  intercettata da R o il processo ucciso dal sistema con `SIGKILL`) e la traduce nel
   codice che la fase indica; per rendere il riconoscimento indipendente dalla lingua
   della macchina, impone a R i messaggi in inglese. Può limitare la memoria virtuale
   del processo figlio, riducendo allora a uno i thread dell'algebra lineare: con
@@ -280,8 +284,8 @@ Sono realizzati:
   `retry.enabled` è vero, entro `retry.max_attempts` tentativi totali compreso il
   primo, e solo se la fase dichiara per quel codice un'azione correttiva, perché
   ritentare identico darebbe lo stesso esito. L'azione correttiva cambia un parametro
-  in una copia in memoria della configurazione — oggi `run.batch_size` o `err.nbases`
-  — e il manifesto della fase registra il codice, il valore dichiarato e quello usato;
+  in una copia in memoria della configurazione (oggi `run.batch_size` o `err.nbases`)
+  e il manifesto della fase registra il codice, il valore dichiarato e quello usato;
   la fase resta giudicata sulla configurazione dichiarata, quindi una ripresa non la
   rifà. Le degradazioni non fermano l'esecuzione: la fase le registra e proseguono nel
   log e nel manifesto; S0 vi registra oggi E-S0-15 ed E-S1-01, emesse dai suoi gate.
