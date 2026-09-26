@@ -55,7 +55,8 @@ comando `amplicon16s`. La suite di test si esegue
 con `pytest`. I calcoli scientifici girano nell'immagine descritta qui sotto, che porta
 con sé il proprio R. I test del ponte verso R lanciano invece script R veri, e chiedono
 solo `Rscript` nel PATH (o indicato con `AMPLICON16S_RSCRIPT`) e il pacchetto `jsonlite`;
-dove mancano, quei test si saltano.
+i test delle fasi di calcolo chiedono anche i pacchetti Bioconductor, e girano
+nell'immagine. Dove mancano, quei test si saltano.
 
 ### Ambiente containerizzato
 
@@ -143,7 +144,7 @@ Codici di uscita, per chi lancia la pipeline da uno script o da uno scheduler:
 | 2 | riga di comando non valida (argomenti mancanti o sconosciuti) |
 | 3 | errore di configurazione: il file non è valido, G15 lo respinge, oppure `run` trova la cartella di output già usata; nessuna fase è partita |
 | 4 | arresto con punto di ripresa dichiarato, stampato e scritto in `99_logs/punto_di_ripresa.json` e `.txt` |
-| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S0 |
+| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S1 |
 
 ## Stato dell'implementazione
 
@@ -272,7 +273,7 @@ Sono realizzati:
   fasi sono concluse, quali disattivate, quali da eseguire e quale è la prossima;
   dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
   una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
-  gigabyte, costerà secondi; delle quindici fasi oggi esiste come codice solo S0,
+  gigabyte, costerà secondi; delle quindici fasi oggi esistono come codice S0 e S1,
   e le altre risultano non realizzate;
 - **l'esecutore e la politica dei tentativi** (`runner/executor.py`,
   `runner/retry.py`). A ogni avvio, con `run` come con `resume`, l'esecutore ripete
@@ -288,7 +289,7 @@ Sono realizzati:
   e il manifesto della fase registra il codice, il valore dichiarato e quello usato;
   la fase resta giudicata sulla configurazione dichiarata, quindi una ripresa non la
   rifà. Le degradazioni non fermano l'esecuzione: la fase le registra e proseguono nel
-  log e nel manifesto; S0 vi registra oggi E-S0-15 ed E-S1-01, emesse dai suoi gate.
+  log e nel manifesto; S0 vi registra E-S0-15, emessa da G08, e S1 vi registra E-S1-01.
   Quando l'esecuzione si ferma, l'esecutore dichiara il punto di ripresa: fase,
   codice, messaggio del catalogo, tentativi fatti e comando per ripartire. Le fasi da
   S2 a S5, i cui codici sono ripetibili, non esistono ancora: il meccanismo è provato
@@ -296,16 +297,44 @@ Sono realizzati:
 - la registrazione degli eventi su due uscite: la console per chi segue l'esecuzione e
   un file JSON Lines con rotazione sotto `99_logs`, in un formato che si interroga per
   codice, fase o categoria invece di doversi leggere;
-- la catena di integrazione continua, che a ogni push installa il pacchetto con
-  Python 3.11 ed esegue la suite di test. La catena installa anche R 4.5.2 e jsonlite
-  2.0.0, le stesse versioni del container, così i test del ponte lanciano davvero gli
-  script R; lì l'assenza di R fa fallire quei test invece di saltarli;
+- la catena di integrazione continua, con due job. Il primo installa il pacchetto con
+  Python 3.11, R 4.5.2 e jsonlite 2.0.0 ed esegue la suite di test: è il riscontro
+  rapido, e vi girano davvero i test del ponte verso R. Il secondo costruisce
+  l'immagine della pipeline dallo stesso Dockerfile ed esegue la suite al suo interno,
+  così i test delle fasi di calcolo usano i pacchetti Bioconductor alle versioni del
+  container, verificate contro `renv.lock` durante la costruzione; costa alcuni minuti
+  per push. In entrambi l'assenza di R, e nel secondo quella di Bioconductor, fa
+  fallire i test che li richiedono invece di saltarli;
+- **il sottoinsieme di prova** (`tests/fixtures/osd734/`, `scripts/build_test_subset.py`).
+  Ventotto campioni del dataset di riferimento, scelti per le fasi successive: due
+  piastre, una per corsa, con i cinque controlli negativi che `decontam.min_blanks`
+  richiede e biologici con cui confrontarli; una serie completa degli otto livelli di
+  diluizione dei controlli positivi, più un positivo anomalo; il biologico più povero
+  e il più profondo; la lunghezza minima globale di 137 bp; JLP1A1.L4, con il motivo
+  conservato nel 5,8% delle letture; un tubo non aperto, un campione d'aria e una
+  superficie dell'Airlock. La selezione, con il motivo di ogni campione e gli MD5 dei
+  file originali, sta nel repository; lo script ne ricostruisce dai dati locali la
+  versione completa, verificando gli MD5, e la versione ridotta, sottocampionata con
+  un seme fisso, che vive nel repository (circa 2 MB) e su cui girano i test;
+- **la fase S1, il profilo delle letture** (`steps/s01_profile.py`,
+  `R/01_profile.R`), la prima fase di calcolo e la prima a usare Bioconductor
+  attraverso il ponte. Legge ogni file per intero e scrive in `02_qc_profiles/` la
+  distribuzione delle lunghezze, il profilo di qualità per posizione e il conteggio
+  delle letture di ogni campione, in tabelle a una riga per campione e valore, con un
+  riepilogo sull'intero insieme. Sul dataset di riferimento, nel container, la
+  lunghezza minima è 137, la moda 151, e la qualità mediana non scende sotto 25 in
+  nessuna posizione; la fase impiega alcuni minuti. S1 chiude il limite noto di G09,
+  che stima la lunghezza minima dalle prime `qc.head_reads` letture: ricontrolla la
+  condizione sul minimo vero e, se `filter.truncLen` lo supera, si ferma con
+  `E-S1-02`. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
+  `filter.truncLen_shortfall_warn`, che prima registrava S0 dalla stima;
 - i quattro sottocomandi della riga di comando, descritti sopra, con i codici di
   uscita documentati. `report` produce oggi un **resoconto provvisorio** dello stato,
   ricavato dai manifesti delle fasi: fasi concluse, disattivate e da eseguire,
   aggiustamenti applicati, degradazioni registrate. Non è il report definitivo, che
   non è ancora realizzato.
 
-L'implementazione delle fasi di analisi non è ancora iniziata.
+Delle fasi di analisi è realizzata la prima, S1; le altre, da S2 a S14, non sono
+ancora realizzate.
 
 Questa sezione viene aggiornata a ogni avanzamento del lavoro.

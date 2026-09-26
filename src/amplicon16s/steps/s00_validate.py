@@ -265,9 +265,9 @@ class ValidazioneIngressi(PipelineStep):
                 )
             )
 
-        # Gli avvisi di degradazione (E-S0-15 da G08, E-S1-01 da G09) non
-        # fermano la fase e finiscono nel suo manifesto; gli altri restano
-        # segnalazioni nel log.
+        # Gli avvisi di degradazione (oggi E-S0-15, da G08) non fermano la
+        # fase e finiscono nel suo manifesto; gli altri restano segnalazioni
+        # nel log.
         for esito in esiti:
             for avviso in esito.avvisi:
                 if voce(avviso.codice).categoria is Categoria.DEGRADAZIONE_AUTOMATICA:

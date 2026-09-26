@@ -658,9 +658,10 @@ def test_degradare_con_un_codice_che_ferma_e_rifiutato(scenario):
 
 def test_le_degradazioni_di_s0_finiscono_nel_suo_manifesto(tmp_path, registro):
     """
-    **Obiettivo**: Verificare che gli avvisi di degradazione emessi dai gate di
-    ``S0`` (``E-S0-15`` da G08 per piastra con pochi blank ed ``E-S1-01`` da G09
-    per scarto di troncamento) vengano registrati in ``manifest_s0.json``.
+    **Obiettivo**: Verificare che l'avviso di degradazione emesso da G08 in
+    ``S0`` (``E-S0-15``, piastra con pochi blank) venga registrato nel manifesto
+    di S0, e che ``E-S1-01`` non vi compaia piu': lo registra S1, sul minimo
+    vero delle lunghezze.
 
     **Razionale Scientifico/Sistemistico**: Collega gli avvisi pre-analitici dei
     gate in S0 al sistema dei manifesti di fase, così che ``S12`` e il report
@@ -673,7 +674,7 @@ def test_le_degradazioni_di_s0_finiscono_nel_suo_manifesto(tmp_path, registro):
     run, esito = _esegui(scenario.config, registro)
     assert esito.conclusione is Conclusione.COMPLETATA
     codici = [d["codice"] for d in run.albero.manifesto_passo(Passo.S0, Fase.INPUT_VALIDATION).degradazioni]
-    assert sorted(codici) == ["E-S0-15", "E-S1-01"]
+    assert codici == ["E-S0-15"]
 
 
 # --------------------------------------------------------------------------- #
@@ -871,16 +872,18 @@ def test_cli_report_senza_esecuzione(file_config, capsys):
     assert _cli("report", "--config", str(file_config), capsys=capsys)[0] == 3
 
 
-def test_cli_oggi_si_ferma_alla_prima_fase_non_realizzata(file_config, capsys):
+def test_cli_si_ferma_alla_prima_fase_non_realizzata(file_config, monkeypatch, capsys):
     """
-    **Obiettivo**: Verificare che senza i doppioni di test ``amplicon16s run``
-    completi ``S0`` e si fermi ordinatamente su ``S1`` con codice
+    **Obiettivo**: Verificare che, con la sola ``S0`` realizzata, ``amplicon16s
+    run`` completi ``S0`` e si fermi ordinatamente su ``S1`` con codice
     ``USCITA_FASE_NON_REALIZZATA == 5``.
 
-    **Razionale Scientifico/Sistemistico**: Verifica il comportamento onesto del
-    codice di produzione al termine della Settimana 9/10 prima dell'innesto
-    degli step R reali delle fasi successive.
+    **Razionale Scientifico/Sistemistico**: Verifica il comportamento onesto
+    del codice di produzione davanti a una fase prevista dal grafo ma non
+    ancora innestata. Il registro delle fasi e' ristretto a S0 perche' S1, ora
+    realizzata, richiede Bioconductor, che questo test non presuppone.
     """
+    monkeypatch.setattr(cli, "_passi", lambda: {Passo.S0: ValidazioneIngressi()})
     codice, uscita = _cli("run", "--config", str(file_config), capsys=capsys)
     assert codice == cli.USCITA_FASE_NON_REALIZZATA == 5
     assert "S1, non e' ancora realizzata" in uscita

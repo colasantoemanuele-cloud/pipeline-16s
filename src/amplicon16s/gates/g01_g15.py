@@ -908,8 +908,9 @@ def _g09_troncamento_compatibile(contesto: Contesto) -> tuple[list[Violazione], 
     valore troppo alto azzera interi campioni senza che nulla lo segnali.
 
     La lunghezza minima e' quella delle prime qc.head_reads letture, non di
-    tutto il file. E' una stima per eccesso del vero minimo, e il limite e'
-    dichiarato nell'avviso che accompagna i casi al margine.
+    tutto il file: una stima per eccesso del vero minimo, con cui il gate puo'
+    passare quando non dovrebbe. Il limite e' chiuso da S1, che legge tutte le
+    letture e ricontrolla la stessa condizione sul minimo vero (E-S1-02).
     """
     config = contesto.config
     troncamento = config.filter.truncLen
@@ -933,32 +934,10 @@ def _g09_troncamento_compatibile(contesto: Contesto) -> tuple[list[Violazione], 
             )
         ], []
 
-    minimi = [
-        s.lunghezza_minima
-        for s in contesto.scansione.values()
-        if s.valido and s.lunghezza_minima is not None
-    ]
-    if not minimi:
-        return [], []
-
-    minimo = min(minimi)
-    scarto = minimo - troncamento
-    avvisi: list[Avviso] = []
-    # Uno scarto ampio non fa perdere campioni, fa perdere basi: si tronca a
-    # una lunghezza molto inferiore alla piu' corta delle letture, e ogni
-    # lettura cede basi utili senza motivo.
-    if scarto > config.filter.truncLen_shortfall_warn:
-        avvisi.append(
-            Avviso(
-                "E-S1-01",
-                f"la lettura piu' corta osservata e' di {minimo} bp mentre "
-                f"filter.truncLen vale {troncamento}: uno scarto di {scarto} bp, "
-                f"oltre i {config.filter.truncLen_shortfall_warn} di "
-                f"filter.truncLen_shortfall_warn. Ogni lettura cede {scarto} bp che "
-                f"si potrebbero conservare alzando filter.truncLen",
-            )
-        )
-    return [], avvisi
+    # Lo scarto opposto — troncare molto sotto la lettura piu' corta — e'
+    # E-S1-01, e non si valuta qui: su una stima del minimo sarebbe sbagliato
+    # nei due versi. Lo valuta S1, che legge tutte le letture.
+    return [], []
 
 
 #: Classi di campione da cui ci si puo' attendere il segnale del bersaglio.

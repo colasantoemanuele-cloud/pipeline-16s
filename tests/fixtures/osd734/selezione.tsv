@@ -1,0 +1,29 @@
+accession	run_ena	campione	classe	piastra	corsa	letture	lunghezza_minima	md5	motivo
+ERX12083170	ERR12709183	JLP1A1.L4	biologico	2	3DMM_Plates_1-5_S1_L001	83052	139	e311ce807944fd59d68e03598dc41e8b	JLP1A1.L4: motivo conservato nel 5,8% delle letture
+ERX12083123	ERR12709136	BLANK.3DMM.P4.8A	controllo_negativo	4	3DMM_Plates_1-5_S1_L001	5411	149	53ff05ce98a6cb93a07117b7f3d4f995	negativo della piastra 4
+ERX12083125	ERR12709138	BLANK.3DMM.P4.8C	controllo_negativo	4	3DMM_Plates_1-5_S1_L001	35879	137	766e361086683b9af9d875c289f2479f	negativo con la lunghezza minima globale, 137 bp
+ERX12083126	ERR12709139	BLANK.3DMM.P4.8D	controllo_negativo	4	3DMM_Plates_1-5_S1_L001	45449	144	addca75dece7ef1a2dd7659a1474ac49	negativo della piastra 4
+ERX12083129	ERR12709142	BLANK.3DMM.P4.8G	controllo_negativo	4	3DMM_Plates_1-5_S1_L001	2685	148	ec3d22679614a3ea939c6ca154ac878c	negativo della piastra 4, il piu' povero
+ERX12083130	ERR12709143	BLANK.3DMM.P4.8H	controllo_negativo	4	3DMM_Plates_1-5_S1_L001	74306	140	54eb44be91669ba04ace825b5bda402d	negativo della piastra 4, il piu' profondo
+ERX12083262	ERR12709275	KATHARO.P4.2	controllo_positivo	4	3DMM_Plates_1-5_S1_L001	265	151	f7e226b357d20babbdf300511baa709f	positivo anomalo: 265 letture al livello 400000 cellule
+ERX12083172	ERR12709185	JLP1A1.R4	biologico	4	3DMM_Plates_1-5_S1_L001	47261	139	eae32acfa07fe3d75c1c18a9faf08a26	biologico JLP1A1 a motivo basso (20%), nella piastra dei negativi
+ERX12083285	ERR12709298	LAB1D5.R2	biologico	4	3DMM_Plates_1-5_S1_L001	44	141	8e0bb2551d63311d9683bb7766052712	biologico piu' povero del dataset, 44 letture
+ERX12083329	ERR12709342	NOD1.N5	biologico	4	3DMM_Plates_1-5_S1_L001	519	149	e8c7c6c46282dcca80d53be6165544b9	tubo Unopened: biologico che funziona da controllo di campo
+ERX12083515	ERR12709528	NOD3F5.R6	biologico	4	3DMM_Plates_1-5_S1_L001	88344	138	0bbc5874cf11900fd6d2e787aeb2741f	biologico di superficie profondo nella piastra dei negativi
+ERX12084006	ERR12710019	NOD3O2.L9	biologico	8	3DMM_rerun_Plates_6-10_S1_L001	228431	137	4dca9ab4cb6c13865276194b3c481b91	biologico piu' profondo del dataset, 228431 letture, minimo 137
+ERX12083590	ERR12709603	BLANK.3DMM.P10.12H	controllo_negativo	10	3DMM_rerun_Plates_6-10_S1_L001	6120	148	07a15d51b33fbe8932fd71bd51105b5e	negativo della piastra 10, che ne ha esattamente 5
+ERX12083591	ERR12709604	BLANK.3DMM.P10.2E	controllo_negativo	10	3DMM_rerun_Plates_6-10_S1_L001	41839	148	f1c2e1acfd2b1e5101fc1790e1d2bff9	negativo della piastra 10, che ne ha esattamente 5
+ERX12083592	ERR12709605	BLANK.3DMM.P10.2F	controllo_negativo	10	3DMM_rerun_Plates_6-10_S1_L001	35096	140	d3e31884296495fc5c4a44100b46c307	negativo della piastra 10, che ne ha esattamente 5
+ERX12083593	ERR12709606	BLANK.3DMM.P10.2G	controllo_negativo	10	3DMM_rerun_Plates_6-10_S1_L001	39570	140	1820591568ab1a75b3405d9752c9318d	negativo della piastra 10, che ne ha esattamente 5
+ERX12083594	ERR12709607	BLANK.3DMM.P10.2H	controllo_negativo	10	3DMM_rerun_Plates_6-10_S1_L001	64268	146	541c6435116fe7d4779921efabab6f5f	negativo della piastra 10, che ne ha esattamente 5
+ERX12083739	ERR12709752	KATHARO.P10.1	controllo_positivo	10	3DMM_rerun_Plates_6-10_S1_L001	128927	138	b1906152b85dac27ed739f7976889c42	serie di calibrazione, livello 2000000 cellule
+ERX12083740	ERR12709753	KATHARO.P10.2	controllo_positivo	10	3DMM_rerun_Plates_6-10_S1_L001	79231	148	5104e8ad3cb6b57b3a8d53315d71c6a8	serie di calibrazione, livello 400000 cellule
+ERX12083741	ERR12709754	KATHARO.P10.3	controllo_positivo	10	3DMM_rerun_Plates_6-10_S1_L001	52672	146	66f59e4d83a2c9c228a8d145c440f8c1	serie di calibrazione, livello 80000 cellule
+ERX12083742	ERR12709755	KATHARO.P10.4	controllo_positivo	10	3DMM_rerun_Plates_6-10_S1_L001	13695	147	e5f404da18ca5650e0a1ff6cee1d0a78	serie di calibrazione, livello 16000 cellule
+ERX12083743	ERR12709756	KATHARO.P10.5	controllo_positivo	10	3DMM_rerun_Plates_6-10_S1_L001	8846	149	12e1cd146e58a9ea8de54445cb323ef1	serie di calibrazione, livello 3200 cellule
+ERX12083744	ERR12709757	KATHARO.P10.6	controllo_positivo	10	3DMM_rerun_Plates_6-10_S1_L001	3521	148	c356a68d69c5df03e41ba397c97f2a7b	serie di calibrazione, livello 640 cellule
+ERX12083745	ERR12709758	KATHARO.P10.7	controllo_positivo	10	3DMM_rerun_Plates_6-10_S1_L001	6270	148	98fba37710006300a1de52e1f8928b98	serie di calibrazione, livello 128 cellule
+ERX12083746	ERR12709759	KATHARO.P10.8	controllo_positivo	10	3DMM_rerun_Plates_6-10_S1_L001	4970	149	1e6e8f1a9d06a1eb005ed7885950acde	serie di calibrazione, livello 25,6 cellule
+ERX12083576	ERR12709589	A.L1.F1	biologico	10	3DMM_rerun_Plates_6-10_S1_L001	2804	148	5f46b62f8bee55608ca17718a49d026f	campione d'aria: posizione non di superficie, senza modulo
+ERX12083581	ERR12709594	A.L1A1.R2	biologico	10	3DMM_rerun_Plates_6-10_S1_L001	20138	148	fe41a01d88ccdd2dcecf5ea1c8b00f80	superficie dell'Airlock: modulo dal file, non dal prefisso
+ERX12083673	ERR12709686	JLP1A1.L1	biologico	10	3DMM_rerun_Plates_6-10_S1_L001	105774	139	f7704ace1f282c6887c83874520e3249	JLP1A1.L1: stessa posizione di JLP1A1.L4 nell'altra corsa, motivo 23%

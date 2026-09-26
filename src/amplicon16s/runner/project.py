@@ -52,6 +52,7 @@ from amplicon16s.metadata.models import Inventario
 from amplicon16s.runner.graph import GRAFO, Grafo, Passo
 from amplicon16s.steps.base import PipelineStep, StepContext
 from amplicon16s.steps.s00_validate import ValidazioneIngressi, leggi_inventario
+from amplicon16s.steps.s01_profile import ProfiloLetture
 
 __all__ = [
     "ProjectRun",
@@ -64,7 +65,7 @@ __all__ = [
 
 def passi_realizzati() -> dict[Passo, PipelineStep]:
     """Le fasi che esistono come codice. Crescono man mano che vengono scritte."""
-    return {Passo.S0: ValidazioneIngressi()}
+    return {Passo.S0: ValidazioneIngressi(), Passo.S1: ProfiloLetture()}
 
 
 class StatoPasso(StrEnum):

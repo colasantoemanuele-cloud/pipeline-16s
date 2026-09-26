@@ -6,8 +6,10 @@
 .github/
 .venv/
 venv/
-__pycache__/
-*.py[cod]
+# A ogni livello, non solo alla radice: i file compilati in locale portano
+# nell'immagine i percorsi della macchina su cui sono nati.
+**/__pycache__/
+**/*.py[cod]
 *.egg-info/
 .eggs/
 build/
@@ -24,6 +26,8 @@ htmlcov/
 *.fastq.gz
 *.fq
 *.fq.gz
+# La versione ridotta del sottoinsieme di prova serve ai test dentro l'immagine.
+!tests/fixtures/**/*.fastq.gz
 *.rds
 *.RDS
 results/

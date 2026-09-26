@@ -336,10 +336,23 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "E-S1-01", "S1",
         "Lo scarto fra filter.truncLen e la lunghezza minima osservata supera "
         "filter.truncLen_shortfall_warn.",
-        "L'esecuzione prosegue e lo scarto viene registrato in 02_qc_profiles. "
-        "Se lo scarto e' ampio, valuta di abbassare filter.truncLen: i campioni "
-        "piu' corti perderanno letture.",
+        "L'esecuzione prosegue e lo scarto viene registrato nel manifesto di S1. "
+        "Il troncamento e' molto sotto la lettura piu' corta: ogni lettura cede "
+        "basi che si potrebbero conservare. Valuta di alzare filter.truncLen "
+        "fino al minimo riportato in 02_qc_profiles/riepilogo.json.",
         _DEGRADA,
+    ),
+    _v(
+        "E-S1-02", "S1",
+        "filter.truncLen supera la lunghezza minima delle letture, misurata su "
+        "tutte le letture.",
+        "G09, in S0, stima il minimo dalle sole prime qc.head_reads letture di "
+        "ogni file e non aveva visto le letture piu' corte. Le letture piu' "
+        "corte del troncamento verrebbero scartate, non accorciate: abbassa "
+        "filter.truncLen al minimo riportato in 02_qc_profiles/riepilogo.json, "
+        "oppure accetta consapevolmente di perdere quelle letture, che "
+        "l'errore quantifica per campione.",
+        _UMANA,
     ),
     # ----------------------------------------------------------------- S2 ---
     _v(

@@ -428,22 +428,21 @@ def test_g09_fallisce_su_un_singolo_campione_piu_corto(tmp_path):
     assert "120 bp" in str(esito.violazioni[0])
 
 
-def test_g09_avvisa_quando_si_tronca_molto_sotto_il_minimo(tmp_path):
+def test_g09_non_valuta_il_troncamento_molto_sotto_il_minimo(tmp_path):
     """
-    **Obiettivo**: Verificare che impostare ``filter.truncLen = 100`` su letture
-    di 151 bp (scarto di 51 bp) superi G09 ma emetta l'avviso ``E-S1-01``.
+    **Obiettivo**: Verificare che con ``filter.truncLen = 100`` su letture di
+    151 bp (scarto di 51 bp) G09 passi senza emettere ``E-S1-01``.
 
-    **Razionale Scientifico/Sistemistico**: Troncare eccessivamente non fa
-    perdere campioni ma sacrifica 51 basi utili della regione ipervariabile V4,
-    riducendo la risoluzione tassonomica delle ASV fino al livello di genere/specie.
+    **Razionale Scientifico/Sistemistico**: Lo scarto in difetto si valuta sul
+    minimo vero delle lunghezze, che solo S1 conosce leggendo tutte le letture:
+    su una stima dalle prime ``qc.head_reads`` letture sarebbe sbagliato nei
+    due versi. ``E-S1-01`` e' registrato da S1, non piu' da S0.
     """
     scenario = _scenario(tmp_path, sovrascrivi={"filter": {"truncLen": 100}})
     esito = _esegui(scenario)["G09"]
 
     assert esito.superato
-    assert len(esito.avvisi) == 1
-    assert esito.avvisi[0].codice == "E-S1-01"
-    assert "51 bp" in str(esito.avvisi[0])
+    assert esito.avvisi == ()
 
 
 # --------------------------------------------------------------------------- #

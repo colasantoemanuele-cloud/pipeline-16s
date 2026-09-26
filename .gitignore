@@ -16,6 +16,10 @@
 # di esecuzione, e vanno tracciate senza ricorrere a git add -f.
 !tests/**/*.rds
 !tests/**/*.RDS
+# Stessa eccezione per le letture della versione ridotta del sottoinsieme di
+# prova: pochi megabyte, sottocampionati da dati pubblici, e la catena di
+# integrazione continua non ha altro su cui eseguire le fasi.
+!tests/fixtures/**/*.fastq.gz
 results/
 output/
 outputs/
