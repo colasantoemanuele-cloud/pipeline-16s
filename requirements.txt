@@ -1,3 +1,45 @@
-# Dipendenze di runtime per pipeline-16s (OSD-734)
+# ==============================================================================
+# REQUISITI GLOBALI DELLA PIPELINE AMPLICON16S (NASA GeneLab OSD-734)
+# ==============================================================================
+# Questo file censisce l'intero stack software del progetto (Python + R).
+# Le dipendenze Python sono attive per l'installazione automatica tramite pip.
+# I pacchetti R e Bioconductor sono congelati con le relative versioni esatte e
+# gestiti in modo riproducibile tramite 'renv.lock' e 'container/Dockerfile'.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. AMBIENTE PYTHON (>= 3.11) - Orchestrazione, Validazione e Stato
+# ------------------------------------------------------------------------------
+# Lettura configurazione YAML
 pyyaml==6.0.3
+
+# Validazione formale dei tipi, vincoli di dominio e Gate G15
 pydantic==2.13.5
+
+# Framework di collaudo unitario e integrazione (presente in requirements-dev.txt)
+# pytest==9.1.1
+
+
+# ------------------------------------------------------------------------------
+# 2. AMBIENTE R (4.5.2) & BIOCONDUCTOR (3.21) - Calcolo Scientifico e Genomico
+# ------------------------------------------------------------------------------
+# I seguenti pacchetti sono gestiti tramite il motore R / renv.lock:
+#
+# dada2==1.36.0            Filtro qualita, stima tassi d'errore, inferenza ASV, rimozione chimere
+# phyloseq==1.52.0         Integrazione matrici di abbondanza, tassonomia e metadati ISA-Tab
+# DECIPHER==3.4.0          Allineamento multiplo delle sequenze e filogenesi (Fase S9)
+# decontam==1.28.0         Identificazione statistica contaminanti tramite controlli negativi
+# phangorn==2.12.1         Costruzione e stima dell'albero filogenetico di massima verosimiglianza
+# jsonlite==2.0.0          Ponte di comunicazione atomico (rbridge) per lo scambio I/O con Python
+# Biostrings==2.76.0       Manipolazione ad alte prestazioni di sequenze biologiche e pattern matching
+# ShortRead==1.66.0        Input, campionamento ed elaborazione streaming di archivi FASTQ
+# vegan==2.7-6             Metodi di ordinamento ecologico e analisi di diversita di comunita
+# ggplot2==4.0.3           Generazione profili di qualita Phred e visualizzazioni diagnostiche
+
+
+# ------------------------------------------------------------------------------
+# 3. REQUISITI DI SISTEMA E CONTAINERIZZAZIONE
+# ------------------------------------------------------------------------------
+# - Docker / Apptainer (ambiente multi-linguaggio riproducibile via container/Dockerfile)
+# - Rscript (disponibile nel PATH o puntato da AMPLICON16S_RSCRIPT)
+# - libcurl / openssl (supporto di sistema per I/O e rete)
