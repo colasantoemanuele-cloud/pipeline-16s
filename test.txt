@@ -1,0 +1,649 @@
+================================================================================
+GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
+Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
+Piano Operativo: Settimane W1 - W9 (Fasi F1, F2, F3)
+================================================================================
+
+1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
+================================================================================
+
+1.1 Attivazione dell'ambiente virtuale
+--------------------------------------------------------------------------------
+Prima di eseguire qualsiasi test o comando della pipeline, è obbligatorio
+attivare l'ambiente virtuale Python 3.11 dedicato, situato alla radice del
+repository:
+
+    source .venv/bin/activate
+
+L'attivazione garantisce l'utilizzo delle versioni bloccate di Python, Pydantic,
+PyYAML e Pytest, isolando l'esecuzione dal sistema operativo ospite.
+
+1.2 Esecuzione globale dell'intera suite di test
+--------------------------------------------------------------------------------
+Per eseguire in un colpo solo tutti i test unitari, strutturali e di
+integrazione del progetto con output dettagliato ( un test per riga ), lanciare:
+
+    pytest tests/ -v
+
+Totale complessivo della suite: ~668 test (circa 646 sempre attivi in modalità
+locale/CI in circa 15-20 secondi + 22 test sui dati reali OSD-734 da 2.4 GB).
+
+Per includere anche i 22 test end-to-end sui 960 file FASTQ reali di OSD-734,
+impostare la variabile d'ambiente che punta al file di configurazione reale:
+
+    AMPLICON16S_CONFIG_DATI_REALI=/percorso/a/config_osd734.yaml pytest tests/ -v
+
+1.3 Interpretazione degli esiti di Pytest
+--------------------------------------------------------------------------------
+Durante l'esecuzione con il flag verboso (-v), Pytest riporta per ciascuna
+funzione di test uno dei seguenti tre stati:
+
+  * PASSED (in verde):
+    Il test ha verificato con successo tutte le asserzioni tecniche,
+    scientifiche e di integrità previste.
+
+  * SKIPPED (in giallo):
+    Il test è stato saltato intenzionalmente e in modo controllato. Nella suite
+    questo accade esclusivamente per 'tests/test_dati_reali.py' quando la
+    variabile 'AMPLICON16S_CONFIG_DATI_REALI' non è definita (ad esempio su
+    macchine portatili o nei runner di Continuous Integration privi dei 2.4 GB
+    di sequenze FASTQ della NASA). Non indica un difetto del codice.
+
+  * FAILED (in rosso):
+    Una regola del contratto bioinformatico o sistemistico è stata violata.
+    Pytest mostra l'asserzione fallita, i valori attesi rispetto a quelli
+    ottenuti e la riga esatta del guasto.
+
+1.4 Nota metodologica su 'tests/conftest.py'
+--------------------------------------------------------------------------------
+Il file 'tests/conftest.py' non contiene funzioni 'def test_*' e pertanto non
+si lancia autonomamente da riga di comando. Esso costituisce tuttavia il modulo
+fondamentale di infrastruttura dell'intera suite: Pytest lo carica
+automaticamente prima di ogni sessione per mettere a disposizione le fixture
+condivise ('dati_esempio', 'config_esempio') e il generatore di dataset
+sintetici ('crea_scenario_s0').
+
+Scelta progettuale difendibile davanti al relatore: invece di utilizzare "mock"
+in memoria che simulano l'I/O, 'tests/conftest.py' scrive su disco temporaneo
+reale ('tmp_path') archivi compressi '.fastq.gz' a 4 righe canoniche, tabelle
+metadati ISA-Tab separate da tabulazione, database tassonomici FASTA, file di
+checksum MD5 e script eseguibili R. In questo modo ogni gate e ogni passo della
+pipeline vengono collaudati esercitando realmente il filesystem POSIX, il
+decompressore gzip e i sottoprocessi di sistema.
+
+
+================================================================================
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W9)
+================================================================================
+
+--------------------------------------------------------------------------------
+SETTIMANE 1 E 2 (W1-W2) : PACKAGING, SMOKE TEST E CLI BASE
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimane W1 e W2, Fase F1 (Impalcatura del repository, separazione dei
+    namespace, ambiente riproducibile e interfaccia a riga di comando).
+
+  * FILE DI TEST:
+    tests/test_import.py
+
+  * COSA VALUTA:
+    Verifica l'importabilità a freddo dei due pacchetti Python distinti
+    ('amplicon16s' per l'orchestrazione della pipeline e 'amplicon16s_eco' per
+    le analisi ecologiche a valle), la presenza e validità dell'attributo
+    '__version__' e il contratto della riga di comando (CLI). Collauda l'entry
+    point principale e tutti e quattro i sottocomandi ('run', 'resume',
+    'validate', 'report') verificando che rispondano con codice di uscita 0
+    alla richiesta di aiuto ('--help') e che respingano con codice di uscita 2
+    (errore standard UNIX di sintassi CLI) le invocazioni prive dell'argomento
+    obbligatorio '--config' o con sottocomandi inesistenti.
+
+  * COMANDO BASH:
+    pytest tests/test_import.py -v
+
+  * RISULTATO ATTESO:
+    10 passed in ~0.20s
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Prevenzione di dipendenze circolari: garantisce fin dalla Settimana 1 che
+       l'albero dei moduli sia importabile senza cicli e che il motore di
+       costruzione delle matrici di abbondanza ('amplicon16s') resti
+       architetturalmente disaccoppiato dalle analisi ecologiche
+       ('amplicon16s_eco').
+    2. Sicurezza negli scheduler HPC: in un cluster di calcolo (SLURM/PBS), uno
+       script di sottomissione con un flag errato o '--config' mancante deve
+       abortire istantaneamente con codice 2 prima di allocare nodi di calcolo
+       o toccare il disco.
+
+
+--------------------------------------------------------------------------------
+SETTIMANA 3 (W3) : SCHEMA DI CONFIGURAZIONE PYDANTIC
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W3, Fase F1 (Contratto formale dei parametri di configurazione,
+    tipizzazione forte e immutabilità a runtime).
+
+  * FILE DI TEST:
+    tests/test_config_schema.py (Sezione validazione schema e modelli Pydantic)
+
+  * COSA VALUTA:
+    Verifica la struttura delle 22 sezioni del modello 'PipelineConfig' e la
+    perfetta aderenza del file 'config/config.example.yaml' ai parametri del
+    dataset OSD-734. Controlla che i 9 campi obbligatori dipendenti dal sistema
+    o dallo studio (percorsi dei dati, directory di output, lunghezze di
+    troncamento, sequenza del primer) non abbiano valori predefiniti silenziosi,
+    che ogni chiave sconosciuta o mal digitata venga respinta ('extra="forbid"'),
+    che i domini numerici siano rispettati (frazioni in [0, 1], interi positivi,
+    distinzione rigorosa tra int e float) e che l'istanza validata sia
+    congelata in memoria ('frozen=True').
+
+  * COMANDO BASH:
+    pytest tests/test_config_schema.py -k "not g15 and not derivati" -v
+
+  * RISULTATO ATTESO:
+    42 passed in ~0.25s
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Protezione dai refusi di battitura ('extra="forbid"'): nelle pipeline
+       bioinformatiche tradizionali, se un ricercatore scrive nel file YAML
+       'maxEEE: 2.0' (con tre E) pensando di rilassare il filtro sugli errori
+       attesi di DADA2, il parser ignora la chiave sconosciuta e applica in
+       silenzio il default 'maxEE: 1.0', invalidando l'esperimento. Qui la
+       pipeline si ferma immediatamente segnalando il refuso.
+    2. Immutabilità ('frozen=True'): garantisce che nessuna funzione Python
+       possa alterare per errore i parametri scientifici durante la corsa,
+       preservando la corrispondenza tra la configurazione dichiarata e i
+       risultati prodotti.
+
+
+--------------------------------------------------------------------------------
+SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W4, Fase F1 (Validazione incrociata pre-esecuzione G15, calcolo
+    dei parametri derivati, digest crittografico e '00_config/resolved.yaml').
+
+  * FILE DI TEST:
+    tests/test_config_schema.py (Sezione Gate G15, parametri derivati e digest)
+
+  * COSA VALUTA:
+    Verifica tutti i 9 controlli incrociati del Gate G15 (codici da 'E-G15-01'
+    a 'E-G15-09'), il calcolo deterministico dei parametri derivati statici
+    ('filter.minLen', 'asv.len_min' e 'asv.len_max', derivati da 'asv.len_tol'
+    e 'filter.truncLen' e pari a 137 bp su OSD-734) e del parametro derivato
+    dinamico ('prev.min_samples' tramite arrotondamento per eccesso 'math.ceil'),
+    oltre alla generazione del digest canonico SHA-256 e alla scrittura
+    immutabile di '00_config/resolved.yaml'.
+
+  * COMANDO BASH:
+    pytest tests/test_config_schema.py -k "g15 or derivati or digest or resolved" -v
+
+  * RISULTATO ATTESO:
+    40 passed in ~0.25s (Totale complessivo di tests/test_config_schema.py:
+    82 passed in ~0.45s)
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Coerenza tra parametri (Gate G15): due parametri possono essere validi
+       singolarmente ma assurdi se combinati (ad esempio, tagliare in 5' con
+       'trimLeft=140' quando si tronca a 'truncLen=137', producendo letture di
+       lunghezza negativa, oppure impostare la soglia di avviso chimere sopra
+       quella di arresto). G15 intercetta queste incoerenze a tempo zero, prima
+       di aprire un solo file FASTQ.
+    2. Arrotondamento per eccesso ('math.ceil') sul filtro di prevalenza: con
+       una soglia dell'1% su 101 campioni biologici (1.01), un arrotondamento
+       per difetto darebbe 1 solo campione, permettendo ai "singleton" (artefatti
+       da errore di sequenziamento presenti in un unico campione) di superare
+       il filtro di prevalenza. Con 'math.ceil(1.01) = 2' si garantisce il
+       rigore matematico della soglia minima.
+
+
+--------------------------------------------------------------------------------
+SETTIMANA 5 (W5) : CATALOGO ERRORI, LOGGING JSONL, INTEGRITA' I/O E PONTE R
+--------------------------------------------------------------------------------
+
+5.1 Catalogo centralizzato degli errori (47 codici)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  * SETTIMANA E FASE:
+    Settimana W5, Fase F1 (Tassonomia formale degli errori e gerarchia delle
+    eccezioni della pipeline).
+
+  * FILE DI TEST:
+    tests/test_errors_catalog.py
+
+  * COSA VALUTA:
+    Ispeziona sistematicamente tutti i 47 codici del catalogo ('CATALOGO': 33
+    codici di fase S0-S14, 9 codici di configurazione G15, 4 codici del ponte
+    verso R 'E-R-01..04' e 1 codice del grafo 'E-GRAFO-01'). Verifica che ogni
+    codice appartenga a una delle 4 categorie formali ('revisione_umana',
+    'retry', 'retry_poi_revisione', 'degradazione'), possieda un messaggio
+    diagnostico non banale (> 30 caratteri) che prescriva un'azione operativa
+    concreta e si mappi sulla sottoclasse corretta di 'ErrorePipeline'. Verifica
+    inoltre che la whitelist dei codici ripetibili ('CODICI_RIPETIBILI') sia
+    chiusa ermeticamente ai soli 4 codici tecnici 'E-S2-03', 'E-S3-01',
+    'E-S4-02', 'E-S5-01' e che i restanti 43 codici non ammettano mai il retry.
+
+  * COMANDO BASH:
+    pytest tests/test_errors_catalog.py -v
+
+  * RISULTATO ATTESO:
+    272 passed in ~0.35s
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
+       tenta mai di "aggiustare" automaticamente un problema scientifico (come
+       la contaminazione massiva dei controlli negativi o il fallimento della
+       tassonomia SILVA), per i quali impone l'arresto a revisione umana. Il
+       retry automatico è confinato ai soli 4 casi in cui il rimedio modifica
+       l'allocazione computazionale (ridurre 'batch_size' per rientrare nella
+       RAM o aumentare 'nbases' per far convergere la stima parametrica) senza
+       alterare le ipotesi biologiche.
+
+5.2 Gestione degli artefatti, albero delle 14 cartelle e manifesti SHA-256
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  * SETTIMANA E FASE:
+    Settimana W5, Fase F1 (Strato di persistenza I/O, checksum streaming e
+    manifesti crittografici).
+
+  * FILE DI TEST:
+    tests/test_artifacts.py
+
+  * COSA VALUTA:
+    Verifica la creazione ordinata delle 14 cartelle canoniche di output (da
+    '00_config' a '12_final' più '99_logs'), il calcolo dell'impronta SHA-256
+    a blocchi (streaming a memoria costante), la scrittura atomica di
+    'manifest.json' con chiavi ordinate lessicograficamente, la registrazione
+    degli artefatti prodotti sia da Python sia da R e il rilevamento immediato
+    di file mancanti, troncati a zero byte o manomessi anche per un solo byte.
+
+  * COMANDO BASH:
+    pytest tests/test_artifacts.py -v
+
+  * RISULTATO ATTESO:
+    25 passed in ~0.25s
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Determinismo del manifesto ('sort_keys=True'): quando più thread
+       scrivono file in parallelo, l'ordine temporale di completamento varia a
+       ogni corsa. Ordinando lessicograficamente le voci del manifesto prima di
+       calcolarne l'impronta, l'hash dipende solo dal contenuto scientifico dei
+       file e mai dall'ordine di scheduling del sistema operativo, evitando
+       falsi positivi che farebbero ricalcolare da zero fasi di ore.
+
+5.3 Logging strutturato a doppio canale (Console + JSON Lines con rotazione)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  * SETTIMANA E FASE:
+    Settimana W5, Fase F1 (Osservabilità, audit trail JSONL e rotazione).
+
+  * FILE DI TEST:
+    tests/test_logging.py
+
+  * COSA VALUTA:
+    Verifica l'architettura a doppio canale del logger: 'StreamHandler' umano
+    su console e 'RotatingFileHandler' strutturato in formato JSON Lines sotto
+    '99_logs/pipeline.jsonl'. Controlla la presenza dei campi obbligatori in
+    ogni record JSON ('timestamp' UTC ISO-8601, 'livello', 'messaggio', 'fase',
+    'codice', 'categoria'), la serializzazione sicura ('default=str') di tipi
+    complessi come 'pathlib.Path' ed 'Enum', l'assenza di duplicazione degli
+    handler in caso di riconfigurazione e l'attivazione automatica della
+    rotazione su file '.jsonl.1', '.jsonl.2' al superamento della soglia di
+    dimensione.
+
+  * COMANDO BASH:
+    pytest tests/test_logging.py -v
+
+  * RISULTATO ATTESO:
+    14 passed in ~0.25s
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Auditabilità post-mortem e protezione del disco: su 960 campioni un log
+       testuale libero diventa illeggibile; il formato JSON Lines permette di
+       estrarre istantaneamente tutti gli avvisi o i tempi di calcolo per fase
+       tramite query strutturate ('jq' o Pandas), mentre il 'RotatingFileHandler'
+       impedisce che log prolissi saturino la partizione di disco facendo
+       fallire la scrittura delle matrici ASV finali.
+
+5.4 Ponte verso R ('rbridge') isolato a processi separati
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  * SETTIMANA E FASE:
+    Settimana W8 (architetturato in F1/W5 e completato in F3/W8), Ponte verso R
+    ('src/amplicon16s/rbridge/' e librerie condivise 'R/lib/').
+
+  * FILE DI TEST:
+    tests/test_rbridge.py
+
+  * COSA VALUTA:
+    Collauda l'esecuzione di script R reali tramite sottoprocessi di sistema
+    isolati ('Rscript --vanilla') in una nuova sessione POSIX
+    ('start_new_session=True'). Verifica lo scambio su disco tramite il
+    contratto JSON ('richiesta_<fase>.json' e 'esito_<fase>.json' scritto in
+    modo atomico con rinomina e vincolato da un UUID univoco di invocazione),
+    la cattura dell'esaurimento di memoria (OOM) nelle sue tre manifestazioni
+    (errore intercettato da 'tryCatch' in R, 'std::bad_alloc' C++ su stderr e
+    uccisione brutale del figlio tramite 'SIGKILL' 137/-9 da parte dell'OOM
+    killer di Linux), l'imposizione di 'LANGUAGE=en' e 'LC_ALL=C' e l'uccisione
+    dell'intero process group ('os.killpg') allo scadere del timeout.
+
+  * COMANDO BASH:
+    pytest tests/test_rbridge.py -v
+
+  * RISULTATO ATTESO:
+    ~60 test (56 passed eseguiti con successo, dipendenti dall'ambiente R,
+    in ~10.50s)
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Perché non usiamo 'rpy2' in-process: librerie come DADA2 e DECIPHER
+       eseguono codice C/C++ compilato; un 'segmentation fault' o un
+       esaurimento di memoria dentro 'rpy2' ucciderebbe istantaneamente anche
+       il processo Python orchestratore, perdendo lo stato della corsa. Con
+       'rbridge' a processi separati, il processo R figlio muore ma Python
+       resta intatto, intercetta la morte del figlio, dimezza 'batch_size' e
+       rilancia la fase automaticamente.
+    2. Prevenzione dei falsi positivi da "file stantio" (UUID): se una fase R
+       viene rilanciata dopo un primo successo e al secondo tentativo muore di
+       SIGKILL prima di scrivere il file di esito, la presenza sul disco del
+       vecchio 'esito_ok.json' ingannerebbe la pipeline. L'UUID univoco per
+       invocazione invalida qualsiasi file d'esito residuo di corse precedenti.
+    3. Indipendenza dalla lingua ('LANGUAGE=en'): su un server configurato in
+       italiano o tedesco, R tradurrebbe "cannot allocate vector of size" in
+       "impossibile allocare un vettore", impedendo il riconoscimento dell'OOM.
+       Forzare la lingua inglese nel sottoprocesso rende la diagnosi
+       deterministica su qualunque macchina.
+
+
+--------------------------------------------------------------------------------
+SETTIMANA 6 (W6) : CROSSWALK METADATI, CONTROLLI E JOIN RISTRETTO
+--------------------------------------------------------------------------------
+
+6.1 Crosswalk FASTQ / Assay / Study, classi dei controlli e moduli ISS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  * SETTIMANA E FASE:
+    Settimana W6, Fase F2 (Allineamento metadati ISA-Tab GeneLab, estrazione
+    degli accession e classificazione dei campioni).
+
+  * FILE DI TEST:
+    tests/test_crosswalk.py
+
+  * COSA VALUTA:
+    Verifica l'estrattore di accession ('estrai_accession' con 're.finditer'),
+    il costruttore del crosswalk ('costruisci_crosswalk'), la validazione dei
+    Gate G04 (corrispondenza bidirezionale tra file '.fastq.gz' e Assay Table),
+    G05 (unicità degli accession), G06 (presenza dei controlli negativi per
+    decontam) e G11 (copertura delle colonne obbligatorie), la precedenza di
+    attribuzione del modulo della Stazione Spaziale Internazionale (file
+    supplementare rispetto a regex sulla posizione, con esclusione delle
+    posizioni non superficiali come l'aria) e l'indicizzazione primaria per
+    accession anziché per 'Sample Name'.
+
+  * COMANDO BASH:
+    pytest tests/test_crosswalk.py -v
+
+  * RISULTATO ATTESO:
+    42 passed in ~0.35s
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Indicizzazione per Accession contro 'Sample Name': in OSD-734 lo stesso
+       'Sample Name' biologico compare più volte nella tabella di assay quando
+       un tampone è stato ri-estratto o ri-sequenziato su piastre diverse. Se
+       il dizionario usasse 'Sample Name' come chiave primaria, le repliche
+       tecniche si sovrascriverebbero silenziosamente in memoria, attribuendo
+       a una corsa i metadati di piastra di un'altra e falsando la
+       decontaminazione per batch di 'decontam'.
+    2. Isolamento ecologico Superfici contro Aria: i campioni di aria ('AIR')
+       e i dispositivi chiusi (' Pouches') non rappresentano superfici fisiche
+       di un modulo abitativo ISS; lasciarli raggruppati insieme ai tamponi di
+       parete introdurrebbe un confondente ecologico grave nelle analisi di
+       beta-diversità per modulo.
+
+6.2 Join ristretto dall'Assay Table verso la Study Table multi-omica
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  * SETTIMANA E FASE:
+    Settimana W6, Fase F2 (Integrità relazionale sui repository multi-assay
+    NASA GeneLab/OSDR e Gate G03).
+
+  * FILE DI TEST:
+    tests/test_join_restricted.py
+
+  * COSA VALUTA:
+    Verifica il comportamento del Gate G03 e del motore di join quando la
+    'Study Table' contiene un sovrainsieme di righe appartenenti ad altri saggi
+    dello stesso studio (metagenomica shotgun, metabolomica, controlli di
+    solvente chimico) privi di file FASTQ 16S. Dimostra che un join inverso o
+    full outer join includerebbe campioni estranei facendo esplodere a valle i
+    Gate G04 e G11, mentre il join ristretto (left join guidato unicamente
+    dagli accession dell'Assay Table 16S) isola esattamente i campioni
+    dell'amplicone, intercettando comunque con 'E-S0-03' l'eventuale assenza
+    di un campione 16S nella Study Table.
+
+  * COMANDO BASH:
+    pytest tests/test_join_restricted.py -v
+
+  * RISULTATO ATTESO:
+    7 passed in ~0.20s
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Caso reale OSD-734 (1.072 righe contro 960): nel pacchetto ufficiale
+       NASA GeneLab OSD-734, la tabella di studio ('s_OSD-734.txt') elenca
+       1.072 campioni complessivi, inclusi controlli di solvente con
+       'Material Type = solvent control' non pertinenti al 16S. Senza il join
+       ristretto all'Assay Table 16S (960 campioni), la pipeline tenterebbe di
+       validare 112 campioni fantasma privi di letture, bloccando l'intero
+       studio per un falso allarme relazionale.
+
+
+--------------------------------------------------------------------------------
+SETTIMANA 7 (W7) : I 15 GATE DI INGRESSO, FASE S0 E DATI REALI OSD-734
+--------------------------------------------------------------------------------
+
+7.1 Batteria completa dei 15 Gate di ingresso (G01-G15) e Fase S0 su scenari sintetici
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  * SETTIMANA E FASE:
+    Settimana W7, Fase F2 (Validazione pre-esecuzione S0, ispezione biofisica
+    delle sequenze e produzione degli artefatti in '01_input_validation/').
+
+  * FILE DI TEST:
+    tests/test_gates.py
+
+  * COSA VALUTA:
+    Collauda l'esecuzione ordinata e fail-fast della sequenza 'G15 -> G01..G14':
+    esistenza e leggibilità delle directory e tabelle (G01-G02), join ristretto
+    (G03), corrispondenza FASTQ-Assay (G04), unicità accession (G05), presenza
+    controlli negativi (G06), rifiuto di file paired-end '_R2' in configurazione
+    single-end (G07), avviso di degradazione 'E-S0-15' per piastre con meno di
+    2 blank (G08), compatibilità di 'truncLen' con il 10° percentile delle
+    lunghezze osservate (G09), assenza del primer 515F in 5' accoppiata al
+    controllo positivo della regione conservata V4 valutato sulla mediana dei
+    campioni (G10), completezza metadati (G11), integrità MD5 dei database
+    SILVA (G12), integrità strutturale gzip/FASTQ a 4 righe (G13) e risorse
+    hardware CPU/RAM/disco (G14). Verifica infine la generazione dei 4 artefatti
+    di S0 in '01_input_validation/' ('gates.json', 'crosswalk.tsv',
+    'inventario.json', 'letture_ispezionate.tsv') e il ricalcolo di
+    'prev.min_samples' sui soli campioni biologici.
+
+  * COMANDO BASH:
+    pytest tests/test_gates.py -v
+
+  * RISULTATO ATTESO:
+    44 passed in ~1.20s
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Perché il Gate G10 usa un controllo positivo (motivo V4) oltre all'assenza
+       del primer: verificare solo che il primer 515F non sia in 5' non basta,
+       perché un file FASTQ di un altro organismo o già troncato nella regione
+       sbagliata non avrebbe comunque il primer. Cercare la firma conservata V4
+       garantisce che le letture provengano davvero dal gene 16S rRNA atteso.
+    2. Perché la firma V4 compare anche nei controlli negativi (blank): nei
+       tamponi bianchi privi di DNA del campione, la polimerasi amplifica le
+       tracce di DNA batterico residuo dei reagenti di estrazione ("kitome").
+       È quindi biologicamente normale e atteso che anche i blank contengano
+       autentici ampliconi 16S V4 che verranno poi sottratti in Fase S12 da
+       'decontam'.
+
+7.2 Validazione end-to-end sul dataset reale NASA GeneLab OSD-734 (960 campioni)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  * SETTIMANA E FASE:
+    Settimana W7, Fase F2 (Collaudo empirico su scala reale dei 960 file
+    FASTQ della Stazione Spaziale Internazionale).
+
+  * FILE DI TEST:
+    tests/test_dati_reali.py
+
+  * COSA VALUTA:
+    Esegue il crosswalk e l'intera Fase S0 direttamente sui 960 file
+    '.fastq.gz' reali di OSD-734 (2.4 GB compressi). Verifica i conteggi esatti
+    dello studio: 960 campioni 16S totali estratti dalla Study Table di 1.072
+    righe, ripartiti esattamente in 803 campioni biologici, 80 controlli
+    positivi e 77 controlli negativi (somma controlli: 80 + 77 = 157),
+    distribuiti su 10 piastre da 96 pozzetti (10 x 96 = 960 librerie) e 2 corse
+    di sequenziamento Illumina MiSeq. Verifica inoltre la differenza di
+    copertura dei moduli ISS con e senza file supplementare (9 moduli con
+    Airlock 'A/L1' contro 8 moduli via regex), il denominatore del filtro di
+    prevalenza fissato a 803 (`prev.min_samples = ceil(0.01 * 803) = 9`) e il
+    tempo complessivo di esecuzione di S0 inferiore a 30 secondi grazie al
+    campionamento 'head_reads'.
+
+  * COMANDO BASH:
+    AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml pytest tests/test_dati_reali.py -v
+    (Se lanciato senza variabile d'ambiente: 'pytest tests/test_dati_reali.py -v'
+    termina in 0.05s riportando 22 SKIPPED).
+
+  * RISULTATO ATTESO:
+    22 test (22 passed in ~24.00s con dataset reale OSD-734 collegato;
+    22 skipped se non è presente AMPLICON16S_CONFIG_DATI_REALI)
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Esclusione dei 157 controlli (80 positivi + 77 negativi) dal denominatore
+       di prevalenza: se il calcolo dell'1% di prevalenza usasse tutti i 960
+       file anziché i soli 803 campioni biologici, la soglia salirebbe da 9 a
+       10 campioni (`ceil(9.6)`), filtrando via taxa rari ma autenticamente
+       presenti nell'ecosistema della Stazione Spaziale Internazionale per
+       colpa del numero di provette di controllo inserite dai tecnici di
+       laboratorio.
+
+
+--------------------------------------------------------------------------------
+SETTIMANE 8 E 9 (W8-W9) : GRAFO DAG, PROPAGAZIONE INVALIDITA' E RIPRESA
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimane W8 e W9, Fase F3 (Classe base 'PipelineStep', grafo orientato
+    aciclico delle 15 fasi S0-S14 e ripresa deterministica da filesystem).
+
+  * FILE DI TEST:
+    tests/test_graph_resume.py
+
+  * COSA VALUTA:
+    Verifica il ciclo di vita standardizzato da 'PipelineStep' (Template Method:
+    verifica prerequisiti -> calcolo -> validazione fisica e SHA-256 degli
+    artefatti -> scrittura atomica di 'manifest_S<n>.json'), la struttura del
+    grafo a 15 fasi distribuite su 14 cartelle di output, l'obbligatorietà
+    metodologica di tutte le fasi tranne la filogenesi S9 (governata da
+    'phylo.enabled'), il vincolo di precedenza 'S12 -> S13' presidiato dal
+    codice specifico 'E-S13-01', l'isolamento dei manifesti nelle 3 cartelle
+    condivise da due fasi ('07_chimera' per S7/S8, '11_controls' per S11/S12,
+    '12_final' per S13/S14), l'invalidazione selettiva a cascata lungo gli
+    archi del DAG quando un artefatto o un parametro a monte cambia, e
+    l'invarianza dell'impronta rispetto ai 4 parametri puramente operativi
+    ('run.threads', 'io.out_root', 'retry.enabled', 'retry.max_attempts').
+
+  * COMANDO BASH:
+    pytest tests/test_graph_resume.py -v
+
+  * RISULTATO ATTESO:
+    46 passed in ~1.10s
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Perché S12 (decontam) deve precedere obbligatoriamente S13 (filtro di
+       prevalenza): se filtrassimo per prevalenza prima di aver rimosso i
+       contaminanti da reagente, i batteri del "kitome" (presenti in quasi
+       tutti i campioni perché introdotti dal kit di estrazione) supererebbero
+       a pieni voti la soglia di prevalenza e altererebbero le proporzioni
+       compositive. Il grafo cabla strutturalmente 'S12 -> S13' e solleva
+       'E-S13-01' se S12 non è conclusa.
+    2. Isolamento nelle cartelle condivise ('manifest_S<n>.json'): le fasi S11
+       (profilatura controlli) e S12 (decontaminazione) scrivono entrambe nella
+       cartella '11_controls/'. Se il completamento fosse letto dal manifesto
+       di cartella anziché dal manifesto specifico di passo ('manifest_S11.json'
+       e 'manifest_S12.json'), la conclusione di S11 farebbe apparire già
+       conclusa anche S12, saltando silenziosamente la decontaminazione.
+    3. Portabilità e cambio thread a costo zero: spostare la cartella di una
+       corsa conclusa da un server di calcolo al portatile del tesista (cambiando
+       'io.out_root' e 'run.threads') non invalida i manifesti e non costringe
+       a ricalcolare alcuna fase scientifica.
+
+
+--------------------------------------------------------------------------------
+SETTIMANA 9 (W9) : POLITICA DI RETRY AUTOMATICO, PUNTO DI RIPRESA E CLI
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W9, Fase F3 (Esecutore del grafo, azioni correttive automatiche,
+    gestione delle degradazioni, punto di ripresa e versionamento di
+    '00_config/resolved_<n>.yaml').
+
+  * FILE DI TEST:
+    tests/test_retry_policy.py
+
+  * COSA VALUTA:
+    Verifica la politica di retry automatico ('runner/retry.py' ed
+    'executor.py'): conteggio di 'retry.max_attempts' come tentativi totali
+    compreso il primo, applicazione delle sole 2 azioni correttive ammesse
+    (dimezzamento di 'run.batch_size' per errori di memoria 'E-S2-03'/'E-S4-02'
+    e raddoppio di 'err.nbases' per mancata convergenza 'E-S3-01') su una copia
+    effimera in memoria della configurazione, registrazione degli aggiustamenti
+    nel manifesto della fase e nel log JSONL, arresto immediato sui codici a
+    revisione umana, generazione di '99_logs/punto_di_ripresa.json' e '.txt' in
+    caso di arresto (codice di uscita CLI 4), registrazione non bloccante delle
+    degradazioni ('E-S0-15', 'E-S1-01', 'E-S6-02', 'E-S11-02'), rifiuto di
+    sovrascrittura da parte di 'amplicon16s run' su directory non vuote (codice
+    di uscita 3) e archiviazione progressiva 'resolved_2.yaml', 'resolved_3.yaml'
+    durante 'resume' quando cambiano parametri operativi.
+
+  * COMANDO BASH:
+    pytest tests/test_retry_policy.py -v
+
+  * RISULTATO ATTESO:
+    44 passed in ~1.50s
+
+  * DIFESA DAVANTI AL RELATORE (I punti chiave):
+    1. Perché non si ritenta mai a parametri identici: in una pipeline
+       deterministica, rilanciare una fase fallita per 'Out-Of-Memory' con gli
+       stessi identici parametri produrrebbe lo stesso identico crash,
+       sprecando ore di calcolo. L'esecutore autorizza un nuovo tentativo solo
+       se la fase dichiara un'azione correttiva che riduce il carico di memoria
+       ('batch_size' dimezzato) o amplia il campione di apprendimento ('nbases'
+       raddoppiato), senza mai modificare il file 'config.yaml' dell'utente.
+    2. Perché una fase riuscita al secondo tentativo resta giudicata sulla
+       configurazione dichiarata: se il manifesto registrasse l'impronta della
+       configurazione "aggiustata" (con 'batch_size = 50') anziché quella
+       dichiarata dall'utente ('batch_size = 100'), al successivo comando
+       'amplicon16s resume' la pipeline rileverebbe una discrepanza di digest
+       e butterebbe via il risultato appena calcolato. Registrando l'impronta
+       dichiarata e annotando a parte l'aggiustamento applicato, la ripresa
+       riconosce la fase come valida e conserva piena tracciabilità nel report.
+    3. Tracciabilità immutabile delle configurazioni ('resolved_2.yaml'): se
+       dopo un arresto l'operatore riprende la corsa con 'resume' aumentando i
+       thread da 4 a 16, la pipeline non ricalcola le fasi già concluse ma non
+       sovrascrive neppure '00_config/resolved.yaml': scrive accanto
+       '00_config/resolved_2.yaml' annotando la versione precedente e l'elenco
+       esatto dei parametri modificati, garantendo una catena di custodia
+       completa per la revisione scientifica.
+
+
+================================================================================
+3. TABELLA RIEPILOGATIVA DEI COMANDI RAPIDI PER LA REVISIONE
+================================================================================
+
+  Settimana | File di test                 | Test | Comando di verifica rapida
+  ----------+------------------------------+------+-----------------------------------------
+  W1 - W2   | tests/test_import.py         |   10 | pytest tests/test_import.py -v
+  W3 - W4   | tests/test_config_schema.py  |   82 | pytest tests/test_config_schema.py -v
+  W5        | tests/test_errors_catalog.py |  272 | pytest tests/test_errors_catalog.py -v
+  W5        | tests/test_artifacts.py      |   25 | pytest tests/test_artifacts.py -v
+  W5        | tests/test_logging.py        |   14 | pytest tests/test_logging.py -v
+  W5 / W8   | tests/test_rbridge.py        |  ~60 | pytest tests/test_rbridge.py -v
+  W6        | tests/test_crosswalk.py      |   42 | pytest tests/test_crosswalk.py -v
+  W6        | tests/test_join_restricted.py|    7 | pytest tests/test_join_restricted.py -v
+  W7        | tests/test_gates.py          |   44 | pytest tests/test_gates.py -v
+  W7 (Real) | tests/test_dati_reali.py     |   22 | pytest tests/test_dati_reali.py -v
+  W8 - W9   | tests/test_graph_resume.py   |   46 | pytest tests/test_graph_resume.py -v
+  W9        | tests/test_retry_policy.py   |   44 | pytest tests/test_retry_policy.py -v
+  ----------+------------------------------+------+-----------------------------------------
+  TOTALE    | Intera suite (12 moduli)     | ~668 | pytest tests/ -v
+================================================================================
