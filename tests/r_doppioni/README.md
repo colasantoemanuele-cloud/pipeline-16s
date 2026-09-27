@@ -11,5 +11,5 @@ Non sono script di fase e non vanno mai invocati dalla pipeline: stanno qui, fuo
 - `memoria.R`: esaurisce la memoria: con un'allocazione che fallisce sotto il limite
   imposto dal ponte al processo figlio, oppure facendosi uccidere con `SIGKILL`, come
   farebbe il sistema operativo.
-- `parametro_non_ricevuto.R` — legge un parametro che la fase non gli ha passato: la
+- `parametro_non_ricevuto.R`: legge un parametro che la fase non gli ha passato: la
   lettura deve fallire, invece di restituire `NULL` e proseguire con un valore predefinito.

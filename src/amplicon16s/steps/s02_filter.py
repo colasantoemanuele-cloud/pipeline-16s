@@ -150,7 +150,9 @@ class FiltroLetture(PipelineStep):
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("prefiltro", "filtrate")
     #: Tutto il gruppo filter, le due soglie dei controlli sul risultato, e la
     #: dimensione dei lotti con cui i file si passano al filtro: incluso per
-    #: prudenza, come nell'impronta di tutte le fasi.
+    #: prudenza, come nell'impronta di tutte le fasi. Variare filter.maxEE o
+    #: qc.max_frac_lost_filter ricalcola S2 e le fasi a valle (S3+), ma preserva
+    #: interamente S0 e S1 gia' concluse.
     parametri: ClassVar[tuple[str, ...]] = (
         "filter", "qc.max_zeroed_samples", "qc.max_frac_lost_filter", "run.batch_size",
     )

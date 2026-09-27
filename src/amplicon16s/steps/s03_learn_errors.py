@@ -171,7 +171,9 @@ class ModelloErrore(PipelineStep):
     passo: ClassVar[Passo] = Passo.S3
     #: Tutto il gruppo err; il seme per l'ordine dei campioni; troncamento e
     #: taglio iniziale per le basi di ciascuna lettura; io.batch_table, che
-    #: decide se si stima un modello per corsa.
+    #: decide se si stima un modello per corsa. Variare err.nbases o
+    #: err.max_consist ricalcola esclusivamente S3 (e S4+), lasciando validi i
+    #: manifesti di S0, S1 e S2.
     parametri: ClassVar[tuple[str, ...]] = (
         "err", "run.seed", "filter.truncLen", "filter.trimLeft", "io.batch_table",
     )

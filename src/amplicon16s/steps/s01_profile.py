@@ -50,7 +50,9 @@ class ProfiloLetture(PipelineStep):
     passo: ClassVar[Passo] = Passo.S1
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("grezze",)
     #: I profili dipendono solo dalle letture, cioe' da S0; il troncamento e la
-    #: sua tolleranza servono ai controlli E-S1-01 ed E-S1-02.
+    #: sua tolleranza servono ai controlli E-S1-01 ed E-S1-02. Poiche' S1 non
+    #: dichiara filter.maxEE, filter.truncQ ne' il gruppo err, la modifica di
+    #: questi parametri a valle lascia valido il manifesto manifest_S1.json.
     parametri: ClassVar[tuple[str, ...]] = ("filter.truncLen", "filter.truncLen_shortfall_warn")
 
     def calcola(self, contesto: StepContext) -> Produzione:

@@ -32,7 +32,12 @@ __all__ = ["ParametroNonDichiarato", "VistaConfig", "risolta_ristretta"]
 
 
 class ParametroNonDichiarato(LookupError):
-    """Una fase ha letto un parametro che non ha dichiarato."""
+    """Una fase ha letto un parametro che non ha dichiarato.
+
+    Razionale sistemistico: eredita da LookupError anziche' da AttributeError
+    affinche' costrutti come getattr(vista, nome, default) o hasattr(vista, nome)
+    non catturino l'eccezione restituendo silenziosamente un valore predefinito.
+    """
 
 
 def _ammessi(parametri: Iterable[str]) -> tuple[frozenset[str], frozenset[str]]:
@@ -130,6 +135,10 @@ def risolta_ristretta(risolta: ConfigRisolta, parametri: Iterable[str]) -> Confi
     Configurazione e derivati passano per la vista; il digest e la mappa
     completa, che leggerebbero tutto, sollevano ``ParametroNonDichiarato``.
     """
+    # Razionale sistemistico: la sostituzione di config e derivati con le
+    # rispettive viste ristrette mantiene intatti i valori gia' risolti (inclusi
+    # gli aggiustamenti applicati dal retry in memoria), ma impedisce alla fase
+    # di calcolare il digest globale o serializzare l'intera configurazione.
     parametri = tuple(parametri)
     assert {f.name for f in fields(Derivati)} == set(_DERIVATI)
     return ConfigRisolta(

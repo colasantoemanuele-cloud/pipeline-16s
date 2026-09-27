@@ -4,16 +4,16 @@ Inquadramento nel Piano Operativo:
     - **Settimana di riferimento**: **Settimana 5 (W5 : Fase F1: Catalogo degli
       errori, gestione degli artefatti e logging)**.
     - **Scopo del modulo**: Verifica l'integrità formale e metodologica del
-      catalogo centralizzato dei codici di errore (``CATALOGO``, **48 codici totali**:
-      **34 codici di fase** incluso ``E-S1-02``, **4 codici del ponte R**, **1 codice
-      del grafo** e **9 codici del Gate G15**) e della gerarchia di eccezioni
+      catalogo centralizzato dei codici di errore (``CATALOGO``, **49 codici totali**:
+      **35 codici di fase** inclusi ``E-S1-02`` ed ``E-S3-02``, **4 codici del ponte R**,
+      **1 codice del grafo** e **9 codici del Gate G15**) e della gerarchia di eccezioni
       (``ErrorePipeline``). In particolare certifica:
         * Che ogni codice possieda sia una sintesi diagnostica sia un'azione
           operativa prescrittiva in italiano (> 30 caratteri) che indichi
           all'operatore *cosa fare* e non solo *cosa è fallito*;
         * La chiusura ermetica della whitelist dei tentativi ripetuti a
           **esattamente 4 codici** (``E-S2-03``, ``E-S3-01``, ``E-S4-02``,
-          ``E-S5-01``), mentre i restanti **44 codici** non sono ripetibili,
+          ``E-S5-01``), mentre i restanti **45 codici** non sono ripetibili,
           poiché il retry automatico è ammesso solo dove l'azione
           correttiva (es. riduzione di ``run.batch_size`` per OOM) non altera
           alcuna assunzione scientifica dell'analisi;
@@ -25,7 +25,7 @@ Inquadramento nel Piano Operativo:
         * ``src/amplicon16s/errors/catalog.py``
         * ``src/amplicon16s/errors/exceptions.py``
     - **Comando Bash**: ``pytest tests/test_w05_errors_catalog.py -v``
-    - **Risultato atteso**: ``277 passed in ~0.35s``
+    - **Risultato atteso**: ``282 passed in ~0.35s``
 """
 
 from __future__ import annotations

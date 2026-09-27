@@ -32,7 +32,7 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
 4. Comandi Bash e scenari di esecuzione:
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w13_s03_batch.py -v
-       Risultato atteso: 19 test (12 passed in Python, 7 skipped per assenza
+       Risultato atteso: 19 test (11 passed in Python, 8 skipped per assenza
        di dada2/ggplot2/ShortRead in R locale e dei dati reali).
 
     2. Modalita container Docker standard (subset ridotto con Bioconductor):
@@ -63,7 +63,7 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
 
 5. Risultato atteso
 -------------------
-19 test totali (12 passed, 7 skipped in ~0.80s in ambiente locale privo di
+19 test totali (11 passed, 8 skipped in ~0.80s in ambiente locale privo di
 Bioconductor e dei dati reali; 18 passed, 1 skipped nel container CI;
 19 passed nel container con ``AMPLICON16S_CONFIG_DATI_REALI``).
 

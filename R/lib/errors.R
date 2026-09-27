@@ -35,6 +35,9 @@ PROTOCOLLO_PONTE <- 1L
 # predefinito della libreria", cioe' un parametro dimenticato che funziona.
 # Leggerlo solleva invece un errore; un parametro davvero facoltativo si legge
 # con facoltativo(), che lo dice apertamente.
+# Razionale sistemistico: il metodo S3 '$.parametri_dichiarati' e
+# '[[.parametri_dichiarati' intercetta ogni accesso per nome prima che R possa
+# restituire NULL, garantendo la simmetria col contratto VistaConfig di Python.
 `$.parametri_dichiarati` <- function(x, name) {
   valori <- unclass(x)
   if (!name %in% names(valori)) {
@@ -51,6 +54,8 @@ PROTOCOLLO_PONTE <- 1L
   unclass(x)[[i]]
 }
 
+# Consente di interrogare esplicitamente un parametro opzionale restituendo il
+# valore predefinito indicato senza sollevare l'errore di parametro non ricevuto.
 facoltativo <- function(parametri, nome, predefinito = NULL) {
   valori <- unclass(parametri)
   if (nome %in% names(valori)) valori[[nome]] else predefinito

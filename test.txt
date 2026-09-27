@@ -1,13 +1,13 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W12 (Fasi F1, F2, F3, F4)
+Piano Operativo: Settimane W1 - W13 (Fasi F1, F2, F3, F4)
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W12 del Piano Operativo.
+W1 - W13 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -30,10 +30,11 @@ integrazione del progetto con output dettagliato (un test per riga), lanciare:
 
     pytest tests/ -v
 
-Totale complessivo della suite: 730 test su 14 moduli (693 sempre attivi in
-ambiente locale senza Bioconductor/dati reali in circa 19 secondi; 706 nel
-container CI con Bioconductor; 730 con Bioconductor e i 24 test end-to-end su
-dati reali OSD-734 da 2.4 GB).
+Totale complessivo della suite: 769 test su 16 moduli (724 passed e 45 skipped
+in ambiente locale con R base + jsonlite ma senza Bioconductor e dati reali in
+circa 30 secondi; 744 passed e 25 skipped nel container CI con Bioconductor;
+746 passed e 23 skipped in locale con i dati reali OSD-734; 769 passed
+eseguendo l'intera suite nel container con i 2.4 GB di dati reali OSD-734).
 
 Per includere anche i test end-to-end sui 960 file FASTQ reali di OSD-734,
 impostare la variabile d'ambiente che punta al file di configurazione reale:
@@ -52,14 +53,15 @@ funzione di test uno dei seguenti tre stati:
   * SKIPPED (in giallo):
     Il test è stato saltato intenzionalmente e in modo controllato. Nella suite
     questo accade per 'tests/test_w07_dati_reali.py' (22 test) e per i test su
-    dati reali di 'tests/test_w11_s01_profile.py' (1 test) e
-    'tests/test_w12_s02_filter.py' (1 test) quando la variabile
-    'AMPLICON16S_CONFIG_DATI_REALI' non è definita (ad esempio su macchine
-    portatili o nei runner di Continuous Integration privi dei 2.4 GB di
-    sequenze FASTQ della NASA) e per i 13 test R/Bioconductor di
-    'tests/test_w11_s01_profile.py' (7 test) e 'tests/test_w12_s02_filter.py'
-    (6 test) quando si esegue fuori dal container senza i pacchetti 'ShortRead'
-    e 'dada2'. Non indica un difetto del codice.
+    dati reali di 'tests/test_w11_s01_profile.py' (1 test),
+    'tests/test_w12_s02_filter.py' (1 test) e 'tests/test_w13_s03_batch.py'
+    (1 test) quando la variabile 'AMPLICON16S_CONFIG_DATI_REALI' non è definita
+    (ad esempio su macchine portatili o nei runner di Continuous Integration
+    privi dei 2.4 GB di sequenze FASTQ della NASA) e per i 20 test R/Bioconductor
+    di 'tests/test_w11_s01_profile.py' (7 test), 'tests/test_w12_s02_filter.py'
+    (6 test) e 'tests/test_w13_s03_batch.py' (7 test) quando si esegue fuori
+    dal container senza i pacchetti 'ShortRead', 'dada2' e 'ggplot2'. Non indica
+    un difetto del codice.
 
   * FAILED (in rosso):
     Una regola del contratto bioinformatico o sistemistico è stata violata.
@@ -85,7 +87,7 @@ decompressore gzip e i sottoprocessi di sistema.
 
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W12)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W13)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -213,33 +215,33 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
 --------------------------------------------------------------------------------
 
-5.1 Catalogo centralizzato degli errori (48 codici)
+5.1 Catalogo centralizzato degli errori (49 codici)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   * SETTIMANA E FASE:
-    Settimana W5 (esteso in W11), Fase F1/F4 (Tassonomia formale degli errori e
-    gerarchia delle eccezioni della pipeline).
+    Settimana W5 (esteso in W11 e W13), Fase F1/F4 (Tassonomia formale degli
+    errori e gerarchia delle eccezioni della pipeline).
 
   * FILE DI TEST:
     tests/test_w05_errors_catalog.py
 
   * COSA VALUTA:
-    Ispeziona sistematicamente tutti i 48 codici del catalogo ('CATALOGO': 34
-    codici di fase S0-S14 incluso 'E-S1-02', 9 codici di configurazione G15, 4
-    codici del ponte verso R 'E-R-01..04' e 1 codice del grafo 'E-GRAFO-01').
-    Verifica che ogni codice appartenga a una delle 4 categorie formali
-    ('revisione_umana', 'retry', 'retry_poi_revisione', 'degradazione'),
-    possieda un messaggio diagnostico non banale (> 30 caratteri) che prescriva
-    un'azione operativa concreta e si mappi sulla sottoclasse corretta di
-    'ErrorePipeline'. Verifica inoltre che la whitelist dei codici ripetibili
-    ('CODICI_RIPETIBILI') sia chiusa ermeticamente ai soli 4 codici tecnici
-    'E-S2-03', 'E-S3-01', 'E-S4-02', 'E-S5-01' e che i restanti 44 codici non
-    ammettano mai il retry.
+    Ispeziona sistematicamente tutti i 49 codici del catalogo ('CATALOGO': 35
+    codici di fase S0-S14 inclusi 'E-S1-02' ed 'E-S3-02', 9 codici di
+    configurazione G15, 4 codici del ponte verso R 'E-R-01..04' e 1 codice del
+    grafo 'E-GRAFO-01'). Verifica che ogni codice appartenga a una delle 4
+    categorie formali ('revisione_umana', 'retry', 'retry_poi_revisione',
+    'degradazione'), possieda un messaggio diagnostico non banale (> 30
+    caratteri) che prescriva un'azione operativa concreta e si mappi sulla
+    sottoclasse corretta di 'ErrorePipeline'. Verifica inoltre che la whitelist
+    dei codici ripetibili ('CODICI_RIPETIBILI') sia chiusa ermeticamente ai soli
+    4 codici tecnici 'E-S2-03', 'E-S3-01', 'E-S4-02', 'E-S5-01' e che i restanti
+    45 codici non ammettano mai il retry.
 
   * COMANDO BASH:
     pytest tests/test_w05_errors_catalog.py -v
 
   * RISULTATO ATTESO:
-    277 passed in ~0.35s
+    282 passed in ~0.35s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
@@ -738,6 +740,117 @@ SETTIMANA 12 (W12) : FASE S2 (FILTRO E TRONCAMENTO DADA2) E TRACCIAMENTO LETTURE
        qualora una fase a valle (come S3) debba essere ricalcolata.
 
 
+--------------------------------------------------------------------------------
+SETTIMANA 13 (W13) : FASE S3 (MODELLO D'ERRORE PER CORSA DI SEQUENZIAMENTO)
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W13, Fase F4 (Fase S3 'src/amplicon16s/steps/s03_learn_errors.py',
+    script R 'R/03_learn_errors.R', gestione del retry dichiarato inutile
+    'RITENTARE_INUTILE' in 'retry.py' ed 'executor.py', e codice 'E-S3-02').
+
+  * FILE DI TEST:
+    tests/test_w13_s03_batch.py
+
+  * COSA VALUTA:
+    Collauda la Fase S3 ('04_error_models/'): verifica la normalizzazione priva
+    di collisioni dei nomi delle corse ('nomi_sicuri'), la pianificazione di un
+    modello parametrico separato per ciascuna corsa di sequenziamento
+    ('err.batch_column: run_prefix', corse '3DMM_Plates_1-5_S1_L001' e
+    '3DMM_rerun_Plates_6-10_S1_L001') e il fallback a modello singolo
+    ('modello_tutti.rds') con colonna nulla o senza 'io.batch_table', l'arresto
+    con 'E-S3-02' se un campione è privo di corsa con 'err.batch_column' attivo,
+    il determinismo dell'ordine di ingresso dei campioni tramite 'run.seed',
+    il rispetto della soglia 'err.nbases', l'esclusione dalla stima dei campioni
+    con zero letture filtrate, la soppressione motivata del retry ('Motivo.AZIONE_INUTILE')
+    quando tutte le basi della corsa sono già state utilizzate, il retry con
+    raddoppio di 'err.nbases' quando restano basi disponibili ('E-S3-01'), la
+    decrescita monotona dei tassi di errore da qualità Phred 15 a qualità 40 e
+    la riproducibilità crittografica byte per byte dei modelli '.rds' e dei
+    grafici '.png' (dispositivo 'cairo' senza timestamp). Include il test sul
+    dataset completo OSD-734 (960 campioni, 480 per corsa).
+
+  * COMANDO BASH:
+    pytest tests/test_w13_s03_batch.py -v
+
+  * RISULTATO ATTESO:
+    19 test (11 passed, 8 skipped in ~0.80s in ambiente locale privo di
+    Bioconductor dada2/ggplot2 e dati reali; 18 passed, 1 skipped nel container
+    CI; 19 passed nel container con dati reali OSD-734)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. Perché stimare un modello d'errore separato per ciascuna corsa MiSeq:
+       corse di sequenziamento distinte presentano profili fisici di rumore
+       ottico e di fasatura dei cicli differenti. Un modello unico medierebbe
+       tassi di sostituzione eterogenei, riducendo l'accuratezza di S4 nel
+       distinguere errori di lettura da varianti ecologiche reali (ASV).
+    2. Perché la convergenza si verifica con 'identical(err_in, err_out)' e i
+       grafici usano il dispositivo 'cairo': il confronto matriciale diretto in
+       R è indipendente dalla lingua o dal formato dei messaggi testuali di
+       DADA2, mentre il backend 'cairo' non scrive la data di creazione nei
+       file PNG, garantendo l'identità byte per byte (stesso checksum SHA-256
+       e MD5) tra esecuzioni distinte.
+    3. Perché sopprimere il retry su 'E-S3-01' quando tutte le basi della corsa
+       sono già utilizzate ('RITENTARE_INUTILE'): se 'err.nbases' (1e8) supera
+       già il totale delle basi presenti nei file della corsa, raddoppiarlo a
+       2e8 passerebbe a 'dada2::learnErrors' esattamente gli stessi campioni
+       producendo lo stesso esito. L'orchestratore rileva la condizione in
+       anticipo e ferma subito la corsa dichiarandone il motivo.
+
+
+--------------------------------------------------------------------------------
+MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Modulo trasversale e infrastrutturale del DAG (Settimane W8 - W13, Fasi F3
+    e F4: 'src/amplicon16s/config/vista.py', 'src/amplicon16s/config/resolve.py',
+    'src/amplicon16s/steps/base.py' e 'R/lib/errors.R'). Come 'conftest.py' e
+    'sottoinsieme.py', non porta il prefisso di una singola settimana perché
+    presidia il contratto di scoping dei parametri dell'intero grafo S0 - S14.
+
+  * FILE DI TEST:
+    tests/test_dipendenze_parametri.py
+
+  * COSA VALUTA:
+    Collauda il contratto vincolante delle dipendenze di parametro dichiarate da
+    ogni fase della pipeline: verifica che una sottoclasse di 'PipelineStep'
+    priva dell'attributo 'parametri', con voci inesistenti nello schema o che
+    dichiari parametri operativi senza effetto ('run.threads', 'io.out_root')
+    sia rifiutata già alla definizione della classe con 'TypeError'; che
+    'VistaConfig' in Python esponga a ciascuna fase esclusivamente i parametri
+    dichiarati più 'PARAMETRI_SENZA_EFFETTO', sollevando 'ParametroNonDichiarato'
+    (sottoclasse di 'LookupError', non catturabile da 'getattr(..., default)')
+    su ogni accesso a gruppi, chiavi, derivati o digest non ammessi; che la
+    classe S3 'parametri_dichiarati' in R sollevi errore immediato se uno script
+    legge tramite '$' o '[[' un parametro non passato dalla fase Python; e che
+    cambiare parametri di fasi a valle ('filter.maxEE', 'err.nbases', 'dada.*',
+    'tax.*') o parametri operativi non invalidi i manifesti delle fasi a monte
+    già concluse.
+
+  * COMANDO BASH:
+    pytest tests/test_dipendenze_parametri.py -v
+
+  * RISULTATO ATTESO:
+    15 test (14 passed, 1 skipped in ~0.30s in ambiente privo di R/jsonlite;
+    15 passed con R + jsonlite o nel container Docker)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. Perché la dichiarazione dei parametri è vincolante a runtime ('VistaConfig'
+       e 'parametri_dichiarati'): se l'impronta del manifesto di una fase è
+       calcolata solo sui parametri dichiarati, una dipendenza dimenticata nella
+       lista causerebbe il mancato ricalcolo della fase quando quel parametro
+       cambia. Impedendo a Python e a R di leggere parametri non dichiarati,
+       qualunque dimenticanza fallisce immediatamente al primo test.
+    2. Perché 'ParametroNonDichiarato' eredita da 'LookupError' e non da
+       'AttributeError': in Python 'getattr(vista, nome, predefinito)' cattura
+       'AttributeError' e restituirebbe silenziosamente il valore predefinito,
+       aggirando la protezione della vista ristretta.
+    3. Impatto sulle prestazioni del DAG e della CI: isolando le impronte di S0,
+       S1, S2 e S3 ai soli parametri effettivamente letti, una modifica a
+       'err.nbases' o a 'filter.maxEE' non costringe a ricalcolare i profili di
+       qualità di S1, riducendo il tempo di esecuzione del job containerizzato
+       della CI da 6m27s a 4m40s.
+
+
 ================================================================================
 3. TABELLA RIEPILOGATIVA DEI COMANDI RAPIDI PER LA REVISIONE
 ================================================================================
@@ -746,7 +859,7 @@ SETTIMANA 12 (W12) : FASE S2 (FILTRO E TRONCAMENTO DADA2) E TRACCIAMENTO LETTURE
   ----------+---------------------------------------+------+-------------------------------------------------
   W1 - W2   | tests/test_w01_w02_import.py          |   10 | pytest tests/test_w01_w02_import.py -v
   W3 - W4   | tests/test_w03_w04_config_schema.py   |   88 | pytest tests/test_w03_w04_config_schema.py -v
-  W5        | tests/test_w05_errors_catalog.py      |  277 | pytest tests/test_w05_errors_catalog.py -v
+  W5        | tests/test_w05_errors_catalog.py      |  282 | pytest tests/test_w05_errors_catalog.py -v
   W5        | tests/test_w05_artifacts.py           |   25 | pytest tests/test_w05_artifacts.py -v
   W5        | tests/test_w05_logging.py             |   14 | pytest tests/test_w05_logging.py -v
   W6        | tests/test_w06_crosswalk.py           |   43 | pytest tests/test_w06_crosswalk.py -v
@@ -758,6 +871,8 @@ SETTIMANA 12 (W12) : FASE S2 (FILTRO E TRONCAMENTO DADA2) E TRACCIAMENTO LETTURE
   W9 - W10  | tests/test_w09_w10_retry_policy.py    |   49 | pytest tests/test_w09_w10_retry_policy.py -v
   W11       | tests/test_w11_s01_profile.py         |   15 | pytest tests/test_w11_s01_profile.py -v
   W12       | tests/test_w12_s02_filter.py          |   25 | pytest tests/test_w12_s02_filter.py -v
+  W13       | tests/test_w13_s03_batch.py           |   19 | pytest tests/test_w13_s03_batch.py -v
+  DAG (S0+) | tests/test_dipendenze_parametri.py    |   15 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (14 moduli)              |  730 | pytest tests/ -v
+  TOTALE    | Intera suite (16 moduli)              |  769 | pytest tests/ -v
 ================================================================================
