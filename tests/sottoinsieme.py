@@ -91,3 +91,23 @@ def config_ridotta(cartella: Path, **sovrascrivi: dict[str, Any]) -> Config:
     sovrascritture per sezione e restituisce il modello Pydantic validato.
     """
     return valida(dati_config(cartella, **sovrascrivi))
+
+
+def motivo_pacchetti_r_assenti(*pacchetti: str) -> str | None:
+    """Perche' i pacchetti R indicati non sono utilizzabili, o ``None`` se lo sono."""
+    import subprocess
+
+    from amplicon16s.rbridge.runner import trova_rscript
+
+    rscript = trova_rscript()
+    if rscript is None:
+        return "Rscript non disponibile"
+    elenco = ", ".join(f"'{p}'" for p in pacchetti)
+    prova = subprocess.run(
+        [str(rscript), "--vanilla", "-e",
+         f"quit(status = !all(vapply(c({elenco}), requireNamespace, logical(1), quietly = TRUE)))"],
+        capture_output=True, check=False,
+    )
+    if prova.returncode != 0:
+        return f"pacchetti R non installati fra: {', '.join(pacchetti)}"
+    return None

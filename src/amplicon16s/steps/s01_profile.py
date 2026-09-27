@@ -48,6 +48,7 @@ class ProfiloLetture(PipelineStep):
     """S1: profili di qualità e lunghezza, sul contenuto intero dei file."""
 
     passo: ClassVar[Passo] = Passo.S1
+    passi_tracciamento: ClassVar[tuple[str, ...]] = ("grezze",)
 
     def calcola(self, contesto: StepContext) -> Produzione:
         if contesto.inventario is None:

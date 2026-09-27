@@ -358,6 +358,10 @@ class Qc(_Gruppo):
     min_reads_filtered: InteroNonNegativo = d.QC_MIN_READS_FILTERED
     min_reads_final: InteroNonNegativo = d.QC_MIN_READS_FINAL
     max_asv_count: InteroPositivo = d.QC_MAX_ASV_COUNT
+    # Controlli sul risultato del filtro (S2), applicati ai campioni biologici
+    # e ai controlli positivi, non ai negativi: vedi steps/s02_filter.py.
+    max_zeroed_samples: InteroNonNegativo = d.QC_MAX_ZEROED_SAMPLES
+    max_frac_lost_filter: Frazione = d.QC_MAX_FRAC_LOST_FILTER
     warn_frac_chimeric: Frazione = d.QC_WARN_FRAC_CHIMERIC
     stop_frac_chimeric: Frazione = d.QC_STOP_FRAC_CHIMERIC
     # Letture ispezionate per file dai gate che leggono le sequenze.
@@ -416,6 +420,10 @@ class Run(_Gruppo):
     seed: int = d.RUN_SEED
     threads: InteroPositivo = d.RUN_THREADS
     batch_size: InteroPositivo = d.RUN_BATCH_SIZE
+    # Se conservare le letture filtrate da S2 a esecuzione conclusa. Con false
+    # si rimuovono solo quando tutte le fasi sono concluse, e la rimozione e'
+    # registrata: una ripresa non la scambia per un artefatto perso.
+    keep_filtered_fastq: StrictBool = d.RUN_KEEP_FILTERED_FASTQ
 
 
 # --------------------------------------------------------------------------- #

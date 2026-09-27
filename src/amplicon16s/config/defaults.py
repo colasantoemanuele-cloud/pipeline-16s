@@ -95,6 +95,8 @@ QC_MIN_READS_RAW: Final = 1000
 QC_MIN_READS_FILTERED: Final = 500
 QC_MIN_READS_FINAL: Final = 1000
 QC_MAX_ASV_COUNT: Final = 300000
+QC_MAX_ZEROED_SAMPLES: Final = 0
+QC_MAX_FRAC_LOST_FILTER: Final = 0.30
 QC_WARN_FRAC_CHIMERIC: Final = 0.25
 QC_STOP_FRAC_CHIMERIC: Final = 0.50
 # Frazione di letture che iniziano col primer oltre la quale G10 lo considera
@@ -130,6 +132,7 @@ RUN_LOCKFILE: Final = "renv.lock"
 RUN_SEED: Final = 100
 RUN_THREADS: Final = 16
 RUN_BATCH_SIZE: Final = 24
+RUN_KEEP_FILTERED_FASTQ: Final = True
 
 
 # --------------------------------------------------------------------------- #

@@ -48,6 +48,7 @@ __all__ = [
     "ManifestoPassoNonValido",
     "NOME_MANIFESTO",
     "nome_manifesto_passo",
+    "nome_registro_rimozioni",
 ]
 
 #: Nome del manifesto dentro ogni cartella di fase.
@@ -57,6 +58,11 @@ NOME_MANIFESTO: Final = "manifest.json"
 def nome_manifesto_passo(passo: str) -> str:
     """Nome del manifesto di completamento di una fase, nella sua cartella."""
     return f"manifest_{passo}.json"
+
+
+def nome_registro_rimozioni(passo: str) -> str:
+    """Nome del registro degli artefatti di una fase rimossi di proposito."""
+    return f"rimossi_{passo}.json"
 
 
 class Fase(StrEnum):
@@ -308,8 +314,63 @@ class AlberoOutput:
         return self.cartella(fase) / nome_manifesto_passo(passo)
 
     def rimuovi_manifesto_passo(self, passo: str, fase: Fase) -> None:
-        """Una fase che viene ricalcolata smette subito di risultare conclusa."""
+        """Una fase che viene ricalcolata smette subito di risultare conclusa.
+
+        Con il manifesto se ne va anche il registro delle rimozioni: gli
+        artefatti che elencava stanno per essere prodotti di nuovo.
+        """
         self.percorso_manifesto_passo(passo, fase).unlink(missing_ok=True)
+        (self.cartella(fase) / nome_registro_rimozioni(passo)).unlink(missing_ok=True)
+
+    # ----------------------------------------------------------------- #
+    # Rimozioni intenzionali                                             #
+    # ----------------------------------------------------------------- #
+
+    def rimuovi_artefatti(
+        self, manifesto: ManifestoPasso, nomi: Iterable[str], motivo: str
+    ) -> tuple[str, ...]:
+        """Rimuove artefatti di una fase conclusa e registra che e' stato voluto.
+
+        Il registro e' legato all'impronta del manifesto: un artefatto che manca
+        ed e' registrato qui, con lo stesso checksum e per lo stesso calcolo,
+        e' stato tolto di proposito, e non conta come perso. Un registro di un
+        calcolo precedente non giustifica nulla.
+        """
+        voci = {str(v["nome"]): v for v in manifesto.artefatti}
+        registro = self.cartella(manifesto.fase) / nome_registro_rimozioni(manifesto.passo)
+        rimossi = dict(self.rimossi_del_passo(manifesto))
+        for nome in nomi:
+            if nome not in voci:
+                raise ValueError(f"{nome} non e' un artefatto di {manifesto.passo}")
+            rimossi[nome] = str(voci[nome]["checksum"])
+        documento = {
+            "passo": manifesto.passo,
+            "manifesto": manifesto.impronta,
+            "motivo": motivo,
+            "istante": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "rimossi": [{"nome": n, "checksum": rimossi[n]} for n in sorted(rimossi)],
+        }
+        # Prima il registro, poi i file: un'interruzione a meta' lascia file
+        # registrati come rimossi ma ancora presenti, mai il contrario.
+        registro.write_text(
+            json.dumps(documento, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        for nome in nomi:
+            (self.cartella(manifesto.fase) / nome).unlink(missing_ok=True)
+        return tuple(sorted(nomi))
+
+    def rimossi_del_passo(self, manifesto: ManifestoPasso) -> dict[str, str]:
+        """Gli artefatti rimossi di proposito dal calcolo descritto da ``manifesto``."""
+        registro = self.cartella(manifesto.fase) / nome_registro_rimozioni(manifesto.passo)
+        if not registro.is_file():
+            return {}
+        try:
+            documento = json.loads(registro.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if documento.get("manifesto") != manifesto.impronta:
+            return {}
+        return {str(v["nome"]): str(v["checksum"]) for v in documento.get("rimossi", [])}
 
     def concludi_passo(
         self,
@@ -423,16 +484,22 @@ class AlberoOutput:
         ``checksum`` restituisce il checksum di un file, o ``None`` se il file
         manca; permette a chi valuta piu' fasi di calcolare ciascun checksum
         una volta sola. Senza, il checksum si calcola qui.
+
+        Un artefatto che manca perche' rimosso di proposito, secondo il
+        registro delle rimozioni di questo stesso calcolo, non e' contato.
         """
         cartella = self.cartella(manifesto.fase)
-        if checksum is None:
-            return tuple(
-                str(v["nome"])
-                for v in manifesto.artefatti
-                if not corrisponde(cartella / str(v["nome"]), str(v["checksum"]))
-            )
-        return tuple(
-            str(v["nome"])
-            for v in manifesto.artefatti
-            if checksum(cartella / str(v["nome"])) != str(v["checksum"])
-        )
+        rimossi = self.rimossi_del_passo(manifesto)
+        problemi = []
+        for voce in manifesto.artefatti:
+            nome, atteso = str(voce["nome"]), str(voce["checksum"])
+            percorso = cartella / nome
+            if rimossi.get(nome) == atteso and not percorso.exists():
+                continue
+            if checksum is None:
+                integro = corrisponde(percorso, atteso)
+            else:
+                integro = checksum(percorso) == atteso
+            if not integro:
+                problemi.append(nome)
+        return tuple(problemi)

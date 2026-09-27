@@ -52,7 +52,7 @@ from typing import Any, ClassVar
 from amplicon16s.config.resolve import PARAMETRI_SENZA_EFFETTO, ConfigRisolta
 from amplicon16s.config.schema import Config
 from amplicon16s.errors.exceptions import DegradazioneRichiesta, errore
-from amplicon16s.io_layer.artifacts import AlberoOutput, Artefatto, Fase
+from amplicon16s.io_layer.artifacts import AlberoOutput, Artefatto, Fase, ManifestoPasso
 from amplicon16s.logging.logger import registra_errore
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.runner.graph import GRAFO, Grafo, Nodo, Passo
@@ -223,6 +223,9 @@ class PipelineStep(ABC):
     #: senza aggiustamento non viene ritentato: ritentare identico darebbe lo
     #: stesso esito.
     aggiustamenti: ClassVar[Mapping[str, Aggiustamento]] = {}
+    #: I passi del tracciamento delle letture che la fase registra, nel loro
+    #: ordine: ciascuno in un file ``letture_<passo>.tsv`` della sua cartella.
+    passi_tracciamento: ClassVar[tuple[str, ...]] = ()
 
     @property
     def nodo(self) -> Nodo:
@@ -255,6 +258,16 @@ class PipelineStep(ABC):
             f"{self.passo} ha sollevato {degradazione.codice} senza dichiarare un "
             "ripiego: una degradazione non puo' fermare l'esecuzione"
         )
+
+    def artefatti_temporanei(self, manifesto: ManifestoPasso, config: Config) -> tuple[str, ...]:
+        """Gli artefatti che, a esecuzione conclusa, la configurazione chiede di rimuovere.
+
+        L'esecutore li rimuove solo quando tutte le fasi sono concluse, e
+        registra la rimozione accanto al manifesto: la fase resta conclusa. Se
+        poi una fase che li consuma deve essere ripetuta, questa torna da
+        eseguire. Per difetto nessuno.
+        """
+        return ()
 
     def impronta_dati_esterni(self, config: Config) -> str | None:
         """Impronta dei dati letti fuori dall'albero di output, se ce ne sono.

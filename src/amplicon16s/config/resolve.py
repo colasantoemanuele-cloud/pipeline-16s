@@ -85,12 +85,15 @@ NOME_FILE_RISOLTO: Final = "resolved.yaml"
 #:   conclusa non deve renderla incompleta;
 #: * ``retry.enabled``, ``retry.max_attempts``: se e quante volte ritentare un
 #:   errore ammesso al retry, la cui azione correttiva per definizione non
-#:   cambia alcuna assunzione metodologica.
+#:   cambia alcuna assunzione metodologica;
+#: * ``run.keep_filtered_fastq``: se conservare le letture filtrate dopo che
+#:   tutte le fasi le hanno usate, non come sono state calcolate.
 PARAMETRI_SENZA_EFFETTO: Final[tuple[str, ...]] = (
     "run.threads",
     "io.out_root",
     "retry.enabled",
     "retry.max_attempts",
+    "run.keep_filtered_fastq",
 )
 
 

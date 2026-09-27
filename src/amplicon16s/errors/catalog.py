@@ -373,9 +373,10 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S2-03", "S2",
         "Errore di lettura o file non decomprimibile su un lotto.",
-        "Il lotto viene rielaborato con run.batch_size ridotto. Se l'errore "
-        "persiste oltre retry.max_attempts, il file e' probabilmente corrotto: "
-        "verificane l'integrita' alla sorgente.",
+        "Il lotto viene riletto senza modifiche: un errore di lettura "
+        "transitorio non richiede altro. Se l'errore persiste oltre "
+        "retry.max_attempts, il file e' probabilmente corrotto: verificane "
+        "l'integrita' alla sorgente.",
         _RETRY,
     ),
     # ----------------------------------------------------------------- S3 ---

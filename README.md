@@ -144,7 +144,7 @@ Codici di uscita, per chi lancia la pipeline da uno script o da uno scheduler:
 | 2 | riga di comando non valida (argomenti mancanti o sconosciuti) |
 | 3 | errore di configurazione: il file non è valido, G15 lo respinge, oppure `run` trova la cartella di output già usata; nessuna fase è partita |
 | 4 | arresto con punto di ripresa dichiarato, stampato e scritto in `99_logs/punto_di_ripresa.json` e `.txt` |
-| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S1 |
+| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S2 |
 
 ## Stato dell'implementazione
 
@@ -273,7 +273,7 @@ Sono realizzati:
   fasi sono concluse, quali disattivate, quali da eseguire e quale è la prossima;
   dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
   una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
-  gigabyte, costerà secondi; delle quindici fasi oggi esistono come codice S0 e S1,
+  gigabyte, costerà secondi; delle quindici fasi oggi esistono come codice S0, S1 e S2,
   e le altre risultano non realizzate;
 - **l'esecutore e la politica dei tentativi** (`runner/executor.py`,
   `runner/retry.py`). A ogni avvio, con `run` come con `resume`, l'esecutore ripete
@@ -286,14 +286,17 @@ Sono realizzati:
   primo, e solo se la fase dichiara per quel codice un'azione correttiva, perché
   ritentare identico darebbe lo stesso esito. L'azione correttiva cambia un parametro
   in una copia in memoria della configurazione (oggi `run.batch_size` o `err.nbases`)
-  e il manifesto della fase registra il codice, il valore dichiarato e quello usato;
+  e il manifesto della fase registra il codice, il valore dichiarato e quello usato.
+  Per un errore transitorio la fase può invece dichiarare esplicitamente, per quel
+  codice, un nuovo tentativo senza modifiche, registrato come ogni altro
+  aggiustamento: è il caso di E-S2-03, errore di lettura;
   la fase resta giudicata sulla configurazione dichiarata, quindi una ripresa non la
   rifà. Le degradazioni non fermano l'esecuzione: la fase le registra e proseguono nel
   log e nel manifesto; S0 vi registra E-S0-15, emessa da G08, e S1 vi registra E-S1-01.
   Quando l'esecuzione si ferma, l'esecutore dichiara il punto di ripresa: fase,
-  codice, messaggio del catalogo, tentativi fatti e comando per ripartire. Le fasi da
-  S2 a S5, i cui codici sono ripetibili, non esistono ancora: il meccanismo è provato
-  con fasi doppione;
+  codice, messaggio del catalogo, tentativi fatti e comando per ripartire. Delle fasi
+  con codici ripetibili esiste oggi S2, il cui E-S2-03 è provato su un archivio
+  davvero corrotto; per S3-S5 il meccanismo è provato con fasi doppione;
 - la registrazione degli eventi su due uscite: la console per chi segue l'esecuzione e
   un file JSON Lines con rotazione sotto `99_logs`, in un formato che si interroga per
   codice, fase o categoria invece di doversi leggere;
@@ -328,13 +331,35 @@ Sono realizzati:
   condizione sul minimo vero e, se `filter.truncLen` lo supera, si ferma con
   `E-S1-02`. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
   `filter.truncLen_shortfall_warn`, che prima registrava S0 dalla stima;
+- **la fase S2, filtro e troncamento** (`steps/s02_filter.py`, `R/02_filter.R`), con
+  `dada2::filterAndTrim` e i parametri del gruppo `filter`; scrive in `03_filtered/`
+  le letture filtrate di ogni campione, tutte di `filter.truncLen` basi, e le letture
+  in ingresso e in uscita per campione. Prima del filtro decomprime per intero ogni
+  archivio: un gzip troncato non fa fallire `filterAndTrim`, che lo legge fino a dove
+  arriva, e un archivio incompleto diventa E-S2-03, ritentato senza modifiche e poi
+  fermato. I controlli sul risultato si applicano ai campioni biologici e ai
+  controlli positivi, non ai negativi, perché un bianco azzerato è un bianco pulito:
+  E-S2-01 ferma quando i campioni azzerati superano `qc.max_zeroed_samples` (0),
+  E-S2-02 quando la frazione media di letture scartate supera
+  `qc.max_frac_lost_filter` (0,30). Sul dataset di riferimento, nel container, il
+  filtro conserva in media il 98,7% delle letture in ogni classe e non azzera alcun
+  campione. `run.keep_filtered_fastq` (vero per difetto) conserva le letture filtrate;
+  con falso vengono rimosse solo quando tutte le fasi sono concluse, e la rimozione è
+  registrata accanto al manifesto di S2, così la valutazione dello stato non la
+  scambia per un artefatto perso e una ripresa non rifà nulla; se una fase che le
+  legge deve poi essere ripetuta, S2 torna da eseguire prima di lei;
+- il tracciamento delle letture (`runner/tracciamento.py`): ogni fase registra i propri
+  passi in file suoi, `letture_<passo>.tsv`, e la tabella completa si ricompone
+  leggendo quelli delle fasi concluse nell'ordine del grafo, senza che una fase
+  modifichi mai un file di un'altra. Oggi i passi sono le letture grezze (S1) e quelle
+  in ingresso e in uscita dal filtro (S2);
 - i quattro sottocomandi della riga di comando, descritti sopra, con i codici di
   uscita documentati. `report` produce oggi un **resoconto provvisorio** dello stato,
   ricavato dai manifesti delle fasi: fasi concluse, disattivate e da eseguire,
   aggiustamenti applicati, degradazioni registrate. Non è il report definitivo, che
   non è ancora realizzato.
 
-Delle fasi di analisi è realizzata la prima, S1; le altre, da S2 a S14, non sono
+Delle fasi di analisi sono realizzate S1 e S2; le altre, da S3 a S14, non sono
 ancora realizzate.
 
 Questa sezione viene aggiornata a ogni avanzamento del lavoro.

@@ -255,6 +255,9 @@ class Esecutore:
                 passo = self._prossima(valutazione)
                 if passo is None:
                     self._rimuovi_punto()
+                    if self.fino_a is None:
+                        self._rimuovi_temporanei(valutazione)
+                        valutazione = self.run.valuta()
                     self.log.info("esecuzione completata", extra={"eseguite": len(eseguite)})
                     return EsitoEsecuzione(
                         Conclusione.COMPLETATA,
@@ -291,6 +294,37 @@ class Esecutore:
                 tuple(eseguite),
                 punto=arresto.punto,
                 configurazione=configurazione,
+            )
+
+    def _rimuovi_temporanei(self, valutazione: Valutazione) -> None:
+        """A esecuzione conclusa, gli artefatti che la configurazione non vuole tenere.
+
+        Solo qui, quando ogni fase e' conclusa: prima, chi li consuma potrebbe
+        ancora averne bisogno. La rimozione e' registrata accanto al manifesto
+        della fase, che resta conclusa.
+        """
+        for passo, situazione in valutazione.situazioni.items():
+            if situazione.stato is not StatoPasso.COMPLETATA or passo not in self.run.passi:
+                continue
+            fase = self.run.passi[passo]
+            manifesto = self.run.albero.manifesto_passo(passo, fase.cartella)
+            if manifesto is None:
+                continue
+            gia_rimossi = self.run.albero.rimossi_del_passo(manifesto)
+            nomi = [n for n in fase.artefatti_temporanei(manifesto, self.config) if n not in gia_rimossi]
+            if not nomi:
+                continue
+            liberati = sum(
+                (self.run.albero.cartella(fase.cartella) / n).stat().st_size
+                for n in nomi if (self.run.albero.cartella(fase.cartella) / n).exists()
+            )
+            self.run.albero.rimuovi_artefatti(
+                manifesto, nomi,
+                "rimossi a esecuzione conclusa, come chiede la configurazione",
+            )
+            self.log.info(
+                f"{passo}: artefatti temporanei rimossi",
+                extra={"passo": str(passo), "rimossi": len(nomi), "byte_liberati": liberati},
             )
 
     def _registra_configurazione(self, valutazione: Valutazione) -> Registrazione:
@@ -345,17 +379,31 @@ class Esecutore:
                     raise _Arresto(self._punto(passo, e, decisione.motivo, tentativo)) from e
 
                 assert aggiustamento is not None
-                prima = valore(config, aggiustamento.parametro)
-                config = applica(config, aggiustamento.parametro, decisione.nuovo_valore)
-                voce_aggiustamento = {
-                    "codice": e.codice,
-                    "tentativo_fallito": tentativo,
-                    "parametro": aggiustamento.parametro,
-                    "dichiarato": valore(self.config, aggiustamento.parametro),
-                    "precedente": prima,
-                    "usato": decisione.nuovo_valore,
-                    "azione": aggiustamento.descrizione,
-                }
+                if aggiustamento.invariato:
+                    # Dichiarato transitorio: si ritenta con la configurazione
+                    # di prima, e lo si registra come ogni altro aggiustamento.
+                    voce_aggiustamento = {
+                        "codice": e.codice,
+                        "tentativo_fallito": tentativo,
+                        "parametro": None,
+                        "dichiarato": None,
+                        "precedente": None,
+                        "usato": None,
+                        "azione": aggiustamento.descrizione,
+                    }
+                else:
+                    assert aggiustamento.parametro is not None
+                    prima = valore(config, aggiustamento.parametro)
+                    config = applica(config, aggiustamento.parametro, decisione.nuovo_valore)
+                    voce_aggiustamento = {
+                        "codice": e.codice,
+                        "tentativo_fallito": tentativo,
+                        "parametro": aggiustamento.parametro,
+                        "dichiarato": valore(self.config, aggiustamento.parametro),
+                        "precedente": prima,
+                        "usato": decisione.nuovo_valore,
+                        "azione": aggiustamento.descrizione,
+                    }
                 aggiustamenti.append(voce_aggiustamento)
                 self.log.warning(
                     f"{passo}: nuovo tentativo con {aggiustamento.descrizione}",

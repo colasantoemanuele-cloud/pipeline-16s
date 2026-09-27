@@ -53,6 +53,7 @@ from amplicon16s.runner.graph import GRAFO, Grafo, Passo
 from amplicon16s.steps.base import PipelineStep, StepContext
 from amplicon16s.steps.s00_validate import ValidazioneIngressi, leggi_inventario
 from amplicon16s.steps.s01_profile import ProfiloLetture
+from amplicon16s.steps.s02_filter import FiltroLetture
 
 __all__ = [
     "ProjectRun",
@@ -65,7 +66,11 @@ __all__ = [
 
 def passi_realizzati() -> dict[Passo, PipelineStep]:
     """Le fasi che esistono come codice. Crescono man mano che vengono scritte."""
-    return {Passo.S0: ValidazioneIngressi(), Passo.S1: ProfiloLetture()}
+    return {
+        Passo.S0: ValidazioneIngressi(),
+        Passo.S1: ProfiloLetture(),
+        Passo.S2: FiltroLetture(),
+    }
 
 
 class StatoPasso(StrEnum):
@@ -196,8 +201,45 @@ class ProjectRun:
     # ----------------------------------------------------------------- #
 
     def valuta(self) -> Valutazione:
-        """Legge dal disco lo stato di ogni fase, nell'ordine del grafo."""
+        """Legge dal disco lo stato di ogni fase, nell'ordine del grafo.
+
+        Una fase con artefatti rimossi di proposito resta conclusa finche'
+        nessuno li richiede. Se una fase che ne dipende va eseguita, quegli
+        artefatti servono di nuovo: la fase torna da eseguire, e con lei, per
+        la nuova impronta, tutto cio' che ne dipende. Si ripete finche' lo
+        stato non cambia piu'; i checksum restano calcolati una volta sola.
+        """
         checksum = _Checksum()
+        forzate: dict[Passo, str] = {}
+        while True:
+            valutazione = self._valuta(checksum, forzate)
+            nuove = self._richieste_dopo_rimozione(valutazione)
+            if set(nuove) <= set(forzate):
+                return valutazione
+            forzate.update(nuove)
+
+    def _richieste_dopo_rimozione(self, valutazione: Valutazione) -> dict[Passo, str]:
+        """Fasi concluse con artefatti rimossi, che una fase da eseguire richiede."""
+        richieste: dict[Passo, str] = {}
+        for passo, situazione in valutazione.situazioni.items():
+            if situazione.stato is not StatoPasso.COMPLETATA or passo not in self.passi:
+                continue
+            manifesto = self.albero.manifesto_passo(passo, self.passi[passo].cartella)
+            if manifesto is None or not self.albero.rimossi_del_passo(manifesto):
+                continue
+            dipendenti = [
+                str(p) for p in self.grafo.ordine()
+                if passo in self.grafo.dipendenze_attive(p, self.config)
+                and valutazione.situazioni[p].stato is StatoPasso.DA_ESEGUIRE
+            ]
+            if dipendenti:
+                richieste[passo] = (
+                    "artefatti rimossi di proposito a esecuzione conclusa, ora "
+                    f"richiesti da {', '.join(dipendenti)}"
+                )
+        return richieste
+
+    def _valuta(self, checksum: _Checksum, forzate: Mapping[Passo, str]) -> Valutazione:
         situazioni: dict[Passo, Situazione] = {}
         impronte: dict[Passo, str | None] = {}
         inventario: Inventario | None = None
@@ -223,7 +265,10 @@ class ProjectRun:
             a_monte = {
                 d: impronte[d] for d in self.grafo.dipendenze_attive(passo, self.config)
             }
-            situazioni[passo] = self._valuta_passo(fase, risolta, a_monte, checksum)
+            if passo in forzate:
+                situazioni[passo] = Situazione(passo, StatoPasso.DA_ESEGUIRE, forzate[passo])
+            else:
+                situazioni[passo] = self._valuta_passo(fase, risolta, a_monte, checksum)
             impronte[passo] = situazioni[passo].impronta
 
             # Le fasi dopo S0 si calcolano con i derivati dai dati.
@@ -264,7 +309,11 @@ class ProjectRun:
         if manifesto.calcolata_su != attesa:
             return Situazione(passo, da_eseguire, _differenze(manifesto.calcolata_su, attesa))
 
-        return Situazione(passo, StatoPasso.COMPLETATA, "conclusa", manifesto.impronta)
+        rimossi = self.albero.rimossi_del_passo(manifesto)
+        motivo = (
+            f"conclusa; {len(rimossi)} artefatti rimossi di proposito" if rimossi else "conclusa"
+        )
+        return Situazione(passo, StatoPasso.COMPLETATA, motivo, manifesto.impronta)
 
     # ----------------------------------------------------------------- #
     # Scorciatoie: una valutazione nuova per ogni domanda                #

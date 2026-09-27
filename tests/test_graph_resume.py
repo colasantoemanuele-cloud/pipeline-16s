@@ -1180,29 +1180,31 @@ def test_l_inventario_e_riletto_dall_artefatto_di_s0(scenario):
     assert run.risolta.derivati.prev_min_samples is not None
 
 
-def test_oggi_esistono_s0_e_s1(scenario):
+def test_oggi_esistono_s0_s1_e_s2(scenario):
     """
-    **Obiettivo**: Verificare che allo stato della Settimana 11 ``passi_realizzati()``
-    contenga ``{Passo.S0, Passo.S1}``: dopo S0, ``Passo.S1`` e' da eseguire,
-    mentre ``Passo.S2`` e' marcata ``StatoPasso.NON_REALIZZATA`` e solleva
-    ``LookupError`` se richiesta a ``run.fase(Passo.S2)``.
+    **Obiettivo**: Verificare che allo stato della Settimana 12 ``passi_realizzati()``
+    contenga ``{Passo.S0, Passo.S1, Passo.S2}``: dopo S0, ``Passo.S1`` e
+    ``Passo.S2`` sono da eseguire (S2 dipende da S0, non da S1), mentre
+    ``Passo.S3`` e' marcata ``StatoPasso.NON_REALIZZATA`` e solleva
+    ``LookupError`` se richiesta a ``run.fase(Passo.S3)``.
 
     **Razionale Scientifico/Sistemistico**: Separa in modo trasparente le fasi
     già implementate nel codice di produzione dalle fasi successive
-    (``S2..S14``), evitando falsi stati di completamento.
+    (``S3..S14``), evitando falsi stati di completamento.
     """
     run = ProjectRun(scenario.config)
-    assert set(passi_realizzati()) == {Passo.S0, Passo.S1}
+    assert set(passi_realizzati()) == {Passo.S0, Passo.S1, Passo.S2}
     esegui_s0(scenario.config)
 
     situazione = run.situazione()
     assert situazione[Passo.S0].stato is StatoPasso.COMPLETATA
     assert situazione[Passo.S1].stato is StatoPasso.DA_ESEGUIRE
-    assert situazione[Passo.S2].stato is StatoPasso.NON_REALIZZATA
+    assert situazione[Passo.S2].stato is StatoPasso.DA_ESEGUIRE
+    assert situazione[Passo.S3].stato is StatoPasso.NON_REALIZZATA
     assert run.prossima() is Passo.S1
     assert not run.completa
-    with pytest.raises(LookupError, match="S2"):
-        run.fase(Passo.S2)
+    with pytest.raises(LookupError, match="S3"):
+        run.fase(Passo.S3)
 
 
 def test_l_albero_e_quello_della_configurazione(scenario):

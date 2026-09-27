@@ -15,7 +15,10 @@ ritentato mai, come con ``retry.enabled`` falso.
 correttiva che il catalogo dichiara per quel codice: una fase la dichiara con
 :class:`Aggiustamento`, per ciascun codice ripetibile che può sollevare. Se
 per un codice la fase non dichiara un aggiustamento, o l'aggiustamento non
-può più cambiare il valore, non si ritenta.
+può più cambiare il valore, non si ritenta. L'unica eccezione è dichiarata,
+non presunta: per un errore transitorio, come un errore di lettura, la fase
+puo' dichiarare :func:`senza_modifiche`, e il nuovo tentativo identico viene
+registrato come ogni altro aggiustamento.
 
 **L'aggiustamento non tocca la configurazione dell'utente.** Produce una
 configurazione nuova, in memoria, con il solo parametro cambiato e
@@ -46,6 +49,7 @@ __all__ = [
     "applica",
     "dimezza",
     "raddoppia",
+    "senza_modifiche",
     "spiega_arresto",
     "valore",
 ]
@@ -54,8 +58,9 @@ __all__ = [
 #: parametro fuori elenco è un difetto della fase.
 #:
 #: Sono quelli che i messaggi del catalogo indicano per i codici ripetibili:
-#: ``run.batch_size`` per E-S2-03, E-S4-02, E-S5-01, ``err.nbases`` per
-#: E-S3-01. **Tensione aperta**: entrambi restano nell'impronta dei risultati,
+#: ``run.batch_size`` per E-S4-02 ed E-S5-01, ``err.nbases`` per E-S3-01.
+#: E-S2-03, un errore di lettura, si ritenta invece senza modifiche
+#: (:func:`senza_modifiche`): se era transitorio basta rileggere. **Tensione aperta**: entrambi restano nell'impronta dei risultati,
 #: perché non è dimostrato che non incidano sui risultati. Con
 #: ``dada.pool: pseudo``, il predefinito, i priori della seconda passata di
 #: dada2 si costruiscono dai campioni elaborati insieme: se l'inferenza
@@ -87,22 +92,53 @@ def applica(config: Config, parametro: str, nuovo: Any) -> Config:
 
 @dataclass(frozen=True)
 class Aggiustamento:
-    """L'azione correttiva di un codice ripetibile: come cambiare un parametro."""
+    """L'azione correttiva di un codice ripetibile: come cambiare un parametro.
 
-    parametro: str
-    regola: Callable[[Any], Any]
+    Senza parametro, l'aggiustamento dichiara un nuovo tentativo **senza
+    modifiche** (:func:`senza_modifiche`): e' l'azione giusta solo per un
+    errore transitorio, e va dichiarata esplicitamente, codice per codice, con
+    il suo motivo. In assenza di una dichiarazione la regola resta quella
+    generale: non si ritenta identico.
+    """
+
+    parametro: str | None
+    regola: Callable[[Any], Any] | None
     descrizione: str
 
     def __post_init__(self) -> None:
+        if self.parametro is None:
+            if self.regola is not None:
+                raise ValueError("un nuovo tentativo senza modifiche non ha una regola")
+            return
         if self.parametro not in PARAMETRI_AGGIUSTABILI:
             raise ValueError(
                 f"{self.parametro} non e' un parametro aggiustabile: ammessi "
                 f"{', '.join(PARAMETRI_AGGIUSTABILI)}"
             )
 
+    @property
+    def invariato(self) -> bool:
+        """Se il nuovo tentativo avviene senza cambiare alcun parametro."""
+        return self.parametro is None
+
     def prossimo(self, config: Config) -> Any:
         """Il valore da usare nel tentativo successivo."""
+        if self.parametro is None or self.regola is None:
+            raise ValueError("un nuovo tentativo senza modifiche non cambia valori")
         return self.regola(valore(config, self.parametro))
+
+
+def senza_modifiche(motivo: str) -> Aggiustamento:
+    """Nuovo tentativo identico, per un errore dichiaratamente transitorio.
+
+    ``motivo`` spiega perche' ritentare identico puo' riuscire, e finisce nel
+    manifesto e nel log accanto al codice. Un errore che non e' transitorio,
+    come un file davvero corrotto, fallira' di nuovo e si fermera' dopo i
+    tentativi ammessi.
+    """
+    if not motivo.strip():
+        raise ValueError("un nuovo tentativo senza modifiche va motivato")
+    return Aggiustamento(None, None, f"nuovo tentativo senza modifiche: {motivo}")
 
 
 def dimezza(parametro: str, minimo: int = 1) -> Aggiustamento:
@@ -175,6 +211,9 @@ class PoliticaRetry:
             return Decisione(Motivo.TENTATIVI_ESAURITI)
         if aggiustamento is None:
             return Decisione(Motivo.NESSUNA_AZIONE)
+        if aggiustamento.invariato:
+            return Decisione(Motivo.RITENTA)
+        assert aggiustamento.parametro is not None
         attuale = valore(config, aggiustamento.parametro)
         nuovo = aggiustamento.prossimo(config)
         if nuovo == attuale:

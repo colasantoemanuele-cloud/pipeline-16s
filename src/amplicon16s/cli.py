@@ -203,10 +203,13 @@ def _testo_resoconto(documento: dict[str, Any]) -> str:
     for fase in documento["fasi"]:
         righe.append(f"  {fase['passo']:<4} {fase['stato']:<15} {fase['descrizione']}")
         for a in fase.get("aggiustamenti", []):
-            righe.append(
-                f"         aggiustamento [{a['codice']}]: {a['parametro']} "
-                f"{a['dichiarato']} -> {a['usato']}"
-            )
+            if a["parametro"] is None:
+                righe.append(f"         aggiustamento [{a['codice']}]: {a['azione']}")
+            else:
+                righe.append(
+                    f"         aggiustamento [{a['codice']}]: {a['parametro']} "
+                    f"{a['dichiarato']} -> {a['usato']}"
+                )
         for d in fase.get("degradazioni", []):
             righe.append(f"         degradazione [{d['codice']}]: {d['dettaglio']}")
     righe += [
