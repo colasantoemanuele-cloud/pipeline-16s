@@ -12,7 +12,7 @@ Inquadramento nel Piano Operativo:
     - **Moduli sorgente coperti**:
         * ``src/amplicon16s/io_layer/checksums.py``
         * ``src/amplicon16s/io_layer/artifacts.py``
-    - **Comando Bash**: ``pytest tests/test_artifacts.py -v``
+    - **Comando Bash**: ``pytest tests/test_w05_artifacts.py -v``
     - **Risultato atteso**: ``25 passed in ~0.25s``
 """
 

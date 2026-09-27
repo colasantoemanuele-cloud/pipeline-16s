@@ -11,7 +11,7 @@ Inquadramento nel Piano Operativo
   - ``src/amplicon16s/runner/project.py``
   - ``src/amplicon16s/cli.py``
   - ``src/amplicon16s/config/resolve.py``
-* **Comando Bash**: ``pytest tests/test_retry_policy.py -v``
+* **Comando Bash**: ``pytest tests/test_w09_w10_retry_policy.py -v``
 * **Risultato atteso**: ``49 passed in ~1.50s``
 
 Scopo sperimentale e razionale scientifico/sistemistico

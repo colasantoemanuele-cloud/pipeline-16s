@@ -1,4 +1,4 @@
-"""Suite di validazione end-to-end sul dataset reale di riferimento NASA GeneLab OSD-734.
+r"""Suite di validazione end-to-end sul dataset reale di riferimento NASA GeneLab OSD-734.
 
 1. Inquadramento nel Piano Operativo:
     - **Settimana di riferimento**: **Settimana 7 (W7: Fase F2, Validazione
@@ -9,16 +9,37 @@
         * ``src/amplicon16s/gates/g01_g15.py``
         * ``src/amplicon16s/steps/s00_validate.py``
 
-2. Meccanismo di attivazione e comando Bash:
+2. Meccanismo di attivazione e comandi Bash (Locale e Docker):
     - I 22 test di questo modulo sono progettati per essere saltati in modo
-      controllato (stato ``SKIPPED``) negli ambienti di Continuous Integration
+      controllato (stato SKIPPED) negli ambienti di Continuous Integration
       o su stazioni di lavoro prive dei dati grezzi pesanti, evitando fallimenti
-      spuri quando il dataset non è montato localmente.
+      spuri quando il dataset non e' montato localmente.
     - Variabile d'ambiente necessaria per l'attivazione:
-      ``AMPLICON16S_CONFIG_DATI_REALI`` (deve puntare al file di configurazione
+      AMPLICON16S_CONFIG_DATI_REALI (deve puntare al file di configurazione
       YAML contenente i percorsi locali del dataset OSD-734).
-    - Comando Bash completo di esecuzione:
-      ``AMPLICON16S_CONFIG_DATI_REALI=/percorso/assoluto/a/config_osd734.yaml pytest tests/test_dati_reali.py -v``
+
+    A. Esecuzione in ambiente locale (host):
+       AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml pytest tests/test_w07_dati_reali.py -v
+       Risultato atteso: 22 passed in ~24s.
+
+    B. Esecuzione dentro il container Docker (amplicon16s:dev):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml \
+         -v "$(pwd)":/app \
+         -v /home/nemo/ASI:/home/nemo/ASI \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w07_dati_reali.py -v
+       Risultato atteso: 22 passed in ~24s.
+
+    Note tecniche per l'ambiente Docker:
+    1. Il flag '-e PYTHONPATH=/app/src' impone l'importazione dei moduli locali
+       aggiornati montati in /app invece delle versioni pregresse del container.
+    2. Il montaggio '-v /home/nemo/ASI:/home/nemo/ASI' e' indispensabile per
+       rendere accessibili al container i 2.4 GB di archivi FASTQ e i metadati.
+    3. Il parametro '-o cache_dir=/tmp/.pytest_cache' impedisce la scrittura di
+       file di cache con privilegi di root sulla directory di lavoro dell'host.
 
 3. Censimento dettagliato dei file reali richiesti (sezioni ``io:`` e ``tax:`` della configurazione):
     1. **Archivio letture FASTQ** (``io.fastq_dir``): cartella contenente i 960

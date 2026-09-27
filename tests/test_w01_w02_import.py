@@ -9,7 +9,7 @@ Inquadramento nel Piano Operativo
   - ``src/amplicon16s/__init__.py``
   - ``src/amplicon16s_eco/__init__.py``
   - ``src/amplicon16s/cli.py``
-* **Comando Bash**: ``pytest tests/test_import.py -v``
+* **Comando Bash**: ``pytest tests/test_w01_w02_import.py -v``
 * **Risultato atteso**: ``10 passed in ~0.20s``
 
 Scopo sperimentale e razionale scientifico/sistemistico

@@ -9,7 +9,7 @@ Inquadramento nel Piano Operativo
   - ``src/amplicon16s/rbridge/runner.py``
   - ``R/lib/io_json.R``
   - ``R/lib/errors.R``
-* **Comando Bash**: ``pytest tests/test_rbridge.py -v``
+* **Comando Bash**: ``pytest tests/test_w08_rbridge.py -v``
 * **Risultato atteso**: ``59 passed in ~10.50s``
 
 Scopo sperimentale e razionale scientifico/sistemistico

@@ -8,7 +8,7 @@ Inquadramento nel Piano Operativo
   - ``src/amplicon16s/gates/g01_g15.py``
   - ``src/amplicon16s/gates/registry.py``
   - ``src/amplicon16s/steps/s00_validate.py``
-* **Comando Bash**: ``pytest tests/test_gates.py -v``
+* **Comando Bash**: ``pytest tests/test_w07_gates.py -v``
 * **Risultato atteso**: ``44 passed in ~1.20s``
 
 Scopo sperimentale e razionale scientifico/sistemistico

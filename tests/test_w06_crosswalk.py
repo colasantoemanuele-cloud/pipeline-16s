@@ -23,7 +23,7 @@ Inquadramento nel Piano Operativo:
         * ``src/amplicon16s/metadata/crosswalk.py``
         * ``src/amplicon16s/metadata/controls_map.py``
         * ``src/amplicon16s/gates/g01_g15.py`` (limitatamente a ``G04, G05, G06, G11``)
-    - **Comando Bash**: ``pytest tests/test_crosswalk.py -v``
+    - **Comando Bash**: ``pytest tests/test_w06_crosswalk.py -v``
     - **Risultato atteso**: ``43 passed in ~0.35s``
 """
 

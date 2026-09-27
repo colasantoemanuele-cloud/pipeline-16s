@@ -23,7 +23,7 @@ Inquadramento nel Piano Operativo:
         * ``src/amplicon16s/config/resolve.py``
         * ``src/amplicon16s/gates/g01_g15.py`` (limitatamente a ``esegui_g15`` e ``CONTROLLI``)
         * ``config/config.example.yaml``
-    - **Comando Bash**: ``pytest tests/test_config_schema.py -v``
+    - **Comando Bash**: ``pytest tests/test_w03_w04_config_schema.py -v``
     - **Risultato atteso**: ``88 passed in ~0.45s``
 """
 

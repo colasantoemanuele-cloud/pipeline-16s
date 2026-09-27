@@ -7,7 +7,7 @@ Inquadramento nel Piano Operativo
 * **Moduli sorgente coperti**:
   - ``src/amplicon16s/metadata/crosswalk.py``
   - ``src/amplicon16s/gates/g01_g15.py`` (Gate G03)
-* **Comando Bash**: ``pytest tests/test_join_restricted.py -v``
+* **Comando Bash**: ``pytest tests/test_w06_join_restricted.py -v``
 * **Risultato atteso**: ``7 passed in ~0.20s``
 
 Scopo sperimentale e razionale scientifico/sistemistico

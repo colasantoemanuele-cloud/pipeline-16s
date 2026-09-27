@@ -264,9 +264,10 @@ Sono realizzati:
   fase a monte la rende da rifare, insieme a tutte quelle che ne dipendono. Per
   difetto una fase dipende dall'intera configurazione, meno i parametri che non
   incidono sui risultati, dichiarati in un solo elenco in `config/resolve.py`:
-  `run.threads`, `io.out_root`, `retry.enabled`, `retry.max_attempts`. Cambiarli, o
-  spostare la cartella di un'esecuzione conclusa, non la rende da rifare; il digest
-  scritto in `00_config/resolved.yaml` resta calcolato sull'intera configurazione.
+  `run.threads`, `run.keep_filtered_fastq`, `io.out_root`, `retry.enabled`,
+  `retry.max_attempts`. Cambiarli, o spostare la cartella di un'esecuzione
+  conclusa, non la rende da rifare; il digest scritto in `00_config/resolved.yaml`
+  resta calcolato sull'intera configurazione.
   Una fase avviata prima delle fasi da cui dipende solleva `E-GRAFO-01`, oppure
   `E-S13-01` se a mancare è la decontaminazione prima del filtro di prevalenza.
   `ProjectRun` legge questo stato dal disco in una valutazione, a cui si chiede quali

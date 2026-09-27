@@ -1,4 +1,4 @@
-"""Suite di test per il sottoinsieme di prova OSD-734 e la Fase S1 (Profilo di qualità Phred e lunghezze).
+r"""Suite di test per il sottoinsieme di prova OSD-734 e la Fase S1 (Profilo di qualità Phred e lunghezze).
 
 Inquadramento nel Piano Operativo:
     - **Settimana di riferimento**: **Settimana 11 (W11: Fase F4, Fase S1:
@@ -32,11 +32,42 @@ Cosa valuta questo file:
        verifica la ricostruzione deterministica bit-a-bit del subset ridotto e
        l'esecuzione end-to-end di S1 sull'intero dataset NASA GeneLab OSD-734.
 
-Comando Bash:
-    ``pytest tests/test_s01_profile.py -v``
+Comandi Bash e scenari di esecuzione:
+    1. Modalita locale standard (senza dati reali ne Bioconductor R):
+       pytest tests/test_w11_s01_profile.py -v
+       Risultato atteso: 7 passed, 8 skipped in ~1.2s (7 test attendono
+       ShortRead/Biostrings, 1 test attende i dati completi).
 
-Risultato atteso:
-    ``15 test (7 passed sul subset ridotto, 7 skipped per assenza locale di Bioconductor/R, 1 skipped per dati reali)``
+    2. Modalita locale con dati reali (senza Bioconductor R):
+       AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml pytest tests/test_w11_s01_profile.py -v
+       Risultato atteso: 8 passed, 7 skipped in ~25s (test_lo_script... passa a verde).
+
+    3. Modalita container Docker standard (subset ridotto con Bioconductor):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -v "$(pwd)":/app \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w11_s01_profile.py -v
+       Risultato atteso: 12 passed, 3 skipped in ~75s (i 7 test di calcolo R
+       passano; restano saltati i 2 test su dati reali e il controllo git).
+
+    4. Modalita container Docker completa (100% verde, inclusi 960 FASTQ reali):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml \
+         -v "$(pwd)":/app \
+         -v /home/nemo/ASI:/home/nemo/ASI \
+         -w /app \
+         amplicon16s:dev \
+         bash -c "git config --global --add safe.directory /app && pytest -o cache_dir=/tmp/.pytest_cache tests/test_w11_s01_profile.py -v"
+       Risultato atteso: 15 passed in ~8 minuti (zero test saltati).
+
+    Accorgimenti operativi per il container Docker:
+    - Impostare '-e PYTHONPATH=/app/src' per caricare la versione corrente di amplicon16s.
+    - Montare sia il repository ('-v $(pwd):/app') sia i dati reali ('-v /home/nemo/ASI:/home/nemo/ASI').
+    - Usare '-o cache_dir=/tmp/.pytest_cache' per proteggere i permessi della cartella locale.
+    - Aggiungere 'safe.directory /app' in Git per abilitare il collaudo di test_i_fastq_di_prova_non_sono_ignorati_da_git.
 
 Razionale scientifico e sistemistico:
     1. **Profilatura Phred e controllo esatto delle lunghezze a monte di DADA2**:

@@ -1,6 +1,6 @@
 # Script R doppioni
 
-Script che esistono solo per i test del ponte verso R (`tests/test_rbridge.py`).
+Script che esistono solo per i test del ponte verso R (`tests/test_w08_rbridge.py`).
 Non sono script di fase e non vanno mai invocati dalla pipeline: stanno qui, fuori da
 `R/`, perché nessuno possa scambiarli per quelli veri.
 

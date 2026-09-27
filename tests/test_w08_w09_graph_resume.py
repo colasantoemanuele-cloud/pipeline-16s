@@ -10,7 +10,7 @@ Inquadramento nel Piano Operativo
   - ``src/amplicon16s/runner/graph.py``
   - ``src/amplicon16s/runner/project.py``
   - ``src/amplicon16s/steps/s00_validate.py``
-* **Comando Bash**: ``pytest tests/test_graph_resume.py -v``
+* **Comando Bash**: ``pytest tests/test_w08_w09_graph_resume.py -v``
 * **Risultato atteso**: ``52 passed in ~1.10s``
 
 Scopo sperimentale e razionale scientifico/sistemistico

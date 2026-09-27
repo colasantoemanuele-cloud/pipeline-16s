@@ -24,7 +24,7 @@ Inquadramento nel Piano Operativo:
     - **Moduli sorgente coperti**:
         * ``src/amplicon16s/errors/catalog.py``
         * ``src/amplicon16s/errors/exceptions.py``
-    - **Comando Bash**: ``pytest tests/test_errors_catalog.py -v``
+    - **Comando Bash**: ``pytest tests/test_w05_errors_catalog.py -v``
     - **Risultato atteso**: ``277 passed in ~0.35s``
 """
 
