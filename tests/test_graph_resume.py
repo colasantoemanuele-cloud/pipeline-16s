@@ -2,7 +2,7 @@
 
 Inquadramento nel Piano Operativo
 ---------------------------------
-* **Settimane di riferimento**: **Settimana 8 e Settimana 9 (W8/W9 — Fase F3:
+* **Settimane di riferimento**: **Settimana 8 e Settimana 9 (W8/W9 : Fase F3:
   Grafo DAG delle dipendenze, propagazione dell'invalidità e ripresa/resume su
   filesystem)**.
 * **Moduli sorgente coperti**:
@@ -10,6 +10,8 @@ Inquadramento nel Piano Operativo
   - ``src/amplicon16s/runner/graph.py``
   - ``src/amplicon16s/runner/project.py``
   - ``src/amplicon16s/steps/s00_validate.py``
+* **Comando Bash**: ``pytest tests/test_graph_resume.py -v``
+* **Risultato atteso**: ``52 passed in ~1.10s``
 
 Scopo sperimentale e razionale scientifico/sistemistico
 -------------------------------------------------------

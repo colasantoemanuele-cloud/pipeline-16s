@@ -1,4 +1,4 @@
-"""Fase S0 — validazione iniziale.
+"""Fase S0: validazione iniziale.
 
 È la barriera che gira prima di allocare qualunque calcolo costoso. Il suo
 scopo è far emergere in pochi minuti un problema che altrimenti si scoprirebbe

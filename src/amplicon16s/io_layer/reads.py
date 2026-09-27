@@ -1,7 +1,7 @@
 """Ispezione delle prime letture di ciascun file, per i gate di validazione.
 
-I gate che guardano le sequenze — struttura del file, lunghezze, presenza del
-primer — devono costare minuti, non ore. Nessuno di essi legge un file intero:
+I gate che guardano le sequenze (struttura del file, lunghezze, presenza del
+primer) devono costare minuti, non ore. Nessuno di essi legge un file intero:
 si fermano alle prime ``qc.head_reads`` letture. L'integrità completa dei file
 è già garantita altrove, dai checksum del manifesto.
 
@@ -14,7 +14,7 @@ La scansione è **sequenziale**. Distribuirla su più processi è stato provato 
 scartato: sull'intero dataset di riferimento, 960 file, la passata sequenziale
 costa una ventina di secondi, e il vincolo da rispettare è che la validazione
 duri minuti e non ore. Il parallelismo faceva risparmiare pochi secondi in
-cambio di una fragilità vera — con ``fork`` il pool può bloccarsi quando il
+cambio di una fragilità vera: con ``fork`` il pool può bloccarsi quando il
 processo genitore ha sostituito i flussi standard, e con ``spawn`` ogni
 chiamante sarebbe costretto a proteggere il proprio modulo principale con
 ``if __name__ == "__main__"``. Non è un prezzo che una libreria debba far

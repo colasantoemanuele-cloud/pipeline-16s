@@ -1,14 +1,22 @@
-"""La versione ridotta del sottoinsieme di prova, pronta per i test.
+"""Infrastruttura di caricamento e configurazione per il sottoinsieme di prova OSD-734.
 
-Vive in ``tests/fixtures/osd734/ridotto/`` ed è prodotta da
-``scripts/build_test_subset.py``. Qui si costruisce la configurazione che la
-indica: i parametri sono quelli di ``config/config.example.yaml``, cioè del
-dataset di riferimento, con i percorsi rivolti alla versione ridotta.
+Inquadramento nel Piano Operativo:
+    - **Settimana di riferimento**: **Settimana 11 (W11: Fase F4, Fase S1 e
+      sottoinsieme di prova OSD-734)**.
+    - **Moduli sorgente supportati**: ``src/amplicon16s/steps/s01_profile.py``,
+      ``R/01_profile.R``, ``scripts/build_test_subset.py``.
+
+La versione ridotta del sottoinsieme di prova vive in
+``tests/fixtures/osd734/ridotto/`` ed è prodotta in modo deterministico da
+``scripts/build_test_subset.py``. Questo modulo espone le funzioni di accesso
+alla tabella di selezione, al manifesto delle letture sottocampionate e al
+costruttore della configurazione validata che punta alla versione ridotta,
+ereditando tutti i parametri scientifici da ``config/config.example.yaml``.
 
 Il database tassonomico non fa parte della versione ridotta: pesa centinaia
 di megabyte, e fino all'assegnazione tassonomica nessuna fase lo legge. Al
-suo posto c'e' un file segnaposto con il proprio MD5, perche' S0 ne verifica
-l'integrita'.
+suo posto viene generato un file segnaposto con il proprio MD5, affinché la
+Fase S0 (Gate G12) ne verifichi regolarmente l'integrità.
 """
 
 from __future__ import annotations
@@ -29,11 +37,23 @@ ESEMPIO: Final = Path(__file__).resolve().parents[1] / "config" / "config.exampl
 
 
 def selezione() -> list[dict[str, str]]:
+    """Carica e restituisce le righe di ``tests/fixtures/osd734/selezione.tsv``.
+
+    Ogni dizionario descrive uno dei 28 campioni selezionati dal dataset di
+    riferimento OSD-734 (accession, run ENA, classe, piastra, corsa, numero di
+    letture, lunghezza minima originale, checksum MD5 e motivazione).
+    """
     with open(SELEZIONE, encoding="utf-8", newline="") as file:
         return list(csv.DictReader(file, delimiter="\t"))
 
 
 def manifesto() -> list[dict[str, str]]:
+    """Carica e restituisce le righe di ``tests/fixtures/osd734/ridotto/manifesto.tsv``.
+
+    Ogni voce riporta il nome del file FASTQ sottocampionato, il numero di
+    letture conservate, la lunghezza minima osservata e l'impronta MD5 del file
+    compresso deterministico.
+    """
     with open(RIDOTTO / "manifesto.tsv", encoding="utf-8", newline="") as file:
         return list(csv.DictReader(file, delimiter="\t"))
 
@@ -63,4 +83,11 @@ def dati_config(cartella: Path, **sovrascrivi: dict[str, Any]) -> dict[str, Any]
 
 
 def config_ridotta(cartella: Path, **sovrascrivi: dict[str, Any]) -> Config:
+    """Costruisce e valida un'istanza immutabile ``Config`` rivolta al subset ridotto.
+
+    Crea un file FASTA segnaposto con relativo checksum MD5 nella directory
+    temporanea indicata da ``cartella``, indirizza ``io.*`` ai 28 campioni
+    sottocampionati di ``tests/fixtures/osd734/ridotto/``, applica eventuali
+    sovrascritture per sezione e restituisce il modello Pydantic validato.
+    """
     return valida(dati_config(cartella, **sovrascrivi))

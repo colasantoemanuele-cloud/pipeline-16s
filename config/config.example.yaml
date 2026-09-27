@@ -9,14 +9,14 @@
 # di controllo dell'intera esecuzione. Lo schema rifiuta le chiavi che non
 # conosce, quindi un refuso ferma l'esecuzione invece di passare inosservato.
 #
-# I valori contrassegnati [OSD-734] descrivono lo studio di riferimento — la
+# I valori contrassegnati [OSD-734] descrivono lo studio di riferimento (la
 # struttura dei suoi metadati, le etichette dei suoi controlli, il riferimento
-# tassonomico usato per quell'analisi — e su un altro dataset vanno rivisti uno
+# tassonomico usato per quell'analisi) e su un altro dataset vanno rivisti uno
 # per uno. Il codice resta generale: è la configurazione a cambiare.
 # I valori contrassegnati [SOSTITUIRE] sono segnaposto senza significato.
 
 # --------------------------------------------------------------------------- #
-# io — percorsi di ingresso e uscita, e come si individuano i file di lettura  #
+# io: percorsi di ingresso e uscita, e come si individuano i file di lettura  #
 # --------------------------------------------------------------------------- #
 io:
   # Obbligatori: i dati non risiedono nel repository.
@@ -38,7 +38,7 @@ io:
   accession_regex: "(E|S|D)RX[0-9]{4,}"
 
 # --------------------------------------------------------------------------- #
-# meta — lettura della tabella dei metadati e campi derivati dai nomi          #
+# meta: lettura della tabella dei metadati e campi derivati dai nomi          #
 # --------------------------------------------------------------------------- #
 meta:
   sample_id_column: "Sample Name"
@@ -73,7 +73,7 @@ meta:
   batch_module_column: module                      # [OSD-734]
 
 # --------------------------------------------------------------------------- #
-# filter — filtraggio e troncamento delle letture grezze                       #
+# filter: filtraggio e troncamento delle letture grezze                       #
 # --------------------------------------------------------------------------- #
 filter:
   truncLen: 137
@@ -85,7 +85,7 @@ filter:
   rm_phix: true
 
 # --------------------------------------------------------------------------- #
-# err — apprendimento del modello di errore di sequenziamento                  #
+# err: apprendimento del modello di errore di sequenziamento                  #
 # --------------------------------------------------------------------------- #
 err:
   # Nota: in YAML l'esponente richiede il segno esplicito. Scritto "1e8" il
@@ -96,7 +96,7 @@ err:
   batch_column: run_prefix          # [OSD-734] colonna del lotto di sequenziamento
 
 # --------------------------------------------------------------------------- #
-# dada — inferenza delle varianti di sequenza                                  #
+# dada: inferenza delle varianti di sequenza                                  #
 # --------------------------------------------------------------------------- #
 dada:
   # Ammessi: true, false oppure "pseudo" (vocabolario di dada2).
@@ -104,7 +104,7 @@ dada:
   omega_a: 1.0e-40
 
 # --------------------------------------------------------------------------- #
-# chimera — rimozione delle sequenze chimeriche                                #
+# chimera: rimozione delle sequenze chimeriche                                #
 # --------------------------------------------------------------------------- #
 chimera:
   method: consensus                 # consensus | pooled | per-sample
@@ -114,13 +114,13 @@ chimera:
   allow_one_off: false
 
 # --------------------------------------------------------------------------- #
-# asv — selezione delle sequenze varianti                                      #
+# asv: selezione delle sequenze varianti                                      #
 # --------------------------------------------------------------------------- #
 asv:
   len_tol: 0
 
 # --------------------------------------------------------------------------- #
-# tax — assegnazione tassonomica e riferimento impiegato                       #
+# tax: assegnazione tassonomica e riferimento impiegato                       #
 # --------------------------------------------------------------------------- #
 # Nome, versione e checksum del riferimento sono obbligatori: senza di essi un
 # risultato non è riconducibile ai dati che l'hanno prodotto.
@@ -135,7 +135,7 @@ tax:
   assign_species: false
 
 # --------------------------------------------------------------------------- #
-# filt — filtraggio tassonomico successivo all'assegnazione                    #
+# filt: filtraggio tassonomico successivo all'assegnazione                    #
 # --------------------------------------------------------------------------- #
 filt:
   remove_na_phylum: true
@@ -145,14 +145,14 @@ filt:
     - Eukaryota
 
 # --------------------------------------------------------------------------- #
-# phylo — costruzione dell'albero filogenetico                                 #
+# phylo: costruzione dell'albero filogenetico                                 #
 # --------------------------------------------------------------------------- #
 phylo:
   enabled: false
   max_seqs: 5000
 
 # --------------------------------------------------------------------------- #
-# ctrl — come si riconoscono controlli negativi, positivi e campioni           #
+# ctrl: come si riconoscono controlli negativi, positivi e campioni           #
 # --------------------------------------------------------------------------- #
 # Tutte le etichette sono quelle usate in OSD-734. Le tre categorie devono
 # restare disgiunte: un campione non può appartenere a due di esse.
@@ -166,13 +166,13 @@ ctrl:
     - Surface swab
 
 # --------------------------------------------------------------------------- #
-# katharoseq — calibrazione sui controlli positivi                             #
+# katharoseq: calibrazione sui controlli positivi                             #
 # --------------------------------------------------------------------------- #
 katharoseq:
   target_taxon: Variovorax          # [OSD-734] taxon atteso nei controlli positivi
 
 # --------------------------------------------------------------------------- #
-# decontam — rimozione dei contaminanti a partire dai controlli negativi       #
+# decontam: rimozione dei contaminanti a partire dai controlli negativi       #
 # --------------------------------------------------------------------------- #
 decontam:
   method: prevalence                # vocabolario di decontam::isContaminant
@@ -181,7 +181,7 @@ decontam:
   batch_column: extraction_plate_num  # [OSD-734] colonna della piastra di estrazione
 
 # --------------------------------------------------------------------------- #
-# prev — filtro di prevalenza sulle varianti                                   #
+# prev: filtro di prevalenza sulle varianti                                   #
 # --------------------------------------------------------------------------- #
 prev:
   min_fraction: 0.01
@@ -189,7 +189,7 @@ prev:
   apply: true
 
 # --------------------------------------------------------------------------- #
-# qc — soglie che governano avvisi e arresti                                   #
+# qc: soglie che governano avvisi e arresti                                   #
 # --------------------------------------------------------------------------- #
 # warn_frac_chimeric non può superare stop_frac_chimeric: l'esecuzione si
 # fermerebbe prima di emettere l'avviso.
@@ -215,7 +215,7 @@ qc:
   # e il 95%, perché i bianchi amplificano contaminanti e i contaminanti sono
   # batteri con lo stesso 16S.
   # La soglia è valutata sulla mediana dei soli campioni da cui ci si attende
-  # il segnale del bersaglio — biologici e controlli positivi — e non su
+  # il segnale del bersaglio (biologici e controlli positivi) e non su
   # ciascun file: su OSD-734 sei campioni biologici legittimi stanno sotto la
   # soglia, uno al 5,8%, e una verifica file per file li farebbe fallire.
   min_motif_frac: 0.25
@@ -230,7 +230,7 @@ qc:
   conserved_motif: "TAC[AG].AGG..GC.AGCGTT"     # [OSD-734]
 
 # --------------------------------------------------------------------------- #
-# retry — nuovi tentativi sulle fasi fallite                                   #
+# retry: nuovi tentativi sulle fasi fallite                                   #
 # --------------------------------------------------------------------------- #
 retry:
   enabled: true
@@ -246,7 +246,7 @@ retry:
     - E-S5-01
 
 # --------------------------------------------------------------------------- #
-# out — forma degli artefatti prodotti                                         #
+# out: forma degli artefatti prodotti                                         #
 # --------------------------------------------------------------------------- #
 out:
   serialization: rds
@@ -255,7 +255,7 @@ out:
   export_flat: true
 
 # --------------------------------------------------------------------------- #
-# run — ambiente di esecuzione, parallelismo, riproducibilità                  #
+# run: ambiente di esecuzione, parallelismo, riproducibilità                  #
 # --------------------------------------------------------------------------- #
 run:
   # L'immagine va indicata per digest e non per tag: un tag può essere

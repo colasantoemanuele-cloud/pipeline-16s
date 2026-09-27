@@ -1,4 +1,4 @@
-"""Fase S1 — profilo di qualità e di lunghezza delle letture.
+"""Fase S1: profilo di qualità e di lunghezza delle letture.
 
 È la prima fase di calcolo: legge ogni file di letture **per intero**, a
 differenza dei gate di S0 che si fermano alle prime ``qc.head_reads``, e
@@ -19,8 +19,8 @@ cede basi che si potrebbero conservare: è una degradazione, che non ferma e
 finisce nel manifesto di S1. Fino alla settimana precedente la registrava S0,
 dalla stima; ora la registra la fase di cui porta il nome, sul minimo vero.
 
-Sul dataset di riferimento il profilo di qualità è piatto — la qualità
-mediana non scende sotto 25 in nessuna posizione — e il vincolo sul
+Sul dataset di riferimento il profilo di qualità è piatto (la qualità
+mediana non scende sotto 25 in nessuna posizione), e il vincolo sul
 troncamento non è la qualità ma l'eterogeneità delle lunghezze.
 """
 

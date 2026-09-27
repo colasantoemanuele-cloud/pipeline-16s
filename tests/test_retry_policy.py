@@ -2,7 +2,7 @@
 
 Inquadramento nel Piano Operativo
 ---------------------------------
-* **Settimane di riferimento**: **Settimana 9 e Settimana 10 (W9/W10 — Fase F3:
+* **Settimane di riferimento**: **Settimana 9 e Settimana 10 (W9/W10 : Fase F3:
   Politica di retry automatico, aggiustamenti correttivi, punto di ripresa e
   CLI ``run`` / ``resume`` / ``validate`` / ``report``)**.
 * **Moduli sorgente coperti**:
@@ -11,6 +11,8 @@ Inquadramento nel Piano Operativo
   - ``src/amplicon16s/runner/project.py``
   - ``src/amplicon16s/cli.py``
   - ``src/amplicon16s/config/resolve.py``
+* **Comando Bash**: ``pytest tests/test_retry_policy.py -v``
+* **Risultato atteso**: ``49 passed in ~1.50s``
 
 Scopo sperimentale e razionale scientifico/sistemistico
 -------------------------------------------------------

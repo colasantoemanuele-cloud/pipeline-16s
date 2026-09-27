@@ -2,8 +2,8 @@
 
 Il checksum non è un ornamento: serve a stabilire se una fase è già stata
 completata, cioè se i suoi artefatti esistono *e* sono ancora quelli che quella
-fase ha prodotto. Un file presente ma troncato — un'esecuzione interrotta a
-metà scrittura — è indistinguibile da un file completo se ci si limita a
+fase ha prodotto. Un file presente ma troncato (un'esecuzione interrotta a
+metà scrittura) è indistinguibile da un file completo se ci si limita a
 guardare se esiste.
 
 La lettura avviene a blocchi: gli artefatti della pipeline arrivano ai

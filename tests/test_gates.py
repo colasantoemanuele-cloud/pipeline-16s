@@ -2,12 +2,14 @@
 
 Inquadramento nel Piano Operativo
 ---------------------------------
-* **Settimana di riferimento**: **Settimana 7 (W7 — Fase F2: Validazione degli
+* **Settimana di riferimento**: **Settimana 7 (W7 : Fase F2: Validazione degli
   ingressi, i 15 Gate G01–G15 e Fase S0)**.
 * **Moduli sorgente coperti**:
   - ``src/amplicon16s/gates/g01_g15.py``
   - ``src/amplicon16s/gates/registry.py``
   - ``src/amplicon16s/steps/s00_validate.py``
+* **Comando Bash**: ``pytest tests/test_gates.py -v``
+* **Risultato atteso**: ``44 passed in ~1.20s``
 
 Scopo sperimentale e razionale scientifico/sistemistico
 -------------------------------------------------------
@@ -166,7 +168,7 @@ def test_l_esecuzione_si_ferma_al_primo_gate_fallito(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G01 — gli ingressi esistono e sono leggibili                                 #
+# G01 : gli ingressi esistono e sono leggibili                                 #
 # --------------------------------------------------------------------------- #
 
 
@@ -219,7 +221,7 @@ def test_g01_fallisce_se_non_ci_sono_file_di_letture(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G02 — le tabelle si aprono e hanno le colonne attese                         #
+# G02 : le tabelle si aprono e hanno le colonne attese                         #
 # --------------------------------------------------------------------------- #
 
 
@@ -256,7 +258,7 @@ def test_g02_fallisce_su_una_colonna_assente(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G07 — layout single-end                                                      #
+# G07 : layout single-end                                                      #
 # --------------------------------------------------------------------------- #
 
 
@@ -292,7 +294,7 @@ def test_g07_fallisce_su_un_file_di_lettura_inversa(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G08 — lotto coerente e piastre plausibili                                    #
+# G08 : lotto coerente e piastre plausibili                                    #
 # --------------------------------------------------------------------------- #
 
 
@@ -377,7 +379,7 @@ def test_g08_non_avvisa_quando_i_negativi_bastano(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G09 — troncamento compatibile con le lunghezze                               #
+# G09 : troncamento compatibile con le lunghezze                               #
 # --------------------------------------------------------------------------- #
 
 
@@ -446,7 +448,7 @@ def test_g09_non_valuta_il_troncamento_molto_sotto_il_minimo(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G10 — primer assente, con controllo positivo                                 #
+# G10 : primer assente, con controllo positivo                                 #
 # --------------------------------------------------------------------------- #
 
 
@@ -544,7 +546,7 @@ def test_g10_tollera_un_singolo_campione_biologico_muto(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G12 — il riferimento tassonomico è quello dichiarato                         #
+# G12 : il riferimento tassonomico è quello dichiarato                         #
 # --------------------------------------------------------------------------- #
 
 
@@ -595,7 +597,7 @@ def test_g12_fallisce_se_il_riferimento_non_esiste(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G13 — gli archivi sono validi                                                #
+# G13 : gli archivi sono validi                                                #
 # --------------------------------------------------------------------------- #
 
 
@@ -669,7 +671,7 @@ def test_g13_fallisce_se_la_qualita_ha_lunghezza_diversa(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G14 — le risorse richieste sono disponibili                                  #
+# G14 : le risorse richieste sono disponibili                                  #
 # --------------------------------------------------------------------------- #
 
 
@@ -704,7 +706,7 @@ def test_g14_fallisce_se_i_thread_eccedono_le_cpu(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G15 — coerenza della configurazione                                          #
+# G15 : coerenza della configurazione                                          #
 # --------------------------------------------------------------------------- #
 
 

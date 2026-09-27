@@ -16,7 +16,7 @@ I FASTQ no: si ricostruiscono dai dati locali, su due livelli.
 selezione.** Tiene di ogni campione una frazione fissa delle letture, con un
 minimo, così il contrasto fra campioni profondi e poveri resta; tiene sempre
 le letture alla lunghezza minima del file, altrimenti la lunghezza minima
-globale di 137 bp — una lettura sola su decine di migliaia — sparirebbe; non
+globale di 137 bp (una lettura sola su decine di migliaia) sparirebbe; non
 tocca classi, corse e piastre, che vengono dai metadati. Il seme è fisso, e
 da esso e dall'accession deriva quello di ciascun file: aggiungere o togliere
 un campione non cambia le letture scelte per gli altri. Anche il file

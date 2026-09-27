@@ -2,12 +2,12 @@
 
 Inquadramento nel Piano Operativo:
     - **Settimane di riferimento**:
-        * **Settimana 3 (W3 — Fase F1: Schema di validazione della configurazione)**:
+        * **Settimana 3 (W3 : Fase F1: Schema di validazione della configurazione)**:
           modellazione dei 22 gruppi Pydantic (17 di produzione + 5 ecologici),
           parametri obbligatori privi di default, vincoli di dominio, blocco dei
           refusi (``extra="forbid"``), immutabilità (``frozen=True``) e allineamento
           con il dataset di riferimento **OSD-734**.
-        * **Settimana 4 (W4 — Fase F1: Coerenza interna della configurazione e
+        * **Settimana 4 (W4 : Fase F1: Coerenza interna della configurazione e
           parametri derivati)**: controlli relazionali incrociati del **Gate G15**
           (codici ``E-G15-01`` .. ``E-G15-09``), derivazione matematica di
           ``filter.minLen``, ``asv.len_min``, ``asv.len_max`` e ``prev.min_samples``
@@ -23,6 +23,8 @@ Inquadramento nel Piano Operativo:
         * ``src/amplicon16s/config/resolve.py``
         * ``src/amplicon16s/gates/g01_g15.py`` (limitatamente a ``esegui_g15`` e ``CONTROLLI``)
         * ``config/config.example.yaml``
+    - **Comando Bash**: ``pytest tests/test_config_schema.py -v``
+    - **Risultato atteso**: ``88 passed in ~0.45s``
 """
 
 from __future__ import annotations
@@ -629,8 +631,8 @@ def test_whitelist_dei_ritentativi_non_dipende_dal_dataset():
 
     **Razionale Scientifico/Sistemistico**: La whitelist dei 4 codici ripetibili
     (``E-S2-03``, ``E-S3-01``, ``E-S4-02``, ``E-S5-01``) è un invariante
-    architetturale della pipeline — ammette il retry automatico solo dove
-    l'azione correttiva non altera alcuna assunzione biologica — e non deve mai
+    architetturale della pipeline (ammette il retry automatico solo dove
+    l'azione correttiva non altera alcuna assunzione biologica) e non deve mai
     essere considerata un parametro da ritarare cambiando dataset.
     """
     assert "retry.whitelist" not in defaults.DERIVATI_DAL_DATASET
@@ -670,7 +672,7 @@ def test_la_configurazione_non_si_modifica_dopo_il_caricamento():
 
 
 # =========================================================================== #
-# Gate G15 — coerenza interna della configurazione (W4)                        #
+# Gate G15 : coerenza interna della configurazione (W4)                        #
 # =========================================================================== #
 
 #: Numero esatto di campioni biologici del dataset di riferimento OSD-734 (su 960 totali).

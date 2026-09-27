@@ -75,7 +75,7 @@ class Controllo:
 
     Messaggio e categoria non sono ripetuti qui: vivono nel catalogo degli
     errori, che è la sola fonte di verità dei codici. Questa classe aggiunge
-    ciò che il catalogo non sa — su quali parametri il controllo vigila e chi
+    ciò che il catalogo non sa: su quali parametri il controllo vigila e chi
     lo esegue materialmente.
     """
 
@@ -280,7 +280,7 @@ def _violazione_da_schema(problema: str) -> Violazione:
 
     return Violazione(
         codice,
-        "{} — controllo {} su {}: {}".format(
+        "{} : controllo {} su {}: {}".format(
             problema,
             codice,
             ", ".join(controllo.parametri),
@@ -311,7 +311,7 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
     derivati = risolta.derivati
     violazioni: list[Violazione] = []
 
-    # E-G15-01 — invariante sulla derivazione: minLen discende da truncLen,
+    # E-G15-01 : invariante sulla derivazione: minLen discende da truncLen,
     # quindi la disuguaglianza non puo' essere violata da una configurazione.
     # Il controllo resta perche' sorveglia la regola di derivazione, non
     # l'utente: se quella regola cambiasse in modo incoerente, fallirebbe qui.
@@ -325,7 +325,7 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
             )
         )
 
-    # E-G15-02 — lo schema ammette [0, 1]; agli estremi la soglia e' degenere.
+    # E-G15-02 : lo schema ammette [0, 1]; agli estremi la soglia e' degenere.
     soglia = config.decontam.threshold
     if not (0.0 < soglia < 1.0):
         violazioni.append(
@@ -337,7 +337,7 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
             )
         )
 
-    # E-G15-03 — l'intervallo delle lunghezze ammesse deve essere sensato.
+    # E-G15-03 : l'intervallo delle lunghezze ammesse deve essere sensato.
     if derivati.asv_len_min > derivati.asv_len_max:
         violazioni.append(
             Violazione(
@@ -358,7 +358,7 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
             )
         )
 
-    # E-G15-09 — la whitelist e' l'autorita' su quali codici si ritentano, ma
+    # E-G15-09 : la whitelist e' l'autorita' su quali codici si ritentano, ma
     # puo' solo restringere l'elenco del catalogo: un codice che il catalogo
     # non ammette al retry verrebbe ritentato cambiando un'assunzione.
     for codice in config.retry.whitelist:
@@ -378,7 +378,7 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
                 )
             )
 
-    # E-G15-07 — lo schema impone gia' che l'elenco non sia vuoto; qui resta la
+    # E-G15-07 : lo schema impone gia' che l'elenco non sia vuoto; qui resta la
     # sola parte condizionale, che oggi e' sempre vera.
     if _decontaminazione_attiva(config) and not config.ctrl.blank_values:
         violazioni.append(
@@ -542,8 +542,8 @@ def _g06_insiemi_simmetrici(analisi: Analisi) -> list[Violazione]:
 def _g03_join_ristretto(analisi: Analisi) -> list[Violazione]:
     """Il join verso la tabella di studio non deve alterare l'insieme.
 
-    La restrizione e' garantita per costruzione — si itera sulle righe
-    dell'assay — ma resta un modo in cui puo' rompersi: un nome di campione
+    La restrizione e' garantita per costruzione (si itera sulle righe
+    dell'assay), ma resta un modo in cui puo' rompersi: un nome di campione
     che nella tabella di studio compare piu' volte, perche' riusato da un
     altro assay. In quel caso il join moltiplicherebbe le righe dell'assay, e
     quale delle due sia quella giusta non e' deducibile.
@@ -934,7 +934,7 @@ def _g09_troncamento_compatibile(contesto: Contesto) -> tuple[list[Violazione], 
             )
         ], []
 
-    # Lo scarto opposto — troncare molto sotto la lettura piu' corta — e'
+    # Lo scarto opposto (troncare molto sotto la lettura piu' corta) e'
     # E-S1-01, e non si valuta qui: su una stima del minimo sarebbe sbagliato
     # nei due versi. Lo valuta S1, che legge tutte le letture.
     return [], []

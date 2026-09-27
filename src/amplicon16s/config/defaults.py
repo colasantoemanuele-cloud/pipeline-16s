@@ -6,10 +6,10 @@ leggendo un solo file.
 
 Sono divisi in due categorie, e la distinzione è sostanziale:
 
-* **Predefiniti generici** — scelte ragionevoli indipendenti dal dataset.
+* **Predefiniti generici**: scelte ragionevoli indipendenti dal dataset.
   Restano validi finché non c'è una ragione specifica per cambiarli.
 
-* **Predefiniti derivati dal dataset di riferimento** — valori ricavati da
+* **Predefiniti derivati dal dataset di riferimento**: valori ricavati da
   caratteristiche accertate di OSD-734: nomi di colonne dei metadati, etichette
   usate per distinguere i controlli, taxon atteso nei controlli positivi. Su
   dataset sono quasi certamente sbagliati e vanno rivisti uno per uno. Il
@@ -28,17 +28,17 @@ from typing import Final
 # Predefiniti generici                                                         #
 # --------------------------------------------------------------------------- #
 
-# io — individuazione dei file di lettura e degli accession
+# io: individuazione dei file di lettura e degli accession
 IO_FASTQ_GLOB: Final = "*.fastq.gz"
 IO_ACCESSION_REGEX: Final = r"(E|S|D)RX[0-9]{4,}"
 
-# meta — lettura della tabella dei metadati
+# meta: lettura della tabella dei metadati
 META_SAMPLE_ID_COLUMN: Final = "Sample Name"
 META_ACCESSION_COLUMN: Final = "Raw Data File"
 META_DERIVE_MODULE: Final = True
 META_MODULE_REGEX: Final = r"^([A-Z]{3}[0-9])"
 
-# filter — filtraggio e troncamento delle letture
+# filter: filtraggio e troncamento delle letture
 FILTER_TRUNCLEN: Final = 137
 FILTER_TRUNCLEN_SHORTFALL_WARN: Final = 10
 FILTER_TRIMLEFT: Final = 0
@@ -47,50 +47,50 @@ FILTER_TRUNCQ: Final = 2
 FILTER_MAXN: Final = 0
 FILTER_RM_PHIX: Final = True
 
-# err — apprendimento del modello di errore
+# err: apprendimento del modello di errore
 ERR_NBASES: Final = 1.0e8
 ERR_MAX_CONSIST: Final = 10
 ERR_RANDOMIZE: Final = True
 
-# dada — inferenza delle varianti
+# dada: inferenza delle varianti
 DADA_POOL: Final = "pseudo"
 DADA_OMEGA_A: Final = 1.0e-40
 
-# chimera — rimozione delle chimere
+# chimera: rimozione delle chimere
 CHIMERA_METHOD: Final = "consensus"
 CHIMERA_MIN_FOLD_PARENT_OVER_ABUNDANCE: Final = 2.0
 CHIMERA_MIN_PARENT_ABUNDANCE: Final = 2
 CHIMERA_MIN_SAMPLE_FRACTION: Final = 0.9
 CHIMERA_ALLOW_ONE_OFF: Final = False
 
-# asv — selezione delle sequenze
+# asv: selezione delle sequenze
 ASV_LEN_TOL: Final = 0
 
-# tax — assegnazione tassonomica
+# tax: assegnazione tassonomica
 TAX_CLASSIFIER: Final = "naive_bayes"
 TAX_MIN_BOOT: Final = 50
 TAX_TRY_RC: Final = True
 TAX_ASSIGN_SPECIES: Final = False
 
-# filt — filtraggio tassonomico
+# filt: filtraggio tassonomico
 FILT_REMOVE_NA_PHYLUM: Final = True
 FILT_EXCLUDE_TAXA: Final = ("Chloroplast", "Mitochondria", "Eukaryota")
 
-# phylo — albero filogenetico
+# phylo: albero filogenetico
 PHYLO_ENABLED: Final = False
 PHYLO_MAX_SEQS: Final = 5000
 
-# decontam — rimozione dei contaminanti
+# decontam: rimozione dei contaminanti
 DECONTAM_METHOD: Final = "prevalence"
 DECONTAM_THRESHOLD: Final = 0.5
 DECONTAM_MIN_BLANKS: Final = 5
 
-# prev — filtro di prevalenza
+# prev: filtro di prevalenza
 PREV_MIN_FRACTION: Final = 0.01
 PREV_MIN_COUNT: Final = 2
 PREV_APPLY: Final = True
 
-# qc — soglie dei controlli di qualità
+# qc: soglie dei controlli di qualità
 QC_MIN_READS_RAW: Final = 1000
 QC_MIN_READS_FILTERED: Final = 500
 QC_MIN_READS_FINAL: Final = 1000
@@ -107,7 +107,7 @@ QC_HEAD_READS: Final = 10000
 # valutata sulla mediana dei soli campioni attesi portatori di segnale.
 QC_MIN_MOTIF_FRAC: Final = 0.25
 
-# retry — nuovi tentativi sulle fasi fallite
+# retry: nuovi tentativi sulle fasi fallite
 RETRY_ENABLED: Final = True
 RETRY_MAX_ATTEMPTS: Final = 2
 # Elenco chiuso dei codici di errore per cui e' ammesso un nuovo tentativo
@@ -116,13 +116,13 @@ RETRY_MAX_ATTEMPTS: Final = 2
 # quindi su qualunque dataset.
 RETRY_WHITELIST: Final = ("E-S2-03", "E-S3-01", "E-S4-02", "E-S5-01")
 
-# out — forma degli artefatti prodotti
+# out: forma degli artefatti prodotti
 OUT_SERIALIZATION: Final = "rds"
 OUT_TAXA_ARE_ROWS: Final = True
 OUT_ASV_ID_SCHEME: Final = "abundance_rank"
 OUT_EXPORT_FLAT: Final = True
 
-# run — esecuzione
+# run: esecuzione
 # File di blocco delle versioni dei pacchetti R. Dichiararlo nella
 # configurazione lo fa entrare nel digest: senza, due esecuzioni non sarebbero
 # confrontabili rispetto alle versioni R impiegate.

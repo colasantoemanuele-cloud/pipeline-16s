@@ -2,13 +2,15 @@
 
 Inquadramento nel Piano Operativo
 ---------------------------------
-* **Settimane di riferimento**: **Settimana 1 e Settimana 2 (W1/W2 — Fase F1:
+* **Settimane di riferimento**: **Settimana 1 e Settimana 2 (W1/W2 : Fase F1:
   Inizializzazione repository, package namespace, CI smoke tests e interfaccia
   CLI base)**.
 * **Moduli sorgente coperti**:
   - ``src/amplicon16s/__init__.py``
   - ``src/amplicon16s_eco/__init__.py``
   - ``src/amplicon16s/cli.py``
+* **Comando Bash**: ``pytest tests/test_import.py -v``
+* **Risultato atteso**: ``10 passed in ~0.20s``
 
 Scopo sperimentale e razionale scientifico/sistemistico
 -------------------------------------------------------
@@ -16,9 +18,9 @@ Questo modulo rappresenta il primo presidio di integrazione continua (CI)
 introdotto fin dalla Settimana 1 per garantire due proprietà fondamentali:
 
 1. **Integrità del packaging e assenza di import circolari**: verifica che i due
-   namespace Python del progetto — ``amplicon16s`` (core di validazione,
-   orchestrazione, gate e ponte R) e ``amplicon16s_eco`` (estensioni di analisi
-   ecologica e modellistica) — siano correttamente installati nell'ambiente
+   namespace Python del progetto (``amplicon16s``, core di validazione,
+   orchestrazione, gate e ponte R, e ``amplicon16s_eco``, estensioni di analisi
+   ecologica e modellistica) siano correttamente installati nell'ambiente
    virtuale/container, importabili dinamicamente senza ``ImportError`` o cicli
    di dipendenza e provvisti di attributo ``__version__``.
 2. **Contratto sintattico della CLI (``amplicon16s``)**: verifica che tutti e 4

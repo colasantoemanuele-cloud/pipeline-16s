@@ -8,9 +8,9 @@
 # significa quindi cambiare esplicitamente un digest qui sotto, mai subire un
 # cambiamento deciso a monte.
 
-# bioconductor/bioconductor_docker:RELEASE_3_21 — Ubuntu 24.04, R 4.5, Bioconductor 3.21
+# bioconductor/bioconductor_docker:RELEASE_3_21 : Ubuntu 24.04, R 4.5, Bioconductor 3.21
 ARG BIOCONDUCTOR_IMAGE=bioconductor/bioconductor_docker@sha256:359702d482e70e343d2a436731b7c6deffd1ec184a1f1700de5d64b0c97cacba
-# ghcr.io/astral-sh/uv:0.12.5 — serve solo a procurare l'interprete Python
+# ghcr.io/astral-sh/uv:0.12.5 : serve solo a procurare l'interprete Python
 ARG UV_IMAGE=ghcr.io/astral-sh/uv@sha256:e85be844203885286c60ffad8a858d48afb6c5a5c237ca0e67f12e74b8f174b1
 
 FROM ${UV_IMAGE} AS uv

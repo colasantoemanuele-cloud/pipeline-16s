@@ -205,7 +205,7 @@ Sono realizzati:
 - l'esito di S0 in `01_input_validation/`: l'esito di ogni gate, il crosswalk,
   l'inventario e le statistiche delle letture ispezionate, ciascuno registrato nel
   manifesto con il proprio checksum;
-- il catalogo degli errori (47 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (48 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici

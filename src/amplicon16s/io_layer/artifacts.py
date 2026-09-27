@@ -19,7 +19,7 @@ riscrive un file di un'altra ne rompe il checksum invece di sembrare conclusa.
 
 Gli artefatti non nascono tutti qui: le fasi di calcolo sono processi R che
 scrivono i propri file da sé. Per questo :meth:`AlberoOutput.registra` esiste
-accanto ai metodi di scrittura — un file prodotto altrove entra nel manifesto
+accanto ai metodi di scrittura: un file prodotto altrove entra nel manifesto
 allo stesso modo di uno scritto da Python, e la verifica di completezza non
 distingue i due casi.
 """

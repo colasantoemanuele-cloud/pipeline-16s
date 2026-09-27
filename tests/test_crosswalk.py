@@ -1,7 +1,7 @@
 """Suite di verifica per il crosswalk dei metadati, l'arricchimento lotti e i Gate G04, G05, G06 e G11.
 
 Inquadramento nel Piano Operativo:
-    - **Settimana di riferimento**: **Settimana 6 (W6 — Fase F2: Crosswalk,
+    - **Settimana di riferimento**: **Settimana 6 (W6 : Fase F2: Crosswalk,
       inventario dei campioni e classificazione dei controlli)**.
     - **Scopo del modulo**: Verifica su scenari sintetici controllati la
       costruzione dell'inventario campioni dall'incrocio fra gli archivi
@@ -23,6 +23,8 @@ Inquadramento nel Piano Operativo:
         * ``src/amplicon16s/metadata/crosswalk.py``
         * ``src/amplicon16s/metadata/controls_map.py``
         * ``src/amplicon16s/gates/g01_g15.py`` (limitatamente a ``G04, G05, G06, G11``)
+    - **Comando Bash**: ``pytest tests/test_crosswalk.py -v``
+    - **Risultato atteso**: ``43 passed in ~0.35s``
 """
 
 from __future__ import annotations
@@ -162,7 +164,7 @@ def test_ogni_campione_e_legato_al_proprio_file(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G04 — l'accession è estraibile e non ambiguo                                 #
+# G04 : l'accession è estraibile e non ambiguo                                 #
 # --------------------------------------------------------------------------- #
 
 
@@ -219,7 +221,7 @@ def test_g04_fallisce_se_l_accession_e_ambiguo(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G05 — gli accession sono univoci                                             #
+# G05 : gli accession sono univoci                                             #
 # --------------------------------------------------------------------------- #
 
 
@@ -265,7 +267,7 @@ def test_g05_fallisce_su_accession_duplicati_nell_assay(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G06 — gli insiemi coincidono                                                 #
+# G06 : gli insiemi coincidono                                                 #
 # --------------------------------------------------------------------------- #
 
 
@@ -316,7 +318,7 @@ def test_g06_fallisce_su_una_riga_dell_assay_senza_file(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# G11 — ogni campione ricade in una classe dichiarata                          #
+# G11 : ogni campione ricade in una classe dichiarata                          #
 # --------------------------------------------------------------------------- #
 
 

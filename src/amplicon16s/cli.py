@@ -9,7 +9,7 @@ tentativi ripetuti cambiano una copia in memoria.
 * ``run`` esegue dall'inizio, in una cartella di output assente o vuota. **Non
   sovrascrive**: ogni esecuzione deve restare ispezionabile, quindi se
   ``io.out_root`` contiene già qualcosa ``run`` si rifiuta e indica le due
-  strade — ``resume`` per continuare quell'esecuzione, oppure un'altra
+  strade: ``resume`` per continuare quell'esecuzione, oppure un'altra
   ``io.out_root`` per cominciarne una nuova. Non esiste un'opzione per
   sovrascrivere: contraddirebbe proprio quella decisione.
 * ``resume`` riprende dagli artefatti esistenti: esegue le sole fasi che la
@@ -20,16 +20,16 @@ tentativi ripetuti cambiano una copia in memoria.
 **Codici di uscita**, per chi lancia la pipeline da uno script o da uno
 scheduler:
 
-* ``0`` — successo;
-* ``1`` — errore imprevisto, un difetto del programma: il log in ``99_logs``
+* ``0``: successo;
+* ``1``: errore imprevisto, un difetto del programma: il log in ``99_logs``
   ne riporta la traccia;
-* ``2`` — riga di comando non valida (argomenti mancanti o sconosciuti);
-* ``3`` — errore di configurazione: il file non è valido, G15 lo respinge,
+* ``2``: riga di comando non valida (argomenti mancanti o sconosciuti);
+* ``3``: errore di configurazione: il file non è valido, G15 lo respinge,
   oppure ``run`` trova la cartella di output già usata. Nessuna fase è
   partita;
-* ``4`` — arresto con punto di ripresa dichiarato, stampato e scritto in
+* ``4``: arresto con punto di ripresa dichiarato, stampato e scritto in
   ``99_logs/punto_di_ripresa.json`` e ``.txt``;
-* ``5`` — tutte le fasi realizzate sono concluse, ma la prossima non esiste
+* ``5``: tutte le fasi realizzate sono concluse, ma la prossima non esiste
   ancora come codice. È uno stato transitorio dello sviluppo: oggi, dopo S0.
 """
 

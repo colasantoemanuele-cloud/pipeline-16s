@@ -1,9 +1,9 @@
 """Suite di verifica per il gestore dell'albero di output e dei manifesti SHA-256.
 
 Inquadramento nel Piano Operativo:
-    - **Settimana di riferimento**: **Settimana 5 (W5 — Fase F1: Catalogo degli errori,
+    - **Settimana di riferimento**: **Settimana 5 (W5 : Fase F1: Catalogo degli errori,
       gestione degli artefatti e logging)**, con estensioni utilizzate dal meccanismo
-      di ripresa su filesystem della **Settimana 9 (W9 — Fase F3)**.
+      di ripresa su filesystem della **Settimana 9 (W9 : Fase F3)**.
     - **Scopo del modulo**: Verifica che la creazione delle 14 directory canoniche
       di output (``00_config`` .. ``99_logs``), il calcolo streaming dei digest
       crittografici SHA-256 e l'aggiornamento atomico dei manifesti JSON garantiscano
@@ -12,6 +12,8 @@ Inquadramento nel Piano Operativo:
     - **Moduli sorgente coperti**:
         * ``src/amplicon16s/io_layer/checksums.py``
         * ``src/amplicon16s/io_layer/artifacts.py``
+    - **Comando Bash**: ``pytest tests/test_artifacts.py -v``
+    - **Risultato atteso**: ``25 passed in ~0.25s``
 """
 
 from __future__ import annotations

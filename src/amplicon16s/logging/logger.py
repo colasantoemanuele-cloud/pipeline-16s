@@ -5,8 +5,8 @@ Le due uscite servono a due lettori diversi e hanno perciò forme diverse.
 * La **console** è per chi guarda l'esecuzione mentre avviene: una riga per
   evento, leggibile, con il minimo indispensabile.
 * Il **file** sotto ``99_logs`` è per chi ricostruisce a posteriori cosa è
-  successo in un'esecuzione durata ore. Il formato è JSON Lines — un oggetto
-  JSON per riga — perché quel lettore non legge, interroga: «tutti gli eventi
+  successo in un'esecuzione durata ore. Il formato è JSON Lines (un oggetto
+  JSON per riga) perché quel lettore non legge, interroga: «tutti gli eventi
   del codice E-S2-03», «tutte le degradazioni», «quanto è durata la fase S4».
   Con righe di testo libero ognuna di quelle domande diventa un'espressione
   regolare da indovinare; con JSON Lines è un filtro.
@@ -169,7 +169,7 @@ def registra_errore(
 ) -> None:
     """Registra un :class:`~amplicon16s.errors.exceptions.ErrorePipeline`.
 
-    I campi del catalogo — codice, fase, categoria, azione — finiscono nel log
+    I campi del catalogo (codice, fase, categoria, azione) finiscono nel log
     strutturato come campi distinti, così una ricerca per codice o per
     categoria non deve passare dal testo del messaggio.
     """

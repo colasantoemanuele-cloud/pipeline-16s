@@ -2,13 +2,15 @@
 
 Inquadramento nel Piano Operativo
 ---------------------------------
-* **Settimana di riferimento**: **Settimana 5 / Settimana 8 (W5/W8 — Fase F1/F3:
+* **Settimana di riferimento**: **Settimana 5 / Settimana 8 (W5/W8 : Fase F1/F3:
   Ponte di comunicazione ed esecuzione subprocess verso R/Rscript)**.
 * **Moduli sorgente coperti**:
   - ``src/amplicon16s/rbridge/payload.py``
   - ``src/amplicon16s/rbridge/runner.py``
   - ``R/lib/io_json.R``
   - ``R/lib/errors.R``
+* **Comando Bash**: ``pytest tests/test_rbridge.py -v``
+* **Risultato atteso**: ``59 passed in ~10.50s``
 
 Scopo sperimentale e razionale scientifico/sistemistico
 -------------------------------------------------------

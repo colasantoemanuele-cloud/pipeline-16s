@@ -1,17 +1,20 @@
 """Suite di verifica del catalogo degli errori, della whitelist di retry e delle eccezioni tipizzate.
 
 Inquadramento nel Piano Operativo:
-    - **Settimana di riferimento**: **Settimana 5 (W5 — Fase F1: Catalogo degli
+    - **Settimana di riferimento**: **Settimana 5 (W5 : Fase F1: Catalogo degli
       errori, gestione degli artefatti e logging)**.
     - **Scopo del modulo**: Verifica l'integrità formale e metodologica del
-      catalogo centralizzato dei codici di errore (``CATALOGO``) e della
-      gerarchia di eccezioni (``ErrorePipeline``). In particolare certifica:
+      catalogo centralizzato dei codici di errore (``CATALOGO``, **48 codici totali**:
+      **34 codici di fase** incluso ``E-S1-02``, **4 codici del ponte R**, **1 codice
+      del grafo** e **9 codici del Gate G15**) e della gerarchia di eccezioni
+      (``ErrorePipeline``). In particolare certifica:
         * Che ogni codice possieda sia una sintesi diagnostica sia un'azione
           operativa prescrittiva in italiano (> 30 caratteri) che indichi
           all'operatore *cosa fare* e non solo *cosa è fallito*;
         * La chiusura ermetica della whitelist dei tentativi ripetuti a
           **esattamente 4 codici** (``E-S2-03``, ``E-S3-01``, ``E-S4-02``,
-          ``E-S5-01``), poiché il retry automatico è ammesso solo dove l'azione
+          ``E-S5-01``), mentre i restanti **44 codici** non sono ripetibili,
+          poiché il retry automatico è ammesso solo dove l'azione
           correttiva (es. riduzione di ``run.batch_size`` per OOM) non altera
           alcuna assunzione scientifica dell'analisi;
         * Che tutti i guasti del ponte verso R (``E-R-01`` .. ``E-R-04``),
@@ -21,6 +24,8 @@ Inquadramento nel Piano Operativo:
     - **Moduli sorgente coperti**:
         * ``src/amplicon16s/errors/catalog.py``
         * ``src/amplicon16s/errors/exceptions.py``
+    - **Comando Bash**: ``pytest tests/test_errors_catalog.py -v``
+    - **Risultato atteso**: ``277 passed in ~0.35s``
 """
 
 from __future__ import annotations
@@ -45,7 +50,7 @@ from amplicon16s.errors.exceptions import (
 )
 from amplicon16s.gates.g01_g15 import CONTROLLI
 
-#: Elenco esplicito di controllo dei codici di fase (S0–S14): mantenuto nel test
+#: Elenco esplicito di controllo dei 34 codici di fase (S0–S14): mantenuto nel test
 #: per intercettare qualsiasi rimozione accidentale dal dizionario ``CATALOGO``.
 CODICI_DI_FASE = (
     "E-S0-01", "E-S0-02", "E-S0-03", "E-S0-04", "E-S0-05", "E-S0-06", "E-S0-07",
@@ -104,7 +109,7 @@ def test_ogni_voce_ha_messaggio_e_categoria(codice):
 @pytest.mark.parametrize("codice", sorted(CATALOGO))
 def test_il_messaggio_dice_anche_cosa_fare(codice):
     """
-    **Obiettivo**: Verificare che per ciascuno dei 47 codici del catalogo il
+    **Obiettivo**: Verificare che per ciascuno dei 48 codici del catalogo il
     campo ``azione`` sia distinto dalla ``sintesi``, abbia lunghezza ``> 30``
     caratteri e compaia nel messaggio completo dell'eccezione.
 
@@ -226,7 +231,7 @@ def test_ogni_codice_ammesso_al_retry_esiste_nel_catalogo(codice):
 )
 def test_nessun_altro_codice_ammette_il_retry(codice):
     """
-    **Obiettivo**: Verificare che tutti i restanti 43 codici del catalogo abbiano
+    **Obiettivo**: Verificare che tutti i restanti 44 codici del catalogo abbiano
     tassativamente ``ammette_retry is False``.
 
     **Razionale Scientifico/Sistemistico**: Impedisce che un nuovo codice

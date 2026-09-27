@@ -2,12 +2,14 @@
 
 Inquadramento nel Piano Operativo
 ---------------------------------
-* **Settimana di riferimento**: **Settimana 5 (W5 — Fase F1: Logging strutturato,
+* **Settimana di riferimento**: **Settimana 5 (W5 : Fase F1: Logging strutturato,
   tracciabilità e gestione artefatti)**.
 * **Moduli sorgente coperti**:
   - ``src/amplicon16s/logging/logger.py``
   - ``src/amplicon16s/io_layer/artifacts.py``
   - ``src/amplicon16s/config/resolve.py``
+* **Comando Bash**: ``pytest tests/test_logging.py -v``
+* **Risultato atteso**: ``14 passed in ~0.25s``
 
 Scopo sperimentale e razionale scientifico/sistemistico
 -------------------------------------------------------

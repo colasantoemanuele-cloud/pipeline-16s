@@ -17,9 +17,9 @@ un parametro, i file a valle restano integri ma sono stati calcolati su
 ingressi che non esistono piu'. Il manifesto registra quindi, in
 ``calcolata_su``, tre cose:
 
-* ``configurazione``: l'impronta dei parametri da cui la fase dipende — per
+* ``configurazione``: l'impronta dei parametri da cui la fase dipende (per
   difetto l'intera configurazione risolta, meno i parametri che non incidono
-  sui risultati, come il numero di thread o la cartella di output;
+  sui risultati, come il numero di thread o la cartella di output);
 * ``a_monte``: l'impronta del manifesto di ogni fase di cui consuma gli
   artefatti. Ogni esecuzione produce un'impronta nuova, quindi ricalcolare una
   fase invalida tutte quelle che l'avevano registrata, e a cascata le loro;
@@ -29,8 +29,8 @@ ingressi che non esistono piu'. Il manifesto registra quindi, in
 Una fase è conclusa se il suo manifesto esiste, i suoi artefatti sono integri
 e ``calcolata_su`` coincide con ciò che si otterrebbe adesso.
 
-Il manifesto registra anche le **degradazioni** — la fase si è conclusa con
-un comportamento di ripiego, dichiarato con :meth:`StepContext.degrada` — e
+Il manifesto registra anche le **degradazioni** (la fase si è conclusa con
+un comportamento di ripiego, dichiarato con :meth:`StepContext.degrada`) e
 gli **aggiustamenti**, i parametri cambiati dall'esecutore con un'azione
 correttiva prima di ritentare, con il valore dichiarato e quello usato. Il confronto lo
 fa :class:`~amplicon16s.runner.project.ProjectRun`, con lo stesso metodo
@@ -205,8 +205,8 @@ class PipelineStep(ABC):
     """Una fase della pipeline.
 
     Una fase concreta dichiara quale ``passo`` realizza, e se serve da quali
-    ``parametri`` dipende, e implementa :meth:`calcola`. Il resto — ordine,
-    prerequisiti, validazione, registrazione — è comune.
+    ``parametri`` dipende, e implementa :meth:`calcola`. Il resto (ordine,
+    prerequisiti, validazione, registrazione) è comune.
     """
 
     #: La fase del grafo che questa classe realizza.

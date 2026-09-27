@@ -11,7 +11,7 @@ quando serve riprendere.
 
 **Una valutazione, molte domande.** :meth:`ProjectRun.valuta` legge lo stato
 una volta e restituisce una :class:`Valutazione`, a cui si pongono tutte le
-domande — concluse, disattivate, prossima — senza ricalcolare nulla. Dentro
+domande (concluse, disattivate, prossima) senza ricalcolare nulla. Dentro
 una valutazione il checksum di ogni artefatto è calcolato una volta sola. Le
 proprieta' omonime di :class:`ProjectRun` sono scorciatoie per una domanda
 isolata, e ciascuna compie una valutazione nuova: chi ne pone piu' di una

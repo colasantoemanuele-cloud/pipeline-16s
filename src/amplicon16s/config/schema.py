@@ -3,7 +3,7 @@
 La pipeline non contiene valori scritti nel codice: ogni scelta che dipende dal
 dataset è un parametro. Il file di configurazione è quindi il vero punto di
 controllo dell'esecuzione, e un errore al suo interno deve emergere prima che
-venga allocato qualunque calcolo — non a metà di un'elaborazione che dura ore.
+venga allocato qualunque calcolo, non a metà di un'elaborazione che dura ore.
 
 Lo schema è dichiarato con pydantic. Tre proprietà contano più delle altre:
 

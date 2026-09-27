@@ -2,11 +2,13 @@
 
 Inquadramento nel Piano Operativo
 ---------------------------------
-* **Settimana di riferimento**: **Settimana 6 (W6 — Fase F2: Crosswalk e
+* **Settimana di riferimento**: **Settimana 6 (W6 : Fase F2: Crosswalk e
   metadati, Gate G03: join ristretto)**.
 * **Moduli sorgente coperti**:
   - ``src/amplicon16s/metadata/crosswalk.py``
   - ``src/amplicon16s/gates/g01_g15.py`` (Gate G03)
+* **Comando Bash**: ``pytest tests/test_join_restricted.py -v``
+* **Risultato atteso**: ``7 passed in ~0.20s``
 
 Scopo sperimentale e razionale scientifico/sistemistico
 -------------------------------------------------------

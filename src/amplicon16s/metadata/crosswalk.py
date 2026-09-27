@@ -249,7 +249,7 @@ def analizza(config: Config) -> Analisi:
     analisi.file_per_accession = file_per_accession
     assay_per_accession = _righe_assay(config, analisi)
 
-    # G06 — i due insiemi devono coincidere, senza orfani da nessuna parte.
+    # G06 : i due insiemi devono coincidere, senza orfani da nessuna parte.
     nei_file = set(file_per_accession)
     nell_assay = set(assay_per_accession)
     analisi.solo_nei_file = tuple(sorted(nei_file - nell_assay))
@@ -259,7 +259,7 @@ def analizza(config: Config) -> Analisi:
     arricchimento_per_accession = _righe_arricchimento(config, analisi)
     analisi.arricchimento_presente = config.io.batch_table is not None
 
-    # G03 — la restrizione si misura qui: si itera sulle righe dell'assay e la
+    # G03 : la restrizione si misura qui: si itera sulle righe dell'assay e la
     # tabella di studio viene solo consultata. Le sue righe in piu' restano
     # fuori dall'inventario per costruzione, non per un filtro applicato dopo.
     nomi_assay = {r.nome for r in assay_per_accession.values()}

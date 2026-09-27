@@ -15,9 +15,9 @@ A ogni avvio, prima di qualunque fase:
 Superati i controlli, **registra la configurazione** in ``00_config`` senza
 mai sovrascrivere (:func:`~amplicon16s.config.resolve.registra_risolta`): la
 prima esecuzione scrive ``resolved.yaml``; una ripresa con lo stesso digest
-non scrive nulla; una ripresa con un digest diverso — anche solo per
+non scrive nulla; una ripresa con un digest diverso (anche solo per
 ``run.threads`` o un parametro di retry, fuori dall'impronta dei risultati ma
-non dal digest — scrive la nuova versione accanto alle precedenti. Il log
+non dal digest) scrive la nuova versione accanto alle precedenti. Il log
 dice a ogni avvio con quale versione si esegue.
 
 Poi esegue, una alla volta, le fasi che la :class:`Valutazione` dà da

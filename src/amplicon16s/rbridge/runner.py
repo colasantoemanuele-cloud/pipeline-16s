@@ -1,9 +1,9 @@
 """Il ponte verso R: l'unico punto del sistema che esegue codice R.
 
 Ogni script R gira come **processo separato**, mai come libreria caricata nel
-processo Python. Un guasto grave dentro una routine di calcolo — un errore di
+processo Python. Un guasto grave dentro una routine di calcolo (un errore di
 segmentazione in codice compilato, l'intervento del sistema operativo che
-uccide il processo per memoria — abbatterebbe l'intero processo, orchestratore
+uccide il processo per memoria) abbatterebbe l'intero processo, orchestratore
 compreso. Con un processo separato muore il figlio: il padre legge l'esito e
 decide cosa fare.
 
@@ -30,12 +30,12 @@ cinque:
 
 La memoria esaurita si manifesta in due modi, e il ponte li riconosce
 entrambi. Se l'interprete intercetta l'allocazione fallita, l'errore arriva
-con il messaggio di R — dichiarato come errore non catalogato, oppure solo
-sull'uscita di errore se il processo non è riuscito a dichiarare. Se invece è
+con il messaggio di R (dichiarato come errore non catalogato, oppure solo
+sull'uscita di errore se il processo non è riuscito a dichiarare). Se invece è
 il sistema operativo a uccidere il processo, non resta alcun messaggio, solo
 il segnale ``SIGKILL``: nessuna dichiarazione e ``SIGKILL`` sono letti come
-memoria esaurita. È una presunzione — anche un operatore può inviare quel
-segnale — ma è quella giusta: il retry ammesso per la memoria riduce la
+memoria esaurita. È una presunzione (anche un operatore può inviare quel
+segnale), ma è quella giusta: il retry ammesso per la memoria riduce la
 dimensione del lotto, e non cambia alcuna assunzione metodologica.
 
 I messaggi di R sono tradotti nella lingua della macchina, quindi il ponte
@@ -163,9 +163,9 @@ def trova_rscript(esplicito: Path | str | None = None) -> Path | None:
     Nessun percorso assoluto è scritto qui: nel container ``Rscript`` è nel
     PATH, su una macchina di sviluppo pure, e dove non lo è si indica.
     """
-    for candidato in (esplicito, os.environ.get(VARIABILE_RSCRIPT)):
-        if candidato:
-            trovato = shutil.which(os.fspath(candidato))
+    for percorso_r in (esplicito, os.environ.get(VARIABILE_RSCRIPT)):
+        if percorso_r:
+            trovato = shutil.which(os.fspath(percorso_r))
             return Path(trovato) if trovato else None
     trovato = shutil.which("Rscript")
     return Path(trovato) if trovato else None

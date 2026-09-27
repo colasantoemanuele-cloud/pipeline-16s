@@ -8,11 +8,11 @@ dipendono, ed è per questo che tentarlo è un errore.
 **La risoluzione avviene in due momenti**, perché i derivati non dipendono
 tutti dalle stesse informazioni:
 
-1. :func:`risolvi` — risoluzione *statica*. Calcola tutto ciò che discende
+1. :func:`risolvi`: risoluzione *statica*. Calcola tutto ciò che discende
    dalla sola configurazione: ``filter.minLen``, ``asv.len_min``,
    ``asv.len_max``. Può essere eseguita prima di toccare qualunque dato, ed è
    quello che serve al gate G15.
-2. :meth:`ConfigRisolta.con_campioni_biologici` — risoluzione *dipendente dai
+2. :meth:`ConfigRisolta.con_campioni_biologici`: risoluzione *dipendente dai
    dati*. Calcola ``prev.min_samples``, che richiede il numero di campioni
    biologici: un dato che non esiste finché i metadati non sono stati letti.
 
@@ -76,8 +76,8 @@ NOME_FILE_RISOLTO: Final = "resolved.yaml"
 #: dichiarano, e l'elenco e' volutamente prudente: nel dubbio un parametro
 #: resta nell'impronta, perche' escluderne uno che incide farebbe consegnare
 #: risultati calcolati con un valore diverso da quello dichiarato, senza alcun
-#: errore. Per questo ``run.batch_size`` resta dentro — la suddivisione in
-#: lotti puo' toccare cio' che si stima per lotto — e cosi' ``run.lockfile``,
+#: errore. Per questo ``run.batch_size`` resta dentro (la suddivisione in
+#: lotti puo' toccare cio' che si stima per lotto) e cosi' ``run.lockfile``,
 #: che fissa le versioni dei pacchetti di calcolo.
 #:
 #: * ``run.threads``: quanti processori usare, non che cosa calcolare;
@@ -225,7 +225,7 @@ def risolvi(config: Config) -> ConfigRisolta:
 
 _INTESTAZIONE = """\
 # =========================================================================== #
-# Configurazione effettivamente usata — generata, non da modificare           #
+# Configurazione effettivamente usata: generata, non da modificare            #
 # =========================================================================== #
 #
 # Registra i parametri con cui l'esecuzione e' stata avviata, compresi quelli
