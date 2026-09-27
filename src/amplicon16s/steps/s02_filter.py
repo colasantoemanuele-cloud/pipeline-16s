@@ -148,6 +148,12 @@ class FiltroLetture(PipelineStep):
 
     passo: ClassVar[Passo] = Passo.S2
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("prefiltro", "filtrate")
+    #: Tutto il gruppo filter, le due soglie dei controlli sul risultato, e la
+    #: dimensione dei lotti con cui i file si passano al filtro: incluso per
+    #: prudenza, come nell'impronta di tutte le fasi.
+    parametri: ClassVar[tuple[str, ...]] = (
+        "filter", "qc.max_zeroed_samples", "qc.max_frac_lost_filter", "run.batch_size",
+    )
     aggiustamenti: ClassVar[dict[str, Aggiustamento]] = {
         "E-S2-03": senza_modifiche(
             "un errore di lettura transitorio si corregge rileggendo lo stesso file"

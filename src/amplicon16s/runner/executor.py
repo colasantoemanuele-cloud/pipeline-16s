@@ -64,7 +64,14 @@ from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.logging.logger import registra_errore
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import ProjectRun, StatoPasso, Valutazione
-from amplicon16s.runner.retry import Motivo, PoliticaRetry, applica, spiega_arresto, valore
+from amplicon16s.runner.retry import (
+    RITENTARE_INUTILE,
+    Motivo,
+    PoliticaRetry,
+    applica,
+    spiega_arresto,
+    valore,
+)
 from amplicon16s.steps.base import StepResult
 
 __all__ = [
@@ -369,7 +376,10 @@ class Esecutore:
                 risultato = fase.esegui(contesto)
             except ErrorePipeline as e:
                 aggiustamento = fase.aggiustamenti.get(e.codice)
-                decisione = self.politica.decidi(e.codice, tentativo, aggiustamento, config)
+                inutile = e.contesto.get(RITENTARE_INUTILE)
+                decisione = self.politica.decidi(
+                    e.codice, tentativo, aggiustamento, config, inutile
+                )
                 registra_errore(
                     self.log,
                     e,
@@ -435,7 +445,8 @@ class Esecutore:
                 else e.dettaglio
             ),
             motivo=spiega_arresto(
-                e.codice, motivo, tentativi, self.politica.tentativi_massimi
+                e.codice, motivo, tentativi, self.politica.tentativi_massimi,
+                e.contesto.get(RITENTARE_INUTILE),
             ),
             tentativi=tentativi,
             tentativi_massimi=self.politica.tentativi_massimi,

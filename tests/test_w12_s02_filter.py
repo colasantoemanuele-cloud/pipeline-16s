@@ -330,6 +330,7 @@ def _scenario(tmp_path, **sovrascrivi):
 class Doppione(PipelineStep):
     """Scrive un artefatto; fallisce per i primi ``fallimenti`` tentativi."""
 
+    parametri: ClassVar[tuple[str, ...]] = tuple(Config.model_fields)
     codice: ClassVar[str | None] = None
     fallimenti: ClassVar[int] = 0
     #: Nome dell'artefatto; per il doppione di S2, un file "filtrato".
@@ -605,12 +606,9 @@ def dada2():
 
 
 @pytest.fixture(scope="module")
-def filtrata(tmp_path_factory):
-    """S0, S1 e S2 sulla versione ridotta, una volta sola per i test che leggono."""
-    if _MOTIVO_ASSENTI is not None:
-        return None
-    run = ProjectRun(config_ridotta(tmp_path_factory.mktemp("s2")))
-    return run, Esecutore(run, fino_a=Passo.S2).esegui()
+def filtrata(ridotta_calcolata):
+    """L'esecuzione di base condivisa, S0-S3: questi test ne leggono S0-S2."""
+    return ridotta_calcolata
 
 
 def _conteggi(percorso: Path) -> dict[str, int]:
@@ -685,7 +683,7 @@ def test_le_letture_in_ingresso_sono_quelle_contate_da_s1(dada2, filtrata):
     assert prefiltro == grezze
 
 
-def test_il_tracciamento_si_ricompone_senza_toccare_i_file_di_s2(dada2, filtrata):
+def test_il_tracciamento_si_ricompone_senza_toccare_i_file_di_s2(dada2, filtrata, tmp_path):
     """
     Obiettivo:
         Verificare che ``ricomponi()`` unisca in ordine topologico i passi di
@@ -698,13 +696,20 @@ def test_il_tracciamento_si_ricompone_senza_toccare_i_file_di_s2(dada2, filtrata
         ``manifest_S2.json`` invalidando S2; l'architettura per composizione
         preserva l'immutabilita' degli artefatti di ogni passo.
     """
-    run, _ = filtrata
+    # Su una copia: l'esecuzione di base e' condivisa, e qui si esegue una S3
+    # diversa da quella vera.
+    base, _ = filtrata
+    shutil.copytree(base.config.io.out_root, tmp_path / "out")
+    dati = base.config.model_dump(mode="python")
+    dati["io"]["out_root"] = str(tmp_path / "out")
+    run = ProjectRun(valida(dati), passi={p: f for p, f in base.passi.items() if p is not Passo.S3})
     manifesto_s2 = run.albero.manifesto_passo(Passo.S2, Fase.FILTERED)
 
     # Una fase successiva registra il proprio passo, solo nei propri artefatti.
     class DenoiseDoppione(PipelineStep):
         passo: ClassVar[Passo] = Passo.S3
         passi_tracciamento: ClassVar[tuple[str, ...]] = ("modello",)
+        parametri: ClassVar[tuple[str, ...]] = ()
 
         def calcola(self, contesto: StepContext) -> Produzione:
             filtrate = _conteggi(contesto.albero.cartella(Fase.FILTERED) / "letture_filtrate.tsv")
@@ -729,7 +734,7 @@ def test_il_tracciamento_si_ricompone_senza_toccare_i_file_di_s2(dada2, filtrata
     assert successiva.valuta().situazioni[Passo.S2].stato is StatoPasso.COMPLETATA
 
 
-def test_con_max_ee_molto_restrittivo_il_filtro_si_ferma(dada2, tmp_path):
+def test_con_max_ee_molto_restrittivo_il_filtro_si_ferma(dada2, filtrata, tmp_path):
     """
     Obiettivo:
         Verificare che una soglia ``filter.maxEE = 0.01`` estremamente severa
@@ -740,8 +745,16 @@ def test_con_max_ee_molto_restrittivo_il_filtro_si_ferma(dada2, tmp_path):
         e il guardiano post-filtro Python: una fase fallita per perdita eccessiva
         di letture non deve mai apparire conclusa.
     """
-    run = ProjectRun(config_ridotta(tmp_path, filter={"maxEE": 0.01}))
+    # Sull'albero di base copiato: S0 e S1 non dipendono da filter.maxEE e
+    # restano concluse, si rifa' solo S2.
+    base, _ = filtrata
+    shutil.copytree(base.config.io.out_root, tmp_path / "out")
+    dati = base.config.model_dump(mode="python")
+    dati["io"]["out_root"] = str(tmp_path / "out")
+    dati["filter"]["maxEE"] = 0.01
+    run = ProjectRun(valida(dati))
     esito = Esecutore(run, fino_a=Passo.S2).esegui()
+    assert esito.eseguite == ()  # S0 e S1 concluse; S2 non si conclude
     assert esito.conclusione is Conclusione.ARRESTATA
     assert esito.punto.passo is Passo.S2
     assert esito.punto.codice in {"E-S2-01", "E-S2-02"}

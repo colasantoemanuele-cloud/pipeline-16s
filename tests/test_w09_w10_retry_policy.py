@@ -108,6 +108,9 @@ def _variante(config: Config, **valori: Any) -> Config:
 class Doppione(PipelineStep):
     """Scrive un artefatto e annota i parametri che ha visto."""
 
+    #: Legge run.batch_size ed err.nbases, gli aggiustamenti che i test
+    #: verificano; per il resto dichiara la dipendenza piu' larga possibile.
+    parametri: ClassVar[tuple[str, ...]] = tuple(Config.model_fields)
     #: Per i fragili: codice sollevato e quanti tentativi falliscono.
     codice: ClassVar[str | None] = None
     fallimenti: ClassVar[int] = 0

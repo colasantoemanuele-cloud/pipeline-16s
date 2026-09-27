@@ -144,7 +144,7 @@ Codici di uscita, per chi lancia la pipeline da uno script o da uno scheduler:
 | 2 | riga di comando non valida (argomenti mancanti o sconosciuti) |
 | 3 | errore di configurazione: il file non è valido, G15 lo respinge, oppure `run` trova la cartella di output già usata; nessuna fase è partita |
 | 4 | arresto con punto di ripresa dichiarato, stampato e scritto in `99_logs/punto_di_ripresa.json` e `.txt` |
-| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S2 |
+| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S3 |
 
 ## Stato dell'implementazione
 
@@ -261,20 +261,27 @@ Sono realizzati:
   configurazione, quella di ogni fase a monte e, per S0, quella dei dati di ingresso.
   Una fase è conclusa se il manifesto c'è, i suoi artefatti sono integri e questi
   ingressi coincidono con quelli di adesso: cambiare un parametro o ricalcolare una
-  fase a monte la rende da rifare, insieme a tutte quelle che ne dipendono. Per
-  difetto una fase dipende dall'intera configurazione, meno i parametri che non
-  incidono sui risultati, dichiarati in un solo elenco in `config/resolve.py`:
-  `run.threads`, `run.keep_filtered_fastq`, `io.out_root`, `retry.enabled`,
-  `retry.max_attempts`. Cambiarli, o spostare la cartella di un'esecuzione
-  conclusa, non la rende da rifare; il digest scritto in `00_config/resolved.yaml`
-  resta calcolato sull'intera configurazione.
+  fase a monte la rende da rifare, insieme a tutte quelle che ne dipendono. Ogni fase
+  dichiara i parametri da cui dipende, e solo quelli contano: cambiare `err.nbases`
+  rifà S3 e ciò che segue, non S0, S1 e S2. La dichiarazione è obbligatoria, perché
+  una fase che non la fa non si registra, ed è vincolante: il codice Python di una
+  fase vede la configurazione attraverso una vista ristretta ai parametri dichiarati
+  (`config/vista.py`), che solleva un errore su qualunque altro accesso, e gli script
+  R ricevono soltanto i parametri che la fase passa e falliscono se ne leggono uno
+  non ricevuto. Una dipendenza dimenticata diventa così un errore al primo test che
+  esercita la fase, non un risultato obsoleto. I parametri che non incidono sui
+  risultati, dichiarati in un solo elenco in `config/resolve.py` (`run.threads`,
+  `run.keep_filtered_fastq`, `io.out_root`, `retry.enabled`, `retry.max_attempts`),
+  sono leggibili da ogni fase e non entrano in nessuna impronta: cambiarli, o spostare
+  la cartella di un'esecuzione conclusa, non la rende da rifare. Il digest scritto in
+  `00_config/resolved.yaml` resta calcolato sull'intera configurazione.
   Una fase avviata prima delle fasi da cui dipende solleva `E-GRAFO-01`, oppure
   `E-S13-01` se a mancare è la decontaminazione prima del filtro di prevalenza.
   `ProjectRun` legge questo stato dal disco in una valutazione, a cui si chiede quali
   fasi sono concluse, quali disattivate, quali da eseguire e quale è la prossima;
   dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
   una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
-  gigabyte, costerà secondi; delle quindici fasi oggi esistono come codice S0, S1 e S2,
+  gigabyte, costerà secondi; delle quindici fasi oggi esistono come codice le prime quattro, da S0 a S3,
   e le altre risultano non realizzate;
 - **l'esecutore e la politica dei tentativi** (`runner/executor.py`,
   `runner/retry.py`). A ogni avvio, con `run` come con `resume`, l'esecutore ripete
@@ -296,8 +303,11 @@ Sono realizzati:
   log e nel manifesto; S0 vi registra E-S0-15, emessa da G08, e S1 vi registra E-S1-01.
   Quando l'esecuzione si ferma, l'esecutore dichiara il punto di ripresa: fase,
   codice, messaggio del catalogo, tentativi fatti e comando per ripartire. Delle fasi
-  con codici ripetibili esiste oggi S2, il cui E-S2-03 è provato su un archivio
-  davvero corrotto; per S3-S5 il meccanismo è provato con fasi doppione;
+  con codici ripetibili esistono oggi S2, il cui E-S2-03 è provato su un archivio
+  davvero corrotto, e S3, il cui E-S3-01 è provato su una stima che davvero non
+  converge; per S4 e S5 il meccanismo è provato con fasi doppione. Una fase può anche
+  dichiarare, nell'errore, che l'azione correttiva non cambierebbe l'esito: allora non
+  si ritenta, e il motivo compare nel punto di ripresa;
 - la registrazione degli eventi su due uscite: la console per chi segue l'esecuzione e
   un file JSON Lines con rotazione sotto `99_logs`, in un formato che si interroga per
   codice, fase o categoria invece di doversi leggere;
@@ -349,6 +359,20 @@ Sono realizzati:
   registrata accanto al manifesto di S2, così la valutazione dello stato non la
   scambia per un artefatto perso e una ripresa non rifà nulla; se una fase che le
   legge deve poi essere ripetuta, S2 torna da eseguire prima di lei;
+- **la fase S3, il modello d'errore** (`steps/s03_learn_errors.py`,
+  `R/03_learn_errors.R`), con `dada2::learnErrors` e i parametri del gruppo `err`: un
+  modello per corsa di sequenziamento, dalla colonna `err.batch_column` del file di
+  arricchimento del lotto; con la colonna nulla, o senza quel file, un solo modello su
+  tutti i campioni. Scrive in `04_error_models/` per ciascun modello il modello stesso e
+  il grafico diagnostico, errori osservati e stimati in funzione della qualità, e per
+  S4 la corrispondenza fra ciascun campione e il suo modello, `corrispondenza.tsv`.
+  L'ordine in cui i campioni entrano nella stima viene dal seme `run.seed`, e S3
+  registra quali campioni e quante basi di ciascuna classe l'hanno fatta. Modelli e
+  grafici sono identici byte per byte fra due esecuzioni identiche: il grafico è un PNG,
+  che non registra la data. La convergenza si riconosce da una proprietà del modello,
+  non dal testo di un avviso; un modello che non converge è E-S3-01, ritentato con
+  `err.nbases` raddoppiato solo se la stima non usava già tutte le basi della corsa.
+  Un campione senza corsa, con la colonna attiva, è E-S3-02;
 - il tracciamento delle letture (`runner/tracciamento.py`): ogni fase registra i propri
   passi in file suoi, `letture_<passo>.tsv`, e la tabella completa si ricompone
   leggendo quelli delle fasi concluse nell'ordine del grafo, senza che una fase
@@ -360,7 +384,7 @@ Sono realizzati:
   aggiustamenti applicati, degradazioni registrate. Non è il report definitivo, che
   non è ancora realizzato.
 
-Delle fasi di analisi sono realizzate S1 e S2; le altre, da S3 a S14, non sono
+Delle fasi di analisi sono realizzate S1, S2 e S3; le altre, da S4 a S14, non sono
 ancora realizzate.
 
 Questa sezione viene aggiornata a ogni avanzamento del lavoro.

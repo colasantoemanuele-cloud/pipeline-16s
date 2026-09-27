@@ -215,6 +215,19 @@ class ValidazioneIngressi(PipelineStep):
     """
 
     passo: ClassVar[Passo] = Passo.S0
+    #: I parametri letti dai quindici gate, dal crosswalk e dalla scansione
+    #: delle letture. Larga di proposito nei gruppi che G15 verifica per
+    #: coerenza (asv, prev, qc, decontam, ctrl), in quelli dei metadati e degli
+    #: ingressi (io, meta) e in retry.whitelist. Di filter legge solo truncLen e
+    #: trimLeft (G09, G15), di tax solo il riferimento e il suo MD5 (G01, G12),
+    #: di err solo la colonna della corsa (crosswalk, G08). Cambiare gli altri
+    #: parametri di questi gruppi, o di err, dada, chimera, non la rende da
+    #: rifare; se S0 ne leggesse uno, la vista ristretta lo rifiuterebbe.
+    parametri: ClassVar[tuple[str, ...]] = (
+        "io", "meta", "ctrl", "qc", "decontam", "asv", "prev",
+        "filter.truncLen", "filter.trimLeft", "tax.ref_fasta", "tax.ref_md5",
+        "err.batch_column", "retry.whitelist",
+    )
 
     def __init__(self, *, solleva: bool = True) -> None:
         self.solleva = solleva

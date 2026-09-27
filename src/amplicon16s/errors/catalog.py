@@ -388,6 +388,16 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "potrebbe raccogliere dati eterogenei che vanno separati.",
         _RETRY_UMANA,
     ),
+    _v(
+        "E-S3-02", "S3",
+        "Alcuni campioni non hanno la corsa di sequenziamento, con "
+        "err.batch_column attivo.",
+        "Un campione senza corsa non ha un modello d'errore da cui farsi "
+        "correggere. Completa io.batch_table per i campioni indicati, oppure "
+        "imposta err.batch_column a null per stimare un solo modello su tutti "
+        "i campioni.",
+        _UMANA,
+    ),
     # ----------------------------------------------------------------- S4 ---
     _v(
         "E-S4-02", "S4",

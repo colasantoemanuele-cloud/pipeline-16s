@@ -214,8 +214,10 @@ class Err(_Gruppo):
     nbases: RealePositivo = d.ERR_NBASES
     max_consist: InteroPositivo = d.ERR_MAX_CONSIST
     randomize: StrictBool = d.ERR_RANDOMIZE
-    # Derivato dal dataset di riferimento.
-    batch_column: StringaNonVuota = d.ERR_BATCH_COLUMN
+    # Derivato dal dataset di riferimento. Colonna di io.batch_table con la
+    # corsa di sequenziamento: un modello d'errore per corsa. Con null, o senza
+    # io.batch_table, si stima un solo modello su tutti i campioni.
+    batch_column: StringaNonVuota | None = d.ERR_BATCH_COLUMN
 
 
 class Dada(_Gruppo):

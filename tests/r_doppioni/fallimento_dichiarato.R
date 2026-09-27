@@ -13,7 +13,7 @@ for (f in c("io_json.R", "errors.R", "letture.R")) {
 
 esegui_fase(function(parametri, cartella) {
   message("il doppione sta per fallire: ", parametri$messaggio)
-  modo <- if (is.null(parametri$modo)) "dichiarato" else parametri$modo
+  modo <- facoltativo(parametri, "modo", "dichiarato")
   switch(
     modo,
     dichiarato = errore_catalogo(parametri$codice, parametri$messaggio),

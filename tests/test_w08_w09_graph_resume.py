@@ -112,8 +112,15 @@ def _variante(config: Config, **valori: Any) -> Config:
     return valida(dati)
 
 
+#: Per difetto un doppione dichiara di dipendere da tutti i gruppi della
+#: configurazione: la dichiarazione piu' larga possibile.
+TUTTI_I_GRUPPI: tuple[str, ...] = tuple(Config.model_fields)
+
+
 class Doppione(PipelineStep):
     """Una fase finta che scrive un artefatto derivato dai propri ingressi."""
+
+    parametri: ClassVar[tuple[str, ...]] = TUTTI_I_GRUPPI
 
     def __init__(self, registro: list[Passo]) -> None:
         self.registro = registro
@@ -127,7 +134,7 @@ class Doppione(PipelineStep):
         contenuto = {
             "passo": str(self.passo),
             "a_monte": {str(p): i for p, i in contesto.a_monte.items()},
-            "configurazione": impronta_parametri(contesto.risolta, self.parametri),
+            "parametri": list(self.parametri),
         }
         artefatto = contesto.albero.scrivi_testo(
             self.cartella, self.nome_artefatto, json.dumps(contenuto, sort_keys=True)
@@ -152,15 +159,15 @@ def _passi(
 ) -> dict[Passo, PipelineStep]:
     """S0 vera piu' un doppione per ogni altra fase, con i parametri indicati."""
     parametri = parametri or {}
-    classe_s0 = type(
-        "S0Parametrica", (S0Contata,), {"parametri": parametri.get(Passo.S0)}
-    )
+    # S0 e' quella vera: tiene la propria dichiarazione, se il test non ne da' una.
+    attributi_s0 = {"parametri": parametri[Passo.S0]} if Passo.S0 in parametri else {}
+    classe_s0 = type("S0Parametrica", (S0Contata,), attributi_s0)
     passi: dict[Passo, PipelineStep] = {Passo.S0: classe_s0(registro)}
     for passo in TUTTE[1:]:
         classe = type(
             f"Doppione{passo}",
             (Doppione,),
-            {"passo": passo, "parametri": parametri.get(passo)},
+            {"passo": passo, "parametri": parametri.get(passo, TUTTI_I_GRUPPI)},
         )
         passi[passo] = classe(registro)
     return passi
@@ -169,7 +176,6 @@ def _passi(
 #: Parametri ristretti: ogni fase dipende solo dal proprio gruppo, cosi' si
 #: vede quali fasi invalida un singolo cambiamento.
 RISTRETTI: dict[Passo, tuple[str, ...]] = {
-    Passo.S0: ("io", "meta", "ctrl", "qc"),
     Passo.S1: ("qc",),
     Passo.S2: ("filter",),
     Passo.S3: ("err",),
@@ -788,27 +794,38 @@ def test_spostare_la_cartella_di_output_non_rende_incompleta_l_esecuzione(
 
 
 @pytest.mark.parametrize(
-    "variazione",
-    [{"run__batch_size": 7}, {"run__lockfile": "altro.lock"}, {"decontam__threshold": 0.4}],
+    ("variazione", "s0_la_dichiara"),
+    [
+        ({"run__batch_size": 7}, False),
+        ({"run__lockfile": "altro.lock"}, False),
+        ({"decontam__threshold": 0.4}, True),
+    ],
     ids=["batch_size", "lockfile", "decontam.threshold"],
 )
-def test_un_parametro_incluso_invalida_le_fasi(eseguita, scenario, registro, variazione):
+def test_un_parametro_incluso_invalida_le_fasi_che_lo_dichiarano(
+    eseguita, scenario, registro, variazione, s0_la_dichiara
+):
     """
     **Obiettivo**: Verificare che la modifica di ``run.batch_size``,
-    ``run.lockfile`` o ``decontam.threshold`` invalidi le fasi portando
-    ``run.completate`` a ``()``.
+    ``run.lockfile`` o ``decontam.threshold`` invalidi le fasi che dichiarano
+    quel parametro, e solo quelle con le fasi che ne dipendono.
 
-    **Razionale Scientifico/Sistemistico**: A differenza di ``run.threads``, il
-    parametro ``run.batch_size`` altera il partizionamento dei campioni nei lotti
-    di ``learnErrors``/``dada``, ``run.lockfile`` altera le versioni delle
-    librerie R/Bioconductor e ``decontam.threshold`` altera la soglia di
-    decontaminazione: tutti e tre incidono sui risultati e devono invalidare il
-    calcolo precedente.
+    **Razionale Scientifico/Sistemistico**: I tre parametri incidono sui
+    risultati e restano nell'impronta. Ma ogni fase dichiara i parametri da cui
+    dipende: S0, che non legge ``run.batch_size`` ne' ``run.lockfile``, resta
+    conclusa quando cambiano; i doppioni, che dichiarano tutti i gruppi, no.
+    ``decontam.threshold`` e' letto da G15 dentro S0, quindi invalida S0 e con
+    lei tutto cio' che segue.
     """
     cambiata = _variante(scenario.config, **variazione)
     run = ProjectRun(cambiata, passi=_passi(registro))
-    assert run.completate == ()
-    assert run.situazione()[Passo.S0].motivo == "configurazione cambiata"
+    situazione = run.situazione()
+    if s0_la_dichiara:
+        assert run.completate == ()
+        assert situazione[Passo.S0].motivo == "configurazione cambiata"
+    else:
+        assert run.completate == (Passo.S0,)
+        assert situazione[Passo.S1].motivo == "configurazione cambiata"
 
 
 def test_da_un_gruppo_i_parametri_esclusi_restano_fuori(scenario):
@@ -1180,31 +1197,32 @@ def test_l_inventario_e_riletto_dall_artefatto_di_s0(scenario):
     assert run.risolta.derivati.prev_min_samples is not None
 
 
-def test_oggi_esistono_s0_s1_e_s2(scenario):
+def test_oggi_esistono_le_fasi_da_s0_a_s3(scenario):
     """
-    **Obiettivo**: Verificare che allo stato della Settimana 12 ``passi_realizzati()``
-    contenga ``{Passo.S0, Passo.S1, Passo.S2}``: dopo S0, ``Passo.S1`` e
-    ``Passo.S2`` sono da eseguire (S2 dipende da S0, non da S1), mentre
-    ``Passo.S3`` e' marcata ``StatoPasso.NON_REALIZZATA`` e solleva
-    ``LookupError`` se richiesta a ``run.fase(Passo.S3)``.
+    **Obiettivo**: Verificare che allo stato della Settimana 13 ``passi_realizzati()``
+    contenga ``{Passo.S0, Passo.S1, Passo.S2, Passo.S3}``: dopo S0, ``Passo.S1``
+    e ``Passo.S2`` sono da eseguire (S2 dipende da S0, non da S1), ``Passo.S3``
+    attende S2, mentre ``Passo.S4`` e' marcata ``StatoPasso.NON_REALIZZATA`` e
+    solleva ``LookupError`` se richiesta a ``run.fase(Passo.S4)``.
 
     **Razionale Scientifico/Sistemistico**: Separa in modo trasparente le fasi
     già implementate nel codice di produzione dalle fasi successive
-    (``S3..S14``), evitando falsi stati di completamento.
+    (``S4..S14``), evitando falsi stati di completamento.
     """
     run = ProjectRun(scenario.config)
-    assert set(passi_realizzati()) == {Passo.S0, Passo.S1, Passo.S2}
+    assert set(passi_realizzati()) == {Passo.S0, Passo.S1, Passo.S2, Passo.S3}
     esegui_s0(scenario.config)
 
     situazione = run.situazione()
     assert situazione[Passo.S0].stato is StatoPasso.COMPLETATA
     assert situazione[Passo.S1].stato is StatoPasso.DA_ESEGUIRE
     assert situazione[Passo.S2].stato is StatoPasso.DA_ESEGUIRE
-    assert situazione[Passo.S3].stato is StatoPasso.NON_REALIZZATA
+    assert situazione[Passo.S3].motivo == "a monte da eseguire: S2"
+    assert situazione[Passo.S4].stato is StatoPasso.NON_REALIZZATA
     assert run.prossima() is Passo.S1
     assert not run.completa
-    with pytest.raises(LookupError, match="S3"):
-        run.fase(Passo.S3)
+    with pytest.raises(LookupError, match="S4"):
+        run.fase(Passo.S4)
 
 
 def test_l_albero_e_quello_della_configurazione(scenario):

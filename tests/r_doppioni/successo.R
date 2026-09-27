@@ -5,18 +5,20 @@ for (f in c("io_json.R", "errors.R", "letture.R")) {
 
 esegui_fase(function(parametri, cartella) {
   cat("uscita standard del doppione\n")
-  if (!is.null(parametri$avviso)) message(parametri$avviso)
+  avviso <- facoltativo(parametri, "avviso")
+  if (!is.null(avviso)) message(avviso)
 
   # L'artefatto riporta i parametri ricevuti: il test verifica cosi' che il
   # viaggio attraverso il JSON li abbia lasciati intatti.
-  scrivi_json(list(ricevuti = parametri), file.path(cartella, "artefatto.json"))
+  scrivi_json(list(ricevuti = unclass(parametri)), file.path(cartella, "artefatto.json"))
 
   artefatti <- "artefatto.json"
-  if (!is.null(parametri$letture)) {
-    conteggi <- unlist(parametri$letture)
+  letture <- facoltativo(parametri, "letture")
+  if (!is.null(letture)) {
+    conteggi <- unlist(letture)
     artefatti <- c(artefatti, traccia_letture(conteggi, "doppione", cartella))
   }
-  if (isTRUE(parametri$dichiara_inesistente)) {
+  if (isTRUE(facoltativo(parametri, "dichiara_inesistente"))) {
     artefatti <- c(artefatti, "mai_scritto.rds")
   }
   artefatti

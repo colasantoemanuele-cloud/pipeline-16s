@@ -249,3 +249,31 @@ def crea_scenario(
         dati.setdefault(gruppo, {}).update(valori)
 
     return Scenario(radice=radice, config=valida(dati), campioni=campioni)
+
+
+# --------------------------------------------------------------------------- #
+# Esecuzione di base sulla versione ridotta del sottoinsieme di prova          #
+# --------------------------------------------------------------------------- #
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(scope="session")
+def ridotta_calcolata(tmp_path_factory):
+    """S0-S3 sulla versione ridotta, una volta sola per l'intera sessione.
+
+    Serve ai test che leggono gli artefatti delle fasi: rifarla in ogni modulo
+    costerebbe mezzo minuto a modulo senza verificare nulla di piu'. E' in sola
+    lettura: un test che deve modificare l'albero ne usa una copia. ``None``
+    dove mancano R e Bioconductor; le fixture dei moduli decidono se saltare.
+    """
+    from sottoinsieme import config_ridotta, motivo_pacchetti_r_assenti
+
+    from amplicon16s.runner.executor import Esecutore
+    from amplicon16s.runner.graph import Passo
+    from amplicon16s.runner.project import ProjectRun
+
+    if motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "Biostrings", "jsonlite"):
+        return None
+    run = ProjectRun(config_ridotta(tmp_path_factory.mktemp("ridotta")))
+    return run, Esecutore(run, fino_a=Passo.S3).esegui()

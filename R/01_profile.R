@@ -96,8 +96,8 @@ esegui_fase(function(parametri, cartella) {
   }
 
   campioni <- unlist(parametri$campioni)
-  processi <- if (is.null(parametri$processi)) 1L else as.integer(parametri$processi)
-  blocco <- if (is.null(parametri$blocco)) 100000L else as.integer(parametri$blocco)
+  processi <- as.integer(parametri$processi)
+  blocco <- as.integer(facoltativo(parametri, "blocco", 100000L))
   mancanti <- campioni[!file.exists(campioni)]
   if (length(mancanti)) {
     stop("file di letture non trovati: ", paste(mancanti, collapse = ", "))

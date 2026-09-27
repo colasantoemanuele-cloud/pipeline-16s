@@ -323,15 +323,13 @@ def _profili(run) -> Path:
 
 
 @pytest.fixture(scope="module")
-def eseguita(tmp_path_factory):
+def eseguita(ridotta_calcolata):
     """S0 e S1 sulla versione ridotta, una volta sola per i test che leggono.
 
     Caricare ShortRead costa da solo alcuni secondi: ripeterlo per ogni test
     non aggiungerebbe nulla alla verifica.
     """
-    if _MOTIVO_BIOC_ASSENTE is not None:
-        return None
-    return _fino_a_s1(config_ridotta(tmp_path_factory.mktemp("s1")))
+    return ridotta_calcolata
 
 
 def test_s1_scrive_i_profili_con_il_proprio_manifesto(bioconductor, eseguita):
@@ -348,7 +346,7 @@ def test_s1_scrive_i_profili_con_il_proprio_manifesto(bioconductor, eseguita):
     """
     run, esito = eseguita
     assert esito.conclusione is Conclusione.COMPLETATA
-    assert [r.passo for r in esito.eseguite] == [Passo.S0, Passo.S1]
+    assert [r.passo for r in esito.eseguite][:2] == [Passo.S0, Passo.S1]
 
     manifesto_s1 = run.albero.manifesto_passo(Passo.S1, Fase.QC_PROFILES)
     assert set(manifesto_s1.nomi) == {

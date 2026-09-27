@@ -316,7 +316,11 @@ def analizza(config: Config) -> Analisi:
             if len(righe) == 1:
                 riga_lotto = righe[0]
                 piastra = _valore_o_assente(riga_lotto.get(config.decontam.batch_column))
-                corsa = _valore_o_assente(riga_lotto.get(config.err.batch_column))
+                corsa = (
+                    _valore_o_assente(riga_lotto.get(config.err.batch_column))
+                    if config.err.batch_column is not None
+                    else None
+                )
             elif not righe:
                 analisi.senza_riga_di_arricchimento.append(accession)
             else:

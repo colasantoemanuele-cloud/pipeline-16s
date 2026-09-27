@@ -3,6 +3,9 @@
 # Richiede io_json.R. Interfaccia:
 #   esegui_fase(principale)          punto d'ingresso di ogni script di fase
 #   errore_catalogo(codice, messaggio)  interrompe dichiarando un codice
+#   facoltativo(parametri, nome, predefinito)  legge un parametro facoltativo;
+#                                    ogni altro accesso a un parametro non
+#                                    ricevuto e' un errore
 #
 # Uno script di fase ha questa forma:
 #
@@ -24,6 +27,34 @@
 # non vi compare.
 
 PROTOCOLLO_PONTE <- 1L
+
+# I parametri ricevuti dalla fase. La fase Python passa soltanto parametri che
+# ha dichiarato, e li legge attraverso una vista che rifiuta gli altri. Qui la
+# stessa regola vale per lo script: in R leggere un nome assente da una lista
+# restituisce NULL, e per molte funzioni NULL significa "usa il valore
+# predefinito della libreria", cioe' un parametro dimenticato che funziona.
+# Leggerlo solleva invece un errore; un parametro davvero facoltativo si legge
+# con facoltativo(), che lo dice apertamente.
+`$.parametri_dichiarati` <- function(x, name) {
+  valori <- unclass(x)
+  if (!name %in% names(valori)) {
+    stop("parametro non ricevuto: ", name, ". La fase passa allo script solo ",
+         "i parametri che dichiara")
+  }
+  valori[[name]]
+}
+
+`[[.parametri_dichiarati` <- function(x, i, ...) {
+  if (is.character(i)) {
+    return(`$.parametri_dichiarati`(x, i))
+  }
+  unclass(x)[[i]]
+}
+
+facoltativo <- function(parametri, nome, predefinito = NULL) {
+  valori <- unclass(parametri)
+  if (nome %in% names(valori)) valori[[nome]] else predefinito
+}
 
 # Codice di uscita di un errore dichiarato. E' solo una conferma: il codice
 # del catalogo e' nella dichiarazione.
@@ -57,6 +88,7 @@ esegui_fase <- function(principale) {
 
   parametri <- richiesta$parametri
   if (is.null(parametri)) parametri <- list()
+  class(parametri) <- "parametri_dichiarati"
 
   esito <- tryCatch(
     {

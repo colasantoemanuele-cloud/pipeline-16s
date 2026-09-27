@@ -93,6 +93,9 @@ err:
   nbases: 1.0e+8
   max_consist: 10
   randomize: true
+  # Colonna di io.batch_table con la corsa di sequenziamento: S3 stima un
+  # modello d'errore per corsa. Con null, o senza io.batch_table, stima un solo
+  # modello su tutti i campioni.
   batch_column: run_prefix          # [OSD-734] colonna del lotto di sequenziamento
 
 # --------------------------------------------------------------------------- #

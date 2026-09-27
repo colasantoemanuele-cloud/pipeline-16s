@@ -46,6 +46,7 @@ __all__ = [
     "Decisione",
     "Motivo",
     "PoliticaRetry",
+    "RITENTARE_INUTILE",
     "applica",
     "dimezza",
     "raddoppia",
@@ -163,6 +164,16 @@ class Motivo(StrEnum):
     TENTATIVI_ESAURITI = "tentativi_esauriti"
     NESSUNA_AZIONE = "nessuna_azione_correttiva"
     AZIONE_ESAURITA = "azione_correttiva_esaurita"
+    #: La fase che ha sollevato l'errore sa che l'azione correttiva non
+    #: cambierebbe l'esito, e lo dichiara nel contesto dell'errore.
+    AZIONE_INUTILE = "azione_correttiva_inutile"
+
+
+#: Chiave del contesto di un errore con cui la fase dichiara che l'azione
+#: correttiva non cambierebbe l'esito, e perche'. Solo la fase lo sa: per
+#: esempio err.nbases raddoppiato non serve se la stima usava gia' tutte le
+#: basi disponibili.
+RITENTARE_INUTILE: Final = "ritentare_inutile"
 
 
 @dataclass(frozen=True)
@@ -199,6 +210,7 @@ class PoliticaRetry:
         tentativo: int,
         aggiustamento: Aggiustamento | None,
         config: Config,
+        inutile: str | None = None,
     ) -> Decisione:
         """Se, dopo il fallimento del tentativo ``tentativo`` (da 1), si ritenta."""
         if not voce(codice).ammette_retry:
@@ -211,6 +223,8 @@ class PoliticaRetry:
             return Decisione(Motivo.TENTATIVI_ESAURITI)
         if aggiustamento is None:
             return Decisione(Motivo.NESSUNA_AZIONE)
+        if inutile:
+            return Decisione(Motivo.AZIONE_INUTILE)
         if aggiustamento.invariato:
             return Decisione(Motivo.RITENTA)
         assert aggiustamento.parametro is not None
@@ -221,9 +235,16 @@ class PoliticaRetry:
         return Decisione(Motivo.RITENTA, nuovo)
 
 
-def spiega_arresto(codice: str, motivo: Motivo, tentativi: int, massimi: int) -> str:
+def spiega_arresto(
+    codice: str, motivo: Motivo, tentativi: int, massimi: int, inutile: str | None = None
+) -> str:
     """Perché l'esecuzione si è fermata, secondo la categoria del codice."""
     categoria = voce(codice).categoria
+    if motivo is Motivo.AZIONE_INUTILE:
+        return (
+            "Il codice ammetterebbe il retry, ma l'azione correttiva non cambierebbe "
+            f"l'esito: {inutile}. Nessun nuovo tentativo."
+        )
     if motivo is Motivo.REVISIONE_UMANA:
         return "Il codice richiede la revisione umana: nessun tentativo automatico."
     if motivo is Motivo.RETRY_DISATTIVATO:

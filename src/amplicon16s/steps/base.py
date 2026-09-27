@@ -45,12 +45,13 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any, ClassVar
 
 from amplicon16s.config.resolve import PARAMETRI_SENZA_EFFETTO, ConfigRisolta
 from amplicon16s.config.schema import Config
+from amplicon16s.config.vista import risolta_ristretta
 from amplicon16s.errors.exceptions import DegradazioneRichiesta, errore
 from amplicon16s.io_layer.artifacts import AlberoOutput, Artefatto, Fase, ManifestoPasso
 from amplicon16s.logging.logger import registra_errore
@@ -137,6 +138,19 @@ class StepContext:
     def risolta_dichiarata(self) -> ConfigRisolta:
         return self.dichiarata or self.risolta
 
+    def ristretto(self, parametri: tuple[str, ...]) -> StepContext:
+        """Lo stesso contesto, con la configurazione vista attraverso ``parametri``.
+
+        La configurazione ristretta e' quella effettiva, aggiustamenti compresi;
+        la dichiarata, che serve solo a giudicare la fase, non e' raggiungibile.
+        Le degradazioni registrate restano condivise con il contesto completo.
+        """
+        return replace(
+            self,
+            risolta=risolta_ristretta(self.risolta, parametri),
+            dichiarata=None,
+        )
+
     def degrada(
         self, codice: str | DegradazioneRichiesta, dettaglio: str = "", **contesto: Any
     ) -> DegradazioneRichiesta:
@@ -211,10 +225,14 @@ class PipelineStep(ABC):
 
     #: La fase del grafo che questa classe realizza.
     passo: ClassVar[Passo]
-    #: Parametri da cui il risultato dipende; ``None`` è l'intera
-    #: configurazione. Restringerli evita di ricalcolare la fase quando cambia
-    #: un parametro che non usa, ma un parametro dimenticato qui renderebbe
-    #: invisibile un cambiamento che la riguarda: nel dubbio, ``None``.
+    #: Parametri da cui il risultato dipende, gruppi (``"filter"``) o chiavi
+    #: (``"filter.truncLen"``). La dichiarazione e' obbligatoria: una fase che
+    #: non la fa non si registra (:class:`~amplicon16s.runner.project.ProjectRun`).
+    #: Ed e' vincolante: :meth:`calcola` vede la configurazione attraverso una
+    #: vista ristretta a questi parametri (:mod:`amplicon16s.config.vista`), e
+    #: leggerne uno non dichiarato solleva un errore invece di dare un risultato
+    #: che cambiare quel parametro non invaliderebbe. Nel dubbio un parametro si
+    #: include: la dichiarazione puo' essere larga, deve essere completa.
     parametri: ClassVar[tuple[str, ...] | None] = None
     #: Il grafo di riferimento.
     grafo: ClassVar[Grafo] = GRAFO
@@ -360,12 +378,16 @@ class PipelineStep(ABC):
         # precedente.
         contesto.albero.rimuovi_manifesto_passo(self.passo, self.cartella)
 
+        # Il calcolo vede solo i parametri dichiarati.
+        if self.parametri is None:
+            raise TypeError(f"{type(self).__name__} non dichiara i parametri da cui dipende")
+        ristretto = contesto.ristretto(self.parametri)
         inizio = time.perf_counter()
         try:
-            produzione = self.calcola(contesto)
+            produzione = self.calcola(ristretto)
         except DegradazioneRichiesta as degradazione:
-            contesto.degrada(degradazione)
-            produzione = self.ripiega(contesto, degradazione)
+            ristretto.degrada(degradazione)
+            produzione = self.ripiega(ristretto, degradazione)
         secondi = round(time.perf_counter() - inizio, 3)
         aggiustamenti = tuple(dict(a) for a in contesto.aggiustamenti)
         degradazioni = tuple(d.come_evento() for d in contesto.degradazioni)

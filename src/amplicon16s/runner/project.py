@@ -50,10 +50,11 @@ from amplicon16s.io_layer.checksums import checksum_file
 from amplicon16s.logging.logger import ottieni
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.runner.graph import GRAFO, Grafo, Passo
-from amplicon16s.steps.base import PipelineStep, StepContext
+from amplicon16s.steps.base import PipelineStep, StepContext, impronta_parametri
 from amplicon16s.steps.s00_validate import ValidazioneIngressi, leggi_inventario
 from amplicon16s.steps.s01_profile import ProfiloLetture
 from amplicon16s.steps.s02_filter import FiltroLetture
+from amplicon16s.steps.s03_learn_errors import ModelloErrore
 
 __all__ = [
     "ProjectRun",
@@ -70,6 +71,7 @@ def passi_realizzati() -> dict[Passo, PipelineStep]:
         Passo.S0: ValidazioneIngressi(),
         Passo.S1: ProfiloLetture(),
         Passo.S2: FiltroLetture(),
+        Passo.S3: ModelloErrore(),
     }
 
 
@@ -184,9 +186,20 @@ class ProjectRun:
         self.passi = dict(passi_realizzati() if passi is None else passi)
         self.logger = logger or ottieni("run")
         self.albero = AlberoOutput(config.io.out_root)
+        risolta = risolvi(config)
         for passo, fase in self.passi.items():
             if fase.passo is not passo:
                 raise ValueError(f"{type(fase).__name__} realizza {fase.passo}, non {passo}")
+            # Una fase senza dipendenze dichiarate non si registra: la sua
+            # validita' non si potrebbe giudicare, e la sua vista ristretta non
+            # esisterebbe. Un nome inesistente, o escluso dall'impronta, e'
+            # respinto qui, prima di qualunque esecuzione.
+            if fase.parametri is None:
+                raise TypeError(
+                    f"{type(fase).__name__} ({passo}) non dichiara i parametri da cui "
+                    "dipende: ogni fase deve dichiararli per essere registrata"
+                )
+            impronta_parametri(risolta, fase.parametri)
 
     def _risolta(
         self, inventario: Inventario | None, config: Config | None = None

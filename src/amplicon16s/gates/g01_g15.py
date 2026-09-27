@@ -1077,7 +1077,7 @@ def _g08_lotto_coerente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
             ("decontam.batch_column", config.decontam.batch_column),
             ("err.batch_column", config.err.batch_column),
         ):
-            if nome not in intestazione:
+            if nome is not None and nome not in intestazione:
                 violazioni.append(
                     Violazione(
                         "E-S0-08",
