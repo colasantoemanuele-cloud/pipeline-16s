@@ -786,6 +786,7 @@ def test_un_archivio_corrotto_si_ferma_dopo_i_tentativi(dada2, tmp_path):
     assert esito.conclusione is Conclusione.ARRESTATA
     assert esito.punto.passo is Passo.S2
     assert esito.punto.codice == "E-S2-03"
+    assert esito.punto.categoria == "retry_automatico"
     assert esito.punto.tentativi == 2
     assert "ERX12084006" in esito.punto.dettaglio
     assert Passo.S0 in {r.passo for r in esito.eseguite}

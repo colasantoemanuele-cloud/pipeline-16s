@@ -34,6 +34,7 @@ import re
 import pytest
 from conftest import BIOLOGICO, NEGATIVO, POSITIVO, Campione, crea_scenario
 
+from amplicon16s.errors.catalog import Categoria
 from amplicon16s.gates.g01_g15 import ErroreGate, esegui_gate_metadati
 from amplicon16s.metadata.controls_map import MappaControlli
 from amplicon16s.metadata.crosswalk import (
@@ -217,6 +218,7 @@ def test_g04_fallisce_se_l_accession_e_ambiguo(tmp_path):
         esegui_gate_metadati(scenario.config)
 
     assert errore.value.codice == "E-S0-04"
+    assert errore.value.categoria is Categoria.REVISIONE_UMANA
     assert "ambiguo" in str(errore.value)
 
 
@@ -243,6 +245,7 @@ def test_g05_fallisce_su_accession_duplicati_fra_i_file(tmp_path):
 
     assert errore.value.gate == "G05"
     assert errore.value.codice == "E-S0-05"
+    assert errore.value.categoria is Categoria.REVISIONE_UMANA
     assert "ERX1000001" in str(errore.value)
 
 
@@ -290,6 +293,7 @@ def test_g06_fallisce_su_un_file_senza_riga_nell_assay(tmp_path):
 
     assert errore.value.gate == "G06"
     assert errore.value.codice == "E-S0-06"
+    assert errore.value.categoria is Categoria.REVISIONE_UMANA
     assert "ERX1000099" in str(errore.value)
     assert "ma non nella tabella di assay" in str(errore.value)
 
@@ -342,6 +346,7 @@ def test_g11_fallisce_su_un_materiale_non_mappato(tmp_path):
 
     assert errore.value.gate == "G11"
     assert errore.value.codice == "E-S0-11"
+    assert errore.value.categoria is Categoria.REVISIONE_UMANA
     assert "solvent control" in str(errore.value)
     assert "ctrl.biological_values" in str(errore.value)
 

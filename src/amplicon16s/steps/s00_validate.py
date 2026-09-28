@@ -38,12 +38,12 @@ from amplicon16s.config.resolve import risolvi
 from amplicon16s.config.schema import Config
 from amplicon16s.errors.catalog import Categoria, voce
 from amplicon16s.gates.g01_g15 import Contesto, ErroreGate, Violazione
-from amplicon16s.gates.registry import EsitoGate, esegui_tutti
+from amplicon16s.gates.registry import EsitoGate, esegui_gate, esegui_tutti
 from amplicon16s.io_layer.artifacts import AlberoOutput, Fase
 from amplicon16s.logging.logger import ottieni
 from amplicon16s.metadata.models import Campione, ClasseCampione, Inventario
 from amplicon16s.runner.graph import Passo
-from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
+from amplicon16s.steps.base import PipelineStep, Produzione, StepContext, StepResult
 
 __all__ = [
     "RisultatoS0",
@@ -215,25 +215,47 @@ class ValidazioneIngressi(PipelineStep):
     """
 
     passo: ClassVar[Passo] = Passo.S0
-    #: I parametri letti dai quindici gate, dal crosswalk e dalla scansione
-    #: delle letture. Larga di proposito nei gruppi che G15 verifica per
-    #: coerenza (asv, prev, qc, decontam, ctrl), in quelli dei metadati e degli
-    #: ingressi (io, meta) e in retry.whitelist. Di filter legge solo truncLen e
-    #: trimLeft (G09, G15), di tax solo il riferimento e il suo MD5 (G01, G12),
-    #: di err solo la colonna della corsa (crosswalk, G08). Cambiare gli altri
-    #: parametri di questi gruppi, o di err, dada, chimera, non la rende da
-    #: rifare; se S0 ne leggesse uno, la vista ristretta lo rifiuterebbe.
+    #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
+    #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
+    #: Ingressi e metadati per intero (io, meta, ctrl); di qc le cinque chiavi
+    #: di G10 e della scansione; di decontam la colonna e il minimo di bianchi
+    #: per piastra (G08, E-S0-15); la colonna della corsa (crosswalk, G08); il
+    #: troncamento (G09); il riferimento e il suo MD5 (G01, G12). L'elenco e'
+    #: stato ricavato registrando i parametri letti da un'esecuzione vera, e
+    #: confrontato con il codice dei gate.
+    #:
+    #: G15 legge invece l'intera configurazione, per verificarne la coerenza,
+    #: e non vi contribuisce: se fallisce S0 non produce nulla, e l'esecutore
+    #: lo ripete a ogni avvio, prima di qualunque fase. I parametri che servono
+    #: solo a G15 (asv, prev, le altre chiavi di decontam e di qc,
+    #: filter.trimLeft, retry.whitelist) restano quindi fuori dall'impronta di
+    #: S0: cambiare una soglia di S5 o S6 non la rende da rifare, e con lei la
+    #: catena intera. G15 si esegue in :meth:`esegui`, sulla configurazione
+    #: completa, prima che la fase la veda ristretta.
     parametri: ClassVar[tuple[str, ...]] = (
-        "io", "meta", "ctrl", "qc", "decontam", "asv", "prev",
-        "filter.truncLen", "filter.trimLeft", "tax.ref_fasta", "tax.ref_md5",
-        "err.batch_column", "retry.whitelist",
+        "io", "meta", "ctrl",
+        "qc.primer_sequence", "qc.conserved_motif", "qc.head_reads",
+        "qc.max_primer_hit_frac", "qc.min_motif_frac",
+        "decontam.batch_column", "decontam.min_blanks", "err.batch_column",
+        "filter.truncLen", "tax.ref_fasta", "tax.ref_md5",
     )
 
     def __init__(self, *, solleva: bool = True) -> None:
         self.solleva = solleva
+        #: L'esito di G15, calcolato in :meth:`esegui` sulla configurazione
+        #: completa e registrato da :meth:`calcola` fra gli altri gate.
+        self._coerenza: EsitoGate | None = None
 
     def impronta_dati_esterni(self, config: Config) -> str | None:
         return impronta_dati_grezzi(config)
+
+    def esegui(self, contesto: StepContext) -> StepResult:
+        """G15 sulla configurazione completa, poi la fase sulla sua vista."""
+        self._coerenza = esegui_gate("G15", Contesto(contesto.config))
+        try:
+            return super().esegui(contesto)
+        finally:
+            self._coerenza = None
 
     def calcola(self, contesto: StepContext) -> Produzione:
         config = contesto.config
@@ -241,7 +263,9 @@ class ValidazioneIngressi(PipelineStep):
         inizio = time.perf_counter()
 
         gate = Contesto(config)
-        esiti = tuple(esegui_tutti(gate))
+        if self._coerenza is None:
+            raise RuntimeError("S0 si esegue con esegui(): G15 legge la configurazione completa")
+        esiti = tuple(esegui_tutti(gate, {"G15": self._coerenza}))
         secondi = time.perf_counter() - inizio
 
         # L'inventario esiste solo se i gate che lo costruiscono sono passati.

@@ -234,23 +234,16 @@ def dada2():
 
 
 def _copia(base, cartella: Path, **sovrascrivi):
-    """L'albero S0-S3 di base, copiato, con i parametri indicati cambiati."""
-    run, _ = base
-    dati = run.config.model_dump(mode="python")
-    dati["io"]["out_root"] = str(cartella / "out")
-    for gruppo, valori in sovrascrivi.items():
-        dati[gruppo].update(valori)
-    shutil.copytree(run.config.io.out_root, cartella / "out")
-    return ProjectRun(valida(dati))
+    """L'albero di base, copiato, con i parametri indicati cambiati."""
+    from conftest import copia_esecuzione
+
+    return copia_esecuzione(base, cartella, **sovrascrivi)
 
 
 @pytest.fixture(scope="module")
-def catena(ridotta_calcolata, tmp_path_factory):
-    """S4-S7 sulla versione ridotta, una volta per il modulo, in sola lettura."""
-    if ridotta_calcolata is None:
-        return None
-    run = _copia(ridotta_calcolata, tmp_path_factory.mktemp("catena"))
-    return run, Esecutore(run, fino_a=Passo.S7).esegui()
+def catena(catena_calcolata):
+    """S4-S7 sulla versione ridotta, condivisa con gli altri moduli, in sola lettura."""
+    return catena_calcolata
 
 
 def _impronte(cartella: Path) -> dict[str, str]:

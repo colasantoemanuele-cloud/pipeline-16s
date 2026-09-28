@@ -11,7 +11,8 @@ esercita la fase, non in un risultato sbagliato mesi dopo.
 
 Oltre ai parametri dichiarati la vista lascia leggere quelli che per
 costruzione non incidono sui risultati (``PARAMETRI_SENZA_EFFETTO``): quanti
-processori usare, dove scrivere, se e quante volte ritentare. Non entrano
+processori usare, quanti campioni elaborare insieme, dove scrivere, se
+conservare le letture filtrate, se e quante volte ritentare. Non entrano
 nell'impronta di nessuna fase, e dichiararli sarebbe un errore.
 
 ``ParametroNonDichiarato`` non deriva da ``AttributeError`` di proposito: un

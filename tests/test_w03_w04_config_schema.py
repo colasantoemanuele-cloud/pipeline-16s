@@ -35,6 +35,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from amplicon16s.errors.catalog import Categoria, voce
 from amplicon16s.config import defaults
 from amplicon16s.config.resolve import (
     NOME_FILE_RISOLTO,
@@ -784,6 +785,8 @@ def test_g15_respinge_le_configurazioni_incoerenti(
 
     codici = {v.codice for v in errore.violazioni}
     assert codice in codici, f"atteso {codice}, ottenuti {sorted(codici)}"
+    assert errore.categoria is Categoria.REVISIONE_UMANA
+    assert voce(codice).categoria is Categoria.REVISIONE_UMANA
 
     testo = str(errore)
     for parametro in parametri:
@@ -970,6 +973,7 @@ def test_derivato_impostato_a_mano_e_un_errore(chiave, dati_esempio):
         esegui_g15(dati_esempio)
 
     assert "E-G15-08" in {v.codice for v in errore.value.violazioni}
+    assert errore.value.categoria is Categoria.REVISIONE_UMANA
     assert chiave in str(errore.value)
 
 

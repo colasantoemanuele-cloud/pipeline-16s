@@ -42,7 +42,7 @@ esegui_fase(function(parametri, cartella) {
         "%d varianti distinte su %d campioni, oltre le %.0f di qc.max_asv_count: ",
         "la tabella chiederebbe circa %.1f GB"
       ), distinte, length(varianti), massimo,
-      2 * 4 * distinte * length(varianti) / 1e9)
+      3 * 4 * distinte * length(varianti) / 1e9)
     )
   }
 

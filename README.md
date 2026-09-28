@@ -272,7 +272,11 @@ Sono realizzati:
   (`config/vista.py`), che solleva un errore su qualunque altro accesso, e gli script
   R ricevono soltanto i parametri che la fase passa e falliscono se ne leggono uno
   non ricevuto. Una dipendenza dimenticata diventa così un errore al primo test che
-  esercita la fase, non un risultato obsoleto. I parametri che non incidono sui
+  esercita la fase, non un risultato obsoleto. L'unica eccezione è G15, che verifica
+  la coerenza dell'intera configurazione: S0 lo esegue sulla configurazione completa,
+  prima di vederla ristretta, e i parametri che servono solo a G15 non entrano nella
+  sua impronta, perché G15 si ripete comunque a ogni avvio; cambiare una soglia di S6
+  rifà S6 e ciò che segue, non S0. I parametri che non incidono sui
   risultati, dichiarati in un solo elenco in `config/resolve.py` (`run.threads`,
   `run.keep_filtered_fastq`, `run.batch_size`, `io.out_root`, `retry.enabled`,
   `retry.max_attempts`), sono leggibili da ogni fase e non entrano in nessuna impronta: cambiarli, o spostare
@@ -284,7 +288,7 @@ Sono realizzati:
   fasi sono concluse, quali disattivate, quali da eseguire e quale è la prossima;
   dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
   una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
-  gigabyte, costerà secondi; delle quindici fasi oggi esistono come codice le prime
+  gigabyte, costa secondi (5,6 sul dataset di riferimento con S0-S7 concluse); delle quindici fasi oggi esistono come codice le prime
   otto, da S0 a S7, e le altre risultano non realizzate;
 - **l'esecutore e la politica dei tentativi** (`runner/executor.py`,
   `runner/retry.py`). A ogni avvio, con `run` come con `resume`, l'esecutore ripete

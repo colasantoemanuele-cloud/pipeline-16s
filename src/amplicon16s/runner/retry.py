@@ -18,7 +18,11 @@ per un codice la fase non dichiara un aggiustamento, o l'aggiustamento non
 può più cambiare il valore, non si ritenta. L'unica eccezione è dichiarata,
 non presunta: per un errore transitorio, come un errore di lettura, la fase
 puo' dichiarare :func:`senza_modifiche`, e il nuovo tentativo identico viene
-registrato come ogni altro aggiustamento.
+registrato come ogni altro aggiustamento. Viceversa una fase che sa che
+l'azione correttiva non cambierebbe l'esito lo dichiara nell'errore
+(:data:`RITENTARE_INUTILE`, con il motivo), e non si ritenta: la sua
+dichiarazione prevale anche sull'assenza di un'azione correttiva, perche'
+dice all'operatore il motivo specifico.
 
 **L'aggiustamento non tocca la configurazione dell'utente.** Produce una
 configurazione nuova, in memoria, con il solo parametro cambiato e
@@ -27,8 +31,8 @@ il valore dichiarato e quello usato, con il codice che ha causato il cambio,
 mentre la validità della fase alla ripresa si giudica sulla configurazione
 dichiarata. È coerente solo se il parametro aggiustato non incide sui
 risultati: è l'assunzione su cui si regge la whitelist. Per
-``run.batch_size`` è verificata (vedi :data:`PARAMETRI_AGGIUSTABILI`); per
-``err.nbases`` no.
+``run.batch_size`` è verificata byte per byte; per ``err.nbases`` l'effetto
+è misurato e trascurabile (vedi :data:`PARAMETRI_AGGIUSTABILI`).
 """
 
 from __future__ import annotations
@@ -71,12 +75,13 @@ __all__ = [
 #: esplicite, entrambe a lotti, e cio' che attraversa i lotti sono somme di
 #: conteggi interi: il test lo verifica byte per byte con due lotti diversi, e
 #: verifica che il risultato sia quello di ``dada(pool = "pseudo")`` in una
-#: sola chiamata. **Tensione aperta** su ``err.nbases``: cambia per definizione
-#: la stima del modello d'errore, e resta nell'impronta. Sul dataset di
-#: riferimento, da 1e8 a 2e8, le varianti dopo S7 passano da 12.045 a 12.048
-#: (12.044 comuni) e le varianti non comuni raccolgono meno di cento letture su
-#: 31 milioni: un effetto misurabile ma minimo. Se il retry di E-S3-01 resti
-#: ammesso e' una decisione aperta; il valore usato e' registrato nel manifesto.
+#: sola chiamata. ``err.nbases`` cambia per definizione la stima del modello
+#: d'errore, e resta nell'impronta; il retry di E-S3-01 che lo raddoppia resta
+#: ammesso, perche' cambia i dati usati per la stima e non il metodo. Sul
+#: dataset di riferimento, da 1e8 a 2e8, le varianti dopo S7 passano da 12.045
+#: a 12.048 (12.044 comuni), le varianti non comuni raccolgono meno di cento
+#: letture su 31 milioni, e la distanza di Bray-Curtis per campione ha mediana 0
+#: e massimo 0,004. Il valore usato e' registrato nel manifesto.
 PARAMETRI_AGGIUSTABILI: Final[tuple[str, ...]] = ("run.batch_size", "err.nbases")
 
 

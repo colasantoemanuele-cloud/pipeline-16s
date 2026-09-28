@@ -31,9 +31,9 @@ conclusa ricalcola il checksum di ogni suo artefatto, perché solo il
 checksum garantisce che un artefatto alterato faccia rieseguire la fase: una
 scorciatoia su dimensione e data di modifica non vedrebbe un file alterato
 che le conserva. Dentro una valutazione ogni checksum è calcolato una volta
-sola, ma una valutazione completa li calcola tutti: con le letture filtrate
-di S2 e i risultati dell'inferenza di S4, che arrivano ai gigabyte, costerà
-secondi.
+sola, ma una valutazione completa li calcola tutti. Misurato sul dataset di
+riferimento, con S0-S7 concluse e le letture filtrate conservate (996
+artefatti, 2,1 GB, container): 5,6 secondi.
 """
 
 from __future__ import annotations
@@ -185,8 +185,10 @@ def _filogenesi_attiva(config: Config) -> bool:
 
 
 # S7 non ha una cartella propria: filtra per lunghezza la tabella senza
-# chimere di S6 e ne raccoglie il tracciamento delle letture, quindi scrive
-# accanto a S6 in 07_chimera.
+# chimere di S6 e scrive accanto a S6 in 07_chimera. Dipende anche da S2, S4
+# e S5, di cui legge il conteggio delle letture filtrate (i campioni senza
+# letture, zero nel suo passo di tracciamento) e gli artefatti a monte della
+# tabella che filtra.
 GRAFO: Final = Grafo(
     [
         Nodo(Passo.S0, "validazione degli ingressi", Fase.INPUT_VALIDATION),

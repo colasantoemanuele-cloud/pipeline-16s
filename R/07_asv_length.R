@@ -25,12 +25,14 @@ esegui_fase(function(parametri, cartella) {
   minimo <- as.integer(parametri$len_min)
   massimo <- as.integer(parametri$len_max)
 
-  # Razionale biologico: la regione ipervariabile V4 del gene 16S rRNA
-  # (amplificata con la coppia di primer 515F/806R) presenta in natura una
-  # lunghezza fisiologica fortemente conservata (circa 250-256 bp sull'amplicone
-  # completo, o esattamente la lunghezza di troncamento in letture single-end).
-  # Il filtro rigido tra len_min e len_max scarta amplificati non specifici
-  # dell'ospite, dimeri residui o inserzioni/delezioni aberranti.
+  # Razionale biologico: la regione V4 del gene 16S rRNA (primer 515F/806R)
+  # ha lunghezza conservata, circa 253 bp sull'amplicone completo. Con letture
+  # single-end troncate a truncLen, pero', ogni variante ha la lunghezza del
+  # troncamento, anche quella di un amplificato non specifico: la lunghezza non
+  # lo distingue, e sul dataset di riferimento il filtro non toglie nulla.
+  # Diventa discriminante con letture non troncate a lunghezza fissa, o con
+  # coppie fuse, dove inserzioni, delezioni e amplificati fuori bersaglio
+  # cambiano la lunghezza della variante.
   lunghezza <- nchar(colnames(tabella))
   ammesse <- lunghezza >= minimo & lunghezza <= massimo
   filtrata <- tabella[, ammesse, drop = FALSE]

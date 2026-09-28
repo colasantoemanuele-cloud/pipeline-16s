@@ -37,6 +37,7 @@ from __future__ import annotations
 import pytest
 from conftest import BIOLOGICO, NEGATIVO, POSITIVO, Campione, crea_scenario
 
+from amplicon16s.errors.catalog import Categoria
 from amplicon16s.gates.g01_g15 import ErroreGate, esegui_gate_metadati
 from amplicon16s.metadata.crosswalk import analizza
 
@@ -179,6 +180,7 @@ def test_g03_fallisce_se_un_campione_dell_assay_manca_nello_studio(tmp_path):
         esegui_gate_metadati(scenario.config)
 
     assert errore.value.codice == "E-S0-03"
+    assert errore.value.categoria is Categoria.REVISIONE_UMANA
     assert "NOD1D4.L2" in str(errore.value)
     assert "senza classe" in str(errore.value)
 

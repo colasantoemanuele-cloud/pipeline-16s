@@ -277,3 +277,39 @@ def ridotta_calcolata(tmp_path_factory):
         return None
     run = ProjectRun(config_ridotta(tmp_path_factory.mktemp("ridotta")))
     return run, Esecutore(run, fino_a=Passo.S3).esegui()
+
+
+def copia_esecuzione(base, cartella, **sovrascrivi):
+    """L'albero di un'esecuzione, copiato in ``cartella``, con parametri cambiati.
+
+    ``base`` e' la coppia (esecuzione, esito) di una fixture condivisa;
+    ``sovrascrivi`` cambia chiavi per gruppo, come ``run={"batch_size": 5}``.
+    """
+    import shutil
+
+    from amplicon16s.config.schema import valida
+    from amplicon16s.runner.project import ProjectRun
+
+    run, _ = base
+    dati = run.config.model_dump(mode="python")
+    dati["io"]["out_root"] = str(cartella / "out")
+    for gruppo, valori in sovrascrivi.items():
+        dati[gruppo].update(valori)
+    shutil.copytree(run.config.io.out_root, cartella / "out")
+    return ProjectRun(valida(dati))
+
+
+@pytest.fixture(scope="session")
+def catena_calcolata(ridotta_calcolata, tmp_path_factory):
+    """S4-S7 sulla versione ridotta, sopra S0-S3, una volta per la sessione.
+
+    In sola lettura, come ``ridotta_calcolata``; ``None`` dove mancano R e
+    Bioconductor.
+    """
+    from amplicon16s.runner.executor import Esecutore
+    from amplicon16s.runner.graph import Passo
+
+    if ridotta_calcolata is None:
+        return None
+    run = copia_esecuzione(ridotta_calcolata, tmp_path_factory.mktemp("catena"))
+    return run, Esecutore(run, fino_a=Passo.S7).esegui()

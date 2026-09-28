@@ -43,8 +43,8 @@ Cosa valuta questo file:
 Comandi Bash e scenari di esecuzione:
     1. Modalita locale standard (con R base e jsonlite):
        pytest tests/test_dipendenze_parametri.py -v
-       Risultato atteso: 20 test (20 passed se R e jsonlite sono presenti;
-       19 passed e 1 skipped se R/jsonlite non sono installati sull'host).
+       Risultato atteso: 24 test (24 passed se R e jsonlite sono presenti;
+       23 passed e 1 skipped se R/jsonlite non sono installati sull'host).
 
     2. Modalita container Docker standard:
        docker run --rm \
@@ -53,12 +53,12 @@ Comandi Bash e scenari di esecuzione:
          --entrypoint pytest \
          amplicon16s:dev \
          tests/test_dipendenze_parametri.py -v
-       Risultato atteso: 20 passed.
+       Risultato atteso: 24 passed.
 
 Risultato atteso:
-    20 test totali (12 funzioni di test, di cui 3 parametrizzate):
-    20 passed in ambiente con R + jsonlite (~0.50s);
-    19 passed, 1 skipped in ambiente privo di R (~0.30s).
+    24 test totali (12 funzioni di test, di cui 3 parametrizzate):
+    24 passed in ambiente con R + jsonlite (~0.50s);
+    23 passed, 1 skipped in ambiente privo di R (~0.30s).
 
 Razionale scientifico e sistemistico:
     1. Prevenzione strutturale di risultati obsoleti silenziosi: in una pipeline
@@ -357,23 +357,35 @@ def test_run_batch_size_non_invalida_nessuna_fase(tmp_path):
     ("sezione", "variazione", "invalidate"),
     [
         ("dada", {"omega_a": 1e-20}, {Passo.S4}),
-        ("qc", {"max_asv_count": 1000}, {Passo.S0, Passo.S5}),
+        ("qc", {"max_asv_count": 1000}, {Passo.S5}),
         ("chimera", {"min_fold_parent_over_abundance": 1.5}, {Passo.S6}),
-        ("qc", {"warn_frac_chimeric": 0.3}, {Passo.S0, Passo.S6}),
-        ("asv", {"len_tol": 2}, {Passo.S0, Passo.S7}),
+        ("qc", {"warn_frac_chimeric": 0.3}, {Passo.S6}),
+        ("qc", {"stop_frac_chimeric": 0.6}, {Passo.S6}),
+        ("asv", {"len_tol": 2}, {Passo.S7}),
+        ("decontam", {"threshold": 0.4}, set()),
+        ("retry", {"whitelist": ["E-S2-03"]}, set()),
+        ("qc", {"min_motif_frac": 0.1}, {Passo.S0}),
     ],
-    ids=["dada.omega_a", "qc.max_asv_count", "chimera", "qc.warn_frac_chimeric", "asv.len_tol"],
+    ids=[
+        "dada.omega_a", "qc.max_asv_count", "chimera", "qc.warn_frac_chimeric",
+        "qc.stop_frac_chimeric", "asv.len_tol", "decontam.threshold",
+        "retry.whitelist", "qc.min_motif_frac",
+    ],
 )
-def test_i_parametri_di_s4_s7_invalidano_solo_le_proprie_fasi(tmp_path, sezione, variazione, invalidate):
+def test_i_parametri_invalidano_solo_le_fasi_che_li_usano(tmp_path, sezione, variazione, invalidate):
     """
-    **Obiettivo**: Verificare che un parametro di una fase fra S4 e S7 cambi
-    l'impronta di configurazione di quella fase e di nessun'altra, a parte
-    S0, che dichiara per intero i gruppi qc e asv perche' G15 li verifica.
+    **Obiettivo**: Verificare che un parametro cambi l'impronta di
+    configurazione delle sole fasi che lo usano per produrre risultati. Un
+    parametro che S0 legge solo per G15 (``asv.len_tol``,
+    ``decontam.threshold``, ``retry.whitelist``, le soglie chimeriche) non
+    entra nella sua impronta; uno che legge un gate di S0 (``qc.min_motif_frac``
+    per G10) si'.
 
     **Razionale Scientifico/Sistemistico**: Una soglia sulle chimere non deve
-    far rifare l'inferenza delle varianti, che sul dataset completo costa ore.
-    Le fasi a valle si rifanno comunque, perche' l'impronta della fase a monte
-    entra nella loro.
+    far rifare S0 e con lei la catena intera, S4 compresa (25 minuti sul
+    dataset completo). G15 si ripete a ogni avvio: non serve che i suoi
+    parametri rendano S0 da rifare. Le fasi a valle di quella cambiata si
+    rifanno comunque, perche' l'impronta della fase a monte entra nella loro.
     """
     prima = risolvi(config_ridotta(tmp_path))
     dopo = risolvi(config_ridotta(tmp_path, **{sezione: variazione}))
@@ -387,8 +399,8 @@ def test_filter_max_ee_invalida_s2_ma_non_s0_ne_s1(tmp_path):
     **Obiettivo**: Verificare che cambiare ``filter.maxEE`` cambi l'impronta di
     S2 e non quelle di S0 e S1.
 
-    **Razionale Scientifico/Sistemistico**: Di filter S0 legge solo truncLen e
-    trimLeft, S1 solo truncLen e la sua tolleranza: la soglia degli errori
+    **Razionale Scientifico/Sistemistico**: Di filter S0 legge solo truncLen
+    (G09), S1 solo truncLen e la sua tolleranza: la soglia degli errori
     attesi riguarda il filtro e basta.
     """
     prima = risolvi(config_ridotta(tmp_path))

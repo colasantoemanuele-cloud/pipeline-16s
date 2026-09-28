@@ -66,6 +66,7 @@ from conftest import (
     lettura,
 )
 
+from amplicon16s.errors.catalog import Categoria, voce
 from amplicon16s.gates.g01_g15 import Contesto, ErroreGate
 from amplicon16s.gates.registry import REGISTRO, esegui_tutti, nomi_dei_gate
 from amplicon16s.metadata.models import ClasseCampione
@@ -217,6 +218,8 @@ def test_g01_fallisce_se_non_ci_sono_file_di_letture(tmp_path):
 
     esito = _esegui(scenario)["G01"]
     assert not esito.superato
+    assert {v.codice for v in esito.violazioni} == {"E-S0-01"}
+    assert {v.voce.categoria for v in esito.violazioni} == {Categoria.REVISIONE_UMANA}
     assert "non contiene alcun file" in str(esito.violazioni[0])
 
 
@@ -253,6 +256,7 @@ def test_g02_fallisce_su_una_colonna_assente(tmp_path):
 
     esito = _esegui(scenario)["G02"]
     assert not esito.superato
+    assert {v.voce.categoria for v in esito.violazioni} == {Categoria.REVISIONE_UMANA}
     assert {v.codice for v in esito.violazioni} == {"E-S0-02"}
     assert "ctrl.column" in str(esito.violazioni[0])
 
@@ -289,6 +293,7 @@ def test_g07_fallisce_su_un_file_di_lettura_inversa(tmp_path):
     esito = _esegui(_scenario(tmp_path, campioni))["G07"]
 
     assert not esito.superato
+    assert {v.voce.categoria for v in esito.violazioni} == {Categoria.REVISIONE_UMANA}
     assert {v.codice for v in esito.violazioni} == {"E-S0-07"}
     assert "letture inverse" in str(esito.violazioni[0])
 
@@ -326,6 +331,7 @@ def test_g08_fallisce_se_manca_la_colonna_del_lotto(tmp_path):
 
     esito = _esegui(scenario)["G08"]
     assert not esito.superato
+    assert {v.voce.categoria for v in esito.violazioni} == {Categoria.REVISIONE_UMANA}
     assert {v.codice for v in esito.violazioni} == {"E-S0-08"}
     assert "decontam.batch_column" in str(esito.violazioni[0])
 
@@ -351,6 +357,7 @@ def test_g08_avvisa_su_una_piastra_con_pochi_controlli_negativi(tmp_path):
     assert esito.superato, "un avviso non blocca"
     assert len(esito.avvisi) == 1
     assert esito.avvisi[0].codice == "E-S0-15"
+    assert voce(esito.avvisi[0].codice).categoria is Categoria.DEGRADAZIONE_AUTOMATICA
     assert "1 controlli negativi" in str(esito.avvisi[0])
     assert "decontam.min_blanks" in str(esito.avvisi[0])
 
@@ -409,6 +416,7 @@ def test_g09_fallisce_se_il_troncamento_supera_le_letture(tmp_path):
     esito = _esegui(scenario)["G09"]
 
     assert not esito.superato
+    assert {v.voce.categoria for v in esito.violazioni} == {Categoria.REVISIONE_UMANA}
     assert {v.codice for v in esito.violazioni} == {"E-S0-09"}
     assert "scartate, non accorciate" in str(esito.violazioni[0])
 
@@ -481,6 +489,7 @@ def test_g10_fallisce_se_il_primer_e_in_testa(tmp_path):
     esito = _esegui(_scenario(tmp_path, campioni))["G10"]
 
     assert not esito.superato
+    assert {v.voce.categoria for v in esito.violazioni} == {Categoria.REVISIONE_UMANA}
     codici = {v.codice for v in esito.violazioni}
     assert codici == {"E-S0-10"}
     assert "filter.trimLeft" in str(esito.violazioni[0])
@@ -575,6 +584,7 @@ def test_g12_fallisce_su_un_checksum_diverso(tmp_path):
 
     esito = _esegui(scenario)["G12"]
     assert not esito.superato
+    assert {v.voce.categoria for v in esito.violazioni} == {Categoria.REVISIONE_UMANA}
     assert {v.codice for v in esito.violazioni} == {"E-S0-12"}
     assert "tax.ref_md5" in str(esito.violazioni[0])
 
@@ -667,6 +677,8 @@ def test_g13_fallisce_se_la_qualita_ha_lunghezza_diversa(tmp_path):
     esito = _esegui(_scenario(tmp_path, campioni))["G13"]
 
     assert not esito.superato
+    assert {v.codice for v in esito.violazioni} == {"E-S0-13"}
+    assert {v.voce.categoria for v in esito.violazioni} == {Categoria.REVISIONE_UMANA}
     assert "lunghezze diverse" in str(esito.violazioni[0])
 
 
@@ -701,6 +713,7 @@ def test_g14_fallisce_se_i_thread_eccedono_le_cpu(tmp_path):
     esito = _esegui(scenario)["G14"]
 
     assert not esito.superato
+    assert {v.voce.categoria for v in esito.violazioni} == {Categoria.REVISIONE_UMANA}
     assert {v.codice for v in esito.violazioni} == {"E-S0-14"}
     assert "run.threads" in str(esito.violazioni[0])
 

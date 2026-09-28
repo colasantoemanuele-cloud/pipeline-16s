@@ -20,6 +20,7 @@ riportati come tali, non come superati.
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final
 
@@ -45,7 +46,7 @@ from amplicon16s.gates.g01_g15 import (
     _g15_coerenza_configurazione,
 )
 
-__all__ = ["REGISTRO", "EsitoGate", "esegui_tutti", "nomi_dei_gate"]
+__all__ = ["REGISTRO", "EsitoGate", "esegui_gate", "esegui_tutti", "nomi_dei_gate"]
 
 
 @dataclass(frozen=True)
@@ -108,8 +109,17 @@ def nomi_dei_gate() -> tuple[str, ...]:
     return tuple(voce.nome for voce in REGISTRO)
 
 
-def esegui_tutti(contesto: Contesto) -> list[EsitoGate]:
-    """Esegue i gate in sequenza, fermandosi al primo che fallisce."""
+def esegui_tutti(
+    contesto: Contesto,
+    gia_eseguiti: Mapping[str, EsitoGate] | None = None,
+) -> list[EsitoGate]:
+    """Esegue i gate in sequenza, fermandosi al primo che fallisce.
+
+    ``gia_eseguiti`` porta l'esito di un gate calcolato altrove, che qui si
+    registra senza ripeterlo: S0 vi passa G15, eseguito sulla configurazione
+    completa prima che la fase la veda ristretta ai propri parametri.
+    """
+    gia_eseguiti = gia_eseguiti or {}
     esiti: list[EsitoGate] = []
     fermato = False
 
@@ -120,22 +130,28 @@ def esegui_tutti(contesto: Contesto) -> list[EsitoGate]:
             )
             continue
 
-        inizio = time.perf_counter()
-        violazioni, avvisi = voce.controllo(contesto)
-        durata = time.perf_counter() - inizio
-
-        esiti.append(
-            EsitoGate(
-                gate=voce.nome,
-                descrizione=voce.descrizione,
-                eseguito=True,
-                superato=not violazioni,
-                violazioni=tuple(violazioni),
-                avvisi=tuple(avvisi),
-                secondi=durata,
-            )
-        )
-        if violazioni:
+        if voce.nome in gia_eseguiti:
+            esito = gia_eseguiti[voce.nome]
+            esiti.append(esito)
+            fermato = not esito.superato
+            continue
+        esiti.append(esegui_gate(voce.nome, contesto))
+        if not esiti[-1].superato:
             fermato = True
-
     return esiti
+
+
+def esegui_gate(nome: str, contesto: Contesto) -> EsitoGate:
+    """Esegue un solo gate e ne restituisce l'esito."""
+    voce = next(v for v in REGISTRO if v.nome == nome)
+    inizio = time.perf_counter()
+    violazioni, avvisi = voce.controllo(contesto)
+    return EsitoGate(
+        gate=voce.nome,
+        descrizione=voce.descrizione,
+        eseguito=True,
+        superato=not violazioni,
+        violazioni=tuple(violazioni),
+        avvisi=tuple(avvisi),
+        secondi=time.perf_counter() - inizio,
+    )

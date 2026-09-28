@@ -472,6 +472,8 @@ def test_s1_ferma_se_il_troncamento_supera_il_minimo_vero(bioconductor, tmp_path
     assert [r.passo for r in esito.eseguite] == [Passo.S0]  # G09 e' passato
     assert esito.punto.passo is Passo.S1
     assert esito.punto.codice == "E-S1-02"
+    assert esito.punto.categoria == "revisione_umana"
+    assert esito.punto.tentativi == 1
     assert "137 bp" in esito.punto.dettaglio
     # I profili restano per decidere il troncamento, ma S1 non e' conclusa.
     assert (_profili(run) / "riepilogo.json").exists()

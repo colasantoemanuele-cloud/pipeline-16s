@@ -22,10 +22,13 @@ non possono condividere una categoria di gestione.
 
 **Il retry automatico è un elenco chiuso.** Solo quattro codici lo ammettono, e
 sono gli stessi dichiarati in ``retry.whitelist``. Il criterio non è la gravità
-ma la natura dell'azione correttiva: ridurre la dimensione di un lotto o
-aumentare i dati di una stima non modifica alcuna assunzione metodologica,
-mentre spostare una soglia è una decisione scientifica e non può essere presa
-da un programma. Un test verifica nei due versi che l'elenco resti quello.
+ma la natura dell'azione correttiva: rileggere un file (E-S2-03), aumentare i
+dati di una stima (E-S3-01) o ridurre la dimensione di un lotto (E-S4-02) non
+modifica alcuna assunzione metodologica, mentre spostare una soglia è una
+decisione scientifica e non può essere presa da un programma. E-S5-01 resta
+ammesso, ma la sua fase dichiara nell'errore che ritentare non servirebbe (la
+memoria della tabella non dipende dal lotto), e l'esecuzione si ferma. Un test
+verifica nei due versi che l'elenco resti quello.
 
 **I codici del ponte verso R.** I codici ``E-R-*`` non appartengono a una
 fase ma al ponte (:mod:`amplicon16s.rbridge`) che esegue gli script R di tutte
@@ -403,7 +406,8 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "E-S4-02", "S4",
         "Memoria esaurita durante l'inferenza delle varianti.",
         "L'inferenza viene ritentata con run.batch_size ridotto: il lotto "
-        "cambia la memoria richiesta, non le varianti inferite. Se l'errore "
+        "cambia la memoria richiesta, non le varianti inferite (con dada.pool "
+        "vero il lotto non ha effetto, e non si ritenta). Se l'errore "
         "persiste, aumenta la memoria disponibile al container o riduci "
         "run.threads: ogni thread ne consuma una quota.",
         _RETRY,

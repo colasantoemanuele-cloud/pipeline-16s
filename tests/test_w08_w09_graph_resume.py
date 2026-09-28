@@ -11,7 +11,7 @@ Inquadramento nel Piano Operativo
   - ``src/amplicon16s/runner/project.py``
   - ``src/amplicon16s/steps/s00_validate.py``
 * **Comando Bash**: ``pytest tests/test_w08_w09_graph_resume.py -v``
-* **Risultato atteso**: ``52 passed in ~1.10s``
+* **Risultato atteso**: ``53 passed in ~1.10s``
 
 Scopo sperimentale e razionale scientifico/sistemistico
 -------------------------------------------------------
@@ -606,15 +606,15 @@ def test_una_fase_interrotta_non_risulta_conclusa(eseguita, scenario, registro):
 def test_cambiando_un_parametro_nessuna_fase_resta_conclusa(eseguita, scenario, registro):
     """
     **Obiettivo**: Verificare che quando una fase non restringe i propri
-    parametri (``parametri = None``), la modifica di ``decontam.threshold``
-    invalidi tutte le fasi con motivo ``configurazione cambiata``.
+    parametri (``parametri = None``), la modifica di ``decontam.min_blanks``,
+    che anche S0 legge (G08), invalidi tutte le fasi con motivo ``configurazione cambiata``.
 
     **Razionale Scientifico/Sistemistico**: Il comportamento predefinito è
     massimamente cautelativo: se un passo non dichiara esplicitamente il
     sottoinsieme di sezioni YAML da cui dipende, qualsiasi modifica ai parametri
     scientifici ne forza il ricalcolo.
     """
-    cambiata = _variante(scenario.config, decontam__threshold=0.4)
+    cambiata = _variante(scenario.config, decontam__min_blanks=3)
     run = ProjectRun(cambiata, passi=_passi(registro))
 
     situazione = run.situazione()
@@ -800,24 +800,26 @@ def test_spostare_la_cartella_di_output_non_rende_incompleta_l_esecuzione(
     ("variazione", "s0_la_dichiara"),
     [
         ({"run__lockfile": "altro.lock"}, False),
-        ({"decontam__threshold": 0.4}, True),
+        ({"decontam__min_blanks": 3}, True),
+        ({"decontam__threshold": 0.4}, False),
     ],
-    ids=["lockfile", "decontam.threshold"],
+    ids=["lockfile", "decontam.min_blanks", "decontam.threshold"],
 )
 def test_un_parametro_incluso_invalida_le_fasi_che_lo_dichiarano(
     eseguita, scenario, registro, variazione, s0_la_dichiara
 ):
     """
-    **Obiettivo**: Verificare che la modifica di ``run.lockfile`` o
-    ``decontam.threshold`` invalidi le fasi che dichiarano quel parametro, e
-    solo quelle con le fasi che ne dipendono.
+    **Obiettivo**: Verificare che la modifica di ``run.lockfile``,
+    ``decontam.min_blanks`` o ``decontam.threshold`` invalidi le fasi che
+    dichiarano quel parametro, e solo quelle con le fasi che ne dipendono.
 
-    **Razionale Scientifico/Sistemistico**: I due parametri incidono sui
+    **Razionale Scientifico/Sistemistico**: I tre parametri incidono sui
     risultati e restano nell'impronta. Ma ogni fase dichiara i parametri da cui
     dipende: S0, che non legge ``run.lockfile``, resta conclusa quando cambia;
-    i doppioni, che dichiarano tutti i gruppi, no.
-    ``decontam.threshold`` e' letto da G15 dentro S0, quindi invalida S0 e con
-    lei tutto cio' che segue.
+    i doppioni, che dichiarano tutti i gruppi, no. ``decontam.min_blanks`` e'
+    letto da G08 dentro S0, quindi invalida S0 e con lei tutto cio' che segue;
+    ``decontam.threshold`` lo legge solo G15, che si ripete a ogni avvio, e
+    non entra nell'impronta di S0.
     """
     cambiata = _variante(scenario.config, **variazione)
     run = ProjectRun(cambiata, passi=_passi(registro))

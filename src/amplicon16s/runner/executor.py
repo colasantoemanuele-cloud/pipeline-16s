@@ -26,8 +26,9 @@ eseguire. L'esito di una fase fallita dipende dalla categoria del suo codice:
 * **revisione umana**: ci si ferma subito;
 * **retry automatico** e **retry poi revisione umana**: si ritenta con
   l'azione correttiva dichiarata dalla fase, entro ``retry.max_attempts``, se
-  il codice è in ``retry.whitelist`` e ``retry.enabled`` è vero; poi ci si
-  ferma, con un messaggio che distingue le due categorie;
+  il codice è in ``retry.whitelist`` e ``retry.enabled`` è vero, e se la fase
+  non ha dichiarato nell'errore che un nuovo tentativo darebbe lo stesso
+  esito; poi ci si ferma, con un messaggio che distingue le due categorie;
 * **degradazione automatica**: non ferma. La fase registra il ripiego con
   :meth:`~amplicon16s.steps.base.StepContext.degrada`, o lo dichiara con
   :meth:`~amplicon16s.steps.base.PipelineStep.ripiega`, e la degradazione
