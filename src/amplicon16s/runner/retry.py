@@ -26,8 +26,9 @@ rivalidata dallo schema. La fase la usa per il calcolo; il manifesto registra
 il valore dichiarato e quello usato, con il codice che ha causato il cambio,
 mentre la validità della fase alla ripresa si giudica sulla configurazione
 dichiarata. È coerente solo se il parametro aggiustato non incide sui
-risultati: è l'assunzione su cui si regge la whitelist, e per
-``run.batch_size`` non è ancora verificata (vedi :data:`PARAMETRI_AGGIUSTABILI`).
+risultati: è l'assunzione su cui si regge la whitelist. Per
+``run.batch_size`` è verificata (vedi :data:`PARAMETRI_AGGIUSTABILI`); per
+``err.nbases`` no.
 """
 
 from __future__ import annotations
@@ -59,18 +60,23 @@ __all__ = [
 #: parametro fuori elenco è un difetto della fase.
 #:
 #: Sono quelli che i messaggi del catalogo indicano per i codici ripetibili:
-#: ``run.batch_size`` per E-S4-02 ed E-S5-01, ``err.nbases`` per E-S3-01.
-#: E-S2-03, un errore di lettura, si ritenta invece senza modifiche
-#: (:func:`senza_modifiche`): se era transitorio basta rileggere. **Tensione aperta**: entrambi restano nell'impronta dei risultati,
-#: perché non è dimostrato che non incidano sui risultati. Con
-#: ``dada.pool: pseudo``, il predefinito, i priori della seconda passata di
-#: dada2 si costruiscono dai campioni elaborati insieme: se l'inferenza
-#: procede per lotti di ``run.batch_size`` campioni, ridurre il lotto può
-#: cambiare le varianti inferite, e allora ridurlo in un tentativo automatico
-#: violerebbe il criterio stesso della whitelist. ``err.nbases`` cambia per
-#: definizione la stima del modello d'errore. La decisione va presa quando S2-S5
-#: esisteranno, misurando l'effetto sul dataset di riferimento; fino ad allora
-#: ogni aggiustamento resta registrato nel manifesto con il valore usato.
+#: ``run.batch_size`` per E-S4-02, ``err.nbases`` per E-S3-01. E-S2-03, un
+#: errore di lettura, si ritenta invece senza modifiche (:func:`senza_modifiche`):
+#: se era transitorio basta rileggere. E-S5-01 non ha azione correttiva: la
+#: tabella delle sequenze chiede la stessa memoria con qualunque lotto, e S5
+#: dichiara inutile il retry.
+#:
+#: ``run.batch_size`` non incide sui risultati, ed e' fra i parametri esclusi
+#: dall'impronta. S4 realizza il pseudo-pooling di dada2 in due passate
+#: esplicite, entrambe a lotti, e cio' che attraversa i lotti sono somme di
+#: conteggi interi: il test lo verifica byte per byte con due lotti diversi, e
+#: verifica che il risultato sia quello di ``dada(pool = "pseudo")`` in una
+#: sola chiamata. **Tensione aperta** su ``err.nbases``: cambia per definizione
+#: la stima del modello d'errore, e resta nell'impronta. Sul dataset di
+#: riferimento, da 1e8 a 2e8, le varianti dopo S7 passano da 12.045 a 12.048
+#: (12.044 comuni) e le varianti non comuni raccolgono meno di cento letture su
+#: 31 milioni: un effetto misurabile ma minimo. Se il retry di E-S3-01 resti
+#: ammesso e' una decisione aperta; il valore usato e' registrato nel manifesto.
 PARAMETRI_AGGIUSTABILI: Final[tuple[str, ...]] = ("run.batch_size", "err.nbases")
 
 
@@ -221,10 +227,13 @@ class PoliticaRetry:
             return Decisione(Motivo.FUORI_WHITELIST)
         if tentativo >= self.tentativi_massimi:
             return Decisione(Motivo.TENTATIVI_ESAURITI)
-        if aggiustamento is None:
-            return Decisione(Motivo.NESSUNA_AZIONE)
+        # La dichiarazione della fase viene prima: dice perche' un nuovo
+        # tentativo darebbe lo stesso esito, anche quando un'azione correttiva
+        # non c'e' affatto.
         if inutile:
             return Decisione(Motivo.AZIONE_INUTILE)
+        if aggiustamento is None:
+            return Decisione(Motivo.NESSUNA_AZIONE)
         if aggiustamento.invariato:
             return Decisione(Motivo.RITENTA)
         assert aggiustamento.parametro is not None

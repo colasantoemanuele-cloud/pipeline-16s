@@ -744,17 +744,20 @@ def test_un_parametro_dichiarato_male_e_un_errore(scenario):
         {"run__threads": 2},
         {"retry__enabled": False},
         {"retry__max_attempts": 7},
+        {"run__batch_size": 7},
         {"run__threads": 2, "retry__enabled": False, "retry__max_attempts": 7},
     ],
-    ids=["threads", "retry.enabled", "retry.max_attempts", "tutti"],
+    ids=["threads", "retry.enabled", "retry.max_attempts", "batch_size", "tutti"],
 )
 def test_un_parametro_escluso_non_invalida_alcuna_fase(
     eseguita, scenario, registro, variazione
 ):
     """
-    **Obiettivo**: Verificare che modificare ``run.threads``, ``retry.enabled``
-    o ``retry.max_attempts`` mantenga ``run.completa is True`` e ``riprendi == []``,
-    pur cambiando il ``digest`` globale in ``00_config``.
+    **Obiettivo**: Verificare che modificare ``run.threads``, ``retry.enabled``,
+    ``retry.max_attempts`` o ``run.batch_size`` mantenga ``run.completa is True``
+    e ``riprendi == []``, pur cambiando il ``digest`` globale in ``00_config``.
+    ``run.batch_size`` e' escluso da quando S4 ha mostrato di dare gli stessi
+    byte con lotti diversi.
 
     **Razionale Scientifico/Sistemistico**: Quando si riprende una corsa su una
     macchina o coda HPC con un numero diverso di core (``run.threads``) o con
@@ -796,24 +799,23 @@ def test_spostare_la_cartella_di_output_non_rende_incompleta_l_esecuzione(
 @pytest.mark.parametrize(
     ("variazione", "s0_la_dichiara"),
     [
-        ({"run__batch_size": 7}, False),
         ({"run__lockfile": "altro.lock"}, False),
         ({"decontam__threshold": 0.4}, True),
     ],
-    ids=["batch_size", "lockfile", "decontam.threshold"],
+    ids=["lockfile", "decontam.threshold"],
 )
 def test_un_parametro_incluso_invalida_le_fasi_che_lo_dichiarano(
     eseguita, scenario, registro, variazione, s0_la_dichiara
 ):
     """
-    **Obiettivo**: Verificare che la modifica di ``run.batch_size``,
-    ``run.lockfile`` o ``decontam.threshold`` invalidi le fasi che dichiarano
-    quel parametro, e solo quelle con le fasi che ne dipendono.
+    **Obiettivo**: Verificare che la modifica di ``run.lockfile`` o
+    ``decontam.threshold`` invalidi le fasi che dichiarano quel parametro, e
+    solo quelle con le fasi che ne dipendono.
 
-    **Razionale Scientifico/Sistemistico**: I tre parametri incidono sui
+    **Razionale Scientifico/Sistemistico**: I due parametri incidono sui
     risultati e restano nell'impronta. Ma ogni fase dichiara i parametri da cui
-    dipende: S0, che non legge ``run.batch_size`` ne' ``run.lockfile``, resta
-    conclusa quando cambiano; i doppioni, che dichiarano tutti i gruppi, no.
+    dipende: S0, che non legge ``run.lockfile``, resta conclusa quando cambia;
+    i doppioni, che dichiarano tutti i gruppi, no.
     ``decontam.threshold`` e' letto da G15 dentro S0, quindi invalida S0 e con
     lei tutto cio' che segue.
     """
@@ -831,20 +833,20 @@ def test_un_parametro_incluso_invalida_le_fasi_che_lo_dichiarano(
 def test_da_un_gruppo_i_parametri_esclusi_restano_fuori(scenario):
     """
     **Obiettivo**: Verificare che richiedendo l'impronta dell'intero gruppo
-    ``("run",)``, una variazione di ``run.threads`` produca la stessa impronta
-    mentre una variazione di ``run.batch_size`` produca un'impronta diversa.
+    ``("run",)``, una variazione di ``run.threads`` o di ``run.batch_size``
+    produca la stessa impronta, mentre una variazione di ``run.seed`` ne
+    produca una diversa.
 
     **Razionale Scientifico/Sistemistico**: Garantisce che una fase che dichiara
     dipendenza dalla sezione ``run`` erediti automaticamente l'esclusione di
     ``run.threads`` senza dover elencare a mano ogni singola chiave di ``run``.
     """
     prima = impronta_parametri(risolvi(scenario.config), ("run",))
-    dopo = impronta_parametri(risolvi(_variante(scenario.config, run__threads=2)), ("run",))
-    assert prima == dopo
-    lotti = impronta_parametri(
-        risolvi(_variante(scenario.config, run__batch_size=7)), ("run",)
-    )
-    assert lotti != prima
+    for variazione in ({"run__threads": 2}, {"run__batch_size": 7}):
+        dopo = impronta_parametri(risolvi(_variante(scenario.config, **variazione)), ("run",))
+        assert prima == dopo, variazione
+    seme = impronta_parametri(risolvi(_variante(scenario.config, run__seed=7)), ("run",))
+    assert seme != prima
 
 
 # --------------------------------------------------------------------------- #
@@ -1197,20 +1199,22 @@ def test_l_inventario_e_riletto_dall_artefatto_di_s0(scenario):
     assert run.risolta.derivati.prev_min_samples is not None
 
 
-def test_oggi_esistono_le_fasi_da_s0_a_s3(scenario):
+def test_oggi_esistono_le_fasi_da_s0_a_s7(scenario):
     """
-    **Obiettivo**: Verificare che allo stato della Settimana 13 ``passi_realizzati()``
-    contenga ``{Passo.S0, Passo.S1, Passo.S2, Passo.S3}``: dopo S0, ``Passo.S1``
+    **Obiettivo**: Verificare che allo stato della Settimana 14 ``passi_realizzati()``
+    contenga le fasi da ``Passo.S0`` a ``Passo.S7``: dopo S0, ``Passo.S1``
     e ``Passo.S2`` sono da eseguire (S2 dipende da S0, non da S1), ``Passo.S3``
-    attende S2, mentre ``Passo.S4`` e' marcata ``StatoPasso.NON_REALIZZATA`` e
-    solleva ``LookupError`` se richiesta a ``run.fase(Passo.S4)``.
+    attende S2, mentre ``Passo.S8`` e' marcata ``StatoPasso.NON_REALIZZATA`` e
+    solleva ``LookupError`` se richiesta a ``run.fase(Passo.S8)``.
 
     **Razionale Scientifico/Sistemistico**: Separa in modo trasparente le fasi
     già implementate nel codice di produzione dalle fasi successive
-    (``S4..S14``), evitando falsi stati di completamento.
+    (``S8..S14``), evitando falsi stati di completamento.
     """
     run = ProjectRun(scenario.config)
-    assert set(passi_realizzati()) == {Passo.S0, Passo.S1, Passo.S2, Passo.S3}
+    assert set(passi_realizzati()) == {
+        Passo.S0, Passo.S1, Passo.S2, Passo.S3, Passo.S4, Passo.S5, Passo.S6, Passo.S7,
+    }
     esegui_s0(scenario.config)
 
     situazione = run.situazione()
@@ -1218,11 +1222,12 @@ def test_oggi_esistono_le_fasi_da_s0_a_s3(scenario):
     assert situazione[Passo.S1].stato is StatoPasso.DA_ESEGUIRE
     assert situazione[Passo.S2].stato is StatoPasso.DA_ESEGUIRE
     assert situazione[Passo.S3].motivo == "a monte da eseguire: S2"
-    assert situazione[Passo.S4].stato is StatoPasso.NON_REALIZZATA
+    assert situazione[Passo.S4].motivo == "a monte da eseguire: S2, S3"
+    assert situazione[Passo.S8].stato is StatoPasso.NON_REALIZZATA
     assert run.prossima() is Passo.S1
     assert not run.completa
-    with pytest.raises(LookupError, match="S4"):
-        run.fase(Passo.S4)
+    with pytest.raises(LookupError, match="S8"):
+        run.fase(Passo.S8)
 
 
 def test_l_albero_e_quello_della_configurazione(scenario):

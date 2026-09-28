@@ -239,14 +239,16 @@ def test_una_fase_senza_dichiarazione_valida_non_si_registra(tmp_path, parametri
 
 def test_ogni_fase_realizzata_dichiara_i_propri_parametri(tmp_path):
     """
-    **Obiettivo**: Verificare che S0, S1, S2 e S3 dichiarino i propri
-    parametri e che la registrazione le accetti.
+    **Obiettivo**: Verificare che le fasi realizzate, da S0 a S7, dichiarino
+    i propri parametri e che la registrazione le accetti.
 
     **Razionale Scientifico/Sistemistico**: E' la condizione perche' la loro
     validita' si giudichi sui parametri da cui dipendono davvero.
     """
     passi = passi_realizzati()
-    assert set(passi) == {Passo.S0, Passo.S1, Passo.S2, Passo.S3}
+    assert set(passi) == {
+        Passo.S0, Passo.S1, Passo.S2, Passo.S3, Passo.S4, Passo.S5, Passo.S6, Passo.S7,
+    }
     assert all(f.parametri for f in passi.values())
     ProjectRun(config_ridotta(tmp_path))
 
@@ -324,6 +326,56 @@ def test_uno_script_r_che_legge_un_parametro_non_ricevuto_fallisce(tmp_path):
     assert info.value.codice == "E-R-03"
     assert "soglia_mai_passata" in info.value.dettaglio
     assert not (tmp_path / "out" / Fase.FILTERED.value / "non_scritto.json").exists()
+
+
+def test_run_batch_size_non_invalida_nessuna_fase(tmp_path):
+    """
+    **Obiettivo**: Verificare che ``run.batch_size`` sia fra i parametri senza
+    effetto, che nessuna fase lo dichiari, e che cambiarlo lasci invariata
+    l'impronta di tutte le fasi realizzate.
+
+    **Razionale Scientifico/Sistemistico**: Il lotto decide quanta memoria
+    chiede una fase, non che cosa calcola: S2 filtra ogni file da solo, e S4
+    da' gli stessi byte con lotti diversi (verificato nel container). Il retry
+    di E-S4-02 che lo dimezza non deve rendere da rifare cio' che e' concluso.
+    """
+    from amplicon16s.config.resolve import PARAMETRI_SENZA_EFFETTO
+
+    assert "run.batch_size" in PARAMETRI_SENZA_EFFETTO
+    prima = risolvi(config_ridotta(tmp_path))
+    dopo = risolvi(config_ridotta(tmp_path, run={"batch_size": 3}))
+    for passo, fase in passi_realizzati().items():
+        assert "run.batch_size" not in fase.parametri, passo
+        assert fase.calcolata_su(prima, {}) == fase.calcolata_su(dopo, {}), passo
+
+
+@pytest.mark.parametrize(
+    ("sezione", "variazione", "invalidate"),
+    [
+        ("dada", {"omega_a": 1e-20}, {Passo.S4}),
+        ("qc", {"max_asv_count": 1000}, {Passo.S0, Passo.S5}),
+        ("chimera", {"min_fold_parent_over_abundance": 1.5}, {Passo.S6}),
+        ("qc", {"warn_frac_chimeric": 0.3}, {Passo.S0, Passo.S6}),
+        ("asv", {"len_tol": 2}, {Passo.S0, Passo.S7}),
+    ],
+    ids=["dada.omega_a", "qc.max_asv_count", "chimera", "qc.warn_frac_chimeric", "asv.len_tol"],
+)
+def test_i_parametri_di_s4_s7_invalidano_solo_le_proprie_fasi(tmp_path, sezione, variazione, invalidate):
+    """
+    **Obiettivo**: Verificare che un parametro di una fase fra S4 e S7 cambi
+    l'impronta di configurazione di quella fase e di nessun'altra, a parte
+    S0, che dichiara per intero i gruppi qc e asv perche' G15 li verifica.
+
+    **Razionale Scientifico/Sistemistico**: Una soglia sulle chimere non deve
+    far rifare l'inferenza delle varianti, che sul dataset completo costa ore.
+    Le fasi a valle si rifanno comunque, perche' l'impronta della fase a monte
+    entra nella loro.
+    """
+    prima = risolvi(config_ridotta(tmp_path))
+    dopo = risolvi(config_ridotta(tmp_path, **{sezione: variazione}))
+    for passo, fase in passi_realizzati().items():
+        cambiata = fase.calcolata_su(prima, {}) != fase.calcolata_su(dopo, {})
+        assert cambiata is (passo in invalidate), passo
 
 
 def test_filter_max_ee_invalida_s2_ma_non_s0_ne_s1(tmp_path):

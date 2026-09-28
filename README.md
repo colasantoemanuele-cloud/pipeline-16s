@@ -230,8 +230,11 @@ Sono realizzati:
   gerarchia della pipeline con il codice dichiarato, registra nel manifesto gli
   artefatti dichiarati e nel log strutturato le uscite standard e di errore dello
   script. Riconosce la memoria esaurita in entrambe le forme (l'allocazione fallita
-  intercettata da R o il processo ucciso dal sistema con `SIGKILL`) e la traduce nel
-  codice che la fase indica; per rendere il riconoscimento indipendente dalla lingua
+  intercettata da R, anche quella del codice C dei pacchetti con `R_Calloc` e quella
+  del caricamento di una libreria, o il processo ucciso dal sistema con `SIGKILL`) e
+  la traduce nel codice che la fase indica; gli script caricano i pacchetti con
+  `richiedi_pacchetti`, che conserva il messaggio originale invece di ridurlo a
+  «pacchetto non disponibile»; per rendere il riconoscimento indipendente dalla lingua
   della macchina, impone a R i messaggi in inglese. Può limitare la memoria virtuale
   del processo figlio, riducendo allora a uno i thread dell'algebra lineare: con
   OpenBLAS multithread, come nell'immagine, R sotto quel limite resta bloccato in
@@ -240,9 +243,9 @@ Sono realizzati:
 - le funzioni R condivise in `R/lib/`: `io_json.R` per leggere e scrivere il JSON in
   modo atomico, `errors.R` con il punto d'ingresso degli script di fase e la
   dichiarazione degli errori con un codice del catalogo, `letture.R` per registrare
-  per ogni passo quante letture restano a ciascun campione. Nessuno script di fase le
-  usa ancora: finora le esercitano solo gli script doppioni dei test, in
-  `tests/r_doppioni/`;
+  per ogni passo quante letture restano a ciascun campione, `risorse.R` per riportare
+  nel log la memoria di picco del processo. Le usano gli script delle fasi e gli
+  script doppioni dei test, in `tests/r_doppioni/`;
 - la gestione degli artefatti: l'albero delle quattordici cartelle di output sotto
   `io.out_root` e, in ciascuna, un manifesto che registra ogni file scritto con il suo
   checksum; gli artefatti scritti dai processi R vi si registrano allo stesso modo di
@@ -271,8 +274,8 @@ Sono realizzati:
   non ricevuto. Una dipendenza dimenticata diventa così un errore al primo test che
   esercita la fase, non un risultato obsoleto. I parametri che non incidono sui
   risultati, dichiarati in un solo elenco in `config/resolve.py` (`run.threads`,
-  `run.keep_filtered_fastq`, `io.out_root`, `retry.enabled`, `retry.max_attempts`),
-  sono leggibili da ogni fase e non entrano in nessuna impronta: cambiarli, o spostare
+  `run.keep_filtered_fastq`, `run.batch_size`, `io.out_root`, `retry.enabled`,
+  `retry.max_attempts`), sono leggibili da ogni fase e non entrano in nessuna impronta: cambiarli, o spostare
   la cartella di un'esecuzione conclusa, non la rende da rifare. Il digest scritto in
   `00_config/resolved.yaml` resta calcolato sull'intera configurazione.
   Una fase avviata prima delle fasi da cui dipende solleva `E-GRAFO-01`, oppure
@@ -281,8 +284,8 @@ Sono realizzati:
   fasi sono concluse, quali disattivate, quali da eseguire e quale è la prossima;
   dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
   una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
-  gigabyte, costerà secondi; delle quindici fasi oggi esistono come codice le prime quattro, da S0 a S3,
-  e le altre risultano non realizzate;
+  gigabyte, costerà secondi; delle quindici fasi oggi esistono come codice le prime
+  otto, da S0 a S7, e le altre risultano non realizzate;
 - **l'esecutore e la politica dei tentativi** (`runner/executor.py`,
   `runner/retry.py`). A ogni avvio, con `run` come con `resume`, l'esecutore ripete
   la verifica di coerenza della configurazione (G15) e quella delle risorse della
@@ -304,10 +307,11 @@ Sono realizzati:
   Quando l'esecuzione si ferma, l'esecutore dichiara il punto di ripresa: fase,
   codice, messaggio del catalogo, tentativi fatti e comando per ripartire. Delle fasi
   con codici ripetibili esistono oggi S2, il cui E-S2-03 è provato su un archivio
-  davvero corrotto, e S3, il cui E-S3-01 è provato su una stima che davvero non
-  converge; per S4 e S5 il meccanismo è provato con fasi doppione. Una fase può anche
-  dichiarare, nell'errore, che l'azione correttiva non cambierebbe l'esito: allora non
-  si ritenta, e il motivo compare nel punto di ripresa;
+  davvero corrotto, S3, il cui E-S3-01 è provato su una stima che davvero non
+  converge, S4, il cui E-S4-02 è provato limitando davvero la memoria del processo R,
+  e S5. Una fase può anche dichiarare, nell'errore, che un nuovo tentativo non
+  cambierebbe l'esito: allora non si ritenta, e il motivo compare nel punto di
+  ripresa. È il caso di E-S5-01, sempre, e di E-S4-02 con `dada.pool` vero;
 - la registrazione degli eventi su due uscite: la console per chi segue l'esecuzione e
   un file JSON Lines con rotazione sotto `99_logs`, in un formato che si interroga per
   codice, fase o categoria invece di doversi leggere;
@@ -373,18 +377,59 @@ Sono realizzati:
   non dal testo di un avviso; un modello che non converge è E-S3-01, ritentato con
   `err.nbases` raddoppiato solo se la stima non usava già tutte le basi della corsa.
   Un campione senza corsa, con la colonna attiva, è E-S3-02;
+- **la fase S4, l'inferenza delle varianti** (`steps/s04_dada.py`, `R/04_dada.R`), con
+  `dada2::dada` e i parametri del gruppo `dada`: ogni campione usa il modello d'errore
+  della sua corsa, letto da `corrispondenza.tsv` di S3. Il pseudo-pooling è realizzato
+  in due passate esplicite, entrambe a lotti di `run.batch_size` campioni: la prima
+  elabora ogni campione da solo e conserva soltanto, per ogni sequenza, in quanti
+  campioni compare e quante letture ha; la seconda rielabora ogni campione con le
+  informazioni a priori, scelte con la regola del sorgente di dada2 1.36.0 (presenti
+  in almeno `PSEUDO_PREVALENCE` campioni, 2, o con almeno `PSEUDO_ABUNDANCE` letture,
+  infinito). Come in `dada(pool = "pseudo")`, la seconda passata usa il modello
+  d'errore che dada ricalcola dalle transizioni della prima, uno per modello di S3.
+  Le informazioni a priori si raccolgono su tutti i campioni, di entrambe le corse.
+  Il risultato è quello di `dada(pool = "pseudo")` in una sola chiamata e non dipende
+  dal lotto: i test lo verificano byte per byte, e per questo `run.batch_size` è fuori
+  dall'impronta e il retry di E-S4-02 che lo dimezza è legittimo. Scrive in
+  `05_asv_inference/` le varianti di ogni campione, le informazioni a priori, i modelli
+  della seconda passata e un riepilogo. Sul dataset di riferimento, nel container con
+  12 processori, impiega 26 minuti e trova 13.130 varianti distinte, con 4.090
+  informazioni a priori su 12.857 sequenze della prima passata; due esecuzioni
+  complete danno gli stessi byte in ogni artefatto;
+- **la fase S5, la tabella delle sequenze** (`steps/s05_seqtab.py`, `R/05_seqtab.R`),
+  in `06_seqtab/`: è la tabella prima della rimozione delle chimere. Il numero di
+  varianti si controlla contro `qc.max_asv_count` prima di allocarla; oltre, o con la
+  memoria esaurita, è E-S5-01, che la fase dichiara inutile ritentare, perché la
+  tabella è una matrice densa campioni x varianti la cui memoria non dipende dal lotto;
+- **la fase S6, la rimozione delle chimere** (`steps/s06_chimera.py`,
+  `R/06_chimera.R`), con `dada2::removeBimeraDenovo` e i parametri del gruppo `chimera`,
+  in `07_chimera/`. Non ricopia la tabella di S5: ne registra il riferimento con il
+  checksum ed elenca le varianti chimeriche tolte. Riporta per ogni classe la frazione
+  chimerica sulle letture e sulle varianti; i controlli guardano la frazione delle
+  letture di biologici e positivi: E-S6-02 oltre `qc.warn_frac_chimeric` (0,25) si
+  registra e si prosegue, E-S6-01 oltre `qc.stop_frac_chimeric` (0,50) ferma. Sul
+  dataset di riferimento le letture chimeriche sono lo 0,44% nei biologici, lo 0,02%
+  nei positivi e lo 0,03% nei negativi, contro l'8,7% delle varianti nei biologici;
+- **la fase S7, il filtro di lunghezza** (`steps/s07_asv_length.py`,
+  `R/07_asv_length.R`), che tiene le varianti fra `asv.len_min` e `asv.len_max` e
+  scrive la tabella delle varianti accanto a S6. Con letture troncate a lunghezza fissa
+  le varianti hanno tutte la stessa lunghezza, e sul dataset di riferimento il filtro
+  non toglie nulla: 12.045 varianti di 137 basi. Che tolga le varianti fuori intervallo
+  è verificato con varianti sintetiche;
 - il tracciamento delle letture (`runner/tracciamento.py`): ogni fase registra i propri
   passi in file suoi, `letture_<passo>.tsv`, e la tabella completa si ricompone
   leggendo quelli delle fasi concluse nell'ordine del grafo, senza che una fase
-  modifichi mai un file di un'altra. Oggi i passi sono le letture grezze (S1) e quelle
-  in ingresso e in uscita dal filtro (S2);
+  modifichi mai un file di un'altra. Oggi i passi sono uno per fase: le letture
+  grezze (S1), quelle in ingresso e in uscita dal filtro (S2), quelle attribuite a una
+  variante (S4), quelle nella tabella (S5), quelle senza chimere (S6) e quelle dopo il
+  filtro di lunghezza (S7);
 - i quattro sottocomandi della riga di comando, descritti sopra, con i codici di
   uscita documentati. `report` produce oggi un **resoconto provvisorio** dello stato,
   ricavato dai manifesti delle fasi: fasi concluse, disattivate e da eseguire,
   aggiustamenti applicati, degradazioni registrate. Non è il report definitivo, che
   non è ancora realizzato.
 
-Delle fasi di analisi sono realizzate S1, S2 e S3; le altre, da S4 a S14, non sono
-ancora realizzate.
+Delle fasi di analisi sono realizzate quelle da S1 a S7; le altre, da S8 a S14, non
+sono ancora realizzate.
 
 Questa sezione viene aggiornata a ogni avanzamento del lavoro.

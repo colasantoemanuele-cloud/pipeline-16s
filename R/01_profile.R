@@ -88,12 +88,7 @@ righe_qualita <- function(campione, qualita) {
 moda <- function(lunghezze) which.max(lunghezze)
 
 esegui_fase(function(parametri, cartella) {
-  for (pacchetto in c("ShortRead", "Biostrings")) {
-    if (!requireNamespace(pacchetto, quietly = TRUE)) {
-      stop("pacchetto ", pacchetto, " non disponibile: la fase va eseguita ",
-           "nell'ambiente della pipeline, il container")
-    }
-  }
+  richiedi_pacchetti(c("ShortRead", "Biostrings"))
 
   campioni <- unlist(parametri$campioni)
   processi <- as.integer(parametri$processi)

@@ -106,12 +106,19 @@ VARIABILE_LIB_R: Final = "AMPLICON16S_R_LIB"
 MAX_CARATTERI_USCITA: Final = 256 * 1024
 
 #: Messaggi con cui un'allocazione fallita arriva dall'interprete: quelli di R,
-#: quello di R su macOS, e quello del codice C++ dei pacchetti di calcolo.
+#: quello di R su macOS, quello del codice C++ dei pacchetti di calcolo,
+#: quello di R_Calloc e R_Realloc, con cui alloca il codice C di dada2
+#: (``'R_Calloc' could not allocate memory (1000000 of 16 bytes)``, osservato
+#: in S4; ``'Calloc'`` prima di R 4.3), e quello del caricatore dinamico
+#: quando non c'e' spazio per mappare la libreria di un pacchetto.
 _MEMORIA_ESAURITA: Final = re.compile(
     r"cannot allocate (?:vector of size|memory block)"
     r"|vector memory (?:exhausted|limit)"
     r"|memory exhausted"
-    r"|std::bad_alloc",
+    r"|std::bad_alloc"
+    r"|'(?:R_)?Calloc' could not allocate memory"
+    r"|'(?:R_)?Realloc' could not re-allocate memory"
+    r"|failed to map segment from shared object",
     re.IGNORECASE,
 )
 

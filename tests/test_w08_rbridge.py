@@ -379,6 +379,18 @@ def _d(stato: Stato, codice: str | None = None, messaggio: str = "") -> Dichiara
          "", Condizione.MEMORIA_ESAURITA),
         (1, None, "Error: cannot allocate vector of size 381.5 Mb",
          Condizione.MEMORIA_ESAURITA),
+        # Il codice C di dada2 alloca con R_Calloc: messaggio osservato in S4.
+        (3, _d(Stato.ERRORE_NON_CATALOGATO,
+               messaggio="'R_Calloc' could not allocate memory (1000000 of 16 bytes)"),
+         "", Condizione.MEMORIA_ESAURITA),
+        (3, _d(Stato.ERRORE_NON_CATALOGATO,
+               messaggio="'R_Realloc' could not re-allocate memory (8000000 bytes)"),
+         "", Condizione.MEMORIA_ESAURITA),
+        # La memoria finisce mentre si carica la libreria di un pacchetto.
+        (3, _d(Stato.ERRORE_NON_CATALOGATO,
+               messaggio="pacchetto dada2 non caricabile: unable to load shared object "
+                         "'/x/DelayedArray.so': failed to map segment from shared object"),
+         "", Condizione.MEMORIA_ESAURITA),
         (-signal.SIGKILL, None, "", Condizione.MEMORIA_ESAURITA),
         (128 + signal.SIGKILL, None, "", Condizione.MEMORIA_ESAURITA),
         (-signal.SIGSEGV, None, "*** caught segfault ***",

@@ -6,6 +6,8 @@
 #   facoltativo(parametri, nome, predefinito)  legge un parametro facoltativo;
 #                                    ogni altro accesso a un parametro non
 #                                    ricevuto e' un errore
+#   richiedi_pacchetti(pacchetti)    carica i pacchetti di calcolo, o si ferma
+#                                    con il motivo per cui non si caricano
 #
 # Uno script di fase ha questa forma:
 #
@@ -59,6 +61,25 @@ PROTOCOLLO_PONTE <- 1L
 facoltativo <- function(parametri, nome, predefinito = NULL) {
   valori <- unclass(parametri)
   if (nome %in% names(valori)) valori[[nome]] else predefinito
+}
+
+# Carica i pacchetti di cui la fase ha bisogno. requireNamespace(quietly =
+# TRUE) restituirebbe solo FALSE, e un caricamento fallito per memoria
+# esaurita ("cannot allocate vector", "failed to map segment from shared
+# object") sembrerebbe un pacchetto mancante: qui il messaggio originale resta
+# nell'errore, e il ponte lo riconosce come memoria esaurita.
+richiedi_pacchetti <- function(pacchetti) {
+  for (pacchetto in pacchetti) {
+    tryCatch(
+      loadNamespace(pacchetto),
+      error = function(e) {
+        stop("pacchetto ", pacchetto, " non caricabile: ", conditionMessage(e),
+             ". La fase va eseguita nell'ambiente della pipeline, il container",
+             call. = FALSE)
+      }
+    )
+  }
+  invisible(TRUE)
 }
 
 # Codice di uscita di un errore dichiarato. E' solo una conferma: il codice

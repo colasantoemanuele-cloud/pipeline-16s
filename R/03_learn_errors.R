@@ -38,12 +38,7 @@ convergente <- function(modello) {
 }
 
 esegui_fase(function(parametri, cartella) {
-  for (pacchetto in c("dada2", "ggplot2")) {
-    if (!requireNamespace(pacchetto, quietly = TRUE)) {
-      stop("pacchetto ", pacchetto, " non disponibile: la fase va eseguita ",
-           "nell'ambiente della pipeline, il container")
-    }
-  }
+  richiedi_pacchetti(c("dada2", "ggplot2"))
 
   esiti <- list()
   artefatti <- character()

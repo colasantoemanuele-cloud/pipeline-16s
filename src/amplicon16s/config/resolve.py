@@ -76,9 +76,8 @@ NOME_FILE_RISOLTO: Final = "resolved.yaml"
 #: dichiarano, e l'elenco e' volutamente prudente: nel dubbio un parametro
 #: resta nell'impronta, perche' escluderne uno che incide farebbe consegnare
 #: risultati calcolati con un valore diverso da quello dichiarato, senza alcun
-#: errore. Per questo ``run.batch_size`` resta dentro (la suddivisione in
-#: lotti puo' toccare cio' che si stima per lotto) e cosi' ``run.lockfile``,
-#: che fissa le versioni dei pacchetti di calcolo.
+#: errore. Per questo ``run.lockfile``, che fissa le versioni dei pacchetti
+#: di calcolo, resta dentro.
 #:
 #: * ``run.threads``: quanti processori usare, non che cosa calcolare;
 #: * ``io.out_root``: dove scrivere; spostare la cartella di un'esecuzione
@@ -87,13 +86,19 @@ NOME_FILE_RISOLTO: Final = "resolved.yaml"
 #:   errore ammesso al retry, la cui azione correttiva per definizione non
 #:   cambia alcuna assunzione metodologica;
 #: * ``run.keep_filtered_fastq``: se conservare le letture filtrate dopo che
-#:   tutte le fasi le hanno usate, non come sono state calcolate.
+#:   tutte le fasi le hanno usate, non come sono state calcolate;
+#: * ``run.batch_size``: quanti campioni elaborare insieme, cioe' quanta
+#:   memoria chiedere. S2 filtra ogni file da solo; S4 da' gli stessi byte con
+#:   lotti diversi, e lo stesso risultato di ``dada(pool = "pseudo")`` in una
+#:   sola chiamata (verificati nel container). E' anche la condizione perche'
+#:   il retry di E-S4-02, che lo dimezza, sia legittimo.
 PARAMETRI_SENZA_EFFETTO: Final[tuple[str, ...]] = (
     "run.threads",
     "io.out_root",
     "retry.enabled",
     "retry.max_attempts",
     "run.keep_filtered_fastq",
+    "run.batch_size",
 )
 
 

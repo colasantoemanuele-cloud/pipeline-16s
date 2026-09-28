@@ -55,6 +55,10 @@ from amplicon16s.steps.s00_validate import ValidazioneIngressi, leggi_inventario
 from amplicon16s.steps.s01_profile import ProfiloLetture
 from amplicon16s.steps.s02_filter import FiltroLetture
 from amplicon16s.steps.s03_learn_errors import ModelloErrore
+from amplicon16s.steps.s04_dada import InferenzaVarianti
+from amplicon16s.steps.s05_seqtab import TabellaSequenze
+from amplicon16s.steps.s06_chimera import RimozioneChimere
+from amplicon16s.steps.s07_asv_length import FiltroLunghezza
 
 __all__ = [
     "ProjectRun",
@@ -72,6 +76,10 @@ def passi_realizzati() -> dict[Passo, PipelineStep]:
         Passo.S1: ProfiloLetture(),
         Passo.S2: FiltroLetture(),
         Passo.S3: ModelloErrore(),
+        Passo.S4: InferenzaVarianti(),
+        Passo.S5: TabellaSequenze(),
+        Passo.S6: RimozioneChimere(),
+        Passo.S7: FiltroLunghezza(),
     }
 
 

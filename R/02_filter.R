@@ -31,10 +31,7 @@ ERRORE_DI_LETTURA <- paste(
 )
 
 esegui_fase(function(parametri, cartella) {
-  if (!requireNamespace("dada2", quietly = TRUE)) {
-    stop("pacchetto dada2 non disponibile: la fase va eseguita nell'ambiente ",
-         "della pipeline, il container")
-  }
+  richiedi_pacchetti("dada2")
 
   campioni <- unlist(parametri$campioni)
   lotto <- as.integer(parametri$lotto)

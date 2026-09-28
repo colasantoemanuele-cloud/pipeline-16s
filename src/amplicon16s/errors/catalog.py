@@ -402,7 +402,8 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S4-02", "S4",
         "Memoria esaurita durante l'inferenza delle varianti.",
-        "L'inferenza viene ritentata con run.batch_size ridotto. Se l'errore "
+        "L'inferenza viene ritentata con run.batch_size ridotto: il lotto "
+        "cambia la memoria richiesta, non le varianti inferite. Se l'errore "
         "persiste, aumenta la memoria disponibile al container o riduci "
         "run.threads: ogni thread ne consuma una quota.",
         _RETRY,
@@ -410,10 +411,14 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     # ----------------------------------------------------------------- S5 ---
     _v(
         "E-S5-01", "S5",
-        "Le varianti inferite eccedono la memoria disponibile.",
-        "Si ritenta con run.batch_size ridotto. Se il numero di varianti resta "
-        "oltre qc.max_asv_count, la decisione e' scientifica: valuta un filtro "
-        "piu' severo a monte, anziche' alzare la soglia.",
+        "Le varianti distinte sono troppe per la tabella delle sequenze.",
+        "Le varianti distinte superano qc.max_asv_count, oppure la memoria si e' "
+        "esaurita costruendo la tabella. Un nuovo tentativo non cambierebbe "
+        "nulla: la tabella e' una matrice densa campioni x varianti, la cui "
+        "dimensione non dipende da run.batch_size, e la fase lo dichiara. La "
+        "decisione e' scientifica: valuta un filtro piu' severo a monte, "
+        "anziche' alzare la soglia; solo se il numero di varianti e' plausibile, "
+        "aumenta la memoria disponibile al container.",
         _RETRY_UMANA,
     ),
     # ----------------------------------------------------------------- S6 ---
