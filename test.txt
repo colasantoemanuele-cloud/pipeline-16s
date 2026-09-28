@@ -1,13 +1,13 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W13 (Fasi F1, F2, F3, F4)
+Piano Operativo: Settimane W1 - W14 (Fasi F1, F2, F3, F4)
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W13 del Piano Operativo.
+W1 - W14 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -30,10 +30,10 @@ integrazione del progetto con output dettagliato (un test per riga), lanciare:
 
     pytest tests/ -v
 
-Totale complessivo della suite: 769 test su 16 moduli (724 passed e 45 skipped
+Totale complessivo della suite: 795 test su 17 moduli (737 passed e 58 skipped
 in ambiente locale con R base + jsonlite ma senza Bioconductor e dati reali in
-circa 30 secondi; 744 passed e 25 skipped nel container CI con Bioconductor;
-746 passed e 23 skipped in locale con i dati reali OSD-734; 769 passed
+circa 35 secondi; 769 passed e 26 skipped nel container CI con Bioconductor;
+759 passed e 36 skipped in locale con i dati reali OSD-734; 795 passed
 eseguendo l'intera suite nel container con i 2.4 GB di dati reali OSD-734).
 
 Per includere anche i test end-to-end sui 960 file FASTQ reali di OSD-734,
@@ -54,14 +54,16 @@ funzione di test uno dei seguenti tre stati:
     Il test è stato saltato intenzionalmente e in modo controllato. Nella suite
     questo accade per 'tests/test_w07_dati_reali.py' (22 test) e per i test su
     dati reali di 'tests/test_w11_s01_profile.py' (1 test),
-    'tests/test_w12_s02_filter.py' (1 test) e 'tests/test_w13_s03_batch.py'
-    (1 test) quando la variabile 'AMPLICON16S_CONFIG_DATI_REALI' non è definita
-    (ad esempio su macchine portatili o nei runner di Continuous Integration
-    privi dei 2.4 GB di sequenze FASTQ della NASA) e per i 20 test R/Bioconductor
-    di 'tests/test_w11_s01_profile.py' (7 test), 'tests/test_w12_s02_filter.py'
-    (6 test) e 'tests/test_w13_s03_batch.py' (7 test) quando si esegue fuori
-    dal container senza i pacchetti 'ShortRead', 'dada2' e 'ggplot2'. Non indica
-    un difetto del codice.
+    'tests/test_w12_s02_filter.py' (1 test), 'tests/test_w13_s03_batch.py'
+    (1 test) e 'tests/test_w14_s04_s07_denoising.py' (1 test) quando la
+    variabile 'AMPLICON16S_CONFIG_DATI_REALI' non è definita (ad esempio su
+    macchine portatili o nei runner di Continuous Integration privi dei 2.4 GB
+    di sequenze FASTQ della NASA) e per i 32 test R/Bioconductor di
+    'tests/test_w11_s01_profile.py' (7 test), 'tests/test_w12_s02_filter.py'
+    (6 test), 'tests/test_w13_s03_batch.py' (7 test) e
+    'tests/test_w14_s04_s07_denoising.py' (12 test) quando si esegue fuori dal
+    container senza i pacchetti 'ShortRead', 'dada2' e 'ggplot2'. Non indica un
+    difetto del codice.
 
   * FAILED (in rosso):
     Una regola del contratto bioinformatico o sistemistico è stata violata.
@@ -85,9 +87,63 @@ checksum MD5 e script eseguibili R. In questo modo ogni gate e ogni passo della
 pipeline vengono collaudati esercitando realmente il filesystem POSIX, il
 decompressore gzip e i sottoprocessi di sistema.
 
+1.5 Specifiche e inventario dei file per i test su dati reali (NASA GeneLab OSD-734)
+--------------------------------------------------------------------------------
+Per garantire la piena riproducibilita deterministica dei test end-to-end su
+dati reali (attivati tramite la variabile d'ambiente
+'AMPLICON16S_CONFIG_DATI_REALI'), chiunque scarichi il dataset pubblico OSD-734
+dal repository NASA GeneLab / Open Science Data Repository (OSDR) deve
+predisporre i seguenti 5 blocchi funzionali di file:
+
+  1. File di configurazione master:
+     - Nome: puntato dalla variabile d'ambiente 'AMPLICON16S_CONFIG_DATI_REALI'
+       (es. '/home/nemo/ASI/config_osd734.yaml').
+     - Contenuto: parametri Pydantic validati secondo lo schema di studio, con
+       percorsi assoluti ai file del dataset OSD-734, parametri di qualita e
+       soglie biologiche (inclusa la cartella di uscita 'io.out_root', es.
+       '/home/nemo/ASI/OSD-734/output_pipeline').
+
+  2. Sequenze grezze FASTQ (cartella 'io.raw_dir' / 'io.fastq_dir'):
+     - Nome e volume: 960 file compressi '.fastq.gz' a lettura singola
+       (single-end, regione V4 16S rRNA con primer 515F/806R), per un totale di
+       circa 2.4 GB (es. '/home/nemo/ASI/OSD-734/fastq_full').
+     - Contenuto: sequenze con qualita Phred per ciascun campione, suddivise
+       nelle due corse Illumina MiSeq:
+       * 480 campioni della corsa '3DMM_Plates_1-5_S1_L001';
+       * 480 campioni della corsa '3DMM_rerun_Plates_6-10_S1_L001'.
+
+  3. Metadati ISA-Tab ufficiali NASA GeneLab:
+     - Tabella di studio ('io.study_table'): file 's_OSD-734.txt' (es.
+       '/home/nemo/ASI/OSD-734/OSD-734_metadata_OSD-734-ISA/s_OSD-734.txt')
+       contenente i metadati generali e le caratteristiche di 1.072 campioni
+       complessivi dello studio (inclusi saggi multi-omici e controlli di
+       solvente).
+     - Tabella di saggio 16S ('io.assay_table'): file
+       'a_OSD-734_amplicon-sequencing_16S-rRNA.txt' (o la variante nominale
+       dell'archivio ISA-Tab 'a_OSD-734_amplicon-sequencing_16s_Illumina MiSeq.txt'
+       in '/home/nemo/ASI/OSD-734/OSD-734_metadata_OSD-734-ISA/') contenente i
+       960 campioni effettivi del sequenziamento amplicone 16S, con mappatura
+       biunivoca verso i rispettivi file FASTQ e piastre di estrazione.
+
+  4. Tabella di associazione del lotto/corsa ('io.batch_table'):
+     - Nome: file TSV indicato in configurazione (es.
+       '/home/nemo/ASI/OSD-734/plate_well_map_960.tsv').
+     - Contenuto: corrispondenza tra ciascun identificatore di campione
+       (accession) e il nome della rispettiva corsa di sequenziamento (colonna
+       'run_prefix'), utilizzato in Fase S0 e S3 per partizionare i campioni
+       per lotto.
+
+  5. Riferimento tassonomico per il Gate G12 ('tax.ref_fasta' e 'tax.ref_md5'):
+     - File FASTA compresso: archivio di addestramento SILVA 138.1
+       ('silva_nr99_v138_1_train_set.fa.gz', o percorso configurato in
+       '/home/nemo/ASI/reference/silva_nr99_v138_train_set.fa.gz').
+     - File checksum: file MD5 ufficiale e impronta esadecimale in 'tax.ref_md5'
+       ('56821dd6f365f64c8518a21e049c3232') per la verifica preventiva di
+       integrita crittografica prima dell'avvio della pipeline.
+
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W13)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W14)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -511,7 +567,7 @@ SETTIMANA 8 (W8) : PONTE VERSO R ('rbridge') ISOLATO A PROCESSI SEPARATI
     pytest tests/test_w08_rbridge.py -v
 
   * RISULTATO ATTESO:
-    59 passed in ~10.50s
+    62 passed in ~10.50s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Isolamento dai crash di C/C++: DADA2 e DECIPHER compilati possono
@@ -773,9 +829,9 @@ SETTIMANA 13 (W13) : FASE S3 (MODELLO D'ERRORE PER CORSA DI SEQUENZIAMENTO)
     pytest tests/test_w13_s03_batch.py -v
 
   * RISULTATO ATTESO:
-    19 test (11 passed, 8 skipped in ~0.80s in ambiente locale privo di
-    Bioconductor dada2/ggplot2 e dati reali; 18 passed, 1 skipped nel container
-    CI; 19 passed nel container con dati reali OSD-734)
+    20 test (12 passed, 8 skipped in ~0.80s in ambiente locale privo di
+    Bioconductor dada2/ggplot2 e dati reali; 19 passed, 1 skipped nel container
+    CI; 20 passed nel container con dati reali OSD-734)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché stimare un modello d'errore separato per ciascuna corsa MiSeq:
@@ -798,14 +854,72 @@ SETTIMANA 13 (W13) : FASE S3 (MODELLO D'ERRORE PER CORSA DI SEQUENZIAMENTO)
 
 
 --------------------------------------------------------------------------------
+SETTIMANA 14 (W14) : FASI S4 - S7 (INFERENZA ASV, SEQTAB, CHIMERE E LUNGHEZZA)
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W14, Fase F4 (Fasi S4 'src/amplicon16s/steps/s04_dada.py' e
+    'R/04_dada.R', S5 's05_seqtab.py' e 'R/05_seqtab.R', S6 's06_chimera.py' e
+    'R/06_chimera.R', S7 's07_asv_length.py' e 'R/07_asv_length.R', oltre a
+    'R/lib/risorse.R').
+
+  * FILE DI TEST:
+    tests/test_w14_s04_s07_denoising.py
+
+  * COSA VALUTA:
+    Collauda l'intero nucleo del denoising (Fasi S4-S7): verifica l'equivalenza
+    esatta tra il pseudo-pooling a lotti di 'run.batch_size' in due passate
+    esplicite e 'dada(pool = "pseudo")' in un'unica chiamata, la ricalibrazione
+    del modello di seconda passata con 'loessErrfun' sulle transizioni accumulate
+    per corsa, l'invarianza byte per byte rispetto a 'run.batch_size', il retry
+    di 'E-S4-02' con dimezzamento del lotto e l'arresto immediato per 'E-S5-01'
+    oltre 'qc.max_asv_count' (con retry dichiarato inutile), la mancata
+    duplicazione di 'tabella.rds' di S5 in S6, il calcolo delle frazioni
+    chimeriche sulle letture con esclusione dei controlli negativi da 'E-S6-01'
+    ed 'E-S6-02', il filtro di lunghezza ('asv.len_min' .. 'asv.len_max') su
+    varianti sintetiche e su dati reali, e la ricomposizione completa del
+    tracciamento delle letture da S1 a S7.
+
+  * COMANDO BASH:
+    pytest tests/test_w14_s04_s07_denoising.py -v
+
+  * RISULTATO ATTESO:
+    17 test (4 passed, 13 skipped in ~0.60s in ambiente locale privo di
+    Bioconductor dada2/ShortRead e dati reali; 16 passed, 1 skipped nel
+    container CI; 17 passed nel container con dati reali OSD-734)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. Pseudo-pooling a lotti a memoria controllata e invarianza del risultato:
+       eseguire 'dada(pool = "pseudo")' in una sola chiamata su 960 campioni
+       richiede di trattenere in RAM tutti gli oggetti di dereplicazione e
+       clustering. Suddividendo entrambe le passate in lotti di 'run.batch_size'
+       campioni e accumulando conteggi interi esatti ('somma_per_nome' e
+       'accumulateTrans'), il risultato coincide byte per byte con la chiamata
+       monolitica ma il consumo di memoria scala con il singolo lotto, rendendo
+       metodologicamente neutro il dimezzamento di 'run.batch_size' su 'E-S4-02'.
+    2. Perché la frazione chimerica si misura sulle letture delle classi
+       controllate: su OSD-734 le varianti chimeriche rappresentano l'8,7% delle
+       ASV distinte nei biologici ma solo lo 0,44% delle letture totali, perché
+       si tratta di ricombinanti rari a bassissima abbondanza. Valutare
+       'E-S6-01' ed 'E-S6-02' sulle letture di biologici e controlli positivi
+       misura la reale frazione di sequenze compromesse dalla PCR senza essere
+       distorti dai bianchi a bassa biomassa.
+    3. Controllo preventivo su 'qc.max_asv_count' in S5 ('RITENTARE_INUTILE'):
+       poiché 'makeSequenceTable' alloca una matrice densa campioni x varianti,
+       la memoria richiesta dipende dal numero totale di ASV distinte sull'intera
+       coorte e non da 'run.batch_size'; verificare il tetto prima di allocare
+       la matrice evita un OOM inutile e dichiara subito l'inutilità del retry.
+
+
+--------------------------------------------------------------------------------
 MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
 --------------------------------------------------------------------------------
   * SETTIMANA E FASE:
-    Modulo trasversale e infrastrutturale del DAG (Settimane W8 - W13, Fasi F3
+    Modulo trasversale e infrastrutturale del DAG (Settimane W8 - W14, Fasi F3
     e F4: 'src/amplicon16s/config/vista.py', 'src/amplicon16s/config/resolve.py',
     'src/amplicon16s/steps/base.py' e 'R/lib/errors.R'). Come 'conftest.py' e
     'sottoinsieme.py', non porta il prefisso di una singola settimana perché
-    presidia il contratto di scoping dei parametri dell'intero grafo S0 - S14.
+    presidia il contratto di scoping dei parametri dell'intero grafo S0 - S14
+    (fasi realizzate da S0 a S7).
 
   * FILE DI TEST:
     tests/test_dipendenze_parametri.py
@@ -814,24 +928,24 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
     Collauda il contratto vincolante delle dipendenze di parametro dichiarate da
     ogni fase della pipeline: verifica che una sottoclasse di 'PipelineStep'
     priva dell'attributo 'parametri', con voci inesistenti nello schema o che
-    dichiari parametri operativi senza effetto ('run.threads', 'io.out_root')
-    sia rifiutata già alla definizione della classe con 'TypeError'; che
-    'VistaConfig' in Python esponga a ciascuna fase esclusivamente i parametri
-    dichiarati più 'PARAMETRI_SENZA_EFFETTO', sollevando 'ParametroNonDichiarato'
-    (sottoclasse di 'LookupError', non catturabile da 'getattr(..., default)')
-    su ogni accesso a gruppi, chiavi, derivati o digest non ammessi; che la
-    classe S3 'parametri_dichiarati' in R sollevi errore immediato se uno script
-    legge tramite '$' o '[[' un parametro non passato dalla fase Python; e che
-    cambiare parametri di fasi a valle ('filter.maxEE', 'err.nbases', 'dada.*',
-    'tax.*') o parametri operativi non invalidi i manifesti delle fasi a monte
-    già concluse.
+    dichiari parametri operativi senza effetto ('run.threads', 'io.out_root',
+    'run.batch_size') sia rifiutata alla registrazione; che 'VistaConfig' in
+    Python esponga a ciascuna fase esclusivamente i parametri dichiarati più
+    'PARAMETRI_SENZA_EFFETTO', sollevando 'ParametroNonDichiarato' (sottoclasse
+    di 'LookupError', non catturabile da 'getattr(..., default)') su ogni
+    accesso non ammesso; che la classe S3 'parametri_dichiarati' in R sollevi
+    errore immediato se uno script legge tramite '$' o '[[' un parametro non
+    passato dalla fase Python; e che cambiare parametri di fasi a valle
+    ('filter.maxEE', 'err.nbases', 'dada.omega_a', 'qc.max_asv_count',
+    'chimera.*', 'asv.len_tol') o parametri operativi ('run.batch_size') non
+    invalidi i manifesti delle fasi a monte già concluse.
 
   * COMANDO BASH:
     pytest tests/test_dipendenze_parametri.py -v
 
   * RISULTATO ATTESO:
-    15 test (14 passed, 1 skipped in ~0.30s in ambiente privo di R/jsonlite;
-    15 passed con R + jsonlite o nel container Docker)
+    20 test (19 passed, 1 skipped in ~0.30s in ambiente privo di R/jsonlite;
+    20 passed con R + jsonlite o nel container Docker)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché la dichiarazione dei parametri è vincolante a runtime ('VistaConfig'
@@ -844,11 +958,10 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
        'AttributeError': in Python 'getattr(vista, nome, predefinito)' cattura
        'AttributeError' e restituirebbe silenziosamente il valore predefinito,
        aggirando la protezione della vista ristretta.
-    3. Impatto sulle prestazioni del DAG e della CI: isolando le impronte di S0,
-       S1, S2 e S3 ai soli parametri effettivamente letti, una modifica a
-       'err.nbases' o a 'filter.maxEE' non costringe a ricalcolare i profili di
-       qualità di S1, riducendo il tempo di esecuzione del job containerizzato
-       della CI da 6m27s a 4m40s.
+    3. Impatto sulle prestazioni del DAG e della CI: isolando le impronte di S0
+       .. S7 ai soli parametri effettivamente letti ed escludendo 'run.batch_size',
+       una modifica a 'chimera.*' o a 'err.nbases' non costringe a ricalcolare
+       l'inferenza DADA2 (26 minuti su OSD-734) o i profili di qualità di S1.
 
 
 ================================================================================
@@ -866,13 +979,14 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W6        | tests/test_w06_join_restricted.py     |    7 | pytest tests/test_w06_join_restricted.py -v
   W7        | tests/test_w07_gates.py               |   44 | pytest tests/test_w07_gates.py -v
   W7 (Real) | tests/test_w07_dati_reali.py          |   22 | pytest tests/test_w07_dati_reali.py -v
-  W8        | tests/test_w08_rbridge.py             |   59 | pytest tests/test_w08_rbridge.py -v
+  W8        | tests/test_w08_rbridge.py             |   62 | pytest tests/test_w08_rbridge.py -v
   W8 - W9   | tests/test_w08_w09_graph_resume.py    |   52 | pytest tests/test_w08_w09_graph_resume.py -v
   W9 - W10  | tests/test_w09_w10_retry_policy.py    |   49 | pytest tests/test_w09_w10_retry_policy.py -v
   W11       | tests/test_w11_s01_profile.py         |   15 | pytest tests/test_w11_s01_profile.py -v
   W12       | tests/test_w12_s02_filter.py          |   25 | pytest tests/test_w12_s02_filter.py -v
-  W13       | tests/test_w13_s03_batch.py           |   19 | pytest tests/test_w13_s03_batch.py -v
-  DAG (S0+) | tests/test_dipendenze_parametri.py    |   15 | pytest tests/test_dipendenze_parametri.py -v
+  W13       | tests/test_w13_s03_batch.py           |   20 | pytest tests/test_w13_s03_batch.py -v
+  W14       | tests/test_w14_s04_s07_denoising.py   |   17 | pytest tests/test_w14_s04_s07_denoising.py -v
+  DAG (S0+) | tests/test_dipendenze_parametri.py    |   20 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (16 moduli)              |  769 | pytest tests/ -v
+  TOTALE    | Intera suite (17 moduli)              |  795 | pytest tests/ -v
 ================================================================================

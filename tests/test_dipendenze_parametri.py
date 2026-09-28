@@ -1,15 +1,16 @@
 """Suite di test per il contratto trasversale delle dipendenze di parametro (S0 - S14).
 
 Inquadramento nel Piano Operativo:
-    Modulo trasversale e infrastrutturale del DAG (Settimane W8 - W13, Fasi F3 e F4).
+    Modulo trasversale e infrastrutturale del DAG (Settimane W8 - W14, Fasi F3 e F4).
     Presidia il contratto di scoping dei parametri dichiarati da ciascuna fase
-    della pipeline (da S0 a S14) e la validita' selettiva dei manifesti di fase.
+    della pipeline (fasi realizzate da S0 a S7 sull'intero grafo S0 - S14) e la
+    validita' selettiva dei manifesti di fase.
 
 Moduli sorgente coperti:
     - src/amplicon16s/config/vista.py (VistaConfig, ParametroNonDichiarato,
       risolta_ristretta, _VistaGruppo, _VistaDerivati)
     - src/amplicon16s/config/resolve.py (ConfigRisolta.digest_parametri,
-      PARAMETRI_SENZA_EFFETTO)
+      PARAMETRI_SENZA_EFFETTO, incluso run.batch_size)
     - src/amplicon16s/steps/base.py (PipelineStep.__init_subclass__, validazione
       statica dell'attributo di classe 'parametri' e impronta selettiva)
     - R/lib/errors.R (classe S3 'parametri_dichiarati', operatori '$.parametri_dichiarati',
@@ -20,7 +21,8 @@ Cosa valuta questo file:
     1. Validazione statica alla definizione della classe: una sottoclasse di
        PipelineStep priva dell'attributo 'parametri', con una voce inesistente
        nello schema o che dichiara un parametro operativo senza effetto
-       ('run.threads', 'io.out_root') viene rifiutata immediatamente con TypeError.
+       ('run.threads', 'io.out_root', 'run.batch_size') viene rifiutata
+       immediatamente con errore.
     2. Isolamento a tempo di esecuzione in Python ('VistaConfig'): una fase vede
        attraverso StepContext solo i gruppi e le chiavi che ha dichiarato (oltre
        a 'PARAMETRI_SENZA_EFFETTO'); ogni lettura di parametri non dichiarati,
@@ -30,17 +32,19 @@ Cosa valuta questo file:
     3. Isolamento simmetrico negli script R ('parametri_dichiarati'): uno script R
        che legge tramite '$' o '[[' un parametro non passato dalla fase Python
        fallisce immediatamente invece di ricevere silenziosamente NULL.
-    4. Impronta selettiva e invalidazione mirata nel DAG: cambiare un parametro
-       di una fase a valle (come 'filter.maxEE' in S2 o 'err.nbases' in S3) non
-       invalida i manifesti delle fasi a monte (S0, S1), mentre i parametri
-       operativi ('run.threads', 'run.keep_filtered_fastq', 'io.out_root',
-       'retry.enabled', 'retry.max_attempts') non invalidano nessuna fase.
+    4. Impronta selettiva e invalidazione mirata nel DAG (S0 - S7): cambiare un
+       parametro di una fase a valle (come 'filter.maxEE' in S2, 'err.nbases' in
+       S3, 'dada.omega_a' in S4, 'qc.max_asv_count' in S5, 'chimera.*' in S6 o
+       'asv.len_tol' in S7) invalida solo la fase interessata, mentre i parametri
+       operativi ('run.threads', 'run.keep_filtered_fastq', 'run.batch_size',
+       'io.out_root', 'retry.enabled', 'retry.max_attempts') non invalidano
+       nessuna fase.
 
 Comandi Bash e scenari di esecuzione:
     1. Modalita locale standard (con R base e jsonlite):
        pytest tests/test_dipendenze_parametri.py -v
-       Risultato atteso: 15 test (15 passed se R e jsonlite sono presenti;
-       14 passed e 1 skipped se R/jsonlite non sono installati sull'host).
+       Risultato atteso: 20 test (20 passed se R e jsonlite sono presenti;
+       19 passed e 1 skipped se R/jsonlite non sono installati sull'host).
 
     2. Modalita container Docker standard:
        docker run --rm \
@@ -49,12 +53,12 @@ Comandi Bash e scenari di esecuzione:
          --entrypoint pytest \
          amplicon16s:dev \
          tests/test_dipendenze_parametri.py -v
-       Risultato atteso: 15 passed.
+       Risultato atteso: 20 passed.
 
 Risultato atteso:
-    15 test totali (10 funzioni di test, di cui 2 parametrizzate):
-    15 passed in ambiente con R + jsonlite (~0.50s);
-    14 passed, 1 skipped in ambiente privo di R (~0.30s).
+    20 test totali (12 funzioni di test, di cui 3 parametrizzate):
+    20 passed in ambiente con R + jsonlite (~0.50s);
+    19 passed, 1 skipped in ambiente privo di R (~0.30s).
 
 Razionale scientifico e sistemistico:
     1. Prevenzione strutturale di risultati obsoleti silenziosi: in una pipeline

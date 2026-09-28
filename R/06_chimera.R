@@ -50,6 +50,13 @@ esegui_fase(function(parametri, cartella) {
   if (identical(metodo, "consensus")) {
     argomenti$minSampleFraction <- as.numeric(parametri$min_sample_fraction)
   }
+  # Razionale biologico: le chimere bimeriche si originano durante la PCR quando
+  # un filamento incompleto si appaia come innesco illegittimo su un templato
+  # eterologo nel ciclo successivo, generando una sequenza ibrida composta dal
+  # segmento 5' di una variante parentale e dal segmento 3' di un'altra. Poiche'
+  # i due genitori devono essere piu' abbondanti del ricombinante tardivo
+  # (minFoldParentOverAbundance), la rimozione de novo scarta le sequenze spurie
+  # preservando le varianti biologiche genuine (ASV).
   senza <- do.call(dada2::removeBimeraDenovo, argomenti)
 
   if (!identical(rownames(senza), rownames(tabella))) {

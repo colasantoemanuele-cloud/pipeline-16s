@@ -2,10 +2,9 @@ r"""Suite di test per le fasi S4-S7 (il nucleo del denoising).
 
 1. Inquadramento nel Piano Operativo
 ------------------------------------
-Settimana 14 (W14), Fase F4 (Fasi di calcolo R/Bioconductor): S4 inferenza
-delle varianti in ``05_asv_inference/``, S5 tabella delle sequenze in
-``06_seqtab/``, S6 rimozione delle chimere e S7 filtro di lunghezza in
-``07_chimera/``.
+Settimana 14 (W14), Fase F4 (Fasi di calcolo R/Bioconductor: S04 Denoising
+DADA2 in ``05_asv_inference/``, S05 Tabella delle sequenze in ``06_seqtab/``,
+S06 Rimozione delle chimere e S07 Filtro di lunghezza ASV in ``07_chimera/``).
 
 2. Moduli sorgente coperti
 --------------------------
@@ -13,46 +12,80 @@ delle varianti in ``05_asv_inference/``, S5 tabella delle sequenze in
 * ``src/amplicon16s/steps/s05_seqtab.py``, ``R/05_seqtab.R``
 * ``src/amplicon16s/steps/s06_chimera.py``, ``R/06_chimera.R``
 * ``src/amplicon16s/steps/s07_asv_length.py``, ``R/07_asv_length.R``
+* ``R/lib/risorse.R`` (``memoria_di_picco``), ``R/lib/errors.R`` (``richiedi_pacchetti``)
 * ``src/amplicon16s/runner/retry.py``, ``src/amplicon16s/runner/tracciamento.py``
-* ``R/lib/errors.R`` (``richiedi_pacchetti``), ``src/amplicon16s/rbridge/runner.py``
+* ``src/amplicon16s/rbridge/runner.py``
 
 3. Cosa valuta questo file
 --------------------------
-- il pseudo-pooling a lotti: equivalenza con ``dada(pool = "pseudo")`` in
-  una sola chiamata, su un gruppo di campioni della stessa corsa, e
-  invarianza byte per byte rispetto a ``run.batch_size``;
-- la riproducibilita' byte per byte della catena S4-S7 fra due esecuzioni;
-- E-S4-02 con memoria ridotta artificialmente, e il retry che dimezza il lotto;
-- E-S5-01 sulla soglia ``qc.max_asv_count``, con il retry dichiarato inutile;
-- la tabella prima delle chimere: resta in ``06_seqtab/``, non si ricopia, e
-  S6 ne registra il riferimento e l'elenco delle varianti tolte;
-- le frazioni chimeriche per classe, su letture e varianti, e i controlli
-  E-S6-01 ed E-S6-02 sulle classi controllate;
-- il filtro di lunghezza su varianti sintetiche, e che sui dati reali non
-  tolga nulla;
-- il tracciamento delle letture completo, un passo per fase, senza buchi.
+- inferenza delle varianti ASV con ``dada2::dada`` e il pseudo-pooling a lotti
+  (``run.batch_size``): equivalenza esatta con ``dada(pool = "pseudo")`` in una
+  sola chiamata su campioni della stessa corsa, stima di seconda passata con
+  ``loessErrfun`` e invarianza byte per byte rispetto a ``run.batch_size``;
+- aggregazione della matrice campioni per ASV (``dada2::makeSequenceTable``) e
+  controllo preventivo ``qc.max_asv_count`` prima dell'allocazione (``E-S5-01``);
+- rimozione de novo delle chimere bimeriche (``dada2::removeBimeraDenovo``),
+  mancata duplicazione di ``tabella.rds`` di S5, calcolo delle frazioni
+  chimeriche per classe (su letture e su varianti) e applicazione dei controlli
+  ``E-S6-01`` ed ``E-S6-02`` alle sole classi controllate (esclusione dei
+  controlli negativi);
+- filtraggio posizionale della lunghezza dell'amplicone V4 (``asv.len_min`` e
+  ``asv.len_max``) su varianti sintetiche e invarianza sui dati troncati a
+  lunghezza fissa;
+- gestione dei retry (dimezzamento di ``run.batch_size`` su ``E-S4-02``) e
+  soppressioni motivate (``RITENTARE_INUTILE`` per ``E-S5-01`` e per ``E-S4-02``
+  con ``dada.pool`` vero);
+- riproducibilita' byte per byte della catena S4-S7 e ricomposizione completa
+  del tracciamento delle letture da S1 a S7.
 
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
-    1. Modalita locale (senza Bioconductor):
+    1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w14_s04_s07_denoising.py -v
-       I test che richiedono dada2 si saltano.
+       Risultato atteso: 17 test (4 passed in Python puro, 13 skipped per
+       assenza di dada2/ShortRead in R locale e dei dati reali in ~0.60s).
 
-    2. Container (versione ridotta con Bioconductor):
-       docker run --rm -e PYTHONPATH=/app/src -e AMPLICON16S_R_DIR=/app/R \
-         -v "$(pwd)":/app -w /app amplicon16s:dev \
+    2. Modalita container Docker standard (subset ridotto con Bioconductor):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
+         -v "$(pwd)":/app \
+         -w /app \
+         amplicon16s:dev \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w14_s04_s07_denoising.py -v
+       Risultato atteso: 16 passed, 1 skipped in ~120s (resta saltato solo il
+       test sui 960 campioni reali OSD-734).
 
-    3. Container con i dati reali: come il precedente, con
-       ``-e AMPLICON16S_CONFIG_DATI_REALI=...`` e i dati montati.
+    3. Modalita container Docker completa (con dati reali OSD-734):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
+         -e AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml \
+         -v "$(pwd)":/app \
+         -v /home/nemo/ASI:/home/nemo/ASI \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w14_s04_s07_denoising.py -v
+       Risultato atteso: 17 passed (100% verde).
 
-5. Razionale scientifico e sistemistico
+5. Risultato atteso
+-------------------
+17 test totali (16 funzioni di test, di cui 1 parametrizzata su 2 casi):
+- 4 passed, 13 skipped in ambiente locale privo di Bioconductor (~0.60s);
+- 16 passed, 1 skipped nel container CI sul sottoinsieme ridotto (~120s);
+- 17 passed nel container Docker con il dataset completo OSD-734.
+
+6. Razionale scientifico e sistemistico
 ---------------------------------------
-- ``dada(pool = "pseudo")`` in una chiamata tiene in memoria tutti i campioni;
-  le due passate a lotti ne riproducono il risultato esatto con memoria che
-  dipende dal lotto. Se il lotto cambiasse il risultato, il retry di E-S4-02
-  che lo riduce cambierebbe un'assunzione metodologica: per questo
-  l'invarianza e' verificata byte per byte.
+- ``dada(pool = "pseudo")`` in una sola chiamata trattiene in memoria gli
+  oggetti di tutti i campioni; l'esecuzione in due passate esplicite a lotti di
+  ``run.batch_size`` riproduce il medesimo risultato biologico e gli stessi byte
+  vincolando il picco di memoria alla dimensione del singolo lotto. Poiche' il
+  lotto non altera il risultato, l'azione correttiva di ``E-S4-02`` che dimezza
+  ``run.batch_size`` preserva integralmente le assunzioni metodologiche.
+- In S6 la frazione chimerica si valuta sulle letture (e non sul conteggio
+  grezzo delle varianti, dove le chimere rare peserebbero quanto le ASV
+  dominanti) ed esclude i controlli negativi a bassa biomassa.
 """
 
 from __future__ import annotations

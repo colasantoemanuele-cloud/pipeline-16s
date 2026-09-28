@@ -10,7 +10,7 @@ Inquadramento nel Piano Operativo
   - ``R/lib/io_json.R``
   - ``R/lib/errors.R``
 * **Comando Bash**: ``pytest tests/test_w08_rbridge.py -v``
-* **Risultato atteso**: ``59 passed in ~10.50s``
+* **Risultato atteso**: ``62 passed in ~10.50s``
 
 Scopo sperimentale e razionale scientifico/sistemistico
 -------------------------------------------------------

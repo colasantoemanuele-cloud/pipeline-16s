@@ -32,7 +32,7 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
 4. Comandi Bash e scenari di esecuzione:
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w13_s03_batch.py -v
-       Risultato atteso: 19 test (11 passed in Python, 8 skipped per assenza
+       Risultato atteso: 20 test (12 passed in Python, 8 skipped per assenza
        di dada2/ggplot2/ShortRead in R locale e dei dati reali).
 
     2. Modalita container Docker standard (subset ridotto con Bioconductor):
@@ -42,7 +42,7 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
          -w /app \
          amplicon16s:dev \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w13_s03_batch.py -v
-       Risultato atteso: 18 passed, 1 skipped in ~90s (resta saltato solo il
+       Risultato atteso: 19 passed, 1 skipped in ~90s (resta saltato solo il
        test sui 960 file FASTQ reali).
 
     3. Modalita container Docker completa (100% verde con dati reali OSD-734):
@@ -54,7 +54,7 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
          -w /app \
          amplicon16s:dev \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w13_s03_batch.py -v
-       Risultato atteso: 19 passed in ~15 minuti.
+       Risultato atteso: 20 passed in ~15 minuti.
 
     Accorgimenti operativi per il container Docker:
     - Impostare '-e PYTHONPATH=/app/src' per caricare i moduli aggiornati da /app/src.
@@ -63,9 +63,9 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
 
 5. Risultato atteso
 -------------------
-19 test totali (11 passed, 8 skipped in ~0.80s in ambiente locale privo di
-Bioconductor e dei dati reali; 18 passed, 1 skipped nel container CI;
-19 passed nel container con ``AMPLICON16S_CONFIG_DATI_REALI``).
+20 test totali (12 passed, 8 skipped in ~0.80s in ambiente locale privo di
+Bioconductor e dei dati reali; 19 passed, 1 skipped nel container CI;
+20 passed nel container con ``AMPLICON16S_CONFIG_DATI_REALI``).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------

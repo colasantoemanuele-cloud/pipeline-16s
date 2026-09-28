@@ -144,7 +144,7 @@ Codici di uscita, per chi lancia la pipeline da uno script o da uno scheduler:
 | 2 | riga di comando non valida (argomenti mancanti o sconosciuti) |
 | 3 | errore di configurazione: il file non è valido, G15 lo respinge, oppure `run` trova la cartella di output già usata; nessuna fase è partita |
 | 4 | arresto con punto di ripresa dichiarato, stampato e scritto in `99_logs/punto_di_ripresa.json` e `.txt` |
-| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S3 |
+| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S7 |
 
 ## Stato dell'implementazione
 
