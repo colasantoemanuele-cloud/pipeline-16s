@@ -121,7 +121,7 @@ def test_la_vista_lascia_leggere_solo_i_parametri_dichiarati(tmp_path):
     per intero, una chiave dichiarata da sola e i parametri senza effetto sui
     risultati, e rifiuti tutto il resto.
 
-    **Razionale Scientifico/Sistemistico**: Una fase che legge un parametro non
+    **Razionale scientifico e sistemistico**: Una fase che legge un parametro non
     dichiarato non verrebbe invalidata quando quel parametro cambia: la vista
     lo trasforma in un errore al primo accesso.
     """
@@ -146,7 +146,7 @@ def test_un_accesso_rifiutato_non_si_puo_inghiottire_in_silenzio(tmp_path):
     ``AttributeError``, cosi' che ``getattr`` con un valore predefinito non lo
     trasformi in un valore qualunque.
 
-    **Razionale Scientifico/Sistemistico**: Un errore inghiottito renderebbe di
+    **Razionale scientifico e sistemistico**: Un errore inghiottito renderebbe di
     nuovo silenziosa la dipendenza dimenticata.
     """
     vista = VistaConfig(config_ridotta(tmp_path), ("filter",))
@@ -160,7 +160,7 @@ def test_anche_i_derivati_passano_per_la_vista(tmp_path):
     **Obiettivo**: Verificare che un parametro derivato si legga solo se il suo
     gruppo, o la sua chiave, e' dichiarato.
 
-    **Razionale Scientifico/Sistemistico**: ``asv.len_min`` discende da filter
+    **Razionale scientifico e sistemistico**: ``asv.len_min`` discende da filter
     e asv: leggerlo senza dichiararli sarebbe la stessa dipendenza nascosta.
     """
     risolta = risolvi(config_ridotta(tmp_path))
@@ -193,7 +193,7 @@ def test_una_fase_che_legge_un_parametro_non_dichiarato_fallisce(tmp_path):
     **Obiettivo**: Verificare che una fase che legge un parametro non
     dichiarato fallisca con ``ParametroNonDichiarato`` e non si concluda.
 
-    **Razionale Scientifico/Sistemistico**: Senza il vincolo, la fase
+    **Razionale scientifico e sistemistico**: Senza il vincolo, la fase
     produrrebbe un risultato che una modifica di ``err.nbases`` non
     invaliderebbe: un risultato obsoleto senza alcun errore.
     """
@@ -232,7 +232,7 @@ def test_una_fase_senza_dichiarazione_valida_non_si_registra(tmp_path, parametri
     inesistente, o con un parametro escluso dall'impronta, sia respinta alla
     registrazione.
 
-    **Razionale Scientifico/Sistemistico**: Il meccanismo e' obbligatorio per
+    **Razionale scientifico e sistemistico**: Il meccanismo e' obbligatorio per
     ogni fase futura: una fase non puo' entrare nel grafo senza dire da che
     cosa dipende.
     """
@@ -246,7 +246,7 @@ def test_ogni_fase_realizzata_dichiara_i_propri_parametri(tmp_path):
     **Obiettivo**: Verificare che le fasi realizzate, da S0 a S7, dichiarino
     i propri parametri e che la registrazione le accetti.
 
-    **Razionale Scientifico/Sistemistico**: E' la condizione perche' la loro
+    **Razionale scientifico e sistemistico**: E' la condizione perche' la loro
     validita' si giudichi sui parametri da cui dipendono davvero.
     """
     passi = passi_realizzati()
@@ -272,7 +272,7 @@ def test_un_parametro_err_non_cambia_l_impronta_di_s0_s1_s2(tmp_path, variazione
     **Obiettivo**: Verificare che cambiare un parametro err lasci invariata
     l'impronta di configurazione di S0, S1 e S2, e cambi quella di S3.
 
-    **Razionale Scientifico/Sistemistico**: S0-S2 non leggono i parametri del
+    **Razionale scientifico e sistemistico**: S0-S2 non leggono i parametri del
     modello d'errore; rifarle a ogni variazione costerebbe un quarto d'ora sul
     dataset completo senza cambiare nulla.
     """
@@ -291,7 +291,7 @@ def test_err_batch_column_invalida_anche_s0(tmp_path):
     **Obiettivo**: Verificare che ``err.batch_column``, a differenza degli altri
     parametri err, cambi anche l'impronta di S0.
 
-    **Razionale Scientifico/Sistemistico**: S0 la legge davvero: il crosswalk
+    **Razionale scientifico e sistemistico**: S0 la legge davvero: il crosswalk
     ne ricava la corsa di ogni campione e G08 ne verifica la colonna.
     """
     prima = risolvi(config_ridotta(tmp_path))
@@ -310,7 +310,7 @@ def test_uno_script_r_che_legge_un_parametro_non_ricevuto_fallisce(tmp_path):
     **Obiettivo**: Verificare che uno script R che legge un parametro non
     ricevuto fallisca, invece di ottenere ``NULL`` e proseguire.
 
-    **Razionale Scientifico/Sistemistico**: In R ``NULL`` significa spesso
+    **Razionale scientifico e sistemistico**: In R ``NULL`` significa spesso
     "usa il valore predefinito della libreria": una dipendenza dimenticata
     funzionerebbe in silenzio.
     """
@@ -338,7 +338,7 @@ def test_run_batch_size_non_invalida_nessuna_fase(tmp_path):
     effetto, che nessuna fase lo dichiari, e che cambiarlo lasci invariata
     l'impronta di tutte le fasi realizzate.
 
-    **Razionale Scientifico/Sistemistico**: Il lotto decide quanta memoria
+    **Razionale scientifico e sistemistico**: Il lotto decide quanta memoria
     chiede una fase, non che cosa calcola: S2 filtra ogni file da solo, e S4
     da' gli stessi byte con lotti diversi (verificato nel container). Il retry
     di E-S4-02 che lo dimezza non deve rendere da rifare cio' che e' concluso.
@@ -381,7 +381,7 @@ def test_i_parametri_invalidano_solo_le_fasi_che_li_usano(tmp_path, sezione, var
     entra nella sua impronta; uno che legge un gate di S0 (``qc.min_motif_frac``
     per G10) si'.
 
-    **Razionale Scientifico/Sistemistico**: Una soglia sulle chimere non deve
+    **Razionale scientifico e sistemistico**: Una soglia sulle chimere non deve
     far rifare S0 e con lei la catena intera, S4 compresa (25 minuti sul
     dataset completo). G15 si ripete a ogni avvio: non serve che i suoi
     parametri rendano S0 da rifare. Le fasi a valle di quella cambiata si
@@ -399,7 +399,7 @@ def test_filter_max_ee_invalida_s2_ma_non_s0_ne_s1(tmp_path):
     **Obiettivo**: Verificare che cambiare ``filter.maxEE`` cambi l'impronta di
     S2 e non quelle di S0 e S1.
 
-    **Razionale Scientifico/Sistemistico**: Di filter S0 legge solo truncLen
+    **Razionale scientifico e sistemistico**: Di filter S0 legge solo truncLen
     (G09), S1 solo truncLen e la sua tolleranza: la soglia degli errori
     attesi riguarda il filtro e basta.
     """

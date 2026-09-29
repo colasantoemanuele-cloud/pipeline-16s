@@ -104,6 +104,7 @@ def dada2():
 
 
 def _impronte(cartella: Path) -> dict[str, str]:
+    """Calcola il dizionario MD5 degli artefatti nella cartella, escludendo i file temporanei rbridge_ e i manifesti."""
     return {
         p.name: hashlib.md5(p.read_bytes()).hexdigest()
         for p in sorted(cartella.iterdir())
@@ -127,7 +128,7 @@ def test_una_configurazione_incoerente_e_respinta_da_s0_da_sola(tmp_path):
     ammette al retry un codice di revisione umana, anche se S0 non dichiara
     ``retry.whitelist`` fra i propri parametri.
 
-    **Razionale Scientifico/Sistemistico**: G15 si esegue sulla configurazione
+    **Razionale scientifico e sistemistico**: G15 si esegue sulla configurazione
     completa, prima che la fase la veda ristretta: restringere l'impronta di
     S0 non deve togliere il controllo di coerenza.
     """
@@ -145,7 +146,7 @@ def test_cambiare_qc_warn_frac_chimeric_rifa_solo_s6_e_s7(dada2, catena_calcolat
     ``qc.warn_frac_chimeric`` lasci concluse S0-S5 e rifaccia soltanto S6 e
     la fase che ne dipende, S7.
 
-    **Razionale Scientifico/Sistemistico**: S0 leggeva l'intero gruppo qc per
+    **Razionale scientifico e sistemistico**: S0 leggeva l'intero gruppo qc per
     G15, e una soglia di S6 rifaceva la catena intera, S4 compresa (25 minuti
     sul dataset completo). G15 si ripete a ogni avvio: i parametri che legge
     solo lui non determinano i risultati di S0.
@@ -166,7 +167,7 @@ def test_una_configurazione_incoerente_e_respinta_all_avvio(dada2, catena_calcol
     che G15 respinge fermi l'esecutore all'avvio, prima di qualunque fase, e
     che S0 resti conclusa: la whitelist non e' nella sua impronta.
 
-    **Razionale Scientifico/Sistemistico**: Togliere i parametri di G15
+    **Razionale scientifico e sistemistico**: Togliere i parametri di G15
     dall'impronta di S0 e' sicuro solo perche' G15 si ripete a ogni avvio.
     """
     run = copia_esecuzione(
@@ -187,6 +188,7 @@ def test_una_configurazione_incoerente_e_respinta_all_avvio(dada2, catena_calcol
 
 
 def _altera(percorso: Path) -> None:
+    """Manomette deterministicamente un file aggiungendo un singolo byte newline per collaudare il ricalcolo selettivo."""
     percorso.write_bytes(percorso.read_bytes() + b"\n")
 
 
@@ -219,7 +221,7 @@ def test_la_ripresa_rifa_la_fase_e_solo_quelle_che_ne_dipendono(
     riesegua esattamente quella fase e le fasi che ne dipendono, nell'ordine
     del grafo, e che gli artefatti rifatti siano identici agli originali.
 
-    **Razionale Scientifico/Sistemistico**: Una ripresa che rifacesse meno
+    **Razionale scientifico e sistemistico**: Una ripresa che rifacesse meno
     consegnerebbe risultati calcolati su un artefatto che non c'e' piu'; una
     che rifacesse di piu' costerebbe ore sul dataset completo. S1 non ha fasi
     realizzate a valle; S2 alimenta S3, S4 e S7; S7 non alimenta nulla.
@@ -257,7 +259,7 @@ def test_s6_oltre_l_avviso_registra_la_degradazione_e_prosegue(dada2, catena_cal
     frazione chimerica della versione ridotta (0,0008), si concluda
     registrando E-S6-02 nel proprio manifesto, e che S7 prosegua.
 
-    **Razionale Scientifico/Sistemistico**: E-S6-02 e' una degradazione
+    **Razionale scientifico e sistemistico**: E-S6-02 e' una degradazione
     automatica: non ferma nulla, ma deve restare agli atti della fase.
     """
     run = copia_esecuzione(
@@ -278,7 +280,7 @@ def test_s6_oltre_l_arresto_si_ferma_per_la_revisione(dada2, catena_calcolata, t
     frazione chimerica della versione ridotta, si fermi con E-S6-01 senza
     tentativi, lasciando le misure in ``chimere.json`` e nessun manifesto.
 
-    **Razionale Scientifico/Sistemistico**: E-S6-01 e' di revisione umana: un
+    **Razionale scientifico e sistemistico**: E-S6-01 e' di revisione umana: un
     eccesso di chimere si capisce, non si ritenta.
     """
     run = copia_esecuzione(
@@ -305,7 +307,7 @@ def test_g15_sorveglia_la_regola_di_derivazione(tmp_path):
     umana, una configurazione risolta in cui ``filter.minLen`` supera
     ``filter.truncLen``.
 
-    **Razionale Scientifico/Sistemistico**: ``filter.minLen`` discende da
+    **Razionale scientifico e sistemistico**: ``filter.minLen`` discende da
     ``filter.truncLen``, quindi nessuna configurazione puo' violare la
     disuguaglianza: il controllo sorveglia la regola di derivazione. Si
     provoca costruendo a mano i derivati incoerenti, come li produrrebbe una
@@ -330,7 +332,7 @@ def test_un_problema_di_schema_non_attribuito_e_e_g15_99(tmp_path):
     respinge senza che un controllo specifico la reclami, fermi G15 con
     E-G15-99, di revisione umana.
 
-    **Razionale Scientifico/Sistemistico**: Le chiavi sconosciute sono
+    **Razionale scientifico e sistemistico**: Le chiavi sconosciute sono
     respinte perche' un errore di battitura non diventi un parametro ignorato
     in silenzio; il codice generico garantisce che nessun rifiuto resti senza
     codice.
@@ -354,7 +356,7 @@ def test_s2_ferma_su_un_biologico_azzerato_e_non_su_un_negativo(tmp_path):
     revisione umana, per un campione biologico azzerato dal filtro, e non per
     un controllo negativo azzerato.
 
-    **Razionale Scientifico/Sistemistico**: Il test sulla fase vera con un
+    **Razionale scientifico e sistemistico**: Il test sulla fase vera con un
     filtro troppo severo accetta E-S2-01 o E-S2-02, perche' scattano insieme:
     questo li separa. Un bianco azzerato e' un bianco pulito.
     """
@@ -455,7 +457,7 @@ def test_ogni_codice_sollevabile_ha_un_test_che_lo_provoca():
     realizzato, ricavato dal sorgente Python e R, coincida con quello della
     tabella :data:`COPERTURA`, e che ogni test indicato esista.
 
-    **Razionale Scientifico/Sistemistico**: Un codice nuovo in una fase
+    **Razionale scientifico e sistemistico**: Un codice nuovo in una fase
     realizzata fa fallire questo test finche' non gli si associa un test che
     lo provochi; un codice che il codice non solleva piu' esce dalla tabella.
     La categoria di gestione e' verificata dai test indicati.

@@ -1,13 +1,13 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W14 (Fasi F1, F2, F3, F4)
+Piano Operativo: Settimane W1 - W15 (Fasi F1, F2, F3, F4)
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W14 del Piano Operativo.
+W1 - W15 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -30,10 +30,10 @@ integrazione del progetto con output dettagliato (un test per riga), lanciare:
 
     pytest tests/ -v
 
-Totale complessivo della suite: 795 test su 17 moduli (737 passed e 58 skipped
+Totale complessivo della suite: 816 test su 18 moduli (747 passed e 69 skipped
 in ambiente locale con R base + jsonlite ma senza Bioconductor e dati reali in
-circa 35 secondi; 769 passed e 26 skipped nel container CI con Bioconductor;
-759 passed e 36 skipped in locale con i dati reali OSD-734; 795 passed
+circa 35 secondi; 790 passed e 26 skipped nel container CI con Bioconductor;
+769 passed e 47 skipped in locale con i dati reali OSD-734; 816 passed
 eseguendo l'intera suite nel container con i 2.4 GB di dati reali OSD-734).
 
 Per includere anche i test end-to-end sui 960 file FASTQ reali di OSD-734,
@@ -52,16 +52,17 @@ funzione di test uno dei seguenti tre stati:
 
   * SKIPPED (in giallo):
     Il test è stato saltato intenzionalmente e in modo controllato. Nella suite
-    questo accade per 'tests/test_w07_dati_reali.py' (22 test) e per i test su
-    dati reali di 'tests/test_w11_s01_profile.py' (1 test),
+    questo accade per i 26 test su dati reali di 'tests/test_w07_dati_reali.py'
+    (22 test), 'tests/test_w11_s01_profile.py' (1 test),
     'tests/test_w12_s02_filter.py' (1 test), 'tests/test_w13_s03_batch.py'
     (1 test) e 'tests/test_w14_s04_s07_denoising.py' (1 test) quando la
     variabile 'AMPLICON16S_CONFIG_DATI_REALI' non è definita (ad esempio su
     macchine portatili o nei runner di Continuous Integration privi dei 2.4 GB
-    di sequenze FASTQ della NASA) e per i 32 test R/Bioconductor di
+    di sequenze FASTQ della NASA) e per i 43 test R/Bioconductor di
     'tests/test_w11_s01_profile.py' (7 test), 'tests/test_w12_s02_filter.py'
-    (6 test), 'tests/test_w13_s03_batch.py' (7 test) e
-    'tests/test_w14_s04_s07_denoising.py' (12 test) quando si esegue fuori dal
+    (6 test), 'tests/test_w13_s03_batch.py' (7 test),
+    'tests/test_w14_s04_s07_denoising.py' (12 test) e
+    'tests/test_w15_consolidamento.py' (11 test) quando si esegue fuori dal
     container senza i pacchetti 'ShortRead', 'dada2' e 'ggplot2'. Non indica un
     difetto del codice.
 
@@ -76,7 +77,9 @@ Il file 'tests/conftest.py' non contiene funzioni 'def test_*' e pertanto non
 si lancia autonomamente da riga di comando. Esso costituisce tuttavia il modulo
 fondamentale di infrastruttura dell'intera suite: Pytest lo carica
 automaticamente prima di ogni sessione per mettere a disposizione le fixture
-condivise ('dati_esempio', 'config_esempio') e il generatore di dataset
+condivise ('dati_esempio', 'config_esempio', 'ridotta_calcolata' per S0-S3,
+'catena_calcolata' per S0-S7), l'helper di clonazione selettiva dell'albero di
+output ('copia_esecuzione' per i collaudi di ripresa) e il generatore di dataset
 sintetici ('crea_scenario_s0').
 
 Scelta architetturale e metodologica: invece di utilizzare "mock" in memoria
@@ -143,7 +146,7 @@ predisporre i seguenti 5 blocchi funzionali di file:
 
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W14)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W15)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -594,7 +597,9 @@ SETTIMANE 8 E 9 (W8-W9) : GRAFO DAG, PROPAGAZIONE INVALIDITA' E RIPRESA
     grafo a 15 fasi distribuite su 14 cartelle di output, l'obbligatorietà
     metodologica di tutte le fasi tranne la filogenesi S9 (governata da
     'phylo.enabled'), il vincolo di precedenza 'S12 -> S13' presidiato dal
-    codice specifico 'E-S13-01', l'isolamento dei manifesti nelle 3 cartelle
+    codice specifico 'E-S13-01', l'emissione di 'E-GRAFO-01' quando anche una
+    sola o tutte le dipendenze dirette di una fase non risultano completate,
+    l'isolamento dei manifesti nelle 3 cartelle
     condivise da due fasi ('07_chimera' per S7/S8, '11_controls' per S11/S12,
     '12_final' per S13/S14), l'invalidazione selettiva a cascata lungo gli
     archi del DAG quando un artefatto o un parametro a monte cambia, e
@@ -606,7 +611,7 @@ SETTIMANE 8 E 9 (W8-W9) : GRAFO DAG, PROPAGAZIONE INVALIDITA' E RIPRESA
     pytest tests/test_w08_w09_graph_resume.py -v
 
   * RISULTATO ATTESO:
-    52 passed in ~1.10s
+    53 passed in ~1.10s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché S12 (decontam) deve precedere obbligatoriamente S13 (filtro di
@@ -911,10 +916,41 @@ SETTIMANA 14 (W14) : FASI S4 - S7 (INFERENZA ASV, SEQTAB, CHIMERE E LUNGHEZZA)
 
 
 --------------------------------------------------------------------------------
+SETTIMANA 15 (W15) : CONSOLIDAMENTO DELLE FASI S0 - S7 (COPERTURA CODICI, DIPENDENZE S0 E RIPRESA)
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W15, Fase F4 (Consolidamento della catena S0-S7).
+
+  * FILE DI TEST:
+    tests/test_w15_consolidamento.py
+
+  * COSA VALUTA:
+    Copertura sistematica dei codici di errore del catalogo sollevabili dalle
+    fasi realizzate S0-S7 (provocazione diretta e verifica della categoria di
+    gestione); disaccoppiamento dei parametri G15 dall'impronta di S0; collaudo
+    della ripresa selettiva e deterministica per ciascuna fase da S1 a S7
+    tramite manomissione o rimozione di artefatti; invarianza byte per byte
+    della riesecuzione.
+
+  * COMANDO BASH:
+    pytest tests/test_w15_consolidamento.py -v
+
+  * RISULTATO ATTESO:
+    16 test (5 passed, 11 skipped in ambiente locale senza Bioconductor in
+    ~0.50s; 16 passed nel container CI e con dati reali).
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    Garantisce che ogni codice di errore catalogato corrisponda a un
+    comportamento controllato e che la modifica di parametri a valle non
+    invalidi le fasi a monte, prevenendo sprechi computazionali sul dataset
+    completo.
+
+
+--------------------------------------------------------------------------------
 MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
 --------------------------------------------------------------------------------
   * SETTIMANA E FASE:
-    Modulo trasversale e infrastrutturale del DAG (Settimane W8 - W14, Fasi F3
+    Modulo trasversale e infrastrutturale del DAG (Settimane W8 - W15, Fasi F3
     e F4: 'src/amplicon16s/config/vista.py', 'src/amplicon16s/config/resolve.py',
     'src/amplicon16s/steps/base.py' e 'R/lib/errors.R'). Come 'conftest.py' e
     'sottoinsieme.py', non porta il prefisso di una singola settimana perché
@@ -937,15 +973,18 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
     errore immediato se uno script legge tramite '$' o '[[' un parametro non
     passato dalla fase Python; e che cambiare parametri di fasi a valle
     ('filter.maxEE', 'err.nbases', 'dada.omega_a', 'qc.max_asv_count',
-    'chimera.*', 'asv.len_tol') o parametri operativi ('run.batch_size') non
-    invalidi i manifesti delle fasi a monte già concluse.
+    'chimera.*', 'qc.warn_frac_chimeric', 'qc.stop_frac_chimeric', 'asv.len_tol',
+    'decontam.threshold', 'retry.whitelist') o parametri operativi
+    ('run.batch_size') non invalidi l'impronta di S0 né i manifesti delle fasi
+    a monte già concluse, mentre un parametro effettivamente letto da un gate
+    di S0 ('qc.min_motif_frac' per G10) invalidi correttamente S0.
 
   * COMANDO BASH:
     pytest tests/test_dipendenze_parametri.py -v
 
   * RISULTATO ATTESO:
-    20 test (19 passed, 1 skipped in ~0.30s in ambiente privo di R/jsonlite;
-    20 passed con R + jsonlite o nel container Docker)
+    24 test (23 passed, 1 skipped in ~0.30s in ambiente privo di R/jsonlite;
+    24 passed con R + jsonlite o nel container Docker)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché la dichiarazione dei parametri è vincolante a runtime ('VistaConfig'
@@ -959,8 +998,10 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
        'AttributeError' e restituirebbe silenziosamente il valore predefinito,
        aggirando la protezione della vista ristretta.
     3. Impatto sulle prestazioni del DAG e della CI: isolando le impronte di S0
-       .. S7 ai soli parametri effettivamente letti ed escludendo 'run.batch_size',
-       una modifica a 'chimera.*' o a 'err.nbases' non costringe a ricalcolare
+       .. S7 ai soli parametri effettivamente letti (escludendo dall'impronta
+       di S0 le soglie a valle verificate solo da G15 a ogni avvio ed
+       escludendo 'run.batch_size'), una modifica a 'chimera.*',
+       'qc.warn_frac_chimeric' o 'err.nbases' non costringe a ricalcolare S0 né
        l'inferenza DADA2 (26 minuti su OSD-734) o i profili di qualità di S1.
 
 
@@ -980,13 +1021,14 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W7        | tests/test_w07_gates.py               |   44 | pytest tests/test_w07_gates.py -v
   W7 (Real) | tests/test_w07_dati_reali.py          |   22 | pytest tests/test_w07_dati_reali.py -v
   W8        | tests/test_w08_rbridge.py             |   62 | pytest tests/test_w08_rbridge.py -v
-  W8 - W9   | tests/test_w08_w09_graph_resume.py    |   52 | pytest tests/test_w08_w09_graph_resume.py -v
+  W8 - W9   | tests/test_w08_w09_graph_resume.py    |   53 | pytest tests/test_w08_w09_graph_resume.py -v
   W9 - W10  | tests/test_w09_w10_retry_policy.py    |   49 | pytest tests/test_w09_w10_retry_policy.py -v
   W11       | tests/test_w11_s01_profile.py         |   15 | pytest tests/test_w11_s01_profile.py -v
   W12       | tests/test_w12_s02_filter.py          |   25 | pytest tests/test_w12_s02_filter.py -v
   W13       | tests/test_w13_s03_batch.py           |   20 | pytest tests/test_w13_s03_batch.py -v
   W14       | tests/test_w14_s04_s07_denoising.py   |   17 | pytest tests/test_w14_s04_s07_denoising.py -v
-  DAG (S0+) | tests/test_dipendenze_parametri.py    |   20 | pytest tests/test_dipendenze_parametri.py -v
+  W15       | tests/test_w15_consolidamento.py      |   16 | pytest tests/test_w15_consolidamento.py -v
+  DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (17 moduli)              |  795 | pytest tests/ -v
+  TOTALE    | Intera suite (18 moduli)              |  816 | pytest tests/ -v
 ================================================================================
