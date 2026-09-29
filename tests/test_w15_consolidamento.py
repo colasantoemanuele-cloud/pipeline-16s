@@ -434,6 +434,7 @@ COPERTURA: dict[str, str] = {
     "E-S5-01": "test_w14_s04_s07_denoising.py::test_oltre_qc_max_asv_count_s5_si_ferma_prima_della_tabella",
     "E-S6-01": "test_w15_consolidamento.py::test_s6_oltre_l_arresto_si_ferma_per_la_revisione",
     "E-S6-02": "test_w15_consolidamento.py::test_s6_oltre_l_avviso_registra_la_degradazione_e_prosegue",
+    "E-S7-01": "test_w16_recupero.py::test_s7_senza_varianti_si_ferma_con_e_s7_01",
 }
 
 _RADICE = Path(__file__).resolve().parents[1]

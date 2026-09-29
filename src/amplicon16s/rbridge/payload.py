@@ -23,10 +23,16 @@ passa per l'esistenza della dichiarazione:
 Una dichiarazione assente, illeggibile o di un'altra invocazione equivale
 quindi a un processo che non ha dichiarato nulla.
 
+I due file portano nel nome la fase che li scrive (``rbridge_richiesta_S6.json``,
+``rbridge_esito_S6.json``): più fasi possono condividere una cartella, come S6
+e S7 in ``07_chimera/``, e con un nome unico l'ultima cancellerebbe la traccia
+di come è andata la precedente. Due tentativi della stessa fase usano invece
+lo stesso nome, ed è l'identificativo di invocazione a distinguerli.
+
 Forma della richiesta::
 
     {"protocollo": 1, "invocazione": "…", "cartella_fase": "…",
-     "esito": "…/rbridge_esito.json", "parametri": {…}}
+     "esito": "…/rbridge_esito_S6.json", "parametri": {…}}
 
 Forma della dichiarazione::
 
@@ -51,9 +57,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Final
 
 __all__ = [
-    "NOME_ESITO",
-    "NOME_RICHIESTA",
     "PROTOCOLLO",
+    "nomi_del_contratto",
     "Dichiarazione",
     "DichiarazioneNonValida",
     "Stato",
@@ -65,9 +70,15 @@ __all__ = [
 #: forma dei due file, e ``R/lib/errors.R`` la verifica.
 PROTOCOLLO: Final = 1
 
-#: Nomi dei due file del contratto nella cartella di fase.
-NOME_RICHIESTA: Final = "rbridge_richiesta.json"
-NOME_ESITO: Final = "rbridge_esito.json"
+#: Prefisso comune dei file del contratto: non sono artefatti.
+PREFISSO: Final = "rbridge_"
+
+
+def nomi_del_contratto(passo: str) -> tuple[str, str]:
+    """I nomi della richiesta e della dichiarazione d'esito della fase indicata."""
+    if not passo or "/" in passo:
+        raise ValueError(f"fase non valida per i file del contratto: {passo!r}")
+    return f"{PREFISSO}richiesta_{passo}.json", f"{PREFISSO}esito_{passo}.json"
 
 
 class Stato(StrEnum):
@@ -134,13 +145,16 @@ def scrivi_richiesta(
     cartella_fase: Path,
     invocazione: str,
     parametri: Mapping[str, Any],
+    passo: str,
 ) -> tuple[Path, Path]:
     """Scrive la richiesta e rimuove la dichiarazione di un'esecuzione precedente.
 
-    Restituisce i percorsi della richiesta e della dichiarazione attesa.
+    Restituisce i percorsi della richiesta e della dichiarazione attesa, con i
+    nomi della fase ``passo``.
     """
-    richiesta = cartella_fase / NOME_RICHIESTA
-    esito = cartella_fase / NOME_ESITO
+    nome_richiesta, nome_esito = nomi_del_contratto(passo)
+    richiesta = cartella_fase / nome_richiesta
+    esito = cartella_fase / nome_esito
     esito.unlink(missing_ok=True)
 
     _scrivi_atomico(
@@ -220,10 +234,16 @@ def leggi_dichiarazione(percorso: Path, invocazione: str) -> Dichiarazione | Non
     artefatti = documento.get("artefatti", [])
     if not isinstance(artefatti, list):
         raise DichiarazioneNonValida("gli artefatti non sono un elenco")
+    nomi = tuple(_nome_relativo(n) for n in artefatti)
+    # Un nome ripetuto finirebbe due volte nel manifesto della fase: e' un
+    # difetto dello script, che deve dichiarare ogni artefatto una volta sola.
+    ripetuti = sorted({n for n in nomi if nomi.count(n) > 1})
+    if ripetuti:
+        raise DichiarazioneNonValida(f"artefatti dichiarati piu' volte: {ripetuti}")
 
     return Dichiarazione(
         stato=stato,
         codice=codice,
         messaggio=messaggio,
-        artefatti=tuple(_nome_relativo(n) for n in artefatti),
+        artefatti=nomi,
     )

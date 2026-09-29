@@ -13,6 +13,11 @@ e ``lunghezze.tsv`` mostra comunque la distribuzione delle lunghezze. Che il
 filtro tolga le varianti fuori intervallo e' verificato con varianti
 sintetiche di lunghezze diverse.
 
+Una tabella senza varianti ferma la fase con ``E-S7-01``: le fasi successive
+fallirebbero su un ingresso vuoto, con un errore che non ne indica la causa.
+Il dettaglio distingue una tabella di S6 gia' vuota da varianti tutte fuori
+intervallo, e ``lunghezze.tsv`` resta nella cartella per la diagnosi.
+
 Con S7 il tracciamento delle letture e' completo, un passo per fase da S1:
 grezze, prefiltro e filtrate (S2), denoised (S4), tabella (S5), senza
 chimere (S6), lunghezza (S7). Ogni fase scrive il proprio file, e la tabella
@@ -23,6 +28,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Final
 
+from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
@@ -65,6 +71,7 @@ class FiltroLunghezza(PipelineStep):
             },
             contesto.albero,
             self.cartella,
+            passo=self.passo,
             logger=contesto.logger,
         )
         righe = (
@@ -79,4 +86,13 @@ class FiltroLunghezza(PipelineStep):
             "varianti_escluse": sum(int(v) for _, v, _, a in per_lunghezza if a == "no"),
             "letture_escluse": sum(int(float(n)) for _, _, n, a in per_lunghezza if a == "no"),
         }
+        if metriche["varianti_ammesse"] == 0:
+            if metriche["varianti_escluse"] == 0:
+                dettaglio = "la tabella senza chimere di S6 non contiene varianti"
+            else:
+                dettaglio = (
+                    f"tutte le {metriche['varianti_escluse']} varianti hanno lunghezza fuori "
+                    f"da {derivati.asv_len_min}-{derivati.asv_len_max} (lunghezze.tsv)"
+                )
+            raise errore("E-S7-01", dettaglio, **metriche)
         return Produzione(esito.artefatti, metriche)

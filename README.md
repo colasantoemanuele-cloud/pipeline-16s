@@ -204,8 +204,10 @@ Sono realizzati:
   ferma al primo gate fallito, e i gate non eseguiti sono riportati come tali;
 - l'esito di S0 in `01_input_validation/`: l'esito di ogni gate, il crosswalk,
   l'inventario e le statistiche delle letture ispezionate, ciascuno registrato nel
-  manifesto con il proprio checksum;
-- il catalogo degli errori (50 codici totali): ogni codice porta un messaggio che dice
+  manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
+  in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
+  lo stesso checksum fra due esecuzioni sugli stessi ingressi;
+- il catalogo degli errori (51 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -223,7 +225,11 @@ Sono realizzati:
   indicato da `AMPLICON16S_RSCRIPT`: un guasto grave di R, anche un errore di
   segmentazione, termina il figlio e non l'orchestratore. Il contratto passa per due
   file JSON nella cartella di fase: la richiesta con i parametri, scritta da Python, e
-  la dichiarazione d'esito, scritta dallo script per ultima e in modo atomico. È la
+  la dichiarazione d'esito, scritta dallo script per ultima e in modo atomico. I due
+  file portano nel nome la fase (`rbridge_richiesta_S6.json`, `rbridge_esito_S6.json`):
+  in una cartella condivisa, come `07_chimera/` per S6 e S7, ciascuna fase conserva la
+  propria traccia. Una dichiarazione che elenca due volte lo stesso artefatto non è
+  valida. È la
   dichiarazione a portare il codice del catalogo, che il codice di uscita di un processo
   non può rappresentare; la sua assenza distingue un processo morto senza dichiarare
   nulla da un fallimento dichiarato. Il ponte traduce l'esito in un'eccezione della
@@ -419,7 +425,10 @@ Sono realizzati:
   scrive la tabella delle varianti accanto a S6. Con letture troncate a lunghezza fissa
   le varianti hanno tutte la stessa lunghezza, e sul dataset di riferimento il filtro
   non toglie nulla: 12.045 varianti di 137 basi. Che tolga le varianti fuori intervallo
-  è verificato con varianti sintetiche;
+  è verificato con varianti sintetiche. Una tabella che resta senza varianti, perché
+  quella di S6 era già vuota o perché tutte cadono fuori intervallo, ferma la fase con
+  E-S7-01, a revisione umana: le fasi successive fallirebbero più avanti con un errore
+  che non ne indica la causa;
 - il tracciamento delle letture (`runner/tracciamento.py`): ogni fase registra i propri
   passi in file suoi, `letture_<passo>.tsv`, e la tabella completa si ricompone
   leggendo quelli delle fasi concluse nell'ordine del grafo, senza che una fase

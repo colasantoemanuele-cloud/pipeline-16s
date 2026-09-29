@@ -333,7 +333,7 @@ def test_uno_script_r_che_legge_un_parametro_non_ricevuto_fallisce(tmp_path):
     with pytest.raises(ErroreRevisioneUmana) as info:
         esegui_script(
             DOPPIONI_R / "parametro_non_ricevuto.R", {"soglia": 2},
-            AlberoOutput(tmp_path / "out"), Fase.FILTERED, tempo_massimo_s=120,
+            AlberoOutput(tmp_path / "out"), Fase.FILTERED, passo="S2", tempo_massimo_s=120,
         )
     assert info.value.codice == "E-R-03"
     assert "soglia_mai_passata" in info.value.dettaglio

@@ -1,13 +1,13 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W15 (Fasi F1, F2, F3, F4)
+Piano Operativo: Settimane W1 - W16 (Fasi F1, F2, F3, F4)
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W15 del Piano Operativo.
+W1 - W16 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -30,14 +30,14 @@ integrazione del progetto con output dettagliato (un test per riga), lanciare:
 
     pytest tests/ -v
 
-Totale complessivo della suite: 816 test su 18 moduli:
-  * 747 passed e 69 skipped in ambiente locale standard (R base + jsonlite, senza
-    Bioconductor e senza dati reali), in circa 35 secondi;
-  * 770 passed e 46 skipped in locale con i dati reali OSD-734;
-  * 787 passed e 29 skipped nel container CI standard (senza dati reali
-    OSD-734): 27 test sui dati reali OSD-734, 1 test sull'allocazione R legata
-    alla lingua e 1 test che richiede il repository .git;
-  * 814 passed e 2 skipped nel container Docker con i 2.4 GB di dati reali
+Totale complessivo della suite: 829 test su 19 moduli:
+  * 758 passed e 71 skipped in ambiente locale standard (R base + jsonlite, senza
+    Bioconductor e senza dati reali), in circa 30 secondi;
+  * 781 passed e 48 skipped in locale con i dati reali OSD-734;
+  * 800 passed e 29 skipped nel container CI standard (senza dati reali
+    OSD-734), in circa 10 minuti: 27 test sui dati reali OSD-734, 1 test
+    sull'allocazione R legata alla lingua e 1 test che richiede il repository .git;
+  * 827 passed e 2 skipped nel container Docker con i 2.4 GB di dati reali
     OSD-734, in circa 89 minuti: i 2 salti strutturali, sulla lingua di R e
     sul repository .git, restano anche in questo scenario.
 
@@ -63,11 +63,12 @@ funzione di test uno dei seguenti tre stati:
     (1 test) e 'tests/test_w14_s04_s07_denoising.py' (1 test) quando la
     variabile 'AMPLICON16S_CONFIG_DATI_REALI' non è definita (ad esempio su
     macchine portatili o nei runner di Continuous Integration privi dei 2.4 GB
-    di sequenze FASTQ della NASA) e per i 42 test R/Bioconductor di
+    di sequenze FASTQ della NASA) e per i 44 test R/Bioconductor di
     'tests/test_w11_s01_profile.py' (6 test), 'tests/test_w12_s02_filter.py'
-    (6 test), 'tests/test_w13_s03_batch.py' (7 test),
-    'tests/test_w14_s04_s07_denoising.py' (12 test) e
-    'tests/test_w15_consolidamento.py' (11 test) quando si esegue fuori dal
+    (6 test), 'tests/test_w13_s03_batch.py' (6 test),
+    'tests/test_w14_s04_s07_denoising.py' (11 test),
+    'tests/test_w15_consolidamento.py' (11 test) e
+    'tests/test_w16_recupero.py' (4 test) quando si esegue fuori dal
     container senza i pacchetti 'ShortRead', 'dada2' e 'ggplot2'. Non indica un
     difetto del codice.
 
@@ -151,7 +152,7 @@ predisporre i seguenti 5 blocchi funzionali di file:
 
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W15)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W16)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -279,7 +280,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
 --------------------------------------------------------------------------------
 
-5.1 Catalogo centralizzato degli errori (50 codici catalogati)
+5.1 Catalogo centralizzato degli errori (51 codici catalogati)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   * SETTIMANA E FASE:
     Settimana W5 (esteso in W11 e W13), Fase F1/F4 (Tassonomia formale degli
@@ -289,7 +290,7 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     tests/test_w05_errors_catalog.py
 
   * COSA VALUTA:
-    Ispeziona sistematicamente tutti i 50 codici del catalogo ('CATALOGO': 35
+    Ispeziona sistematicamente tutti i 51 codici del catalogo ('CATALOGO': 36
     codici di fase S0-S14 inclusi 'E-S1-02' ed 'E-S3-02', 10 codici di
     configurazione G15, 4 codici del ponte verso R 'E-R-01..04' e 1 codice del
     grafo 'E-GRAFO-01'). Verifica che ogni codice appartenga a una delle 4
@@ -299,13 +300,13 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     sottoclasse corretta di 'ErrorePipeline'. Verifica inoltre che la whitelist
     dei codici ripetibili ('AMMESSI_AL_RETRY') sia chiusa ermeticamente ai soli
     4 codici tecnici 'E-S2-03', 'E-S3-01', 'E-S4-02', 'E-S5-01' e che i restanti
-    46 codici non ammettano mai il retry.
+    47 codici non ammettano mai il retry.
 
   * COMANDO BASH:
     pytest tests/test_w05_errors_catalog.py -v
 
   * RISULTATO ATTESO:
-    282 passed in ~0.35s
+    287 passed in ~0.35s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
@@ -575,7 +576,7 @@ SETTIMANA 8 (W8) : PONTE VERSO R ('rbridge') ISOLATO A PROCESSI SEPARATI
     pytest tests/test_w08_rbridge.py -v
 
   * RISULTATO ATTESO:
-    62 passed in ~10.50s
+    63 passed in ~10.50s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Isolamento dai crash di C/C++: DADA2 e DECIPHER compilati possono
@@ -841,9 +842,9 @@ SETTIMANA 13 (W13) : FASE S3 (MODELLO D'ERRORE PER CORSA DI SEQUENZIAMENTO)
     pytest tests/test_w13_s03_batch.py -v
 
   * RISULTATO ATTESO:
-    20 test (12 passed, 8 skipped in ~0.80s in ambiente locale privo di
-    Bioconductor dada2/ggplot2 e dati reali; 19 passed, 1 skipped nel container
-    CI; 20 passed nel container con dati reali OSD-734)
+    19 test (12 passed, 7 skipped in ~0.80s in ambiente locale privo di
+    Bioconductor dada2/ggplot2 e dati reali; 18 passed, 1 skipped nel container
+    CI; 19 passed nel container con dati reali OSD-734)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché stimare un modello d'errore separato per ciascuna corsa MiSeq:
@@ -895,9 +896,9 @@ SETTIMANA 14 (W14) : FASI S4 - S7 (INFERENZA ASV, SEQTAB, CHIMERE E LUNGHEZZA)
     pytest tests/test_w14_s04_s07_denoising.py -v
 
   * RISULTATO ATTESO:
-    17 test (4 passed, 13 skipped in ~0.60s in ambiente locale privo di
-    Bioconductor dada2/ShortRead e dati reali; 16 passed, 1 skipped nel
-    container CI; 17 passed nel container con dati reali OSD-734)
+    16 test (4 passed, 12 skipped in ~0.60s in ambiente locale privo di
+    Bioconductor dada2/ShortRead e dati reali; 15 passed, 1 skipped nel
+    container CI; 16 passed nel container con dati reali OSD-734)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Pseudo-pooling a lotti a memoria controllata e invarianza del risultato:
@@ -951,6 +952,51 @@ SETTIMANA 15 (W15) : CONSOLIDAMENTO DELLE FASI S0 - S7 (COPERTURA CODICI, DIPEND
     comportamento controllato e che la modifica di parametri a valle non
     invalidi le fasi a monte, prevenendo sprechi computazionali sul dataset
     completo.
+
+
+--------------------------------------------------------------------------------
+SETTIMANA 16 (W16) : RECUPERO SU S0 - S7 (ARTEFATTI RIPRODUCIBILI, PONTE PER FASE, TABELLA VUOTA)
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W16, Fase F4 (Recupero sulla catena S0-S7 prima della fase
+    tassonomica).
+
+  * FILE DI TEST:
+    tests/test_w16_recupero.py
+
+  * COSA VALUTA:
+    Che 'gates.json' e le metriche del manifesto di S0 non registrino durate,
+    che le durate dei gate finiscano nel log strutturato e che due esecuzioni
+    di S0 diano gli stessi byte; che una seconda esecuzione da zero di S0-S7
+    sulla versione ridotta dia in tutte le sette cartelle di fase gli stessi
+    byte della prima (sostituisce le riesecuzioni parziali di S3 e di S4-S7
+    delle settimane 13 e 14); che i file del ponte portino il nome della fase
+    ('rbridge_richiesta_S6.json', 'rbridge_esito_S6.json'), così che S6 e S7
+    lascino ciascuna la propria traccia in '07_chimera/' e nessuna coppia di
+    fasi che condivide una cartella condivida un file del ponte o un
+    manifesto; che S7 si fermi con 'E-S7-01', a revisione umana, su una
+    tabella senza varianti, sia già vuota in S6 sia con varianti tutte fuori
+    intervallo.
+
+  * COMANDO BASH:
+    pytest tests/test_w16_recupero.py -v
+
+  * RISULTATO ATTESO:
+    9 test (5 passed, 4 skipped in ~0.10s in ambiente locale privo di
+    Bioconductor; 9 passed nel container CI in ~67s; 9 passed nel container
+    con dati reali OSD-734, perché il modulo non ha test sui dati reali)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. La verifica finale di riproducibilità confronta i checksum degli
+       artefatti da un clone pulito: un artefatto che registra una durata
+       cambia a ogni esecuzione e la renderebbe impossibile. Le durate
+       descrivono l'esecuzione, non il risultato.
+    2. I file del ponte non sono artefatti ma sono l'unica traccia di come è
+       andata l'invocazione di R: in una cartella condivisa l'ultima fase non
+       deve cancellare quella della precedente.
+    3. Una tabella senza varianti farebbe fallire le fasi successive con un
+       errore che non ne indica la causa: fermarsi in S7 con un codice del
+       catalogo indica dove guardare ('lunghezze.tsv').
 
 
 --------------------------------------------------------------------------------
@@ -1020,22 +1066,23 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   ----------+---------------------------------------+------+-------------------------------------------------
   W1 - W2   | tests/test_w01_w02_import.py          |   10 | pytest tests/test_w01_w02_import.py -v
   W3 - W4   | tests/test_w03_w04_config_schema.py   |   88 | pytest tests/test_w03_w04_config_schema.py -v
-  W5        | tests/test_w05_errors_catalog.py      |  282 | pytest tests/test_w05_errors_catalog.py -v
+  W5        | tests/test_w05_errors_catalog.py      |  287 | pytest tests/test_w05_errors_catalog.py -v
   W5        | tests/test_w05_artifacts.py           |   25 | pytest tests/test_w05_artifacts.py -v
   W5        | tests/test_w05_logging.py             |   14 | pytest tests/test_w05_logging.py -v
   W6        | tests/test_w06_crosswalk.py           |   43 | pytest tests/test_w06_crosswalk.py -v
   W6        | tests/test_w06_join_restricted.py     |    7 | pytest tests/test_w06_join_restricted.py -v
   W7        | tests/test_w07_gates.py               |   44 | pytest tests/test_w07_gates.py -v
   W7 (Real) | tests/test_w07_dati_reali.py          |   22 | pytest tests/test_w07_dati_reali.py -v
-  W8        | tests/test_w08_rbridge.py             |   62 | pytest tests/test_w08_rbridge.py -v
+  W8        | tests/test_w08_rbridge.py             |   63 | pytest tests/test_w08_rbridge.py -v
   W8 - W9   | tests/test_w08_w09_graph_resume.py    |   53 | pytest tests/test_w08_w09_graph_resume.py -v
   W9 - W10  | tests/test_w09_w10_retry_policy.py    |   49 | pytest tests/test_w09_w10_retry_policy.py -v
   W11       | tests/test_w11_s01_profile.py         |   15 | pytest tests/test_w11_s01_profile.py -v
   W12       | tests/test_w12_s02_filter.py          |   25 | pytest tests/test_w12_s02_filter.py -v
-  W13       | tests/test_w13_s03_batch.py           |   20 | pytest tests/test_w13_s03_batch.py -v
-  W14       | tests/test_w14_s04_s07_denoising.py   |   17 | pytest tests/test_w14_s04_s07_denoising.py -v
+  W13       | tests/test_w13_s03_batch.py           |   19 | pytest tests/test_w13_s03_batch.py -v
+  W14       | tests/test_w14_s04_s07_denoising.py   |   16 | pytest tests/test_w14_s04_s07_denoising.py -v
   W15       | tests/test_w15_consolidamento.py      |   16 | pytest tests/test_w15_consolidamento.py -v
+  W16       | tests/test_w16_recupero.py            |    9 | pytest tests/test_w16_recupero.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (18 moduli)              |  816 | pytest tests/ -v
+  TOTALE    | Intera suite (19 moduli)              |  829 | pytest tests/ -v
 ================================================================================

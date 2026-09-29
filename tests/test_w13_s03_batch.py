@@ -18,9 +18,9 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
 - stima dei modelli separati per corsa di sequenziamento (``err.batch_column``)
   e fallback a modello singolo (``modello_tutti.rds``) con colonna nulla o
   senza tabella di arricchimento del lotto (``io.batch_table``);
-- determinismo dell'ordine di campionamento (``run.seed``) e riproducibilita'
-  crittografica byte per byte degli artefatti (inclusi i grafici PNG generati
-  con dispositivo grafico ``cairo`` privo di metadati temporali);
+- determinismo dell'ordine di campionamento (``run.seed``); la riproducibilita'
+  byte per byte degli artefatti, grafici PNG compresi, e' verificata da
+  ``tests/test_w16_recupero.py`` su una seconda esecuzione completa S0-S7;
 - determinazione della convergenza di ``dada2::learnErrors`` tramite confronto
   matriciale ``identical(err_in, err_out)``;
 - gestione di ``E-S3-01`` con retry automatico a ``err.nbases`` raddoppiato
@@ -32,40 +32,44 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
 4. Comandi Bash e scenari di esecuzione:
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w13_s03_batch.py -v
-       Risultato atteso: 20 test (12 passed in Python, 8 skipped per assenza
+       Risultato atteso: 19 test (12 passed in Python, 7 skipped per assenza
        di dada2/ggplot2/ShortRead in R locale e dei dati reali).
 
     2. Modalita container Docker standard (subset ridotto con Bioconductor):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
          amplicon16s:dev \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w13_s03_batch.py -v
-       Risultato atteso: 19 passed, 1 skipped in ~90s (resta saltato solo il
+       Risultato atteso: 18 passed, 1 skipped in ~90s (resta saltato solo il
        test sui 960 file FASTQ reali).
 
     3. Modalita container Docker completa (100% verde con dati reali OSD-734):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -e AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml \
          -v "$(pwd)":/app \
          -v /home/nemo/ASI:/home/nemo/ASI \
          -w /app \
          amplicon16s:dev \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w13_s03_batch.py -v
-       Risultato atteso: 20 passed in ~15 minuti.
+       Risultato atteso: 19 passed in ~15 minuti.
 
     Accorgimenti operativi per il container Docker:
     - Impostare '-e PYTHONPATH=/app/src' per caricare i moduli aggiornati da /app/src.
+    - Impostare '-e AMPLICON16S_R_DIR=/app/R': l'immagine punta agli script R copiati
+      al momento della costruzione, e senza la variabile non userebbe quelli montati.
     - Usare '-o cache_dir=/tmp/.pytest_cache' per proteggere i permessi della cartella locale.
     - Montare '-v /home/nemo/ASI:/home/nemo/ASI' per rendere accessibili i 2.4 GB di dati reali.
 
 5. Risultato atteso
 -------------------
-20 test totali (12 passed, 8 skipped in ~0.80s in ambiente locale privo di
-Bioconductor e dei dati reali; 19 passed, 1 skipped nel container CI;
-20 passed nel container con ``AMPLICON16S_CONFIG_DATI_REALI``).
+19 test totali (12 passed, 7 skipped in ~0.80s in ambiente locale privo di
+Bioconductor e dei dati reali; 18 passed, 1 skipped nel container CI;
+19 passed nel container con ``AMPLICON16S_CONFIG_DATI_REALI``).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -82,7 +86,6 @@ Bioconductor e dei dati reali; 19 passed, 1 skipped nel container CI;
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
 import os
 import shutil
@@ -408,15 +411,6 @@ def _modelli(run) -> Path:
     return run.albero.cartella(Fase.ERROR_MODELS)
 
 
-def _impronte(cartella: Path) -> dict[str, str]:
-    """L'MD5 di ogni file della cartella, esclusi i file del ponte e i manifesti."""
-    return {
-        p.name: hashlib.md5(p.read_bytes()).hexdigest()
-        for p in sorted(cartella.iterdir())
-        if not p.name.startswith(("rbridge_", "manifest"))
-    }
-
-
 def test_s3_produce_due_modelli_e_la_corrispondenza(dada2, stimata):
     """
     **Obiettivo**: Verificare che S3 sulla versione ridotta produca un modello
@@ -468,21 +462,6 @@ def test_i_grafici_mostrano_errori_decrescenti_con_la_qualita(dada2, stimata):
             capture_output=True, check=False,
         )
         assert verifica.returncode == 0, corsa
-
-
-def test_due_esecuzioni_identiche_danno_artefatti_identici(dada2, stimata, tmp_path):
-    """
-    **Obiettivo**: Verificare che una seconda esecuzione da zero produca in
-    ``04_error_models`` gli stessi byte della prima, modelli e grafici compresi.
-
-    **Razionale scientifico e sistemistico**: La verifica finale di
-    riproducibilita' confronta i checksum da un clone pulito; un grafico con
-    la data di creazione la renderebbe impossibile.
-    """
-    run, _ = stimata
-    secondo, esito = _fino_a_s3(config_ridotta(tmp_path))
-    assert esito.conclusione is Conclusione.COMPLETATA
-    assert _impronte(_modelli(secondo)) == _impronte(_modelli(run))
 
 
 def test_cambiare_err_nbases_rifa_solo_s3(dada2, stimata, tmp_path):

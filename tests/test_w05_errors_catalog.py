@@ -12,7 +12,7 @@ logging), con i codici aggiunti nelle settimane successive.
 
 3. Cosa valuta questo file
 --------------------------
-- completezza del catalogo ``CATALOGO``, **50 codici totali**: **35 codici di
+- completezza del catalogo ``CATALOGO``, **51 codici totali**: **36 codici di
   fase** inclusi ``E-S1-02`` ed ``E-S3-02``, **4 codici del ponte R**,
   **1 codice del grafo** e **10 codici del Gate G15** (compreso ``E-G15-99``);
   nessun codice inatteso, fase coerente con il codice, errore esplicito su un
@@ -22,7 +22,7 @@ logging), con i codici aggiunti nelle settimane successive.
   *cosa è fallito*;
 - chiusura della whitelist dei tentativi ripetuti a **esattamente 4 codici**
   (``E-S2-03``, ``E-S3-01``, ``E-S4-02``, ``E-S5-01``), coerente con
-  ``retry.whitelist``; i restanti **46 codici** non ammettono il retry;
+  ``retry.whitelist``; i restanti **47 codici** non ammettono il retry;
 - corrispondenza fra categoria di gestione e classe dell'eccezione, rifiuto di
   una classe sbagliata, messaggio con codice, dettaglio e azione, traduzione
   in evento strutturato del log;
@@ -41,6 +41,7 @@ logging), con i codici aggiunti nelle settimane successive.
        R/Bioconductor):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
          amplicon16s:dev \
@@ -51,6 +52,7 @@ logging), con i codici aggiunti nelle settimane successive.
        montata):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
          -v "$(pwd)":/app \
          -v "$HOME/ASI":"$HOME/ASI" \
@@ -60,10 +62,10 @@ logging), con i codici aggiunti nelle settimane successive.
 
 5. Risultato atteso
 -------------------
-282 test totali:
-- 282 passed in ambiente locale standard (~0.1s);
-- 282 passed nel container Docker standard sul sottoinsieme ridotto (~0.1s);
-- 282 passed nel container Docker con i dati reali OSD-734 (~0.1s).
+287 test totali:
+- 287 passed in ambiente locale standard (~0.3s);
+- 287 passed nel container Docker standard sul sottoinsieme ridotto (~0.1s);
+- 287 passed nel container Docker con i dati reali OSD-734 (~0.1s).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -98,7 +100,7 @@ from amplicon16s.errors.exceptions import (
 )
 from amplicon16s.gates.g01_g15 import CONTROLLI
 
-#: Elenco esplicito di controllo dei 35 codici di fase (S0-S14): mantenuto nel test
+#: Elenco esplicito di controllo dei 36 codici di fase (S0-S14): mantenuto nel test
 #: per intercettare qualsiasi rimozione accidentale dal dizionario ``CATALOGO``.
 CODICI_DI_FASE = (
     "E-S0-01", "E-S0-02", "E-S0-03", "E-S0-04", "E-S0-05", "E-S0-06", "E-S0-07",
@@ -110,6 +112,7 @@ CODICI_DI_FASE = (
     "E-S4-02",
     "E-S5-01",
     "E-S6-01", "E-S6-02",
+    "E-S7-01",
     "E-S8-02",
     "E-S9-01",
     "E-S10-01",
@@ -235,7 +238,8 @@ def test_codici_di_fase_raggruppa():
     del catalogo da parte del generatore di report e della documentazione.
     """
     assert codici_di_fase("S6") == ("E-S6-01", "E-S6-02")
-    assert codici_di_fase("S7") == ()
+    assert codici_di_fase("S7") == ("E-S7-01",)
+    assert codici_di_fase("S99") == ()
 
 
 # --------------------------------------------------------------------------- #

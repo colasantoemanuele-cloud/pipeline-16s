@@ -44,6 +44,7 @@ Settimane 3 e 4 (W3/W4), Fase F1: schema di validazione della configurazione
        R/Bioconductor):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
          amplicon16s:dev \
@@ -54,6 +55,7 @@ Settimane 3 e 4 (W3/W4), Fase F1: schema di validazione della configurazione
        montata):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
          -v "$(pwd)":/app \
          -v "$HOME/ASI":"$HOME/ASI" \

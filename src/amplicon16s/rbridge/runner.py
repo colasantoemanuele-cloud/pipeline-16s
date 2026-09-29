@@ -350,6 +350,7 @@ def esegui_script(
     albero: AlberoOutput,
     fase: Fase,
     *,
+    passo: str,
     codice_memoria: str | None = None,
     limite_memoria_byte: int | None = None,
     tempo_massimo_s: float | None = None,
@@ -360,7 +361,8 @@ def esegui_script(
 
     ``parametri`` arrivano allo script come oggetto JSON. Lo script scrive i
     propri artefatti nella cartella di ``fase``; quelli che dichiara vengono
-    registrati nel manifesto. ``codice_memoria`` è il codice del catalogo che
+    registrati nel manifesto. ``passo`` è la fase che invoca lo script: dà il
+    nome ai file del contratto, distinti anche in una cartella condivisa. ``codice_memoria`` è il codice del catalogo che
     la fase associa alla memoria esaurita; ``limite_memoria_byte`` limita la
     memoria virtuale del processo figlio, e con essa riduce a uno i thread
     dell'algebra lineare; ``tempo_massimo_s`` è la durata oltre la quale il
@@ -381,6 +383,7 @@ def esegui_script(
         # Non "fase": nell'evento di un errore quel campo e' la fase del
         # catalogo, e questa e' la cartella in cui lo script ha lavorato.
         "cartella": fase.value,
+        "passo": str(passo),
         "invocazione": invocazione,
     }
 
@@ -403,7 +406,7 @@ def esegui_script(
             )
 
     cartella = albero.prepara(fase)
-    richiesta, percorso_esito = scrivi_richiesta(cartella, invocazione, parametri)
+    richiesta, percorso_esito = scrivi_richiesta(cartella, invocazione, parametri, str(passo))
 
     ambiente = {**os.environ, "LANGUAGE": "en", VARIABILE_LIB_R: str(lib)}
     if limite_memoria_byte is not None:

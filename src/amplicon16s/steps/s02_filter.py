@@ -205,6 +205,7 @@ class FiltroLetture(PipelineStep):
             },
             contesto.albero,
             self.cartella,
+            passo=self.passo,
             logger=contesto.logger,
         )
         cartella = contesto.albero.cartella(self.cartella)

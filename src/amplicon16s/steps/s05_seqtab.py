@@ -76,6 +76,7 @@ class TabellaSequenze(PipelineStep):
                 },
                 contesto.albero,
                 self.cartella,
+                passo=self.passo,
                 codice_memoria="E-S5-01",
                 logger=contesto.logger,
             )

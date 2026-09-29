@@ -128,6 +128,7 @@ class InferenzaVarianti(PipelineStep):
                 },
                 contesto.albero,
                 self.cartella,
+                passo=self.passo,
                 codice_memoria="E-S4-02",
                 logger=contesto.logger,
             )

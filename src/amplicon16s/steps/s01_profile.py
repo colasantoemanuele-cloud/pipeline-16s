@@ -70,6 +70,7 @@ class ProfiloLetture(PipelineStep):
             {"campioni": campioni, "processi": contesto.config.run.threads},
             contesto.albero,
             self.cartella,
+            passo=self.passo,
             logger=contesto.logger,
         )
 

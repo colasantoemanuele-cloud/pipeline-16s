@@ -46,6 +46,7 @@ Il contratto in memoria e l'esecuzione reale degli script di
        R/Bioconductor):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
          amplicon16s:dev \
@@ -56,6 +57,7 @@ Il contratto in memoria e l'esecuzione reale degli script di
        montata):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
          -v "$(pwd)":/app \
          -v "$HOME/ASI":"$HOME/ASI" \
@@ -65,13 +67,13 @@ Il contratto in memoria e l'esecuzione reale degli script di
 
 5. Risultato atteso
 -------------------
-62 test totali:
-- 62 passed in ambiente locale standard (~10.7s);
-- 61 passed, 1 skipped nel container Docker standard sul sottoinsieme ridotto
+63 test totali:
+- 63 passed in ambiente locale standard (~10.7s);
+- 62 passed, 1 skipped nel container Docker standard sul sottoinsieme ridotto
   (~9.4s): resta saltato ``test_il_riconoscimento_non_dipende_dalla_lingua``,
   perché con R 4.5.2 il messaggio di allocazione fallita è in inglese anche
   senza forzatura e il test non proverebbe nulla;
-- 61 passed, 1 skipped nel container Docker con i dati reali OSD-734 (~8.0s):
+- 62 passed, 1 skipped nel container Docker con i dati reali OSD-734 (~8.0s):
   resta saltato ``test_il_riconoscimento_non_dipende_dalla_lingua``, perché con
   R 4.5.2 il messaggio di allocazione fallita è in inglese anche senza forzatura
   e il test non proverebbe nulla.
@@ -113,13 +115,12 @@ from amplicon16s.errors.exceptions import (
 from amplicon16s.io_layer.artifacts import AlberoOutput, Fase
 from amplicon16s.logging.logger import NOME_FILE_LOG, chiudi, configura
 from amplicon16s.rbridge.payload import (
-    NOME_ESITO,
-    NOME_RICHIESTA,
     PROTOCOLLO,
     Dichiarazione,
     DichiarazioneNonValida,
     Stato,
     leggi_dichiarazione,
+    nomi_del_contratto,
     scrivi_richiesta,
 )
 from amplicon16s.rbridge.runner import (
@@ -134,6 +135,9 @@ from amplicon16s.rbridge.runner import (
 
 DOPPIONI = Path(__file__).resolve().parent / "r_doppioni"
 FASE = Fase.FILTERED
+#: La fase che invoca gli script nei test, e i nomi dei suoi file del contratto.
+PASSO = "S2"
+NOME_RICHIESTA, NOME_ESITO = nomi_del_contratto(PASSO)
 
 #: Limite di memoria virtuale imposto al figlio nei test di esaurimento: basta
 #: ad avviare R e jsonlite, non a quanto il doppione cerca di allocare.
@@ -143,7 +147,7 @@ TROPPI = 250_000_000
 
 #: Ogni lancio nei test ha un tetto di tempo: un processo R bloccato deve far
 #: fallire il test, non lasciare appesa la suite.
-esegui_script = functools.partial(_esegui_script, tempo_massimo_s=120)
+esegui_script = functools.partial(_esegui_script, passo=PASSO, tempo_massimo_s=120)
 
 
 @pytest.fixture(autouse=True)
@@ -284,7 +288,7 @@ def _dichiara(percorso: Path, invocazione: str = "abc", **campi) -> None:
 
 def test_la_richiesta_porta_parametri_e_riferimenti(tmp_path):
     """
-    **Obiettivo**: Verificare che ``scrivi_richiesta`` produca ``rbridge_richiesta.json``
+    **Obiettivo**: Verificare che ``scrivi_richiesta`` produca ``rbridge_richiesta_S2.json``
     con versione del ``protocollo``, ID di ``invocazione``, percorsi e parametri
     (convertendo ``Path`` in stringa).
 
@@ -293,7 +297,7 @@ def test_la_richiesta_porta_parametri_e_riferimenti(tmp_path):
     auto-contenuto e tipizzato.
     """
     richiesta, esito = scrivi_richiesta(
-        tmp_path, "abc", {"soglia": 2.5, "file": tmp_path / "x.fastq.gz"}
+        tmp_path, "abc", {"soglia": 2.5, "file": tmp_path / "x.fastq.gz"}, PASSO
     )
     documento = json.loads(richiesta.read_text(encoding="utf-8"))
 
@@ -310,14 +314,14 @@ def test_la_richiesta_porta_parametri_e_riferimenti(tmp_path):
 def test_la_richiesta_rimuove_l_esito_di_un_tentativo_precedente(tmp_path):
     """
     **Obiettivo**: Verificare che ``scrivi_richiesta`` cancelli preventivamente
-    un eventuale ``rbridge_esito.json`` già presente nella cartella della fase.
+    un eventuale ``rbridge_esito_S2.json`` già presente nella cartella della fase.
 
     **Razionale scientifico e sistemistico**: Impedisce che, qualora il nuovo
     processo R muoia prima di poter scrivere il proprio esito, il runner legga
     per errore l'esito residuo dell'esecuzione precedente.
     """
     _dichiara(tmp_path / NOME_ESITO)
-    _, esito = scrivi_richiesta(tmp_path, "nuova", {})
+    _, esito = scrivi_richiesta(tmp_path, "nuova", {}, PASSO)
     assert not esito.exists()
 
 
@@ -326,21 +330,21 @@ def test_un_parametro_non_json_e_respinto(tmp_path, valore):
     """
     **Obiettivo**: Verificare che ``scrivi_richiesta`` rifiuti con ``ValueError``
     o ``TypeError`` valori ``NaN``, ``Inf`` o oggetti Python arbitrari senza
-    lasciare ``rbridge_richiesta.json`` su disco.
+    lasciare ``rbridge_richiesta_S2.json`` su disco.
 
     **Razionale scientifico e sistemistico**: Lo standard JSON (RFC 8259) e
     ``jsonlite`` in R non ammettono letterali ``NaN``/``Infinity`` non quotati;
     bloccarli sul lato Python evita errori di parsing opachi dentro R.
     """
     with pytest.raises((ValueError, TypeError)):
-        scrivi_richiesta(tmp_path, "abc", {"x": valore})
+        scrivi_richiesta(tmp_path, "abc", {"x": valore}, PASSO)
     assert not (tmp_path / NOME_RICHIESTA).exists()
 
 
 def test_dichiarazione_assente_e_nessuna_dichiarazione(tmp_path):
     """
     **Obiettivo**: Verificare che ``leggi_dichiarazione`` restituisca ``None``
-    quando il file ``rbridge_esito.json`` non esiste su disco.
+    quando il file ``rbridge_esito_S2.json`` non esiste su disco.
 
     **Razionale scientifico e sistemistico**: Consente al classificatore di
     distinguere un processo R che ha chiuso ordinatamente il contratto da uno
@@ -377,6 +381,7 @@ def test_dichiarazione_di_un_errore(tmp_path):
         {"artefatti": ["../fuori.rds"]},
         {"artefatti": ["/assoluto.rds"]},
         {"artefatti": "uno.rds"},
+        {"artefatti": ["uno.rds", "uno.rds"]},
     ],
     ids=lambda c: next(iter(c)),
 )
@@ -385,7 +390,7 @@ def test_dichiarazione_che_viola_il_contratto(tmp_path, campi):
     **Obiettivo**: Verificare che ``leggi_dichiarazione`` sollevi
     ``DichiarazioneNonValida`` se ``invocazione`` o ``protocollo`` non
     coincidono, se ``stato``/``codice`` sono incoerenti o se gli ``artefatti``
-    contengono path assoluti o *path traversal* (``../``).
+    contengono path assoluti, *path traversal* (``../``) o nomi ripetuti.
 
     **Razionale scientifico e sistemistico**: Blindatura del confine tra R e
     Python: rifiuta risposte appartenenti ad altre invocazioni (anti-replay) e
@@ -400,7 +405,7 @@ def test_dichiarazione_che_viola_il_contratto(tmp_path, campi):
 
 def test_dichiarazione_troncata(tmp_path):
     """
-    **Obiettivo**: Verificare che un file ``rbridge_esito.json`` con JSON
+    **Obiettivo**: Verificare che un file ``rbridge_esito_S2.json`` con JSON
     troncato a metà sollevi ``DichiarazioneNonValida("illeggibile")``.
 
     **Razionale scientifico e sistemistico**: Intercetta scritture interrotte da
@@ -635,7 +640,7 @@ def test_un_secondo_tentativo_non_legge_l_esito_del_primo(r, albero):
 
     **Razionale scientifico e sistemistico**: Impedisce il bug critico di *stale
     result*, in cui il crash silenzioso di un ricalcolo verrebbe mascherato dal
-    file ``rbridge_esito.json`` lasciato da una corsa precedente.
+    file ``rbridge_esito_S2.json`` lasciato da una corsa precedente.
     """
     esegui_script(DOPPIONI / "successo.R", {}, albero, FASE)
     with pytest.raises(ErrorePipeline) as info:
@@ -751,7 +756,7 @@ def test_errore_r_non_catalogato(r, albero):
 def test_processo_morto_senza_dichiarare(r, albero, modo):
     """
     **Obiettivo**: Verificare che se R termina con ``q(status=1)`` (``uscita``)
-    o muore per ``SIGSEGV`` (``segmentazione``) senza scrivere ``rbridge_esito.json``,
+    o muore per ``SIGSEGV`` (``segmentazione``) senza scrivere ``rbridge_esito_S2.json``,
     il ponte sollevi ``ErroreRevisioneUmana`` con codice ``E-R-02`` e
     ``condizione_r == "nessuna_dichiarazione"``.
 
@@ -788,6 +793,7 @@ def test_processo_bloccato_ucciso_allo_scadere_del_tempo(r, albero):
             {"modo": "stallo", "messaggio": "x"},
             albero,
             FASE,
+            passo=PASSO,
             tempo_massimo_s=3,
         )
     e = info.value
@@ -880,7 +886,7 @@ def test_sotto_lo_stesso_limite_un_allocazione_piccola_riesce(r, albero):
 def test_memoria_esaurita_prima_di_poter_dichiarare(r, albero):
     """
     **Obiettivo**: Verificare che se R esaurisce la memoria fuori dal blocco
-    ``con_contratto`` (così che non può nemmeno scrivere ``rbridge_esito.json``),
+    ``con_contratto`` (così che non può nemmeno scrivere ``rbridge_esito_S2.json``),
     il ponte riconosca comunque ``cannot allocate`` su ``stderr`` e sollevi
     ``ErroreRitentabileConRevisione("E-S5-01")``.
 

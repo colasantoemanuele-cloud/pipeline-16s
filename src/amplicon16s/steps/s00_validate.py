@@ -149,11 +149,15 @@ def _letture_tsv(scansione: dict[str, Any], head_reads: int) -> str:
     return buffer.getvalue()
 
 
-def _esiti_json(esiti: tuple[EsitoGate, ...], secondi: float) -> str:
-    """L'esito di ogni gate come documento JSON, con la durata complessiva."""
+def _esiti_json(esiti: tuple[EsitoGate, ...]) -> str:
+    """L'esito di ogni gate come documento JSON.
+
+    Le durate non ci sono: cambiano a ogni esecuzione, e l'artefatto deve
+    avere lo stesso checksum fra due esecuzioni sugli stessi ingressi. Vanno
+    nel log (:meth:`ValidazioneIngressi.calcola`).
+    """
     documento = {
         "superata": all(e.superato for e in esiti),
-        "secondi": round(secondi, 3),
         "gate": [e.come_voce() for e in esiti],
     }
     return json.dumps(documento, indent=2, ensure_ascii=False) + "\n"
@@ -292,7 +296,7 @@ class ValidazioneIngressi(PipelineStep):
         albero = contesto.albero
         artefatti = [
             albero.scrivi_testo(
-                Fase.INPUT_VALIDATION, NOME_ESITI, _esiti_json(esiti, secondi)
+                Fase.INPUT_VALIDATION, NOME_ESITI, _esiti_json(esiti)
             )
         ]
         if inventario is not None:
@@ -334,8 +338,15 @@ class ValidazioneIngressi(PipelineStep):
             artefatti=tuple(a.percorso for a in artefatti),
             secondi=secondi,
         )
+        for esito in esiti:
+            if esito.eseguito:
+                log.info(
+                    f"{esito.gate} {'superato' if esito.superato else 'non superato'}",
+                    extra={"fase": "S0", "gate": esito.gate, "secondi": round(esito.secondi, 3)},
+                )
+        # La durata complessiva la registra nel log PipelineStep.esegui, come
+        # per ogni fase; nelle metriche, che finiscono nel manifesto, non entra.
         metriche = {
-            "secondi": round(secondi, 3),
             "campioni": len(inventario) if inventario else 0,
             "avvisi": len(risultato.avvisi),
         }

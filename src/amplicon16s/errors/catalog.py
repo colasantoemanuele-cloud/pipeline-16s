@@ -447,6 +447,17 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "l'avviso ricorre su piu' lotti, esamina i parametri del gruppo chimera.",
         _DEGRADA,
     ),
+    # ----------------------------------------------------------------- S7 ---
+    _v(
+        "E-S7-01", "S7",
+        "Nessuna variante resta nella tabella dopo il filtro di lunghezza.",
+        "Guarda lunghezze.tsv in 07_chimera: se le varianti hanno lunghezze fuori "
+        "da asv.len_min-asv.len_max, verifica filter.truncLen, filter.trimLeft e "
+        "asv.len_tol; se la tabella senza chimere di S6 era gia' vuota, la causa "
+        "e' a monte, nel filtro, nell'inferenza o nella rimozione delle chimere. "
+        "Un nuovo tentativo darebbe la stessa tabella vuota.",
+        _UMANA,
+    ),
     # ----------------------------------------------------------------- S8 ---
     _v(
         "E-S8-02", "S8",

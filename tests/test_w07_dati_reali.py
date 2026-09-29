@@ -54,6 +54,7 @@ Proprietà verificate:
        R/Bioconductor):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
          amplicon16s:dev \
@@ -64,6 +65,7 @@ Proprietà verificate:
        montata):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
          -v "$(pwd)":/app \
          -v "$HOME/ASI":"$HOME/ASI" \

@@ -39,6 +39,7 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S2:
     2. Modalita container Docker standard (subset ridotto con Bioconductor):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
          amplicon16s:dev \
@@ -49,6 +50,7 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S2:
     3. Modalita container Docker completa (100% verde con dati reali OSD-734):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -e AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml \
          -v "$(pwd)":/app \
          -v /home/nemo/ASI:/home/nemo/ASI \
@@ -59,6 +61,8 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S2:
 
     Accorgimenti operativi per il container Docker:
     - Impostare '-e PYTHONPATH=/app/src' per caricare i moduli aggiornati da /app/src.
+    - Impostare '-e AMPLICON16S_R_DIR=/app/R': l'immagine punta agli script R copiati
+      al momento della costruzione, e senza la variabile non userebbe quelli montati.
     - Usare '-o cache_dir=/tmp/.pytest_cache' per proteggere i permessi della cartella locale.
     - Montare '-v /home/nemo/ASI:/home/nemo/ASI' per rendere accessibili i 2.4 GB di dati reali.
 

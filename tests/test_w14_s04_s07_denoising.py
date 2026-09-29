@@ -35,14 +35,15 @@ S06 Rimozione delle chimere e S07 Filtro di lunghezza ASV in ``07_chimera/``).
 - gestione dei retry (dimezzamento di ``run.batch_size`` su ``E-S4-02``) e
   soppressioni motivate (``RITENTARE_INUTILE`` per ``E-S5-01`` e per ``E-S4-02``
   con ``dada.pool`` vero);
-- riproducibilita' byte per byte della catena S4-S7 e ricomposizione completa
-  del tracciamento delle letture da S1 a S7.
+- ricomposizione completa del tracciamento delle letture da S1 a S7 (la
+  riproducibilita' byte per byte della catena e' verificata da
+  ``tests/test_w16_recupero.py`` su una seconda esecuzione completa S0-S7).
 
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w14_s04_s07_denoising.py -v
-       Risultato atteso: 17 test (4 passed in Python puro, 13 skipped per
+       Risultato atteso: 16 test (4 passed in Python puro, 12 skipped per
        assenza di dada2/ShortRead in R locale e dei dati reali in ~0.60s).
 
     2. Modalita container Docker standard (subset ridotto con Bioconductor):
@@ -53,7 +54,7 @@ S06 Rimozione delle chimere e S07 Filtro di lunghezza ASV in ``07_chimera/``).
          -w /app \
          amplicon16s:dev \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w14_s04_s07_denoising.py -v
-       Risultato atteso: 16 passed, 1 skipped in ~120s (resta saltato solo il
+       Risultato atteso: 15 passed, 1 skipped in ~80s (resta saltato solo il
        test sui 960 campioni reali OSD-734).
 
     3. Modalita container Docker completa (con dati reali OSD-734):
@@ -66,14 +67,14 @@ S06 Rimozione delle chimere e S07 Filtro di lunghezza ASV in ``07_chimera/``).
          -w /app \
          amplicon16s:dev \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w14_s04_s07_denoising.py -v
-       Risultato atteso: 17 passed (100% verde).
+       Risultato atteso: 16 passed (100% verde).
 
 5. Risultato atteso
 -------------------
-17 test totali (16 funzioni di test, di cui 1 parametrizzata su 2 casi):
-- 4 passed, 13 skipped in ambiente locale privo di Bioconductor (~0.60s);
-- 16 passed, 1 skipped nel container CI sul sottoinsieme ridotto (~120s);
-- 17 passed nel container Docker con il dataset completo OSD-734.
+16 test totali (15 funzioni di test, di cui 1 parametrizzata su 2 casi):
+- 4 passed, 12 skipped in ambiente locale privo di Bioconductor (~0.60s);
+- 15 passed, 1 skipped nel container CI sul sottoinsieme ridotto (~80s);
+- 16 passed nel container Docker con il dataset completo OSD-734.
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -324,6 +325,7 @@ def test_il_pseudo_pooling_a_lotti_e_quello_di_dada2(dada2, ridotta_calcolata, t
             "senza_letture": [], "pool": "pseudo", "omega_a": 1e-40, "lotto": 3, "processi": 2,
         },
         albero, Fase.ASV_INFERENCE,
+        passo="S4",
     )
     file = ", ".join(f'"{a}" = "{p}"' for a, p in campioni.items())
     uscita = _r(
@@ -358,21 +360,6 @@ def test_il_lotto_non_cambia_i_byte_dell_inferenza(dada2, ridotta_calcolata, cat
     prima = _impronte(run.albero.cartella(Fase.ASV_INFERENCE))
     assert "priori.tsv" in prima and "varianti_per_campione.rds" in prima
     assert _impronte(altro.albero.cartella(Fase.ASV_INFERENCE)) == prima
-
-
-def test_due_esecuzioni_danno_gli_stessi_byte(dada2, ridotta_calcolata, catena, tmp_path):
-    """
-    **Obiettivo**: Verificare che una seconda esecuzione di S4-S7 produca in
-    ``05_asv_inference``, ``06_seqtab`` e ``07_chimera`` gli stessi byte.
-
-    **Razionale scientifico e sistemistico**: La verifica finale di
-    riproducibilita' confronta i checksum di due esecuzioni.
-    """
-    run, _ = catena
-    seconda = _copia(ridotta_calcolata, tmp_path)
-    assert Esecutore(seconda, fino_a=Passo.S7).esegui().conclusione is Conclusione.COMPLETATA
-    for fase in (Fase.ASV_INFERENCE, Fase.SEQTAB, Fase.CHIMERA):
-        assert _impronte(seconda.albero.cartella(fase)) == _impronte(run.albero.cartella(fase)), fase
 
 
 def test_con_memoria_ridotta_scatta_e_s4_02_e_il_retry_dimezza_il_lotto(
@@ -541,6 +528,7 @@ def test_il_filtro_di_lunghezza_toglie_le_varianti_fuori_intervallo(dada2, tmp_p
         {"tabella": str(tabella), "senza_letture": ["X3"],
          "len_min": 137 - tolleranza, "len_max": 137 + tolleranza},
         albero, Fase.CHIMERA,
+        passo="S7",
     )
     cartella = albero.cartella(Fase.CHIMERA)
     tenute = _r(f"cat(sort(nchar(colnames(readRDS('{cartella / 'tabella_asv.rds'}')))))")

@@ -30,6 +30,7 @@ Settimana 6 (W6), Fase F2 (crosswalk e metadati, Gate G03: join ristretto).
        R/Bioconductor):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
          amplicon16s:dev \
@@ -40,6 +41,7 @@ Settimana 6 (W6), Fase F2 (crosswalk e metadati, Gate G03: join ristretto).
        montata):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
          -v "$(pwd)":/app \
          -v "$HOME/ASI":"$HOME/ASI" \

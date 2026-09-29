@@ -45,6 +45,7 @@ Comandi Bash e scenari di esecuzione:
     3. Modalita container Docker standard (subset ridotto con Bioconductor):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
          amplicon16s:dev \
@@ -55,6 +56,7 @@ Comandi Bash e scenari di esecuzione:
     4. Modalita container Docker completa (100% verde, inclusi 960 FASTQ reali):
        docker run --rm \
          -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
          -e AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml \
          -v "$(pwd)":/app \
          -v /home/nemo/ASI:/home/nemo/ASI \
@@ -65,6 +67,8 @@ Comandi Bash e scenari di esecuzione:
 
     Accorgimenti operativi per il container Docker:
     - Impostare '-e PYTHONPATH=/app/src' per caricare la versione corrente di amplicon16s.
+    - Impostare '-e AMPLICON16S_R_DIR=/app/R': l'immagine punta agli script R copiati
+      al momento della costruzione, e senza la variabile non userebbe quelli montati.
     - Montare sia il repository ('-v $(pwd):/app') sia i dati reali ('-v /home/nemo/ASI:/home/nemo/ASI').
     - Usare '-o cache_dir=/tmp/.pytest_cache' per proteggere i permessi della cartella locale.
     - Aggiungere 'safe.directory /app' in Git per abilitare il collaudo di test_i_fastq_di_prova_non_sono_ignorati_da_git.

@@ -243,6 +243,6 @@ esegui_fase(function(parametri, cartella) {
   scrivi_json(riepilogo, file.path(cartella, "inferenza.json"))
   message(sprintf("memoria di picco (lotti di %d campioni): %s", lotto, memoria_di_picco()))
 
-  c(artefatti, "varianti_per_campione.rds", "letture_denoised.tsv",
-    "varianti.tsv", "inferenza.json")
+  # letture_denoised.tsv e' gia' in artefatti, restituito da traccia_letture.
+  c(artefatti, "varianti_per_campione.rds", "varianti.tsv", "inferenza.json")
 })

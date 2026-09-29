@@ -59,16 +59,18 @@ class EsitoGate:
     superato: bool
     violazioni: tuple[Violazione, ...] = ()
     avvisi: tuple[Avviso, ...] = ()
+    #: Durata del controllo. Descrive l'esecuzione, non il risultato: va nel
+    #: log e non in :meth:`come_voce`, perché l'artefatto deve essere identico
+    #: fra due esecuzioni sugli stessi ingressi.
     secondi: float = 0.0
 
     def come_voce(self) -> dict[str, Any]:
-        """Forma registrabile su disco e interrogabile."""
+        """Forma registrabile su disco e interrogabile, senza la durata."""
         return {
             "gate": self.gate,
             "descrizione": self.descrizione,
             "eseguito": self.eseguito,
             "superato": self.superato,
-            "secondi": round(self.secondi, 3),
             "violazioni": [
                 {"codice": v.codice, "dettaglio": v.dettaglio} for v in self.violazioni
             ],
