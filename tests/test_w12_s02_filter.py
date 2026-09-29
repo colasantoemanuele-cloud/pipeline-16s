@@ -33,7 +33,7 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S2:
 4. Comandi Bash e scenari di esecuzione:
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w12_s02_filter.py -v
-       Risultato atteso: 25 test (17 passed sul subset ridotto, 8 skipped
+       Risultato atteso: 25 test (18 passed in Python puro, 7 skipped
        per assenza di dada2/ShortRead in R locale).
 
     2. Modalita container Docker standard (subset ridotto con Bioconductor):
@@ -123,6 +123,9 @@ TUTTE = tuple(Passo)
 
 @pytest.fixture(autouse=True)
 def uscite_pulite():
+    """Chiude le uscite del log prima e dopo ogni test, perché nessun handler resti
+    aperto sulla cartella temporanea.
+    """
     chiudi()
     yield
     chiudi()
@@ -135,11 +138,11 @@ def uscite_pulite():
 
 def test_i_parametri_nuovi_hanno_i_valori_del_piano():
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che ``config/config.example.yaml`` esponga i valori predefiniti
         previsti dal piano per ``qc.max_zeroed_samples`` (0),
         ``qc.max_frac_lost_filter`` (0.30) e ``run.keep_filtered_fastq`` (True).
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Garantisce che la configurazione di riferimento applichi per difetto la
         tolleranza zero verso la perdita totale di campioni biologici/positivi,
         il tetto massimo del 30% di scarto medio al filtro e la conservazione
@@ -153,11 +156,11 @@ def test_i_parametri_nuovi_hanno_i_valori_del_piano():
 
 def test_conservare_i_file_filtrati_non_incide_sui_risultati(tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Accertare che il parametro ``run.keep_filtered_fastq`` appartenga a
         ``PARAMETRI_SENZA_EFFETTO`` e che la sua modifica da ``True`` a ``False``
         lasci identica l'``impronta_risultati`` della configurazione risolta.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         La scelta di conservare o eliminare su disco i FASTQ filtrati al termine
         della pipeline e' una politica di spazio disco e non altera il contenuto
         biologico delle tabelle ASV; non deve pertanto invalidare i manifesti
@@ -172,10 +175,10 @@ def test_conservare_i_file_filtrati_non_incide_sui_risultati(tmp_path):
 
 def test_i_negativi_sono_esclusi_dai_controlli_del_filtro():
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che ``CLASSI_CONTROLLATE`` contenga esclusivamente
         ``biologico`` e ``controllo_positivo``, escludendo ``controllo_negativo``.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         I controlli negativi (bianchi di reagente e di estrazione) contengono per
         natura pochissime letture o solo dimeri di primer che il filtro DADA2
         rimuove: sottoporli alle soglie di scarto causerebbe falsi arresti.
@@ -193,16 +196,19 @@ QC = valida(yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))).qc
 
 
 def _controlla(uscita: dict[str, int], ingresso: int = 1000):
+    """Il controllo del filtro con ``ingresso`` letture per campione in ingresso e le
+    letture in uscita indicate.
+    """
     return controlla_filtro({c: ingresso for c in CLASSI}, uscita, CLASSI, QC)
 
 
 def test_un_bianco_azzerato_non_ferma():
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che l'azzeramento completo di un controllo negativo (``n1 = 0``)
         non sollevi ``E-S2-01`` ma venga regolarmente annotato nelle metriche
         sotto ``azzerati["controllo_negativo"]``.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Un bianco azzerato dopo ``filterAndTrim`` attesta la purezza del reagente
         e l'assenza di contaminazione crociata: il sistema deve tracciarlo nel
         manifesto senza interrompere l'esecuzione.
@@ -214,11 +220,11 @@ def test_un_bianco_azzerato_non_ferma():
 @pytest.mark.parametrize("azzerato", ["b1", "p1"])
 def test_un_biologico_o_un_positivo_azzerato_ferma(azzerato):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che l'azzeramento di un campione biologico (``b1``) o di un
         controllo positivo (``p1``) sollevi ``ErroreRevisioneUmana`` con codice
         ``E-S2-01`` indicando il campione coinvolto nel contesto dell'errore.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         La scomparsa totale di un campione biologico o di una comunita' mock
         durante il filtraggio segnala parametri di troncamento o ``maxEE``
         incompatibili con il profilo di qualita' della corsa, richiedendo
@@ -233,12 +239,12 @@ def test_un_biologico_o_un_positivo_azzerato_ferma(azzerato):
 
 def test_la_perdita_dei_bianchi_non_conta_per_e_s2_02():
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che una perdita del 90-95% delle letture nei controlli
         negativi (``n1``, ``n2``) non faccia superare la soglia
         ``qc.max_frac_lost_filter`` finche' i campioni biologici e positivi
         mantengono una ritenzione elevata.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Impedisce che l'elevata mortalita' fisiologica degli artefatti di
         sequenziamento nei bianchi distorca la media di perdita calcolata per
         il controllo di qualita' ``E-S2-02``.
@@ -249,11 +255,11 @@ def test_la_perdita_dei_bianchi_non_conta_per_e_s2_02():
 
 def test_una_perdita_media_oltre_il_30_per_cento_ferma():
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che una frazione media di letture scartate superiore a
         ``qc.max_frac_lost_filter`` (0.30) sui campioni controllati sollevi
         ``ErroreRevisioneUmana`` con codice ``E-S2-02``.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Uno scarto medio superiore al 30% nei campioni biologici e positivi
         riduce drasticamente la profondita' di campionamento e distorce la
         stima delle varianti rare prima della modellazione degli errori in S3.
@@ -270,11 +276,11 @@ def test_una_perdita_media_oltre_il_30_per_cento_ferma():
 
 def test_un_nuovo_tentativo_senza_modifiche_va_dichiarato_e_motivato():
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che ``senza_modifiche()`` rifiuti motivazioni vuote o composte
         da soli spazi e che ``Aggiustamento`` impedisca combinazioni incoerenti
         tra assenza di parametro e presenza di regola di trasformazione.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Preserva il rigore del contratto di retry: un nuovo tentativo a
         configurazione invariata e' ammesso solo se esplicitamente giustificato
         da una causa transitoria di I/O documentabile nel manifesto.
@@ -288,12 +294,12 @@ def test_un_nuovo_tentativo_senza_modifiche_va_dichiarato_e_motivato():
 
 def test_la_politica_ritenta_senza_modifiche_solo_se_dichiarato(tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che ``PoliticaRetry.decidi`` autorizzi un secondo tentativo
         per ``E-S2-03`` quando la fase fornisce ``senza_modifiche("transitorio")``,
         rifiuti il retry se l'aggiustamento e' ``None`` (``Motivo.NESSUNA_AZIONE``)
         e fermi comunque l'esecuzione al raggiungimento di ``max_attempts``.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Conferma che l'eccezione per gli errori transitori di lettura non
         indebolisce la regola generale (nessun retry cieco senza dichiarazione)
         ne' il limite superiore dei tentativi consentiti.
@@ -313,6 +319,7 @@ def test_la_politica_ritenta_senza_modifiche_solo_se_dichiarato(tmp_path):
 
 
 def _campioni() -> list[Campione]:
+    """Quattro campioni sulla piastra 1: due biologici, un positivo, un negativo."""
     return [
         Campione("ERX3000001", "NOD1D4.L1", piastra="1"),
         Campione("ERX3000002", "NOD1D4.L2", piastra="1"),
@@ -324,6 +331,7 @@ def _campioni() -> list[Campione]:
 
 
 def _scenario(tmp_path, **sovrascrivi):
+    """Crea su disco uno scenario con letture, con i parametri indicati sovrascritti."""
     return crea_scenario(tmp_path, _campioni(), con_letture=True, sovrascrivi=sovrascrivi or None)
 
 
@@ -341,6 +349,9 @@ class Doppione(PipelineStep):
         self.tentativi = 0
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Annota l'esecuzione, fallisce con il codice configurato per i primi
+        tentativi, poi scrive il proprio artefatto.
+        """
         self.registro.append(self.passo)
         self.tentativi += 1
         if self.codice and self.tentativi <= self.fallimenti:
@@ -357,12 +368,17 @@ class FiltroDoppione(Doppione):
     nome: ClassVar[str] = "ERX3000001_filt.fastq.gz"
 
     def artefatti_temporanei(self, manifesto: ManifestoPasso, config: Config) -> tuple[str, ...]:
+        """Le letture filtrate, rimovibili quando ``run.keep_filtered_fastq`` è falso.
+        """
         if config.run.keep_filtered_fastq:
             return ()
         return tuple(n for n in manifesto.nomi if n.endswith("_filt.fastq.gz"))
 
 
 def _passi(registro, **speciali: dict[str, Any]) -> dict[Passo, PipelineStep]:
+    """La S0 vera e un doppione per ogni altra fase, con gli attributi speciali indicati
+    per fase.
+    """
     passi: dict[Passo, PipelineStep] = {Passo.S0: ValidazioneIngressi()}
     for passo in TUTTE[1:]:
         base = FiltroDoppione if passo is Passo.S2 else Doppione
@@ -372,6 +388,7 @@ def _passi(registro, **speciali: dict[str, Any]) -> dict[Passo, PipelineStep]:
 
 
 def _esegui(config, registro, **speciali):
+    """Esegue il grafo con i doppioni e restituisce l'esecuzione e il suo esito."""
     run = ProjectRun(config, passi=_passi(registro, **speciali))
     return run, Esecutore(run).esegui()
 
@@ -388,12 +405,12 @@ TRANSITORIO = {
 
 def test_e_s2_03_si_ritenta_senza_modifiche_e_si_registra(tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che un fallimento transitorio ``E-S2-03`` al primo tentativo
         di S2 inneschi un secondo tentativo a configurazione invariata, porti
         al completamento della corsa e annoti l'aggiustamento nel manifesto
         ``manifest_S2.json`` con ``parametro=None`` e ``usato=None``.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         In caso di anomalia temporanea del sottosistema di archiviazione durante
         la lettura dei FASTQ, l'esecutore recupera la corsa senza alterare alcun
         parametro scientifico ma lasciando traccia formale nel manifesto.
@@ -411,11 +428,11 @@ def test_e_s2_03_si_ritenta_senza_modifiche_e_si_registra(tmp_path):
 
 def test_un_errore_di_lettura_che_persiste_si_ferma_dopo_i_tentativi(tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che un errore ``E-S2-03`` persistente arresti l'esecuzione
         dopo esattamente ``retry.max_attempts`` (2) tentativi, registrando il
         punto di ripresa sul passo S2 con codice ``E-S2-03``.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Se un archivio ``.fastq.gz`` e' fisicamente troncato o corrotto su disco,
         il secondo tentativo conferma che il guasto non e' transitorio e ferma
         la pipeline prima di propagare dati incompleti alle fasi successive.
@@ -436,16 +453,17 @@ def test_un_errore_di_lettura_che_persiste_si_ferma_dopo_i_tentativi(tmp_path):
 
 
 def _filtrato(run) -> Path:
+    """Il file di letture filtrate del primo campione."""
     return run.albero.cartella(Fase.FILTERED) / "ERX3000001_filt.fastq.gz"
 
 
 def test_per_difetto_i_file_filtrati_restano(tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che con la configurazione predefinita
         (``run.keep_filtered_fastq = True``) i file ``*_filt.fastq.gz`` restino
         presenti in ``03_filtered/`` anche dopo il completamento dell'intero DAG.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Garantisce che, salvo esplicita richiesta di risparmio disco, gli
         intermedi filtrati siano sempre ispezionabili e riutilizzabili per
         eventuali ricalcoli delle fasi a valle (S3, S4).
@@ -458,13 +476,13 @@ def test_per_difetto_i_file_filtrati_restano(tmp_path):
 
 def test_rimossi_a_fine_esecuzione_senza_rifare_nulla(tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che con ``run.keep_filtered_fastq = False`` i file filtrati
         vengano eliminati al termine del DAG, il file ``rimossi_S2.json`` venga
         scritto in ``03_filtered/`` e una successiva invocazione di ``resume``
         riconosca S2 come ``COMPLETATA`` ("rimossi di proposito") senza
         rieseguire alcuna fase.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Permette di liberare gigabyte di FASTQ intermedi a fine corsa senza
         rompere il meccanismo di ripresa basato sui manifesti: ``rimossi_S2.json``
         distingue una pulizia pianificata da una perdita accidentale di file.
@@ -491,11 +509,11 @@ def test_rimossi_a_fine_esecuzione_senza_rifare_nulla(tmp_path):
 
 def test_un_file_filtrato_perso_senza_registro_fa_rifare_s2(tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che la cancellazione manuale di un file ``*_filt.fastq.gz``
         in assenza del registro ``rimossi_S2.json`` porti ``ProjectRun.valuta()``
         a marcare S2 come ``DA_ESEGUIRE`` per artefatti mancanti.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Protegge l'integrita' della corsa: l'assenza di un file elencato in
         ``manifest_S2.json`` non coperta da ``rimossi_S2.json`` viene trattata
         come corruzione dell'albero di output e impone il ricalcolo di S2.
@@ -510,12 +528,12 @@ def test_un_file_filtrato_perso_senza_registro_fa_rifare_s2(tmp_path):
 
 def test_se_una_fase_che_li_legge_va_rifatta_s2_torna_da_eseguire(tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che, se i file filtrati di S2 sono stati rimossi di proposito
         a fine corsa ma una fase dipendente diretta (S3) torna ``DA_ESEGUIRE``,
         anche S2 venga automaticamente rimessa in stato ``DA_ESEGUIRE``
         ("richiesti da S3") mentre S0 e S1 restano intatte.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Garantisce l'autosufficienza del grafo: poiche' S3 (apprendimento dei
         modelli di errore) legge fisicamente i file ``*_filt.fastq.gz``, il
         sistema rigenera gli intermedi di S2 prima di eseguire S3 senza
@@ -540,12 +558,12 @@ def test_se_una_fase_che_li_legge_va_rifatta_s2_torna_da_eseguire(tmp_path):
 
 def test_nessuna_rimozione_prima_della_fine(tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che con ``run.keep_filtered_fastq = False`` i file filtrati
         non vengano mai rimossi se l'esecuzione si arresta in una fase a valle
         (es. S6) oppure se l'esecutore viene invocato con traguardo parziale
         (``fino_a=Passo.S2``).
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Se una corsa si interrompe prima del completamento di S14, conservare i
         FASTQ filtrati su disco evita di dover ripetere il filtraggio DADA2 al
         momento del ``resume``.
@@ -572,11 +590,11 @@ def test_nessuna_rimozione_prima_della_fine(tmp_path):
 
 def test_un_archivio_troncato_non_si_decomprime_per_intero(tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che ``archivio_incompleto()`` restituisca ``None`` su un
         archivio ``.fastq.gz`` integro del sottoinsieme OSD-734 e restituisca
         una descrizione di errore quando il file viene troncato al 70% dei byte.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Il formato gzip memorizza CRC32 e ISIZE in coda allo stream: leggere
         solo le prime letture (come fa G01/G09 in S0) non rileva un troncamento
         a 3/4 del file, mentre la scansione integrale dei blocchi lo intercetta.
@@ -612,6 +630,7 @@ def filtrata(ridotta_calcolata):
 
 
 def _conteggi(percorso: Path) -> dict[str, int]:
+    """Le letture per campione di una tabella di tracciamento."""
     import csv
 
     with open(percorso, encoding="utf-8") as file:
@@ -620,12 +639,12 @@ def _conteggi(percorso: Path) -> dict[str, int]:
 
 def test_s2_produce_file_filtrati_e_tracciamento_con_il_suo_manifesto(dada2, filtrata):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che l'esecuzione reale di S2 tramite ``R/02_filter.R`` e
         ``dada2::filterAndTrim`` sui 28 campioni del sottoinsieme ridotto
         produca ``manifest_S2.json``, le tabelle ``letture_prefiltro.tsv`` e
         ``letture_filtrate.tsv`` e tutti i 28 file ``*_filt.fastq.gz``.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Certifica l'integrazione end-to-end tra orchestratore Python, ponte
         ``rbridge`` e libreria Bioconductor ``dada2`` sul sottoinsieme reale
         della Stazione Spaziale Internazionale.
@@ -641,12 +660,12 @@ def test_s2_produce_file_filtrati_e_tracciamento_con_il_suo_manifesto(dada2, fil
 
 def test_tutte_le_letture_filtrate_hanno_137_basi(dada2, filtrata):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che ogni singola sequenza scritta nei 28 file
         ``*_filt.fastq.gz`` abbia esattamente lunghezza pari a 137 basi
         (``filter.truncLen``) e che il numero di record FASTQ per file coincida
         con il conteggio riportato in ``letture_filtrate.tsv``.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         L'algoritmo di denoising DADA2 su letture single-end richiede sequenze
         troncate a lunghezza uniforme per allineare posizionalmente il modello
         parametrico di errore e confrontare le varianti esatte (ASV).
@@ -667,12 +686,12 @@ def test_tutte_le_letture_filtrate_hanno_137_basi(dada2, filtrata):
 
 def test_le_letture_in_ingresso_sono_quelle_contate_da_s1(dada2, filtrata):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare la perfetta coincidenza campione per campione tra i conteggi
         di ``02_qc_profiles/letture_grezze.tsv`` (emessi da S1 con ``ShortRead``)
         e quelli di ``03_filtered/letture_prefiltro.tsv`` (letti in ingresso da
         ``dada2::filterAndTrim`` in S2).
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Garantisce la continuita' contabile delle letture tra fasi indipendenti:
         nessuna sequenza viene persa o duplicata nel passaggio tra la
         profilatura S1 e il filtraggio S2.
@@ -685,12 +704,12 @@ def test_le_letture_in_ingresso_sono_quelle_contate_da_s1(dada2, filtrata):
 
 def test_il_tracciamento_si_ricompone_senza_toccare_i_file_di_s2(dada2, filtrata, tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che ``ricomponi()`` unisca in ordine topologico i passi di
         tracciamento di S1 (``grezze``), S2 (``prefiltro``, ``filtrate``) e di
         una fase successiva S3 (``modello``) lasciando inalterati il manifesto e
         gli artefatti di S2.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Se una fase a valle modificasse in-place una tabella di tracciamento
         scritta da S2, corromperebbe l'hash SHA-256 registrato in
         ``manifest_S2.json`` invalidando S2; l'architettura per composizione
@@ -736,11 +755,11 @@ def test_il_tracciamento_si_ricompone_senza_toccare_i_file_di_s2(dada2, filtrata
 
 def test_con_max_ee_molto_restrittivo_il_filtro_si_ferma(dada2, filtrata, tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che una soglia ``filter.maxEE = 0.01`` estremamente severa
         arresti realmente l'esecuzione di S2 con ``E-S2-01`` o ``E-S2-02`` e
         impedisca la scrittura del manifesto ``manifest_S2.json``.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Collauda l'integrazione reale tra l'output di ``dada2::filterAndTrim``
         e il guardiano post-filtro Python: una fase fallita per perdita eccessiva
         di letture non deve mai apparire conclusa.
@@ -763,11 +782,11 @@ def test_con_max_ee_molto_restrittivo_il_filtro_si_ferma(dada2, filtrata, tmp_pa
 
 def test_un_archivio_corrotto_si_ferma_dopo_i_tentativi(dada2, tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Verificare che un file ``.fastq.gz`` troncato al 70% (oltre le prime 20
         letture ispezionate da S0) superi S0 ma venga bloccato da S2 con codice
         ``E-S2-03`` dopo esattamente 2 tentativi.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Dimostra sperimentalmente la complementarita' tra S0 (validazione rapida
         della testa del file) e S2 (pre-decompressione integrale prima di
         ``filterAndTrim``), evitando che DADA2 processi silenziosamente un
@@ -801,12 +820,12 @@ def test_un_archivio_corrotto_si_ferma_dopo_i_tentativi(dada2, tmp_path):
 @pytest.mark.dati_reali
 def test_s2_sul_dataset_completo(dada2, tmp_path):
     """
-    Obiettivo:
+    **Obiettivo**:
         Validare l'esecuzione end-to-end di S0, S1 e S2 sull'intero dataset
         NASA GeneLab OSD-734 (960 campioni), accertando zero campioni azzerati,
         perdita media controllata inferiore al 5% e lunghezza uniforme di 137 bp
         su tutti i 960 file ``*_filt.fastq.gz``.
-    Razionale scientifico e sistemistico:
+    **Razionale scientifico e sistemistico**:
         Costituisce il collaudo di accettazione su scala reale (2.4 GB di
         letture MiSeq): conferma che i parametri di filtraggio conservano oltre
         il 98% delle letture senza azzerare neppure i controlli negativi o i

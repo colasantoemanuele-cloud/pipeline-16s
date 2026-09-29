@@ -113,6 +113,9 @@ RADICE = Path(__file__).resolve().parents[1]
 
 @pytest.fixture(autouse=True)
 def uscite_pulite():
+    """Chiude le uscite del log prima e dopo ogni test, perché nessun handler resti
+    aperto sulla cartella temporanea.
+    """
     chiudi()
     yield
     chiudi()
@@ -212,6 +215,7 @@ def test_la_versione_ridotta_e_integra_e_piccola():
 
 
 def _lunghezze(percorso: Path) -> list[int]:
+    """Le lunghezze delle sequenze di un file FASTQ compresso, nell'ordine del file."""
     with gzip.open(percorso, "rt") as file:
         return [len(r.rstrip("\n")) for i, r in enumerate(file) if i % 4 == 1]
 
@@ -287,6 +291,9 @@ def test_i_fastq_di_prova_non_sono_ignorati_da_git():
 
 
 def _motivo_bioconductor_assente() -> str | None:
+    """Il motivo per saltare i test di S1 (Rscript, ShortRead, Biostrings o jsonlite
+    assenti), o ``None``.
+    """
     rscript = trova_rscript()
     if rscript is None:
         return "Rscript non disponibile"
@@ -314,11 +321,13 @@ def bioconductor():
 
 
 def _fino_a_s1(config):
+    """Esegue il grafo fino a S1 e restituisce l'esecuzione e il suo esito."""
     run = ProjectRun(config)
     return run, Esecutore(run, fino_a=Passo.S1).esegui()
 
 
 def _profili(run) -> Path:
+    """La cartella dei profili di qualità dell'esecuzione."""
     return run.albero.cartella(Fase.QC_PROFILES)
 
 

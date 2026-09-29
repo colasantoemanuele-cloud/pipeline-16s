@@ -182,6 +182,9 @@ class ModelloErrore(PipelineStep):
     }
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Pianifica e stima un modello d'errore per corsa con ``R/03_learn_errors.R`` e
+        ne verifica la convergenza.
+        """
         if contesto.inventario is None:
             raise RuntimeError("S3 richiede l'inventario prodotto da S0")
         config = contesto.config

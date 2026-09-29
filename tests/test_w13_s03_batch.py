@@ -117,6 +117,9 @@ CORSA_B = "3DMM_rerun_Plates_6-10_S1_L001"
 
 @pytest.fixture(autouse=True)
 def uscite_pulite():
+    """Chiude le uscite del log prima e dopo ogni test, perché nessun handler resti
+    aperto sulla cartella temporanea.
+    """
     chiudi()
     yield
     chiudi()
@@ -133,7 +136,7 @@ def test_i_nomi_delle_corse_diventano_nomi_di_file_sicuri():
     dei modelli, siano ridotti a caratteri sicuri, senza collisioni e senza
     occupare il nome riservato al modello unico.
 
-    **Razionale Scientifico/Sistemistico**: Un nome di corsa con barre o spazi
+    **Razionale scientifico e sistemistico**: Un nome di corsa con barre o spazi
     produrrebbe percorsi sbagliati; due corse che si riducono allo stesso nome
     si sovrascriverebbero il modello a vicenda.
     """
@@ -163,6 +166,7 @@ def inventario_ridotto(tmp_path_factory) -> Inventario:
 
 
 def _letture(inventario: Inventario, quante: int = 1000) -> dict[str, int]:
+    """Lo stesso numero di letture filtrate per ogni campione dell'inventario."""
     return {c.accession: quante for c in inventario}
 
 
@@ -172,7 +176,7 @@ def test_un_modello_per_corsa(inventario_ridotto, tmp_path):
     pianifichino due modelli, uno per ciascuna corsa, e che ogni campione
     appartenga al modello della propria corsa.
 
-    **Razionale Scientifico/Sistemistico**: Corse diverse hanno profili
+    **Razionale scientifico e sistemistico**: Corse diverse hanno profili
     d'errore diversi; un modello unico li medierebbe.
     """
     modelli = pianifica(inventario_ridotto, _letture(inventario_ridotto), 137, config_ridotta(tmp_path))
@@ -194,7 +198,7 @@ def test_senza_corsa_un_solo_modello(inventario_ridotto, tmp_path, sovrascrivi):
     file di arricchimento del lotto, si pianifichi un solo modello su tutti i
     campioni.
 
-    **Razionale Scientifico/Sistemistico**: La pipeline deve restare
+    **Razionale scientifico e sistemistico**: La pipeline deve restare
     utilizzabile senza il file di arricchimento del lotto.
     """
     config = config_ridotta(tmp_path, **sovrascrivi)
@@ -209,7 +213,7 @@ def test_un_campione_senza_corsa_con_la_colonna_attiva_ferma(inventario_ridotto,
     **Obiettivo**: Verificare che un campione senza corsa, con
     ``err.batch_column`` attivo, sollevi ``E-S3-02``.
 
-    **Razionale Scientifico/Sistemistico**: Un campione senza corsa non ha un
+    **Razionale scientifico e sistemistico**: Un campione senza corsa non ha un
     modello d'errore da cui farsi correggere; assegnarlo a caso sarebbe una
     scelta silenziosa.
     """
@@ -226,7 +230,7 @@ def test_l_ordine_dei_campioni_viene_dal_seme(inventario_ridotto, tmp_path):
     dipenda da ``run.seed`` quando ``err.randomize`` e' vero, e sia l'ordine
     delle accession quando e' falso.
 
-    **Razionale Scientifico/Sistemistico**: Due esecuzioni identiche devono
+    **Razionale scientifico e sistemistico**: Due esecuzioni identiche devono
     stimare il modello sugli stessi campioni.
     """
     letture = _letture(inventario_ridotto)
@@ -245,7 +249,7 @@ def test_la_stima_si_ferma_oltre_err_nbases(inventario_ridotto, tmp_path):
     finche' le basi superano ``err.nbases``, e che con ``err.nbases`` oltre le
     basi della corsa si usino tutte.
 
-    **Razionale Scientifico/Sistemistico**: E' la stessa regola di
+    **Razionale scientifico e sistemistico**: E' la stessa regola di
     ``learnErrors``; saperla applicare fuori da R dice su quali campioni e'
     stata fatta la stima, e se raddoppiare ``err.nbases`` servirebbe.
     """
@@ -265,7 +269,7 @@ def test_un_campione_senza_letture_filtrate_non_entra_nella_stima(inventario_rid
     **Obiettivo**: Verificare che un campione azzerato dal filtro resti nel
     modello della sua corsa ma non entri nella stima.
 
-    **Razionale Scientifico/Sistemistico**: Non ha un file filtrato da cui
+    **Razionale scientifico e sistemistico**: Non ha un file filtrato da cui
     stimare; la corrispondenza gli assegna comunque il modello della corsa.
     """
     letture = _letture(inventario_ridotto)
@@ -285,7 +289,7 @@ def test_la_politica_non_ritenta_se_la_fase_lo_dichiara_inutile(tmp_path):
     **Obiettivo**: Verificare che un errore che dichiara inutile l'azione
     correttiva non venga ritentato, con il motivo nell'arresto.
 
-    **Razionale Scientifico/Sistemistico**: Raddoppiare ``err.nbases`` non
+    **Razionale scientifico e sistemistico**: Raddoppiare ``err.nbases`` non
     cambia nulla se la stima usava gia' tutte le basi disponibili.
     """
     config = config_ridotta(tmp_path)
@@ -307,6 +311,9 @@ class _S3Doppione(PipelineStep):
         self.nbases: list[float] = []
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Annota ``err.nbases`` e fallisce sempre con ``E-S3-01``, con
+        ``RITENTARE_INUTILE`` se configurato.
+        """
         self.nbases.append(contesto.config.err.nbases)
         extra = {RITENTARE_INUTILE: "tutte le basi gia' usate"} if self.inutile else {}
         raise errore("E-S3-01", "doppione che non converge", **extra)
@@ -319,7 +326,7 @@ def test_l_esecutore_ritenta_solo_se_serve(inventario_ridotto, tmp_path, inutile
     fase lo dichiara inutile, e lo ritenti con ``err.nbases`` raddoppiato
     quando non lo dichiara.
 
-    **Razionale Scientifico/Sistemistico**: Un nuovo tentativo identico al
+    **Razionale scientifico e sistemistico**: Un nuovo tentativo identico al
     primo non serve; uno con piu' basi puo' servire.
     """
     from amplicon16s.runner.project import passi_realizzati
@@ -370,6 +377,7 @@ def dada2():
 
 
 def _fino_a_s3(config):
+    """Esegue il grafo fino a S3 e restituisce l'esecuzione e il suo esito."""
     run = ProjectRun(config)
     return run, Esecutore(run, fino_a=Passo.S3).esegui()
 
@@ -396,10 +404,12 @@ def _con_err(stimata, tmp_path: Path, **err):
 
 
 def _modelli(run) -> Path:
+    """La cartella dei modelli d'errore dell'esecuzione."""
     return run.albero.cartella(Fase.ERROR_MODELS)
 
 
 def _impronte(cartella: Path) -> dict[str, str]:
+    """L'MD5 di ogni file della cartella, esclusi i file del ponte e i manifesti."""
     return {
         p.name: hashlib.md5(p.read_bytes()).hexdigest()
         for p in sorted(cartella.iterdir())
@@ -413,7 +423,7 @@ def test_s3_produce_due_modelli_e_la_corrispondenza(dada2, stimata):
     e un grafico per ciascuna corsa, la corrispondenza campione-modello e il
     proprio manifesto.
 
-    **Razionale Scientifico/Sistemistico**: S4 leggera' la corrispondenza
+    **Razionale scientifico e sistemistico**: S4 leggera' la corrispondenza
     invece di ricalcolarla.
     """
     run, esito = stimata
@@ -443,7 +453,7 @@ def test_i_grafici_mostrano_errori_decrescenti_con_la_qualita(dada2, stimata):
     che rappresentano abbia, per ogni sostituzione, un tasso d'errore stimato
     piu' basso a qualita' 40 che a qualita' 15.
 
-    **Razionale Scientifico/Sistemistico**: E' la forma attesa del modello: a
+    **Razionale scientifico e sistemistico**: E' la forma attesa del modello: a
     qualita' piu' alta, meno errori. Un modello piatto o crescente sarebbe il
     segno di una stima sbagliata.
     """
@@ -465,7 +475,7 @@ def test_due_esecuzioni_identiche_danno_artefatti_identici(dada2, stimata, tmp_p
     **Obiettivo**: Verificare che una seconda esecuzione da zero produca in
     ``04_error_models`` gli stessi byte della prima, modelli e grafici compresi.
 
-    **Razionale Scientifico/Sistemistico**: La verifica finale di
+    **Razionale scientifico e sistemistico**: La verifica finale di
     riproducibilita' confronta i checksum da un clone pulito; un grafico con
     la data di creazione la renderebbe impossibile.
     """
@@ -481,7 +491,7 @@ def test_cambiare_err_nbases_rifa_solo_s3(dada2, stimata, tmp_path):
     di ``err.nbases`` lasci concluse S0, S1 e S2 e che la ripresa rifaccia
     soltanto S3.
 
-    **Razionale Scientifico/Sistemistico**: Le fasi dichiarano i parametri da
+    **Razionale scientifico e sistemistico**: Le fasi dichiarano i parametri da
     cui dipendono: S0-S2 non leggono err.nbases, e rifarle costerebbe un quarto
     d'ora sul dataset completo senza cambiare nulla.
     """
@@ -507,7 +517,7 @@ def test_con_err_batch_column_nullo_un_solo_modello(dada2, tmp_path):
     **Obiettivo**: Verificare che con ``err.batch_column`` nullo S3 produca un
     solo modello su tutti i campioni e che l'esecuzione resti valida.
 
-    **Razionale Scientifico/Sistemistico**: E' il ramo che rende la pipeline
+    **Razionale scientifico e sistemistico**: E' il ramo che rende la pipeline
     utilizzabile senza il file di arricchimento del lotto.
     """
     run, esito = _fino_a_s3(config_ridotta(tmp_path, err={"batch_column": None}))
@@ -526,7 +536,7 @@ def test_la_mancata_convergenza_senza_basi_in_piu_non_si_ritenta(dada2, stimata,
     converga, che S3 sollevi ``E-S3-01``, e che, avendo gia' usato tutte le
     basi disponibili, il retry non venga tentato e il motivo sia dichiarato.
 
-    **Razionale Scientifico/Sistemistico**: Sulla versione ridotta le basi
+    **Razionale scientifico e sistemistico**: Sulla versione ridotta le basi
     disponibili sono meno di 1e8: raddoppiare ``err.nbases`` darebbe un
     tentativo identico.
     """
@@ -546,7 +556,7 @@ def test_la_mancata_convergenza_con_basi_in_piu_si_ritenta(dada2, stimata, tmp_p
     disponibili, la mancata convergenza venga ritentata con ``err.nbases``
     raddoppiato, e si fermi dopo i tentativi ammessi.
 
-    **Razionale Scientifico/Sistemistico**: Qui il raddoppio cambia davvero i
+    **Razionale scientifico e sistemistico**: Qui il raddoppio cambia davvero i
     dati della stima: il nuovo tentativo ha senso.
     """
     run, esito = _con_err(stimata, tmp_path, max_consist=1, nbases=100000)
@@ -563,7 +573,7 @@ def test_l_errore_e_ritentabile_con_revisione():
     **Obiettivo**: Verificare che ``E-S3-01`` sia della categoria retry poi
     revisione umana.
 
-    **Razionale Scientifico/Sistemistico**: Se non converge nemmeno con piu'
+    **Razionale scientifico e sistemistico**: Se non converge nemmeno con piu'
     basi, la causa va capita: il lotto potrebbe raccogliere dati eterogenei.
     """
     assert isinstance(errore("E-S3-01"), ErroreRitentabileConRevisione)
@@ -581,7 +591,7 @@ def test_s3_sul_dataset_completo(dada2, tmp_path):
     uno per corsa, entrambi convergenti, stimati su una parte delle basi
     disponibili e non su tutte.
 
-    **Razionale Scientifico/Sistemistico**: E' la situazione in cui
+    **Razionale scientifico e sistemistico**: E' la situazione in cui
     ``err.nbases`` conta davvero: ogni corsa ha circa due miliardi di basi, e la
     stima ne usa poco piu' di 1e8.
     """

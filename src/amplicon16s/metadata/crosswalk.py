@@ -71,6 +71,7 @@ def _pulisci(valore: str | None) -> str:
 
 
 def _leggi_tsv(percorso: Path) -> list[dict[str, str]]:
+    """Le righe di una tabella separata da tabulazioni, con i valori ripuliti."""
     with open(percorso, encoding="utf-8", newline="") as file:
         return [
             {chiave: _pulisci(valore) for chiave, valore in riga.items() if chiave}
@@ -127,10 +128,14 @@ class Analisi:
     campioni: list[Campione] = field(default_factory=list)
 
     def inventario(self) -> Inventario:
+        """L'inventario dei campioni ricavati dal crosswalk."""
         return Inventario(campioni=tuple(self.campioni))
 
 
 def _accessioni_dei_file(config: Config, analisi: Analisi) -> dict[str, Path]:
+    """Associa a ogni accession il file di letture; registra nell'analisi i nomi senza
+    accession e le ripetizioni.
+    """
     espressione = re.compile(config.io.accession_regex)
     per_accession: dict[str, list[Path]] = defaultdict(list)
 
@@ -151,6 +156,9 @@ def _accessioni_dei_file(config: Config, analisi: Analisi) -> dict[str, Path]:
 
 
 def _righe_assay(config: Config, analisi: Analisi) -> dict[str, RigaAssay]:
+    """Associa a ogni accession la riga della tabella di assay; registra nell'analisi le
+    righe senza accession e le ripetizioni.
+    """
     espressione = re.compile(config.io.accession_regex)
     per_accession: dict[str, list[RigaAssay]] = defaultdict(list)
 
@@ -175,6 +183,7 @@ def _righe_assay(config: Config, analisi: Analisi) -> dict[str, RigaAssay]:
 
 
 def _righe_studio(config: Config) -> dict[str, list[dict[str, str]]]:
+    """Le righe della tabella di studio raggruppate per nome del campione."""
     per_nome: dict[str, list[dict[str, str]]] = defaultdict(list)
     for riga in _leggi_tsv(Path(config.io.study_table)):
         per_nome[riga.get(config.meta.sample_id_column, "")].append(riga)
@@ -190,6 +199,8 @@ _VALORI_ASSENTI: frozenset[str] = frozenset(
 
 
 def _valore_o_assente(grezzo: str | None) -> str | None:
+    """Il valore ripulito, o ``None`` se è una delle convenzioni per "non applicabile".
+    """
     return None if (grezzo or "").strip().casefold() in _VALORI_ASSENTI else grezzo.strip()
 
 

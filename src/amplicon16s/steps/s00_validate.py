@@ -70,14 +70,17 @@ class RisultatoS0:
 
     @property
     def superata(self) -> bool:
+        """Vero se tutti i gate sono superati."""
         return all(e.superato for e in self.esiti)
 
     @property
     def falliti(self) -> tuple[EsitoGate, ...]:
+        """I gate eseguiti e non superati."""
         return tuple(e for e in self.esiti if e.eseguito and not e.superato)
 
     @property
     def avvisi(self) -> tuple[Any, ...]:
+        """Gli avvisi di tutti i gate, nell'ordine di esecuzione."""
         return tuple(a for e in self.esiti for a in e.avvisi)
 
 
@@ -100,6 +103,9 @@ def _crosswalk_tsv(inventario: Inventario) -> str:
 
 
 def _inventario_json(inventario: Inventario) -> str:
+    """L'inventario come documento JSON: conteggi per classe, denominatore di
+    prevalenza, moduli, piastre e corse.
+    """
     conteggi = inventario.conteggi()
     documento = {
         "campioni": len(inventario),
@@ -144,6 +150,7 @@ def _letture_tsv(scansione: dict[str, Any], head_reads: int) -> str:
 
 
 def _esiti_json(esiti: tuple[EsitoGate, ...], secondi: float) -> str:
+    """L'esito di ogni gate come documento JSON, con la durata complessiva."""
     documento = {
         "superata": all(e.superato for e in esiti),
         "secondi": round(secondi, 3),
@@ -247,6 +254,9 @@ class ValidazioneIngressi(PipelineStep):
         self._coerenza: EsitoGate | None = None
 
     def impronta_dati_esterni(self, config: Config) -> str | None:
+        """L'impronta dei dati grezzi da nome, dimensione e istante di modifica dei
+        file.
+        """
         return impronta_dati_grezzi(config)
 
     def esegui(self, contesto: StepContext) -> StepResult:
@@ -258,6 +268,9 @@ class ValidazioneIngressi(PipelineStep):
             self._coerenza = None
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Esegue i gate G15 e G01-G14 e scrive esiti, crosswalk, inventario e
+        statistiche delle letture.
+        """
         config = contesto.config
         log = contesto.logger
         inizio = time.perf_counter()

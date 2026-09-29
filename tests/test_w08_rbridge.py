@@ -1,47 +1,94 @@
-"""Suite di verifica del ponte di esecuzione subprocess verso R/Rscript (``rbridge``).
+r"""Suite di verifica del ponte di esecuzione subprocess verso R/Rscript (``rbridge``).
 
-Inquadramento nel Piano Operativo
----------------------------------
-* **Settimana di riferimento**: **Settimana 5 / Settimana 8 (W5/W8 : Fase F1/F3:
-  Ponte di comunicazione ed esecuzione subprocess verso R/Rscript)**.
-* **Moduli sorgente coperti**:
-  - ``src/amplicon16s/rbridge/payload.py``
-  - ``src/amplicon16s/rbridge/runner.py``
-  - ``R/lib/io_json.R``
-  - ``R/lib/errors.R``
-* **Comando Bash**: ``pytest tests/test_w08_rbridge.py -v``
-* **Risultato atteso**: ``62 passed in ~10.50s``
+1. Inquadramento nel Piano Operativo
+------------------------------------
+Settimane 5 e 8 (W5/W8), Fasi F1 e F3 (ponte di comunicazione ed esecuzione
+subprocess verso R/Rscript).
 
-Scopo sperimentale e razionale scientifico/sistemistico
--------------------------------------------------------
-Il ponte ``rbridge`` è il meccanismo attraverso cui l'orchestratore Python
-invoca i pacchetti R/Bioconductor (``dada2``, ``DECIPHER``, ``phangorn``,
-``phyloseq``, ``decontam``). I test provano sia il contratto formale in memoria
-sia l'esecuzione reale degli script in ``tests/r_doppioni/`` su un vero
-interprete ``Rscript``, presidiando cinque proprietà critiche:
+2. Moduli sorgente coperti
+--------------------------
+* ``src/amplicon16s/rbridge/payload.py``
+* ``src/amplicon16s/rbridge/runner.py``
+* ``R/lib/io_json.R``
+* ``R/lib/errors.R``
+* ``tests/r_doppioni/`` (script R di prova)
 
-1. **Isolamento dei processi (``Rscript --vanilla`` in nuova sessione POSIX)**:
-   R non viene mai caricato *in-process* (nessun ``rpy2`` o memoria condivisa C).
-   In questo modo un crash catastrofico nelle estensioni C++/Rcpp di DADA2 o
-   DECIPHER (``SIGSEGV``, ``std::bad_alloc``, ``malloc`` failure) o un ``SIGKILL``
-   dell'OOM killer Linux uccide soltanto il figlio ``Rscript``, lasciando
-   intatto l'orchestratore Python per registrare il guasto o applicare il retry.
-2. **Contratto atomico su filesystem con UUID di invocazione**: lo scambio avviene
-   tramite ``rbridge_richiesta.json`` e ``rbridge_esito.json`` legati da un
-   identificativo univoco ``invocazione``, impedendo che un file ``rbridge_esito.json``
-   residuo di un tentativo precedente venga scambiato per il risultato attuale.
-3. **Riconoscimento multi-segnale della memoria esaurita (OOM)**: intercetta sia
-   l'errore R ``cannot allocate vector of size ...`` / ``std::bad_alloc`` (con o
-   senza dichiarazione JSON), sia l'uccisione diretta da parte del kernel Linux
-   tramite ``SIGKILL`` (codice ``-9`` o ``137``), mappandoli sul ``codice_memoria``
-   della fase (es. ``E-S2-03``, ``E-S4-02``, ``E-S5-01``) o su ``E-R-04``.
-4. **Normalizzazione linguistica (``LANGUAGE=en``)**: forza l'ambiente del
-   sottoprocesso R a emettere diagnostica in inglese anche su sistemi operativi
-   configurati in italiano/tedesco/francese, evitando che la localizzazione dei
-   messaggi di errore rompa il riconoscimento regex dell'esaurimento di memoria.
-5. **Governo dei timeout con ``os.killpg``**: uccide l'intero process group del
-   figlio allo scadere di ``tempo_massimo_s``, impedendo che uno script R in
-   stallo blocchi indefinitamente la pipeline.
+3. Cosa valuta questo file
+--------------------------
+Il contratto in memoria e l'esecuzione reale degli script di
+``tests/r_doppioni/`` su un interprete ``Rscript``:
+
+- richiesta JSON con parametri e riferimenti, rimozione dell'esito di un
+  tentativo precedente, rifiuto di un parametro non rappresentabile in JSON;
+- lettura della dichiarazione d'esito: assente, errore dichiarato, contratto
+  violato, file troncato; classificazione della condizione di uscita del processo;
+- ricerca dell'interprete e della cartella degli script R, con errore del
+  catalogo in assenza dell'interprete;
+- successo con artefatti e tracciamento delle letture; un secondo tentativo
+  non legge l'esito del primo; un artefatto dichiarato ma assente non è un
+  successo;
+- errore dichiarato, codice fuori catalogo, errore R non catalogato, processo
+  morto senza dichiarare, processo bloccato ucciso allo scadere del tempo,
+  guasto grave di R che non ferma il chiamante;
+- memoria esaurita intercettata da R, esaurita prima di poter dichiarare,
+  processo ucciso dal sistema, fase senza codice di memoria; riconoscimento
+  indipendente dalla lingua e ``LANGUAGE=en`` sempre passato al figlio;
+- uscite standard e di errore del processo R nel log strutturato, anche in
+  caso di successo.
+
+4. Comandi Bash e scenari di esecuzione
+---------------------------------------
+    1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
+       dati reali):
+       pytest tests/test_w08_rbridge.py -v
+
+    2. Modalità container Docker standard (sottoinsieme ridotto con
+       R/Bioconductor):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -v "$(pwd)":/app \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w08_rbridge.py -v
+
+    3. Modalità container Docker completa (con i 2.4 GB di dati reali OSD-734;
+       la configurazione e i percorsi che contiene devono stare nella cartella
+       montata):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
+         -v "$(pwd)":/app \
+         -v "$HOME/ASI":"$HOME/ASI" \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w08_rbridge.py -v
+
+5. Risultato atteso
+-------------------
+62 test totali:
+- 62 passed in ambiente locale standard (~10.7s);
+- 61 passed, 1 skipped nel container Docker standard sul sottoinsieme ridotto
+  (~9.4s): resta saltato ``test_il_riconoscimento_non_dipende_dalla_lingua``,
+  perché con R 4.5.2 il messaggio di allocazione fallita è in inglese anche
+  senza forzatura e il test non proverebbe nulla;
+- 61 passed, 1 skipped nel container Docker con i dati reali OSD-734 (~8.0s):
+  resta saltato ``test_il_riconoscimento_non_dipende_dalla_lingua``, perché con
+  R 4.5.2 il messaggio di allocazione fallita è in inglese anche senza forzatura
+  e il test non proverebbe nulla.
+
+6. Razionale scientifico e sistemistico
+---------------------------------------
+- R non viene mai caricato nello stesso processo: un crash delle estensioni
+  C/C++ di DADA2 o l'uccisione da parte del kernel colpiscono solo il processo
+  figlio, e l'orchestratore resta in grado di registrare il guasto o di
+  applicare il retry.
+- La dichiarazione d'esito porta l'identificativo dell'invocazione, perché un
+  esito residuo di un tentativo precedente non venga scambiato per quello
+  attuale.
+- La memoria esaurita va riconosciuta in tutte le forme in cui si presenta, e
+  ricondotta al codice di memoria della fase (per esempio ``E-S4-02``,
+  ``E-S5-01``) o a ``E-R-04``: è la condizione per cui il retry con un lotto più
+  piccolo ha senso.
 """
 
 from __future__ import annotations
@@ -101,6 +148,9 @@ esegui_script = functools.partial(_esegui_script, tempo_massimo_s=120)
 
 @pytest.fixture(autouse=True)
 def uscite_pulite():
+    """Chiude le uscite del log prima e dopo ogni test, perché nessun handler resti
+    aperto sulla cartella temporanea.
+    """
     chiudi()
     yield
     chiudi()
@@ -108,6 +158,7 @@ def uscite_pulite():
 
 @pytest.fixture
 def albero(tmp_path) -> AlberoOutput:
+    """Un albero di output vuoto nella cartella temporanea del test."""
     return AlberoOutput(tmp_path / "out")
 
 
@@ -117,6 +168,9 @@ def albero(tmp_path) -> AlberoOutput:
 
 
 def _motivo_r_assente() -> str | None:
+    """Il motivo per saltare i test che eseguono R (Rscript o jsonlite assenti), o
+    ``None`` se R è utilizzabile.
+    """
     rscript = trova_rscript()
     if rscript is None:
         return "Rscript non disponibile"
@@ -204,6 +258,7 @@ solo_linux = pytest.mark.skipif(
 
 
 def _righe_log(radice: Path) -> list[dict]:
+    """Gli eventi del file di log strutturato sotto la radice indicata."""
     percorso = radice / Fase.LOGS.value / NOME_FILE_LOG
     return [json.loads(r) for r in percorso.read_text(encoding="utf-8").splitlines()]
 
@@ -214,6 +269,7 @@ def _righe_log(radice: Path) -> list[dict]:
 
 
 def _dichiara(percorso: Path, invocazione: str = "abc", **campi) -> None:
+    """Scrive una dichiarazione d'esito riuscita, con i campi indicati sostituiti."""
     documento = {
         "protocollo": PROTOCOLLO,
         "invocazione": invocazione,
@@ -232,7 +288,7 @@ def test_la_richiesta_porta_parametri_e_riferimenti(tmp_path):
     con versione del ``protocollo``, ID di ``invocazione``, percorsi e parametri
     (convertendo ``Path`` in stringa).
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che lo script R riceva
+    **Razionale scientifico e sistemistico**: Garantisce che lo script R riceva
     tutti i parametri e i riferimenti alle directory in un unico documento JSON
     auto-contenuto e tipizzato.
     """
@@ -256,7 +312,7 @@ def test_la_richiesta_rimuove_l_esito_di_un_tentativo_precedente(tmp_path):
     **Obiettivo**: Verificare che ``scrivi_richiesta`` cancelli preventivamente
     un eventuale ``rbridge_esito.json`` già presente nella cartella della fase.
 
-    **Razionale Scientifico/Sistemistico**: Impedisce che, qualora il nuovo
+    **Razionale scientifico e sistemistico**: Impedisce che, qualora il nuovo
     processo R muoia prima di poter scrivere il proprio esito, il runner legga
     per errore l'esito residuo dell'esecuzione precedente.
     """
@@ -272,7 +328,7 @@ def test_un_parametro_non_json_e_respinto(tmp_path, valore):
     o ``TypeError`` valori ``NaN``, ``Inf`` o oggetti Python arbitrari senza
     lasciare ``rbridge_richiesta.json`` su disco.
 
-    **Razionale Scientifico/Sistemistico**: Lo standard JSON (RFC 8259) e
+    **Razionale scientifico e sistemistico**: Lo standard JSON (RFC 8259) e
     ``jsonlite`` in R non ammettono letterali ``NaN``/``Infinity`` non quotati;
     bloccarli sul lato Python evita errori di parsing opachi dentro R.
     """
@@ -286,7 +342,7 @@ def test_dichiarazione_assente_e_nessuna_dichiarazione(tmp_path):
     **Obiettivo**: Verificare che ``leggi_dichiarazione`` restituisca ``None``
     quando il file ``rbridge_esito.json`` non esiste su disco.
 
-    **Razionale Scientifico/Sistemistico**: Consente al classificatore di
+    **Razionale scientifico e sistemistico**: Consente al classificatore di
     distinguere un processo R che ha chiuso ordinatamente il contratto da uno
     terminato prematuramente (crash, segfault, ``quit()``).
     """
@@ -299,7 +355,7 @@ def test_dichiarazione_di_un_errore(tmp_path):
     correttamente uno stato ``errore_catalogo`` con codice ``E-S2-03`` e
     messaggio di dettaglio.
 
-    **Razionale Scientifico/Sistemistico**: Permette alle funzioni R di
+    **Razionale scientifico e sistemistico**: Permette alle funzioni R di
     segnalare condizioni di errore note al catalogo Python preservando il codice
     esatto e il dettaglio contestuale (es. quale lotto ha fallito).
     """
@@ -331,7 +387,7 @@ def test_dichiarazione_che_viola_il_contratto(tmp_path, campi):
     coincidono, se ``stato``/``codice`` sono incoerenti o se gli ``artefatti``
     contengono path assoluti o *path traversal* (``../``).
 
-    **Razionale Scientifico/Sistemistico**: Blindatura del confine tra R e
+    **Razionale scientifico e sistemistico**: Blindatura del confine tra R e
     Python: rifiuta risposte appartenenti ad altre invocazioni (anti-replay) e
     impedisce a uno script R di dichiarare artefatti fuori dalla cartella della
     fase corrente.
@@ -347,7 +403,7 @@ def test_dichiarazione_troncata(tmp_path):
     **Obiettivo**: Verificare che un file ``rbridge_esito.json`` con JSON
     troncato a metà sollevi ``DichiarazioneNonValida("illeggibile")``.
 
-    **Razionale Scientifico/Sistemistico**: Intercetta scritture interrotte da
+    **Razionale scientifico e sistemistico**: Intercetta scritture interrotte da
     disco pieno o uccisione del processo durante il flush di ``jsonlite``.
     """
     percorso = tmp_path / NOME_ESITO
@@ -362,6 +418,7 @@ def test_dichiarazione_troncata(tmp_path):
 
 
 def _d(stato: Stato, codice: str | None = None, messaggio: str = "") -> Dichiarazione:
+    """Una dichiarazione d'esito senza artefatti."""
     return Dichiarazione(stato, codice, messaggio, ())
 
 
@@ -409,7 +466,7 @@ def test_classificazione(uscita, dichiarazione, stderr, attesa):
     dichiarazione, stderr)`` su tutte le combinazioni di exit code, segnali
     POSIX (``SIGKILL``, ``SIGSEGV``), dichiarazioni JSON e diagnostica ``stderr``.
 
-    **Razionale Scientifico/Sistemistico**: Un processo R può esaurire la RAM in
+    **Razionale scientifico e sistemistico**: Un processo R può esaurire la RAM in
     tre modi diversi (errore intercettato da ``tryCatch`` in R, ``std::bad_alloc``
     in C++ su ``stderr``, oppure ``SIGKILL`` del kernel Linux) e può persino
     morire di ``SIGSEGV`` *dopo* aver scritto ``stato="riuscito"`` durante la
@@ -430,7 +487,7 @@ def test_rscript_indicato_che_non_esiste(tmp_path):
     **Obiettivo**: Verificare che ``trova_rscript`` restituisca ``None`` se il
     percorso esplicito fornito non esiste.
 
-    **Razionale Scientifico/Sistemistico**: Consente al chiamante di rilevare
+    **Razionale scientifico e sistemistico**: Consente al chiamante di rilevare
     immediatamente un eseguibile ``Rscript`` mancante prima di tentare ``Popen``.
     """
     assert trova_rscript(tmp_path / "Rscript") is None
@@ -441,7 +498,7 @@ def test_rscript_dalla_variabile_d_ambiente(tmp_path, monkeypatch):
     **Obiettivo**: Verificare che ``trova_rscript`` rispetti la variabile
     d'ambiente ``AMPLICON16S_RSCRIPT`` quando punta a un file eseguibile.
 
-    **Razionale Scientifico/Sistemistico**: Permette di selezionare una
+    **Razionale scientifico e sistemistico**: Permette di selezionare una
     specifica installazione di R (es. dentro un modulo HPC o un ambiente Conda/renv
     dedicato) senza modificare il ``PATH`` di sistema.
     """
@@ -457,7 +514,7 @@ def test_la_cartella_r_predefinita_e_quella_del_repository():
     **Obiettivo**: Verificare che ``cartella_r()`` individui la directory ``R/``
     del repository contenente ``lib/errors.R``.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che gli script R trovino
+    **Razionale scientifico e sistemistico**: Garantisce che gli script R trovino
     sempre le librerie condivise ``io_json.R`` ed ``errors.R``.
     """
     assert (cartella_r() / "lib" / "errors.R").is_file()
@@ -468,7 +525,7 @@ def test_la_cartella_r_si_indica(tmp_path, monkeypatch):
     **Obiettivo**: Verificare che la variabile d'ambiente ``AMPLICON16S_R_DIR``
     sovrascriva il percorso restituito da ``cartella_r()``.
 
-    **Razionale Scientifico/Sistemistico**: Consente il disaccoppiamento del
+    **Razionale scientifico e sistemistico**: Consente il disaccoppiamento del
     percorso degli script R quando il pacchetto Python è installato in
     ``site-packages`` dentro un container.
     """
@@ -482,7 +539,7 @@ def test_senza_interprete_l_errore_e_del_catalogo(albero, tmp_path):
     sollevi ``ErroreRevisioneUmana`` con codice ``E-R-01`` e
     ``condizione_r == "non_avviato"``.
 
-    **Razionale Scientifico/Sistemistico**: Traduce l'assenza dell'interprete R
+    **Razionale scientifico e sistemistico**: Traduce l'assenza dell'interprete R
     in un errore strutturato del catalogo (``E-R-01``) con istruzioni chiare per
     l'utente anziché in un ``FileNotFoundError`` di sistema.
     """
@@ -500,7 +557,7 @@ def test_un_codice_di_memoria_inesistente_e_un_difetto_del_chiamante(albero):
     ``codice_memoria="E-S99-01"`` non presente nel catalogo sollevi subito
     ``KeyError`` prima ancora di avviare R.
 
-    **Razionale Scientifico/Sistemistico**: Valida preventivamente il codice di
+    **Razionale scientifico e sistemistico**: Valida preventivamente il codice di
     fallback per OOM fornito dallo step Python, evitando che un codice errato
     resti latente finché non si verifica davvero un esaurimento di memoria.
     """
@@ -520,7 +577,7 @@ def test_successo(r, albero):
     artefatti e registrazione nel manifesto della fase (escludendo i file di
     servizio del ponte).
 
-    **Razionale Scientifico/Sistemistico**: Dimostra su un vero processo R che
+    **Razionale scientifico e sistemistico**: Dimostra su un vero processo R che
     numeri, liste e dizionari attraversano il confine Python → JSON → R → JSON → Python
     senza perdita di tipo o precisione e che gli artefatti prodotti da R vengono
     immediatamente sigillati con SHA-256 in ``AlberoOutput``.
@@ -555,7 +612,7 @@ def test_tracciamento_delle_letture(r, albero):
     produca il file TSV ``letture_doppione.tsv`` con le colonne ``campione``,
     ``passo`` e ``letture``.
 
-    **Razionale Scientifico/Sistemistico**: Standardizza il tracciamento della
+    **Razionale scientifico e sistemistico**: Standardizza il tracciamento della
     perdita di letture campione per campione attraverso i passaggi R (filtraggio,
     denoising, fusione, rimozione chimere) per il report QC finale.
     """
@@ -576,7 +633,7 @@ def test_un_secondo_tentativo_non_legge_l_esito_del_primo(r, albero):
     viene lanciato ``fallimento_dichiarato.R`` (che esce senza scrivere esito),
     ``esegui_script`` sollevi ``E-R-02`` e non rilegga il successo precedente.
 
-    **Razionale Scientifico/Sistemistico**: Impedisce il bug critico di *stale
+    **Razionale scientifico e sistemistico**: Impedisce il bug critico di *stale
     result*, in cui il crash silenzioso di un ricalcolo verrebbe mascherato dal
     file ``rbridge_esito.json`` lasciato da una corsa precedente.
     """
@@ -597,7 +654,7 @@ def test_un_artefatto_dichiarato_ma_assente_non_e_un_successo(r, albero):
     elencando un artefatto ``mai_scritto.rds`` che non esiste su disco, il ponte
     sollevi ``ErroreRevisioneUmana`` con codice ``E-R-02`` senza aggiornare il manifesto.
 
-    **Razionale Scientifico/Sistemistico**: Non si fida ciecamente della
+    **Razionale scientifico e sistemistico**: Non si fida ciecamente della
     dichiarazione verbale dello script R ma verifica l'esistenza fisica su
     filesystem di ogni singolo file promesso prima di sigillare il manifesto.
     """
@@ -630,7 +687,7 @@ def test_fallimento_dichiarato(r, albero, codice, classe):
     prevista dalla categoria del codice (``ErroreRevisioneUmana``, ``ErroreRitentabile``
     o ``ErroreRitentabileConRevisione``).
 
-    **Razionale Scientifico/Sistemistico**: Consente agli script R di partecipare
+    **Razionale scientifico e sistemistico**: Consente agli script R di partecipare
     direttamente alla macchina a stati di gestione degli errori e di attivare il
     retry automatico con aggiustamento dei parametri sul lato Python.
     """
@@ -654,7 +711,7 @@ def test_un_codice_dichiarato_fuori_catalogo(r, albero):
     non esistente nel catalogo Python, il ponte sollevi ``ErroreRevisioneUmana``
     con codice ``E-R-03``.
 
-    **Razionale Scientifico/Sistemistico**: Intercetta eventuali disallineamenti
+    **Razionale scientifico e sistemistico**: Intercetta eventuali disallineamenti
     tra i codici usati negli script R e il catalogo centrale Python, evitando
     ``KeyError`` non gestiti.
     """
@@ -675,7 +732,7 @@ def test_errore_r_non_catalogato(r, albero):
     in R venga intercettato dal gestore globale di ``errors.R`` e tradotto in
     ``ErroreRevisioneUmana`` con codice ``E-R-03``.
 
-    **Razionale Scientifico/Sistemistico**: Cattura qualsiasi eccezione R
+    **Razionale scientifico e sistemistico**: Cattura qualsiasi eccezione R
     imprevista (es. bug in un pacchetto Bioconductor o dato malformato)
     riportando il messaggio originale di R dentro il contesto strutturato ``E-R-03``.
     """
@@ -698,7 +755,7 @@ def test_processo_morto_senza_dichiarare(r, albero, modo):
     il ponte sollevi ``ErroreRevisioneUmana`` con codice ``E-R-02`` e
     ``condizione_r == "nessuna_dichiarazione"``.
 
-    **Razionale Scientifico/Sistemistico**: Distingue un errore applicativo R
+    **Razionale scientifico e sistemistico**: Distingue un errore applicativo R
     catturato da ``tryCatch`` (``E-R-03``) da un aborto brusco del processo o
     della libreria C sottostante (``E-R-02``).
     """
@@ -721,7 +778,7 @@ def test_processo_bloccato_ucciso_allo_scadere_del_tempo(r, albero):
     venga terminato tramite ``os.killpg`` allo scadere di ``tempo_massimo_s=3``
     sollevando ``E-R-02`` con ``condizione_r == "tempo_scaduto"``.
 
-    **Razionale Scientifico/Sistemistico**: Impedisce che un deadlock nei thread
+    **Razionale scientifico e sistemistico**: Impedisce che un deadlock nei thread
     C++ o nell'I/O di R lasci appesa indefinitamente la pipeline o il job HPC,
     uccidendo l'intero gruppo di processi del figlio.
     """
@@ -746,7 +803,7 @@ def test_un_guasto_grave_di_r_non_ferma_il_chiamante(r, albero):
     ``SIGSEGV`` il processo Python chiamante resti vivo e possa immediatamente
     eseguire con successo un nuovo script ``successo.R``.
 
-    **Razionale Scientifico/Sistemistico**: È la dimostrazione sperimentale del
+    **Razionale scientifico e sistemistico**: È la dimostrazione sperimentale del
     perché l'architettura a sottoprocessi separati (``Rscript``) è superiore a
     ``rpy2``: un *segmentation fault* in codice C/Fortran di R non abbatte
     l'interprete Python.
@@ -777,7 +834,7 @@ def test_memoria_intercettata_da_r(r, albero):
     il ponte intercetti l'OOM di R e sollevi ``ErroreRitentabile("E-S4-02")`` con
     ``condizione_r == "memoria_esaurita"``.
 
-    **Razionale Scientifico/Sistemistico**: Consente a ``PoliticaRetry`` di
+    **Razionale scientifico e sistemistico**: Consente a ``PoliticaRetry`` di
     catturare il fallimento di allocazione di ``dada()`` in S4 su piastre ad
     alta profondità e di rilanciare automaticamente il passo dimezzando
     ``run.batch_size``.
@@ -803,7 +860,7 @@ def test_sotto_lo_stesso_limite_un_allocazione_piccola_riesce(r, albero):
     **Obiettivo**: Verificare che sotto il medesimo tetto ``limite_memoria_byte=1 GiB``
     un'allocazione di 1 milione di elementi (~8 MB) completi con ``esito.riuscito is True``.
 
-    **Razionale Scientifico/Sistemistico**: Funge da controllo sperimentale per
+    **Razionale scientifico e sistemistico**: Funge da controllo sperimentale per
     il test precedente, dimostrando che il fallimento era effettivamente causato
     dalla dimensione del vettore allocato e non dall'impossibilità di avviare R
     entro 1 GiB di spazio d'indirizzamento.
@@ -827,7 +884,7 @@ def test_memoria_esaurita_prima_di_poter_dichiarare(r, albero):
     il ponte riconosca comunque ``cannot allocate`` su ``stderr`` e sollevi
     ``ErroreRitentabileConRevisione("E-S5-01")``.
 
-    **Razionale Scientifico/Sistemistico**: Quando la RAM è completamente
+    **Razionale scientifico e sistemistico**: Quando la RAM è completamente
     saturata, persino la serializzazione JSON dell'errore dentro R può fallire
     per mancanza di memoria; l'ispezione di ``stderr`` garantisce che l'OOM
     venga riconosciuto anche in assenza di dichiarazione JSON.
@@ -852,7 +909,7 @@ def test_memoria_processo_ucciso_dal_sistema(r, albero):
     (senza alcun messaggio su ``stderr`` né dichiarazione JSON) venga classificato
     come ``memoria_esaurita`` e sollevi ``ErroreRitentabile("E-S4-02")``.
 
-    **Razionale Scientifico/Sistemistico**: Su Linux l'OOM killer del kernel
+    **Razionale scientifico e sistemistico**: Su Linux l'OOM killer del kernel
     invia ``SIGKILL`` (9) al processo che eccede la RAM fisica/cgroup senza
     dargli modo di eseguire handler o stampare messaggi; mappare ``SIGKILL`` su
     ``MEMORIA_ESAURITA`` abilita il retry con riduzione del ``batch_size``.
@@ -878,7 +935,7 @@ def test_memoria_in_una_fase_senza_codice(r, albero):
     una fase che non ha specificato un ``codice_memoria`` ritentabile, il ponte
     sollevi ``ErroreRevisioneUmana("E-R-04")``.
 
-    **Razionale Scientifico/Sistemistico**: Nelle fasi in cui non esiste un
+    **Razionale scientifico e sistemistico**: Nelle fasi in cui non esiste un
     parametro di partizionamento riducibile automaticamente, l'OOM viene
     comunque diagnosticato con precisione (``E-R-04``) ma richiede la revisione
     umana.
@@ -896,7 +953,7 @@ def test_il_riconoscimento_non_dipende_dalla_lingua(r_che_traduce, albero, monke
     normalmente tradurrebbe l'errore in italiano emetta invece il messaggio in
     inglese permettendo il riconoscimento di ``E-S4-02``.
 
-    **Razionale Scientifico/Sistemistico**: Su workstation Linux localizzate in
+    **Razionale scientifico e sistemistico**: Su workstation Linux localizzate in
     italiano (es. ``"impossibile allocare un vettore di dimensione..."``), le
     espressioni regolari basate su ``"cannot allocate vector"`` fallirebbero se
     il ponte non forzasse ``LANGUAGE=en`` nell'ambiente del sottoprocesso R.
@@ -933,7 +990,7 @@ def test_il_figlio_riceve_sempre_language_en(
     la combinazione di ``LANGUAGE``, ``LC_ALL``, ``LC_MESSAGES`` e ``LANG`` nel
     chiamante, il sottoprocesso figlio riceva sempre ``LANGUAGE=en``.
 
-    **Razionale Scientifico/Sistemistico**: Prova l'invariante di normalizzazione
+    **Razionale scientifico e sistemistico**: Prova l'invariante di normalizzazione
     della lingua in modo deterministico e indipendente dalla versione di R
     installata sulla macchina di test.
     """
@@ -968,7 +1025,7 @@ def test_l_uscita_di_errore_finisce_nel_log_strutturato(r, tmp_path):
     registrato in ``99_logs/pipeline.jsonl`` con ``flusso="stderr"`` e ``livello="WARNING"``
     insieme all'evento di conclusione del processo R.
 
-    **Razionale Scientifico/Sistemistico**: Conserva nel log JSONL tutti i
+    **Razionale scientifico e sistemistico**: Conserva nel log JSONL tutti i
     messaggi diagnostici emessi da R/Bioconductor su ``stderr`` prima dell'uscita.
     """
     radice = tmp_path / "out"
@@ -998,7 +1055,7 @@ def test_anche_un_successo_lascia_le_sue_uscite_nel_log(r, tmp_path):
     **Obiettivo**: Verificare che anche quando lo script R termina con successo
     i flussi ``stdout`` e ``stderr`` vengano integralmente registrati in ``pipeline.jsonl``.
 
-    **Razionale Scientifico/Sistemistico**: Molte funzioni di ``dada2`` e
+    **Razionale scientifico e sistemistico**: Molte funzioni di ``dada2`` e
     ``phyloseq`` emettono su ``stdout``/``stderr`` statistiche di convergenza e
     avvisi non bloccanti durante corse riuscite; catturarli nel log JSONL
     garantisce la completa ispezionabilità a posteriori.

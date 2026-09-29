@@ -16,8 +16,8 @@ scartate, e la fase si ferma con ``E-S1-02``. Il codice è di S1 e non è
 **Registra lo scarto in difetto, E-S1-01.** Se ``filter.truncLen`` è sotto il
 minimo osservato di più di ``filter.truncLen_shortfall_warn``, ogni lettura
 cede basi che si potrebbero conservare: è una degradazione, che non ferma e
-finisce nel manifesto di S1. Fino alla settimana precedente la registrava S0,
-dalla stima; ora la registra la fase di cui porta il nome, sul minimo vero.
+finisce nel manifesto di S1. La registra S1 e non S0 perché la condizione si
+valuta sul minimo vero misurato qui, non sulla stima dalle prime letture.
 
 Sul dataset di riferimento il profilo di qualità è piatto (la qualità
 mediana non scende sotto 25 in nessuna posizione), e il vincolo sul
@@ -56,6 +56,9 @@ class ProfiloLetture(PipelineStep):
     parametri: ClassVar[tuple[str, ...]] = ("filter.truncLen", "filter.truncLen_shortfall_warn")
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Esegue ``R/01_profile.R`` sui file dell'inventario e confronta
+        ``filter.truncLen`` con la lunghezza minima vera.
+        """
         if contesto.inventario is None:
             raise RuntimeError("S1 richiede l'inventario prodotto da S0")
 

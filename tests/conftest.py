@@ -1,7 +1,7 @@
 """Generatore di scenari sintetici su filesystem per i test della pipeline 16S.
 
 Inquadramento nel Piano Operativo:
-    - **Settimane di riferimento**: Trasversale a **W6–W10** (Fasi **F2** e **F3**).
+    - **Settimane di riferimento**: Trasversale a **W6-W10** (Fasi **F2** e **F3**).
     - **Scopo del modulo**: Fornisce le primitive e la factory ``crea_scenario()``
       per materializzare su disco (tramite la fixture ``tmp_path`` di ``pytest``)
       mini-dataset sintetici conformi o deliberatamente corrotti rispetto allo
@@ -9,7 +9,7 @@ Inquadramento nel Piano Operativo:
       **OSD-734**). Il dataset reale OSD-734 è integro e supera tutti i 15 gate:
       questo modulo permette di iniettare su file reali (archivi ``.fastq.gz``,
       Assay Table, Study Table, Batch Table e FASTA tassonomico) tutte le
-      patologie bioinformatiche e strutturali che i gate ``G01–G14`` devono
+      patologie bioinformatiche e strutturali che i gate ``G01-G14`` devono
       intercettare senza ricorrere a mock in memoria.
     - **Moduli sorgente coperti**:
         * ``src/amplicon16s/metadata/crosswalk.py``
@@ -61,7 +61,7 @@ def lettura(inizio: str = INIZIO_CON_MOTIVO, lunghezza: int = LUNGHEZZA) -> str:
     **Obiettivo**: Generare una stringa di basi azotate che inizia con ``inizio``
     ed è completata con code di adenina fino a ``lunghezza`` nucleotidi.
 
-    **Razionale Scientifico/Sistemistico**: Consente ai test dei gate G09 e G10
+    **Razionale scientifico e sistemistico**: Consente ai test dei gate G09 e G10
     di controllare indipendentemente la presenza del primer in 5', la presenza
     del motivo V4 e la lunghezza esatta delle letture rispetto a ``filter.truncLen``.
     """
@@ -74,7 +74,7 @@ def scrivi_fastq(percorso: Path, sequenze: list[str]) -> None:
     **Obiettivo**: Scrivere ciascuna sequenza come record FASTQ canonico a 4 righe
     (header ``@``, sequenza, separatore ``+``, qualità Phred ``I`` = Q40) in ``.fastq.gz``.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che lo scanner in streaming
+    **Razionale scientifico e sistemistico**: Garantisce che lo scanner in streaming
     ``reads.scansiona_file()`` e il Gate G13 eseguano la vera decompressione ``gzip``
     e il parsing a 4 righe esattamente come avviene sui 960 file di OSD-734.
     """
@@ -152,9 +152,9 @@ def crea_scenario(
     Batch Table (``lotti.tsv``) e il database FASTA di riferimento con checksum MD5,
     restituendo l'istanza ``Scenario`` con l'oggetto Pydantic ``Config`` già validato.
 
-    **Razionale Scientifico/Sistemistico**: In studi multi-omics NASA GeneLab come
-    OSD-734, la Study Table contiene più righe dell'Assay Table 16S (1.072 contro 868)
-    perché elenca anche campioni destinati ad altri assay (es. metagenomica shotgun).
+    **Razionale scientifico e sistemistico**: In studi multi-omics NASA GeneLab come
+    OSD-734, la Study Table contiene più righe dell'Assay Table 16S (1.056 contro 960)
+    perché elenca anche campioni destinati ad altri assay (es. metabolomica).
     I parametri ``righe_studio_extra`` e ``righe_studio_ripetute`` permettono di
     riprodurre esattamente questa struttura relazionale per collaudare il join
     ristretto (G03) e l'integrità del crosswalk su file fisici reali.

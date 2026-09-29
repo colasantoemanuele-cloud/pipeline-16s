@@ -1,53 +1,88 @@
-"""Suite di verifica del grafo DAG delle fasi, della propagazione dell'invalidità e della ripresa su filesystem.
+r"""Suite di verifica del grafo DAG delle fasi, della propagazione dell'invalidità e della ripresa su filesystem.
 
-Inquadramento nel Piano Operativo
----------------------------------
-* **Settimane di riferimento**: **Settimana 8 e Settimana 9 (W8/W9 : Fase F3:
-  Grafo DAG delle dipendenze, propagazione dell'invalidità e ripresa/resume su
-  filesystem)**.
-* **Moduli sorgente coperti**:
-  - ``src/amplicon16s/steps/base.py``
-  - ``src/amplicon16s/runner/graph.py``
-  - ``src/amplicon16s/runner/project.py``
-  - ``src/amplicon16s/steps/s00_validate.py``
-* **Comando Bash**: ``pytest tests/test_w08_w09_graph_resume.py -v``
-* **Risultato atteso**: ``53 passed in ~1.10s``
+1. Inquadramento nel Piano Operativo
+------------------------------------
+Settimane 8 e 9 (W8/W9), Fase F3 (grafo DAG delle dipendenze, propagazione
+dell'invalidità e ripresa su filesystem).
 
-Scopo sperimentale e razionale scientifico/sistemistico
--------------------------------------------------------
-La Fase S0 utilizzata nei test è quella reale, eseguita su uno scenario
-sintetico scritto su disco; le fasi da ``S1`` a ``S14`` sono rappresentate da
-doppioni deterministici (``Doppione``) che scrivono su disco un artefatto
-dipendente dalle impronte a monte e dai propri parametri, annotando ogni
-effettiva esecuzione. In questo modo i test misurano **quale lavoro la ripresa
-rifà davvero su disco**, certificando sette proprietà architetturali:
+2. Moduli sorgente coperti
+--------------------------
+* ``src/amplicon16s/steps/base.py``
+* ``src/amplicon16s/runner/graph.py``
+* ``src/amplicon16s/runner/project.py``
+* ``src/amplicon16s/steps/s00_validate.py``
 
-1. **Ordine topologico guidato dalle dipendenze di dato (DAG)**: il grafo esegue
-   e invalida le fasi seguendo l'effettivo flusso degli artefatti e non una
-   sequenza monolitica rigida (es. ricalcolare ``S1`` non invalida ``S2``;
-   modificare ``tax.min_boot`` in ``S8`` non ricalcola l'albero filogenetico ``S9``).
-2. **Precedenza metodologica obbligatoria ``S12 -> S13`` (``E-S13-01``)**:
-   garantisce che la decontaminazione ``decontam`` (``S12``) preceda sempre il
-   filtro di prevalenza (``S13``), impedendo che contaminanti da reagente
-   superino la soglia di prevalenza prima di essere rimossi.
-3. **Filogenesi ``S9`` come unica fase facoltativa (``phylo.enabled``)**: se
-   disattivata, l'assemblaggio ``phyloseq`` in ``S10`` adatta dinamicamente le
-   proprie dipendenze (``S0, S7, S8``) e la corsa risulta completa senza ``S9``.
-4. **Isolamento dei manifesti nelle cartelle condivise (``07_chimera``,
-   ``11_controls``, ``12_final``)**: ogni passo scrive il proprio manifesto
-   atomico ``manifest_<passo>.json`` (es. ``manifest_s11.json`` e
-   ``manifest_s12.json``), impedendo che il completamento di ``S11`` faccia
-   apparire già conclusa ``S12``.
-5. **Propagazione selettiva dell'invalidità**: la cancellazione o alterazione di
-   un artefatto (es. in ``S4``) invalida ``S4`` e le sole fasi discendenti,
-   preservando intatto il lavoro già svolto in ``S0..S3``.
-6. **Invarianza rispetto ai parametri operativi (``run.threads``, ``io.out_root``,
-   ``retry.*``)**: variare il numero di CPU o spostare la cartella di output non
-   invalida ore di calcolo DADA2/DECIPHER già concluse, poiché non altera il
-   risultato biologico.
-7. **Caching dei checksum per valutazione**: durante una valutazione dello stato
-   (``run.valuta()``), l'hash SHA-256 di ciascun artefatto viene calcolato una
-   sola volta su disco per non degradare le prestazioni.
+3. Cosa valuta questo file
+--------------------------
+La S0 usata nei test è quella reale, su uno scenario sintetico scritto su
+disco; le fasi da S1 a S14 sono doppioni deterministici (``Doppione``) che
+scrivono un artefatto dipendente dalle impronte a monte e dai propri parametri,
+annotando ogni esecuzione. I test misurano così quale lavoro la ripresa rifà
+davvero:
+
+- grafo delle 15 fasi in ordine topologico guidato dalle dipendenze di dato;
+  rifiuto di dipendenze che non precedono e di precedenze obbligatorie non
+  dichiarate o facoltative;
+- precedenza obbligatoria S12 prima di S13 (``E-S13-01``) e codice generico
+  per le altre violazioni d'ordine;
+- S9 unica fase facoltativa (``phylo.enabled``): disattivata, S10 non ne
+  dipende e l'esecuzione risulta completa senza di essa;
+- ripresa: nessun lavoro ripetuto su un'esecuzione completa; un artefatto
+  cancellato o alterato fa ripartire da quella fase e dalle sole discendenti;
+  un manifesto alterato o una fase interrotta non valgono come conclusione;
+- dipendenza dai parametri: un parametro dichiarato invalida solo le fasi che
+  lo dichiarano; i parametri senza effetto sui risultati (``run.threads``,
+  ``io.out_root``, ``retry.enabled``, ``retry.max_attempts``,
+  ``run.keep_filtered_fastq``, ``run.batch_size``) non invalidano alcuna fase;
+  dati di ingresso sostituiti invalidano S0 e il resto;
+- cartelle condivise (``07_chimera``, ``11_controls``, ``12_final``): ogni fase
+  ha il proprio manifesto (``manifest_<passo>.json``, per esempio
+  ``manifest_S11.json`` e ``manifest_S12.json``) e si conclude separatamente;
+- una sola lettura di ogni checksum per valutazione; inventario riletto
+  dall'artefatto di S0; fasi realizzate oggi da S0 a S7.
+
+4. Comandi Bash e scenari di esecuzione
+---------------------------------------
+    1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
+       dati reali):
+       pytest tests/test_w08_w09_graph_resume.py -v
+
+    2. Modalità container Docker standard (sottoinsieme ridotto con
+       R/Bioconductor):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -v "$(pwd)":/app \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w08_w09_graph_resume.py -v
+
+    3. Modalità container Docker completa (con i 2.4 GB di dati reali OSD-734;
+       la configurazione e i percorsi che contiene devono stare nella cartella
+       montata):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
+         -v "$(pwd)":/app \
+         -v "$HOME/ASI":"$HOME/ASI" \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w08_w09_graph_resume.py -v
+
+5. Risultato atteso
+-------------------
+53 test totali:
+- 53 passed in ambiente locale standard (~2.8s);
+- 53 passed nel container Docker standard sul sottoinsieme ridotto (~3.2s);
+- 53 passed nel container Docker con i dati reali OSD-734 (~2.5s).
+
+6. Razionale scientifico e sistemistico
+---------------------------------------
+- Una ripresa che rifacesse troppo sprecherebbe ore di calcolo DADA2; una che
+  rifacesse troppo poco lascerebbe a valle risultati calcolati su ingressi
+  diversi da quelli attuali. Solo i doppioni che annotano le esecuzioni
+  permettono di misurare quale delle due cose accade.
+- La precedenza di S12 su S13 impedisce che i contaminanti da reagente
+  superino la soglia di prevalenza prima di essere rimossi.
 """
 
 from __future__ import annotations
@@ -93,6 +128,7 @@ TUTTE = tuple(Passo)
 
 
 def _campioni() -> list[Campione]:
+    """Quattro campioni sulla piastra 1: due biologici, un positivo, un negativo."""
     return [
         Campione("ERX3000001", "NOD1D4.L1", piastra="1"),
         Campione("ERX3000002", "NOD1D4.L2", piastra="1"),
@@ -127,9 +163,13 @@ class Doppione(PipelineStep):
 
     @property
     def nome_artefatto(self) -> str:
+        """Il nome dell'artefatto del doppione, derivato dalla fase."""
         return f"{str(self.passo).lower()}.json"
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Annota l'esecuzione e scrive un artefatto con le impronte a monte e i
+        parametri dichiarati.
+        """
         self.registro.append(self.passo)
         contenuto = {
             "passo": str(self.passo),
@@ -150,6 +190,7 @@ class S0Contata(ValidazioneIngressi):
         self.registro = registro
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Annota l'esecuzione ed esegue la S0 vera."""
         self.registro.append(self.passo)
         return super().calcola(contesto)
 
@@ -207,11 +248,13 @@ def riprendi(run: ProjectRun, registro: list[Passo]) -> list[Passo]:
 
 @pytest.fixture
 def scenario(tmp_path):
+    """Uno scenario su disco con i quattro campioni e le loro letture."""
     return crea_scenario(tmp_path, _campioni(), con_letture=True)
 
 
 @pytest.fixture
 def registro() -> list[Passo]:
+    """L'elenco, inizialmente vuoto, in cui i doppioni annotano le fasi eseguite."""
     return []
 
 
@@ -230,6 +273,7 @@ def _attive_da(passo: Passo, config: Config) -> list[Passo]:
 
 
 def _file(run: ProjectRun, passo: Passo):
+    """Il percorso dell'artefatto scritto dal doppione della fase indicata."""
     fase = run.fase(passo)
     return run.albero.cartella(fase.cartella) / fase.nome_artefatto
 
@@ -241,10 +285,10 @@ def _file(run: ProjectRun, passo: Passo):
 
 def test_il_grafo_ordina_le_quindici_fasi():
     """
-    **Obiettivo**: Verificare che ``GRAFO`` contenga tutte le 15 fasi (``S0``–``S14``)
+    **Obiettivo**: Verificare che ``GRAFO`` contenga tutte le 15 fasi (``S0-S14``)
     in ordine topologico coerente con ``TUTTE``.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che la definizione statica
+    **Razionale scientifico e sistemistico**: Garantisce che la definizione statica
     del DAG di pipeline copra l'intero ciclo di vita bioinformatico dalla
     validazione degli ingressi (``S0``) alla generazione dei report finali (``S14``).
     """
@@ -257,7 +301,7 @@ def test_la_decontaminazione_precede_il_filtro_di_prevalenza():
     **Obiettivo**: Verificare che nel grafo ``Passo.S12`` preceda ``Passo.S13``,
     compaia nelle sue dipendenze dirette e sia vincolato dalla precedenza ``E-S13-01``.
 
-    **Razionale Scientifico/Sistemistico**: La decontaminazione statistica con
+    **Razionale scientifico e sistemistico**: La decontaminazione statistica con
     ``decontam`` (``S12``) deve tassativamente precedere il filtro di prevalenza
     ecologica (``S13``): se si filtrasse prima per prevalenza, i contaminanti da
     reagente presenti in quasi tutti i pozzetti supererebbero la soglia mentre il
@@ -275,7 +319,7 @@ def test_ogni_dipendenza_precede_la_fase_che_la_usa():
     **Obiettivo**: Verificare che per ogni nodo di ``GRAFO`` tutte le sue
     dipendenze abbiano un indice inferiore nell'ordinamento ``GRAFO.ordine()``.
 
-    **Razionale Scientifico/Sistemistico**: Certifica che il grafo delle
+    **Razionale scientifico e sistemistico**: Certifica che il grafo delle
     dipendenze è un DAG aciclico provvisto di ordinamento topologico valido,
     escludendo cicli o riferimenti in avanti impossibili da soddisfare.
     """
@@ -290,7 +334,7 @@ def test_la_sola_fase_facoltativa_e_la_filogenesi():
     **Obiettivo**: Verificare che l'unico nodo con ``facoltativa is True`` in
     ``GRAFO`` sia ``Passo.S9``, governato da ``phylo.enabled``.
 
-    **Razionale Scientifico/Sistemistico**: Tutte le fasi di controllo qualità,
+    **Razionale scientifico e sistemistico**: Tutte le fasi di controllo qualità,
     inferenza ASV, rimozione chimere, tassonomia e decontaminazione sono
     obbligatorie per la validità scientifica dello studio; solo l'albero
     filogenetico (``S9``, computazionalmente oneroso con DECIPHER + phangorn) è
@@ -306,7 +350,7 @@ def test_fasi_che_condividono_una_cartella():
     distinte siano ``07_chimera`` (``S6, S7``), ``11_controls`` (``S11, S12``) e
     ``12_final`` (``S13, S14``).
 
-    **Razionale Scientifico/Sistemistico**: Poiché 15 fasi scrivono in 12
+    **Razionale scientifico e sistemistico**: Poiché 15 fasi scrivono in 12
     cartelle di output, individuare esplicitamente le 3 coppie che condividono la
     cartella giustifica l'adozione di manifesti atomici per-passo
     (``manifest_<passo>.json``) anziché di un unico manifesto di directory.
@@ -323,6 +367,7 @@ def test_fasi_che_condividono_una_cartella():
 
 
 def _nodi_base() -> list[Nodo]:
+    """Due nodi, S12 e S13, con S13 che dipende da S12."""
     return [
         Nodo(Passo.S12, "a", Fase.CONTROLS),
         Nodo(Passo.S13, "b", Fase.FINAL, (Passo.S12,)),
@@ -334,7 +379,7 @@ def test_il_grafo_rifiuta_una_precedenza_obbligatoria_non_dichiarata():
     **Obiettivo**: Verificare che istanziare ``Grafo`` senza che ``S13`` dichiari
     ``S12`` tra le sue dipendenze sollevi ``ValueError("S12 deve precedere S13")``.
 
-    **Razionale Scientifico/Sistemistico**: Impedisce che una modifica futura
+    **Razionale scientifico e sistemistico**: Impedisce che una modifica futura
     alla definizione dei nodi del grafo possa accidentalmente rimuovere il
     vincolo di dipendenza tra decontaminazione e filtro di prevalenza.
     """
@@ -348,7 +393,7 @@ def test_il_grafo_rifiuta_una_precedenza_obbligatoria_facoltativa():
     che compare come prerequisito in una precedenza obbligatoria (``S12``) viene
     reso facoltativo (``attiva_se=...``).
 
-    **Razionale Scientifico/Sistemistico**: Una fase obbligatoria per metodo
+    **Razionale scientifico e sistemistico**: Una fase obbligatoria per metodo
     scientifico (come la decontaminazione ``S12`` prima di ``S13``) non può
     essere disattivabile dall'utente, altrimenti ``S13`` girerebbe su dati non
     decontaminati.
@@ -364,7 +409,7 @@ def test_il_grafo_rifiuta_una_dipendenza_che_non_precede():
     **Obiettivo**: Verificare che ``Grafo`` sollevi ``ValueError`` se un nodo
     (``S13``) è posizionato prima della propria dipendenza (``S12``) nella lista dei nodi.
 
-    **Razionale Scientifico/Sistemistico**: Preserva la proprietà fondamentale
+    **Razionale scientifico e sistemistico**: Preserva la proprietà fondamentale
     dell'ordinamento topologico per cui ogni produttore di artefatti deve essere
     valutato ed eseguito prima dei suoi consumatori.
     """
@@ -382,7 +427,7 @@ def test_con_la_filogenesi_disattivata_s10_non_ne_dipende(scenario):
     attive di ``S10`` siano ``(S0, S7, S8)``, mentre con ``phylo.enabled = True``
     includano anche ``S9``.
 
-    **Razionale Scientifico/Sistemistico**: L'oggetto ``phyloseq`` costruito in
+    **Razionale scientifico e sistemistico**: L'oggetto ``phyloseq`` costruito in
     ``S10`` assembla tabella ASV (``S7``), tassonomia (``S8``), metadati (``S0``)
     ed eventualmente l'albero filogenetico (``S9``); quando ``S9`` è disattivata,
     ``S10`` non deve restare bloccata in attesa di un albero che non verrà prodotto.
@@ -407,7 +452,7 @@ def test_la_prima_esecuzione_esegue_ogni_fase_attiva_una_volta(scenario, registr
     ``riprendi`` esegua esattamente una volta ciascuna delle 14 fasi attive
     (tutte tranne ``S9``) in ordine topologico, portando ``run.completa`` a ``True``.
 
-    **Razionale Scientifico/Sistemistico**: Certifica la convergenza del ciclo
+    **Razionale scientifico e sistemistico**: Certifica la convergenza del ciclo
     di esecuzione del DAG dall'inizio alla fine senza esecuzioni ridondanti.
     """
     run = ProjectRun(scenario.config, passi=_passi(registro))
@@ -426,7 +471,7 @@ def test_un_esecuzione_completa_non_ripete_alcun_lavoro(eseguita, scenario, regi
     completa (anche istanziando un nuovo ``ProjectRun`` da zero) restituisca
     ``[]`` senza rieseguire alcuna fase.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce l'idempotenza assoluta
+    **Razionale scientifico e sistemistico**: Garantisce l'idempotenza assoluta
     della ripresa (*resume*) basata esclusivamente sui manifesti e sugli hash
     SHA-256 persistiti su filesystem.
     """
@@ -444,7 +489,7 @@ def test_la_filogenesi_disattivata_non_e_lavoro_mancante(eseguita):
     ``Passo.S9`` sia ``StatoPasso.DISATTIVATA``, non figuri in ``da_eseguire`` e
     non impedisca a ``eseguita.completa`` di essere ``True``.
 
-    **Razionale Scientifico/Sistemistico**: Distingue nettamente una fase
+    **Razionale scientifico e sistemistico**: Distingue nettamente una fase
     *disattivata per scelta sperimentale* (``DISATTIVATA``) da una fase *non
     ancora eseguita* (``DA_ESEGUIRE``), evitando che l'assenza dell'albero
     filogenetico venga segnalata come esecuzione incompleta.
@@ -463,7 +508,7 @@ def test_senza_filogenesi_s10_e_calcolata_senza_s9(eseguita):
     **Obiettivo**: Verificare che il manifesto ``manifest_s10.json`` registri in
     ``calcolata_su["a_monte"]`` esattamente ``{"S0", "S7", "S8"}`` quando ``S9`` è disattivata.
 
-    **Razionale Scientifico/Sistemistico**: Traccia con precisione nel manifesto
+    **Razionale scientifico e sistemistico**: Traccia con precisione nel manifesto
     di ``S10`` quali fasi hanno contribuito alla costruzione dell'oggetto
     ``phyloseq``, così che un'eventuale attivazione successiva di ``S9`` venga
     immediatamente rilevata come variazione dell'insieme delle dipendenze.
@@ -482,7 +527,7 @@ def test_cancellando_un_artefatto_si_riparte_da_quella_fase(eseguita, scenario, 
     **Obiettivo**: Verificare che cancellando ``s4.json`` la ripresa riesegua
     ``S4`` e tutti i suoi discendenti attivi, lasciando intatte ``S0, S1, S2, S3``.
 
-    **Razionale Scientifico/Sistemistico**: In una corsa su 960 campioni, le
+    **Razionale scientifico e sistemistico**: In una corsa su 960 campioni, le
     fasi ``S2`` (``filterAndTrim``) e ``S3`` (``learnErrors``) richiedono tempo
     computazionale significativo; se un file di ``S4`` viene rimosso o va
     ricalcolato, il DAG preserva tutto il lavoro a monte (``S0..S3``) e propaga
@@ -509,7 +554,7 @@ def test_cancellando_un_artefatto_di_s0_si_rifa_tutto(eseguita, scenario, regist
     ``01_input_validation/`` provochi la riesecuzione di tutte le fasi attive
     della pipeline a partire da ``S0``.
 
-    **Razionale Scientifico/Sistemistico**: Poiché ``S0`` è la radice del DAG da
+    **Razionale scientifico e sistemistico**: Poiché ``S0`` è la radice del DAG da
     cui dipendono direttamente o transitivamente tutte le fasi successive, la
     perdita del crosswalk invalida l'intera catena analitica.
     """
@@ -523,7 +568,7 @@ def test_ricalcolare_una_fase_senza_dipendenti_non_tocca_le_altre(eseguita, regi
     **Obiettivo**: Verificare che cancellando l'artefatto di ``S1`` la ripresa
     riesegua esclusivamente ``[Passo.S1]`` senza toccare ``S2..S14``.
 
-    **Razionale Scientifico/Sistemistico**: Dimostra il vantaggio di un vero DAG
+    **Razionale scientifico e sistemistico**: Dimostra il vantaggio di un vero DAG
     rispetto a una catena sequenziale: ``S1`` produce i profili di qualità QC
     che servono al ricercatore ma non sono letti da ``S2`` (che legge da ``S0``).
     Ricalcolare ``S1`` non deve quindi invalidare il denoising DADA2 in ``S2..S14``.
@@ -538,7 +583,7 @@ def test_un_artefatto_alterato_fa_rieseguire_la_fase(eseguita, scenario, registr
     lo stato di ``S8`` passi a ``DA_ESEGUIRE`` con motivo ``alterati: s8.json`` e
     la ripresa ricalcoli ``S8`` e i suoi discendenti.
 
-    **Razionale Scientifico/Sistemistico**: La verifica sistematica dei checksum
+    **Razionale scientifico e sistemistico**: La verifica sistematica dei checksum
     SHA-256 impedisce che un file di output modificato manualmente o corrotto su
     disco venga silenziosamente riutilizzato da ``phyloseq`` in ``S10``.
     """
@@ -557,7 +602,7 @@ def test_un_manifesto_alterato_non_vale_come_conclusione(eseguita, registro):
     **Obiettivo**: Verificare che manomettere ``manifest_s5.json`` (alterando
     una metrica) invalidi l'impronta del manifesto e porti ``S5`` a ``DA_ESEGUIRE``.
 
-    **Razionale Scientifico/Sistemistico**: Anche il manifesto stesso è
+    **Razionale scientifico e sistemistico**: Anche il manifesto stesso è
     autosigillato tramite la propria ``impronta`` crittografica; una modifica non
     autorizzata ai metadati di esecuzione di una fase ne impone il ricalcolo.
     """
@@ -577,7 +622,7 @@ def test_una_fase_interrotta_non_risulta_conclusa(eseguita, scenario, registro):
     ``KeyboardInterrupt`` dopo aver scritto un file parziale, il manifesto
     precedente di ``S6`` venga rimosso all'avvio e ``prossima()`` riparta da ``S6``.
 
-    **Razionale Scientifico/Sistemistico**: ``PipelineStep.esegui`` rimuove il
+    **Razionale scientifico e sistemistico**: ``PipelineStep.esegui`` rimuove il
     vecchio ``manifest_<passo>.json`` **prima** di iniziare il calcolo e scrive
     quello nuovo solo al completamento atomico: un'interruzione (Ctrl+C, SIGTERM,
     OOM) non lascia mai un vecchio manifesto valido accanto a file parziali.
@@ -609,7 +654,7 @@ def test_cambiando_un_parametro_nessuna_fase_resta_conclusa(eseguita, scenario, 
     parametri (``parametri = None``), la modifica di ``decontam.min_blanks``,
     che anche S0 legge (G08), invalidi tutte le fasi con motivo ``configurazione cambiata``.
 
-    **Razionale Scientifico/Sistemistico**: Il comportamento predefinito è
+    **Razionale scientifico e sistemistico**: Il comportamento predefinito è
     massimamente cautelativo: se un passo non dichiara esplicitamente il
     sottoinsieme di sezioni YAML da cui dipende, qualsiasi modifica ai parametri
     scientifici ne forza il ricalcolo.
@@ -635,7 +680,7 @@ def test_con_parametri_ristretti_si_rifa_solo_cio_che_ne_dipende(scenario, regis
     invalidi ``S8`` e i suoi discendenti ``S10..S14``, lasciando intatte ``S0..S7``
     e la filogenesi ``S9``.
 
-    **Razionale Scientifico/Sistemistico**: Quando ogni fase dichiara il proprio
+    **Razionale scientifico e sistemistico**: Quando ogni fase dichiara il proprio
     gruppo di parametri (es. ``S8 -> ("tax",)``, ``S9 -> ("phylo",)``), cambiare
     la soglia di bootstrap tassonomico ricalcola solo l'assegnazione SILVA in
     ``S8`` e le matrici a valle, risparmiando sia il denoising DADA2 (``S2..S7``)
@@ -663,7 +708,7 @@ def test_attivare_la_filogenesi_rifa_s9_e_cio_che_ne_dipende(scenario, registro)
     e che riportando ``phylo.enabled = False`` vengano rieseguite ``S10..S14``
     per ``dipendenze cambiate``.
 
-    **Razionale Scientifico/Sistemistico**: Attivare l'albero filogenetico in un
+    **Razionale scientifico e sistemistico**: Attivare l'albero filogenetico in un
     secondo momento deve calcolare ``S9`` e aggiornare l'oggetto ``phyloseq`` in
     ``S10`` (e i controlli/filtri successivi) senza ricalcolare DADA2 o SILVA;
     viceversa, disattivarlo deve rigenerare ``S10`` affinché non contenga più un
@@ -696,7 +741,7 @@ def test_dati_di_ingresso_sostituiti_invalidano_s0_e_il_resto(eseguita, scenario
     della dimensione) di un file FASTQ di ingresso faccia passare ``S0`` a
     ``DA_ESEGUIRE`` con motivo ``dati di ingresso cambiati`` e ricalcoli l'intera pipeline.
 
-    **Razionale Scientifico/Sistemistico**: Se un file ``*.fastq.gz`` o una
+    **Razionale scientifico e sistemistico**: Se un file ``*.fastq.gz`` o una
     tabella ISA-Tab viene sostituita su disco mantenendo lo stesso nome e la
     stessa configurazione YAML, l'impronta degli ingressi di ``S0`` rileva la
     modifica senza dover ricalcolare l'hash di tutti i 960 FASTQ ad ogni avvio,
@@ -717,7 +762,7 @@ def test_un_parametro_dichiarato_male_e_un_errore(scenario):
     nomi di parametri o sezioni inesistenti (``tax.min_bootstrap``, ``tassonomia``)
     e ``ValueError`` se si tenta di includere un parametro escluso (``run.threads``).
 
-    **Razionale Scientifico/Sistemistico**: Evita che un errore di battitura
+    **Razionale scientifico e sistemistico**: Evita che un errore di battitura
     nella dichiarazione ``parametri`` di una sottoclasse di ``PipelineStep``
     venga ignorato silenziosamente, impedendo alla fase di accorgersi quando il
     parametro cambia.
@@ -759,7 +804,7 @@ def test_un_parametro_escluso_non_invalida_alcuna_fase(
     ``run.batch_size`` e' escluso da quando S4 ha mostrato di dare gli stessi
     byte con lotti diversi.
 
-    **Razionale Scientifico/Sistemistico**: Quando si riprende una corsa su una
+    **Razionale scientifico e sistemistico**: Quando si riprende una corsa su una
     macchina o coda HPC con un numero diverso di core (``run.threads``) o con
     una diversa politica di retry, i risultati matematici e biologici delle fasi
     già concluse sono identici: invalidare ore di calcolo DADA2 per un cambio di
@@ -782,7 +827,7 @@ def test_spostare_la_cartella_di_output_non_rende_incompleta_l_esecuzione(
     directory e aggiornare ``io.out_root`` mantenga ``run.completa is True`` senza
     rieseguire alcuna fase.
 
-    **Razionale Scientifico/Sistemistico**: L'esclusione di ``io.out_root``
+    **Razionale scientifico e sistemistico**: L'esclusione di ``io.out_root``
     dall'impronta dei risultati rende l'albero degli artefatti **rilocabile**
     tra workstation, server HPC e archivi di revisione scientifica senza perdere
     lo stato di completamento delle fasi.
@@ -813,7 +858,7 @@ def test_un_parametro_incluso_invalida_le_fasi_che_lo_dichiarano(
     ``decontam.min_blanks`` o ``decontam.threshold`` invalidi le fasi che
     dichiarano quel parametro, e solo quelle con le fasi che ne dipendono.
 
-    **Razionale Scientifico/Sistemistico**: I tre parametri incidono sui
+    **Razionale scientifico e sistemistico**: I tre parametri incidono sui
     risultati e restano nell'impronta. Ma ogni fase dichiara i parametri da cui
     dipende: S0, che non legge ``run.lockfile``, resta conclusa quando cambia;
     i doppioni, che dichiarano tutti i gruppi, no. ``decontam.min_blanks`` e'
@@ -839,7 +884,7 @@ def test_da_un_gruppo_i_parametri_esclusi_restano_fuori(scenario):
     produca la stessa impronta, mentre una variazione di ``run.seed`` ne
     produca una diversa.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che una fase che dichiara
+    **Razionale scientifico e sistemistico**: Garantisce che una fase che dichiara
     dipendenza dalla sezione ``run`` erediti automaticamente l'esclusione di
     ``run.threads`` senza dover elencare a mano ogni singola chiave di ``run``.
     """
@@ -879,7 +924,7 @@ def test_una_valutazione_calcola_ogni_checksum_una_volta(eseguita, conteggio_che
     ``S0`` + 13 dei doppioni) e che interrogazioni successive sulla stessa
     ``valutazione`` non ricalcolino alcun checksum.
 
-    **Razionale Scientifico/Sistemistico**: In una pipeline con artefatti di
+    **Razionale scientifico e sistemistico**: In una pipeline con artefatti di
     grandi dimensioni (matrici ASV, oggetti ``phyloseq``), ricalcolare gli hash
     SHA-256 ad ogni interrogazione delle proprietà (``prossima()``, ``completate``,
     ``da_eseguire``, ``contesto()``) introdurrebbe un collo di bottiglia I/O
@@ -913,7 +958,7 @@ def test_le_scorciatoie_compiono_una_valutazione_nuova(eseguita, conteggio_check
     ``eseguita.prossima()``) effettuino una nuova lettura del disco intercettando
     la cancellazione immediata di ``s3.json``.
 
-    **Razionale Scientifico/Sistemistico**: Mentre un oggetto ``Valutazione``
+    **Razionale scientifico e sistemistico**: Mentre un oggetto ``Valutazione``
     fotografa uno stato coerente in un dato istante, interrogare direttamente
     ``ProjectRun`` dopo una modifica sul filesystem deve riflettere lo stato
     attuale del disco senza rischiare cache stantie (*stale cache*).
@@ -936,7 +981,7 @@ def test_la_cartella_completa_non_rende_completa_la_fase_accanto(scenario, regis
     ``11_controls/``), ``S12`` (che condivide ``11_controls/``) risulti comunque
     ``StatoPasso.DA_ESEGUIRE`` con motivo ``nessun manifesto: mai conclusa``.
 
-    **Razionale Scientifico/Sistemistico**: Risolve la collisione nelle cartelle
+    **Razionale scientifico e sistemistico**: Risolve la collisione nelle cartelle
     condivise (``07_chimera``, ``11_controls``, ``12_final``): se il runner si
     basasse sul manifesto di directory ``manifest.json``, il completamento di
     ``S11`` (KatharoSeq) farebbe apparire già completata ``S12`` (``decontam``)
@@ -976,7 +1021,7 @@ def test_due_fasi_nella_stessa_cartella_si_concludono_separatamente(
     seconda fase (``dopo``) faccia rieseguire solo ``dopo`` lasciando ``prima``
     in stato ``COMPLETATA`` con impronta invariata.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che i due passi
+    **Razionale scientifico e sistemistico**: Garantisce che i due passi
     coinquilini della stessa directory abbiano cicli di vita e invalidazioni
     completamente ortogonali.
     """
@@ -1001,7 +1046,7 @@ def test_una_fase_che_riscrive_il_file_dell_altra_la_invalida(eseguita):
     **Obiettivo**: Verificare che se un processo sovrascrive ``s11.json`` dentro
     ``11_controls/``, lo stato di ``Passo.S11`` diventi immediatamente ``DA_ESEGUIRE``.
 
-    **Razionale Scientifico/Sistemistico**: Poiché ``manifest_s11.json``
+    **Razionale scientifico e sistemistico**: Poiché ``manifest_s11.json``
     custodisce lo SHA-256 originale di ``s11.json``, qualsiasi sovrascrittura
     accidentale da parte di un'altra fase nella medesima cartella viene
     immediatamente intercettata come violazione di integrità.
@@ -1016,7 +1061,7 @@ def test_i_manifesti_di_fase_hanno_nomi_distinti():
     **Obiettivo**: Verificare che ``nome_manifesto_passo("S11")`` sia distinto
     sia da ``nome_manifesto_passo("S12")`` sia dal manifesto cumulativo ``manifest.json``.
 
-    **Razionale Scientifico/Sistemistico**: Impedisce collisioni di nome su
+    **Razionale scientifico e sistemistico**: Impedisce collisioni di nome su
     filesystem tra i manifesti atomici dei singoli passi e il manifesto di directory.
     """
     assert nome_manifesto_passo("S11") != nome_manifesto_passo("S12")
@@ -1034,7 +1079,7 @@ def test_s13_prima_di_s12_e_rifiutata(eseguita):
     manifesto di ``S12`` sollevi ``ErroreRevisioneUmana`` con codice specifico
     ``E-S13-01`` prima ancora di rimuovere il manifesto esistente di ``S13``.
 
-    **Razionale Scientifico/Sistemistico**: Impone a livello di esecuzione del
+    **Razionale scientifico e sistemistico**: Impone a livello di esecuzione del
     singolo passo la guardia metodologica ``E-S13-01`` (divieto assoluto di
     filtrare per prevalenza senza aver concluso la decontaminazione ``S12``),
     proteggendo al contempo gli artefatti preesistenti di ``S13``.
@@ -1054,7 +1099,7 @@ def test_nessuna_fase_gira_prima_delle_sue_dipendenze(scenario, registro):
     **Obiettivo**: Verificare che tentare di eseguire ``S2`` quando ``S0`` non è
     ancora stata eseguita sollevi ``ErroreRevisioneUmana`` con codice ``E-GRAFO-01``.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che nessun passo della
+    **Razionale scientifico e sistemistico**: Garantisce che nessun passo della
     pipeline possa mai essere invocato fuori ordine topologico quando le sue
     dipendenze a monte non sono state completate e certificate.
     """
@@ -1072,7 +1117,7 @@ def test_s13_senza_s11_ne_s12_porta_il_codice_della_precedenza(eseguita):
     tentativo di eseguire ``S13`` sollevi il codice metodologico specifico
     ``E-S13-01`` (e non quello generico ``E-GRAFO-01``).
 
-    **Razionale Scientifico/Sistemistico**: Dà priorità diagnostica alla
+    **Razionale scientifico e sistemistico**: Dà priorità diagnostica alla
     violazione metodologica specifica (``S12 -> S13``, ``E-S13-01``) rispetto
     alla violazione generica del grafo, fornendo all'operatore il messaggio
     scientifico più pertinente.
@@ -1090,7 +1135,7 @@ def test_s12_senza_s11_porta_il_codice_generico(eseguita):
     **Obiettivo**: Verificare che tentare di eseguire ``S12`` in assenza di
     ``S11`` sollevi ``ErroreRevisioneUmana`` con il codice generico ``E-GRAFO-01``.
 
-    **Razionale Scientifico/Sistemistico**: Conferma che ``E-S13-01`` è
+    **Razionale scientifico e sistemistico**: Conferma che ``E-S13-01`` è
     riservato esclusivamente alla coppia ``(S12, S13)``, mentre tutte le altre
     violazioni di dipendenza nel DAG ricadono sotto ``E-GRAFO-01``.
     """
@@ -1105,7 +1150,7 @@ def test_una_precedenza_con_un_codice_inesistente_e_rifiutata():
     **Obiettivo**: Verificare che dichiarare in ``Grafo`` una precedenza
     associata a un codice non censito in ``CATALOGO`` (``E-S99-01``) sollevi ``KeyError``.
 
-    **Razionale Scientifico/Sistemistico**: Impedisce di registrare nel grafo
+    **Razionale scientifico e sistemistico**: Impedisce di registrare nel grafo
     regole di precedenza che al momento della violazione fallirebbero per
     mancanza del codice nel catalogo degli errori.
     """
@@ -1124,7 +1169,7 @@ def test_s0_invocata_da_sola_risulta_conclusa_per_l_esecuzione(scenario):
     scriva anche il manifesto del passo ``manifest_s0.json``, facendo risultare
     ``Passo.S0`` in stato ``COMPLETATA`` per ``ProjectRun``.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce l'interoperabilità tra il
+    **Razionale scientifico e sistemistico**: Garantisce l'interoperabilità tra il
     comando standalone ``amplicon16s validate`` (che invoca ``esegui_s0``) e una
     successiva esecuzione con ``amplicon16s resume``, che riconosce ``S0`` come
     già conclusa senza ripeterla.
@@ -1140,7 +1185,7 @@ def test_s0_non_superata_non_viene_registrata_come_conclusa(tmp_path):
     termina con un gate fallito, restituisca ``Esito.NON_SUPERATA``, non scriva
     ``manifest_s0.json`` e mantenga ``run.prossima() is Passo.S0``.
 
-    **Razionale Scientifico/Sistemistico**: Anche se ``gates.json`` viene scritto
+    **Razionale scientifico e sistemistico**: Anche se ``gates.json`` viene scritto
     a scopo diagnostico, una validazione S0 fallita non deve mai sigillare il
     manifesto di completamento, altrimenti una ripresa successiva salterebbe S0
     procedendo su dati invalidi.
@@ -1164,7 +1209,7 @@ def test_il_risultato_porta_artefatti_con_checksum_e_metriche(scenario):
     un ``RisultatoPasso`` completo dei 4 artefatti con checksum ``sha256:...``,
     metrica ``campioni == 4`` e ``impronta`` coincidente con ``manifest_s0.json``.
 
-    **Razionale Scientifico/Sistemistico**: Certifica che il Template Method di
+    **Razionale scientifico e sistemistico**: Certifica che il Template Method di
     ``PipelineStep`` calcoli e restituisca gli hash crittografici e le metriche
     quantitative esattamente come vengono salvati su disco.
     """
@@ -1187,7 +1232,7 @@ def test_l_inventario_e_riletto_dall_artefatto_di_s0(scenario):
     venga ricostruito automaticamente da ``01_input_validation/inventario.json``
     valorizzando ``run.risolta.derivati.prev_min_samples``.
 
-    **Razionale Scientifico/Sistemistico**: Il parametro derivato dinamico
+    **Razionale scientifico e sistemistico**: Il parametro derivato dinamico
     ``prev_min_samples`` ($\lceil \text{prev.min\_fraction} \times N_{\text{bio}} \rceil$)
     dipende dal conteggio dei campioni biologici scoperto in ``S0``; rileggerlo
     da ``inventario.json`` permette alle fasi successive (e alle riprese su
@@ -1209,7 +1254,7 @@ def test_oggi_esistono_le_fasi_da_s0_a_s7(scenario):
     attende S2, mentre ``Passo.S8`` e' marcata ``StatoPasso.NON_REALIZZATA`` e
     solleva ``LookupError`` se richiesta a ``run.fase(Passo.S8)``.
 
-    **Razionale Scientifico/Sistemistico**: Separa in modo trasparente le fasi
+    **Razionale scientifico e sistemistico**: Separa in modo trasparente le fasi
     già implementate nel codice di produzione dalle fasi successive
     (``S8..S14``), evitando falsi stati di completamento.
     """
@@ -1237,7 +1282,7 @@ def test_l_albero_e_quello_della_configurazione(scenario):
     **Obiettivo**: Verificare che ``run.albero.radice`` coincida con il percorso
     risolto di ``AlberoOutput(scenario.config.io.out_root).radice``.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che ``ProjectRun`` operi
+    **Razionale scientifico e sistemistico**: Garantisce che ``ProjectRun`` operi
     sempre sulla directory di output dichiarata nella configurazione validata.
     """
     run = ProjectRun(scenario.config)

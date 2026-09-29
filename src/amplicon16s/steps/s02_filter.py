@@ -169,6 +169,9 @@ class FiltroLetture(PipelineStep):
         return tuple(n for n in manifesto.nomi if n.endswith(SUFFISSO_FILTRATI))
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Verifica che gli archivi si decomprimano per intero, esegue ``R/02_filter.R``
+        e controlla le letture rimaste per classe.
+        """
         if contesto.inventario is None:
             raise RuntimeError("S2 richiede l'inventario prodotto da S0")
         config = contesto.config

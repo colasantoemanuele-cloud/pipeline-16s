@@ -94,9 +94,11 @@ class Nodo:
 
     @property
     def facoltativa(self) -> bool:
+        """Vero se la fase ha una condizione di attivazione."""
         return self.attiva_se is not None
 
     def attiva(self, config: Config) -> bool:
+        """Vero se la fase è attiva con la configurazione indicata."""
         return self.attiva_se is None or self.attiva_se(config)
 
 
@@ -154,6 +156,7 @@ class Grafo:
         return len(self._nodi)
 
     def nodo(self, passo: Passo) -> Nodo:
+        """Il nodo della fase indicata."""
         return self._nodi[passo]
 
     def ordine(self) -> tuple[Passo, ...]:
@@ -181,6 +184,7 @@ class Grafo:
 
 
 def _filogenesi_attiva(config: Config) -> bool:
+    """Condizione di attivazione di S9: la filogenesi è abilitata."""
     return config.phylo.enabled
 
 

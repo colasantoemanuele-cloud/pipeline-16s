@@ -196,6 +196,9 @@ class Filter(_Gruppo):
 
     @model_validator(mode="after")
     def _tolleranza_minore_del_troncamento(self) -> Filter:
+        """Respinge una tolleranza sullo scarto non minore di ``truncLen``, che non
+        potrebbe mai essere superata.
+        """
         if self.truncLen_shortfall_warn >= self.truncLen:
             raise ValueError(
                 "truncLen_shortfall_warn ({}) deve essere minore di truncLen ({}): "
@@ -306,6 +309,7 @@ class Ctrl(_Gruppo):
 
     @model_validator(mode="after")
     def _categorie_disgiunte(self) -> Ctrl:
+        """Respinge un'etichetta assegnata a più di una classe di campioni."""
         categorie = {
             "blank_values": set(self.blank_values),
             "positive_values": set(self.positive_values),
@@ -376,6 +380,7 @@ class Qc(_Gruppo):
 
     @model_validator(mode="after")
     def _avviso_prima_dell_arresto(self) -> Qc:
+        """Respinge una soglia d'avviso sulle chimere superiore a quella d'arresto."""
         if self.warn_frac_chimeric > self.stop_frac_chimeric:
             raise ValueError(
                 "warn_frac_chimeric ({}) non puo' superare stop_frac_chimeric ({}): "

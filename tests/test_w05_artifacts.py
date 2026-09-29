@@ -1,19 +1,73 @@
-"""Suite di verifica per il gestore dell'albero di output e dei manifesti SHA-256.
+r"""Suite di verifica per il gestore dell'albero di output e dei manifesti SHA-256.
 
-Inquadramento nel Piano Operativo:
-    - **Settimana di riferimento**: **Settimana 5 (W5 : Fase F1: Catalogo degli errori,
-      gestione degli artefatti e logging)**, con estensioni utilizzate dal meccanismo
-      di ripresa su filesystem della **Settimana 9 (W9 : Fase F3)**.
-    - **Scopo del modulo**: Verifica che la creazione delle 14 directory canoniche
-      di output (``00_config`` .. ``99_logs``), il calcolo streaming dei digest
-      crittografici SHA-256 e l'aggiornamento atomico dei manifesti JSON garantiscano
-      il rilevamento deterministico di qualsiasi cancellazione, troncamento o
-      manomissione anche di un singolo byte sugli artefatti intermedi della pipeline.
-    - **Moduli sorgente coperti**:
-        * ``src/amplicon16s/io_layer/checksums.py``
-        * ``src/amplicon16s/io_layer/artifacts.py``
-    - **Comando Bash**: ``pytest tests/test_w05_artifacts.py -v``
-    - **Risultato atteso**: ``25 passed in ~0.25s``
+1. Inquadramento nel Piano Operativo
+------------------------------------
+Settimana 5 (W5), Fase F1 (catalogo degli errori, gestione degli artefatti e
+logging), con le estensioni usate dal meccanismo di ripresa su filesystem della
+Settimana 9 (W9, Fase F3).
+
+2. Moduli sorgente coperti
+--------------------------
+* ``src/amplicon16s/io_layer/checksums.py``
+* ``src/amplicon16s/io_layer/artifacts.py``
+
+3. Cosa valuta questo file
+--------------------------
+- checksum SHA-256 dichiarato con il proprio algoritmo, identico su file e su
+  byte, diverso per contenuti diversi, calcolato a blocchi su file più grandi
+  di un blocco di lettura;
+- albero di output delle 14 cartelle canoniche (da ``00_config`` a
+  ``99_logs``): nomi previsti, creazione ripetibile, nessuna scrittura sul
+  filesystem alla sola costruzione, cartella creata alla prima scrittura;
+- manifesto di cartella: registrazione di ogni artefatto scritto,
+  interrogabilità, indipendenza dall'ordine di scrittura, aggiornamento della
+  voce quando un artefatto viene riscritto, registrazione di file scritti da
+  processi esterni e rifiuto di un file inesistente;
+- rilevamento di artefatti alterati, rimossi o troncati, e distinzione fra
+  una fase completa, una mai eseguita e un manifesto parziale.
+
+4. Comandi Bash e scenari di esecuzione
+---------------------------------------
+    1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
+       dati reali):
+       pytest tests/test_w05_artifacts.py -v
+
+    2. Modalità container Docker standard (sottoinsieme ridotto con
+       R/Bioconductor):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -v "$(pwd)":/app \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w05_artifacts.py -v
+
+    3. Modalità container Docker completa (con i 2.4 GB di dati reali OSD-734;
+       la configurazione e i percorsi che contiene devono stare nella cartella
+       montata):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
+         -v "$(pwd)":/app \
+         -v "$HOME/ASI":"$HOME/ASI" \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w05_artifacts.py -v
+
+5. Risultato atteso
+-------------------
+25 test totali:
+- 25 passed in ambiente locale standard (~0.1s);
+- 25 passed nel container Docker standard sul sottoinsieme ridotto (~0.1s);
+- 25 passed nel container Docker con i dati reali OSD-734 (~0.1s).
+
+6. Razionale scientifico e sistemistico
+---------------------------------------
+- La ripresa di un'esecuzione decide cosa rifare leggendo lo stato dal
+  disco: un artefatto cancellato, troncato o alterato anche di un solo byte deve
+  risultare non integro, altrimenti una fase a valle userebbe un ingresso
+  corrotto senza alcun errore.
+- Il calcolo a blocchi mantiene costante la memoria dell'orchestratore anche
+  sugli artefatti più grandi (letture filtrate, oggetti ``.rds``).
 """
 
 from __future__ import annotations
@@ -54,7 +108,7 @@ def test_il_checksum_dichiara_il_proprio_algoritmo(tmp_path):
     **Obiettivo**: Verificare che l'impronta restituita da ``checksum_file`` sia
     prefissata con l'identificativo dell'algoritmo (``sha256:<esadecimale>``).
 
-    **Razionale Scientifico/Sistemistico**: Esplicitare il prefisso ``sha256:``
+    **Razionale scientifico e sistemistico**: Esplicitare il prefisso ``sha256:``
     nei manifesti previene ambiguità crittografiche (es. confusione con MD5 usato
     solo per il database FASTA esterno in G12) e garantisce l'auto-descrittività
     a lungo termine degli artefatti depositati a fine studio.
@@ -70,7 +124,7 @@ def test_checksum_di_file_e_di_byte_coincidono(tmp_path):
     buffer in memoria (``checksum_bytes``) e quello calcolato leggendo il file da
     disco (``checksum_file``).
 
-    **Razionale Scientifico/Sistemistico**: Quando ``AlberoOutput.scrivi_testo``
+    **Razionale scientifico e sistemistico**: Quando ``AlberoOutput.scrivi_testo``
     o ``scrivi_bytes`` persiste un artefatto, calcola il checksum dai byte in
     memoria, mentre alla ripresa (`resume`) ``ProjectRun`` ricalcola il checksum
     leggendo il file dal disco: se le due funzioni divergessero, ogni ripresa
@@ -87,7 +141,7 @@ def test_contenuti_diversi_hanno_checksum_diversi():
     **Obiettivo**: Verificare la sensibilità della funzione di hashing alla
     variazione di un singolo byte del payload.
 
-    **Razionale Scientifico/Sistemistico**: Assicura l'assenza di banalità
+    **Razionale scientifico e sistemistico**: Assicura l'assenza di banalità
     nell'implementazione del wrapper SHA-256, condizione necessaria affinché
     anche una minima modifica ad una tabella di abbondanza ASV o tassonomica
     venga intercettata dal controllo di integrità.
@@ -100,7 +154,7 @@ def test_un_file_grande_non_viene_caricato_in_memoria(tmp_path):
     **Obiettivo**: Verificare la correttezza del calcolo SHA-256 quando la
     dimensione del file (> 3 MiB) supera i blocchi di lettura (1 MiB) di ``checksum_file``.
 
-    **Razionale Scientifico/Sistemistico**: Gli artefatti delle fasi S2 (FASTQ
+    **Razionale scientifico e sistemistico**: Gli artefatti delle fasi S2 (FASTQ
     filtrati per 960 campioni) e S4/S10 (oggetti ``.rds`` DADA2 e ``phyloseq``)
     possono raggiungere centinaia di megabyte o gigabyte. La lettura chunked a
     blocchi evita picchi di allocazione RAM (OOM) nell'orchestratore Python e
@@ -117,7 +171,7 @@ def test_un_file_assente_non_corrisponde(tmp_path):
     **Obiettivo**: Verificare che ``corrisponde()`` restituisca ``False`` (senza
     sollevare ``FileNotFoundError``) quando il file indicato non esiste su disco.
 
-    **Razionale Scientifico/Sistemistico**: Nel modello di ripresa basato sul
+    **Razionale scientifico e sistemistico**: Nel modello di ripresa basato sul
     filesystem, l'assenza di un artefatto non è un crash del programma ma il
     segnale fisiologico che indica che la fase è incompleta e deve essere
     pianificata per l'esecuzione.
@@ -135,7 +189,7 @@ def test_le_fasi_sono_quattordici():
     **Obiettivo**: Verificare che l'enumerazione ``Fase`` contenga esattamente
     le 14 directory di output previste dall'architettura.
 
-    **Razionale Scientifico/Sistemistico**: Blocca regressioni strutturali
+    **Razionale scientifico e sistemistico**: Blocca regressioni strutturali
     nell'albero di output: mentre i passi logici sono 15 (`S0..S14`), le cartelle
     fisiche sono 14 perché `07_chimera` (S6, S7), `11_controls` (S11, S12) e
     `12_final` (S13, S14) aggregano fasi contigue più `00_config` e `99_logs`.
@@ -148,7 +202,7 @@ def test_i_nomi_delle_cartelle_sono_quelli_previsti():
     **Obiettivo**: Verificare che i nomi delle 14 directory corrispondano
     esattamente alla nomenclatura numerata (``00_config`` .. ``12_final``, ``99_logs``).
 
-    **Razionale Scientifico/Sistemistico**: Gli script R a valle, i moduli di
+    **Razionale scientifico e sistemistico**: Gli script R a valle, i moduli di
     analisi ecologica (`amplicon16s_eco`) e il generatore di report si aspettano
     percorsi deterministici e ordinati lessicograficamente secondo l'ordine del
     flusso bioinformatico.
@@ -161,7 +215,7 @@ def test_creare_l_albero_produce_tutte_le_cartelle(albero, tmp_path):
     **Obiettivo**: Verificare che ``albero.crea()`` materializzi su disco tutte
     le 14 sottocartelle sotto ``io.out_root``.
 
-    **Razionale Scientifico/Sistemistico**: Assicura che fin dall'avvio della
+    **Razionale scientifico e sistemistico**: Assicura che fin dall'avvio della
     pipeline tutte le destinazioni per i manifesti, gli artefatti R e il file
     di log strutturato ``99_logs/pipeline.jsonl`` siano pronte e scrivibili.
     """
@@ -175,7 +229,7 @@ def test_creare_l_albero_e_ripetibile(albero, tmp_path):
     **Obiettivo**: Verificare che invocazioni successive di ``albero.crea()``
     siano idempotenti e non sovrascrivano né cancellino i file già presenti.
 
-    **Razionale Scientifico/Sistemistico**: Durante un comando ``amplicon16s resume``,
+    **Razionale scientifico e sistemistico**: Durante un comando ``amplicon16s resume``,
     l'inizializzazione dell'albero viene rieseguita su una directory di output
     popolata da ore di calcolo DADA2: una creazione distruttiva azzererebbe il
     lavoro già completato.
@@ -191,7 +245,7 @@ def test_costruire_l_albero_non_tocca_il_filesystem(tmp_path):
     **Obiettivo**: Verificare che la sola istanziazione di ``AlberoOutput(radice)``
     non crei directory su disco prima di una scrittura esplicita.
 
-    **Razionale Scientifico/Sistemistico**: Evita effetti collaterali indesiderati
+    **Razionale scientifico e sistemistico**: Evita effetti collaterali indesiderati
     quando si ispeziona o si valida una configurazione in sola lettura senza
     voler ancora sporcare il filesystem.
     """
@@ -205,7 +259,7 @@ def test_la_cartella_nasce_alla_prima_scrittura(albero, tmp_path):
     **Obiettivo**: Verificare che ``scrivi_testo`` crei automaticamente (lazy
     creation) la directory della fase bersaglio qualora non esista ancora.
 
-    **Razionale Scientifico/Sistemistico**: Rende ogni singola fase autonoma e
+    **Razionale scientifico e sistemistico**: Rende ogni singola fase autonoma e
     resiliente anche se invocata isolatamente o se una cartella vuota è stata
     rimossa manualmente dall'operatore prima di una ripresa.
     """
@@ -225,7 +279,7 @@ def test_l_artefatto_scritto_finisce_nel_manifesto(albero):
     immediatamente nel ``manifest.json`` il nome, il checksum SHA-256 e la
     dimensione in byte del file.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce l'accoppiamento atomico
+    **Razionale scientifico e sistemistico**: Garantisce l'accoppiamento atomico
     tra dato e metadato di integrità: nessun artefatto può nascere senza che la
     sua impronta crittografica venga contestualmente blindata nel manifesto.
     """
@@ -241,7 +295,7 @@ def test_il_manifesto_e_interrogabile(albero):
     **Obiettivo**: Verificare che il file ``manifest.json`` scritto su disco
     rispetti lo schema JSON atteso (chiavi ``fase`` e lista ``artefatti``).
 
-    **Razionale Scientifico/Sistemistico**: Consente sia a ``ProjectRun`` sia
+    **Razionale scientifico e sistemistico**: Consente sia a ``ProjectRun`` sia
     agli strumenti esterni di audit e reportistica di ispezionare i manifesti
     di fase come documenti JSON standard e auto-contenuti.
     """
@@ -259,7 +313,7 @@ def test_il_manifesto_non_dipende_dall_ordine_di_scrittura(tmp_path):
     lessicograficamente le voci degli artefatti producendo un file identico bit
     a bit indipendentemente dall'ordine temporale di scrittura dei file.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che l'hash SHA-256 del
+    **Razionale scientifico e sistemistico**: Garantisce che l'hash SHA-256 del
     manifesto stesso sia strettamente deterministico e riproducibile (idempotenza).
     Se l'impronta del manifesto dipendesse dall'ordine non deterministico con cui
     thread o sottoprocessi R chiudono i file, le fasi a valle rileverebbero una
@@ -282,7 +336,7 @@ def test_riscrivere_un_artefatto_aggiorna_la_sua_voce(albero):
     **Obiettivo**: Verificare che la sovrascrittura di un artefatto esistente
     aggiorni in-place la voce corrispondente nel manifesto senza creare duplicati.
 
-    **Razionale Scientifico/Sistemistico**: Quando una fase viene rieseguita
+    **Razionale scientifico e sistemistico**: Quando una fase viene rieseguita
     dopo una ripresa o un tentativo di retry automatico, i nuovi artefatti
     sostituiscono quelli del tentativo precedente: il manifesto deve riflettere
     esclusivamente lo stato dell'ultima esecuzione valida.
@@ -300,7 +354,7 @@ def test_il_manifesto_di_una_fase_mai_eseguita_e_vuoto(albero):
     **Obiettivo**: Verificare che ``albero.manifesto()`` restituisca un dizionario
     vuoto ``{}`` per una fase nella cui cartella non è ancora stato scritto nulla.
 
-    **Razionale Scientifico/Sistemistico**: Permette di interrogare in sicurezza
+    **Razionale scientifico e sistemistico**: Permette di interrogare in sicurezza
     lo stato di qualsiasi fase (incluse fasi opzionali disattivate come S9
     filogenesi) senza sollevare eccezioni di I/O.
     """
@@ -318,7 +372,7 @@ def test_un_artefatto_alterato_non_e_integro(albero):
     registrato faccia passare ``artefatto.integro`` e ``fase_completa`` a ``False``,
     elencando il file in ``non_integri()``.
 
-    **Razionale Scientifico/Sistemistico**: Previene l'uso silenzioso di file
+    **Razionale scientifico e sistemistico**: Previene l'uso silenzioso di file
     corrotti o modificati accidentalmente su disco (es. un file ``.rds`` o TSV
     alterato manualmente dopo il calcolo), obbligando il grafo di ripresa a
     invalidare e ricalcolare la fase compromessa e tutte le sue dipendenti.
@@ -338,7 +392,7 @@ def test_un_artefatto_rimosso_non_e_integro(albero):
     **Obiettivo**: Verificare che la cancellazione fisica di un file registrato
     nel manifesto venga rilevata da ``non_integri()`` e invalidi ``fase_completa()``.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che il manifesto da solo
+    **Razionale scientifico e sistemistico**: Garantisce che il manifesto da solo
     non basti a dichiarare conclusa una fase se il file fisico corrispondente è
     stato rimosso dal filesystem.
     """
@@ -354,7 +408,7 @@ def test_un_troncamento_viene_rilevato(albero):
     **Obiettivo**: Verificare che un artefatto troncato a metà rispetto alla
     sua lunghezza originale venga immediatamente segnalato come non integro.
 
-    **Razionale Scientifico/Sistemistico**: Simula il caso classico di un
+    **Razionale scientifico e sistemistico**: Simula il caso classico di un
     processo interrotto da ``SIGKILL`` (OOM killer) o da saturazione dello
     spazio disco mentre stava scaricando un file su disco: il file esiste e non
     è vuoto, ma il confronto SHA-256 impedisce che una tabella troncata venga
@@ -371,7 +425,7 @@ def test_una_fase_con_artefatti_integri_risulta_completa(albero):
     ``non_integri()`` restituisca ``()`` quando tutti i file registrati nel
     manifesto esistono e corrispondono ai rispettivi hash SHA-256.
 
-    **Razionale Scientifico/Sistemistico**: Costituisce la condizione necessaria
+    **Razionale scientifico e sistemistico**: Costituisce la condizione necessaria
     affinché ``ProjectRun`` possa saltare le fasi già concluse durante un
     ``resume`` senza ripetere calcoli ridondanti.
     """
@@ -386,7 +440,7 @@ def test_una_fase_mai_eseguita_non_risulta_completa(albero):
     **Obiettivo**: Verificare che ``fase_completa()`` restituisca ``False`` per
     una fase priva di manifesto su disco.
 
-    **Razionale Scientifico/Sistemistico**: Evita che l'assenza di file non
+    **Razionale scientifico e sistemistico**: Evita che l'assenza di file non
     integri (insieme vuoto su cartella mai eseguita) venga scambiata per
     completamento con successo.
     """
@@ -398,7 +452,7 @@ def test_un_manifesto_parziale_non_significa_fase_conclusa(albero):
     **Obiettivo**: Verificare che ``fase_completa(fase, attesi=[...])`` restituisca
     ``False`` se nel manifesto manca anche uno solo degli artefatti richiesti.
 
-    **Razionale Scientifico/Sistemistico**: Se una fase deve produrre due file
+    **Razionale scientifico e sistemistico**: Se una fase deve produrre due file
     (es. ``seqtab.tsv`` e ``conteggi.tsv``) e si interrompe dopo aver scritto e
     registrato solo il primo, il primo file è integro ma la fase è incompleta:
     il controllo sull'insieme atteso impedisce riprese su output parziali.
@@ -419,7 +473,7 @@ def test_un_file_scritto_da_altri_puo_essere_registrato(albero):
     checksum SHA-256 di un file già scritto su disco da un processo esterno e
     lo inserisca nel manifesto della fase.
 
-    **Razionale Scientifico/Sistemistico**: Le fasi di calcolo statistico e
+    **Razionale scientifico e sistemistico**: Le fasi di calcolo statistico e
     bioinformatico (`S1..S13`) vengono eseguite da sottoprocessi ``Rscript``
     indipendenti che salvano su disco oggetti ``.rds`` e tabelle TSV. Al termine
     del processo R, il ponte Python ``rbridge`` utilizza ``albero.registra`` per
@@ -441,7 +495,7 @@ def test_registrare_un_file_inesistente_e_un_errore(albero):
     **Obiettivo**: Verificare che ``albero.registra`` sollevi ``FileNotFoundError``
     se il file dichiarato non esiste fisicamente nella cartella della fase.
 
-    **Razionale Scientifico/Sistemistico**: Impedisce che uno script R buggato
+    **Razionale scientifico e sistemistico**: Impedisce che uno script R buggato
     possa dichiarare nel proprio JSON d'esito di aver prodotto un artefatto
     (es. ``ps.rds``) senza averlo realmente scritto su disco.
     """
@@ -455,7 +509,7 @@ def test_artefatti_binari(albero):
     **Obiettivo**: Verificare che ``scrivi_bytes`` persista flussi binari grezzi
     preservandone i byte esatti e registrandone il relativo checksum SHA-256.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che file binari non
+    **Razionale scientifico e sistemistico**: Garantisce che file binari non
     testuali (come archivi compressi o strutture serializzate) non subiscano
     alterazioni di codifica UTF-8 o conversioni di fine riga.
     """

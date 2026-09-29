@@ -30,6 +30,7 @@ class ClasseCampione(StrEnum):
 
     @property
     def e_controllo(self) -> bool:
+        """Vero per i controlli positivi e negativi."""
         return self is not ClasseCampione.BIOLOGICO
 
 
@@ -60,6 +61,7 @@ class Campione:
 
     @property
     def ha_lotto(self) -> bool:
+        """Vero se il campione ha almeno una fra piastra e corsa."""
         return self.piastra is not None or self.corsa is not None
 
 
@@ -83,21 +85,26 @@ class Inventario:
 
     @property
     def accessioni(self) -> tuple[str, ...]:
+        """Gli accession dei campioni, nell'ordine dell'inventario."""
         return tuple(c.accession for c in self.campioni)
 
     def di_classe(self, classe: ClasseCampione) -> tuple[Campione, ...]:
+        """I campioni della classe indicata, nell'ordine dell'inventario."""
         return tuple(c for c in self.campioni if c.classe is classe)
 
     @property
     def biologici(self) -> tuple[Campione, ...]:
+        """I campioni biologici."""
         return self.di_classe(ClasseCampione.BIOLOGICO)
 
     @property
     def controlli_positivi(self) -> tuple[Campione, ...]:
+        """I controlli positivi."""
         return self.di_classe(ClasseCampione.CONTROLLO_POSITIVO)
 
     @property
     def controlli_negativi(self) -> tuple[Campione, ...]:
+        """I controlli negativi."""
         return self.di_classe(ClasseCampione.CONTROLLO_NEGATIVO)
 
     def denominatore_prevalenza(self) -> int:
@@ -115,19 +122,23 @@ class Inventario:
         return len(self.biologici)
 
     def conteggi(self) -> dict[ClasseCampione, int]:
+        """Il numero di campioni per classe, con zero per le classi assenti."""
         conteggio = Counter(c.classe for c in self.campioni)
         return {classe: conteggio.get(classe, 0) for classe in ClasseCampione}
 
     @property
     def piastre(self) -> tuple[str, ...]:
+        """Le piastre distinte, in ordine alfabetico."""
         return tuple(sorted({c.piastra for c in self.campioni if c.piastra is not None}))
 
     @property
     def corse(self) -> tuple[str, ...]:
+        """Le corse di sequenziamento distinte, in ordine alfabetico."""
         return tuple(sorted({c.corsa for c in self.campioni if c.corsa is not None}))
 
     @property
     def moduli(self) -> tuple[str, ...]:
+        """I moduli distinti, in ordine alfabetico."""
         return tuple(sorted({c.modulo for c in self.campioni if c.modulo is not None}))
 
     @property
@@ -140,4 +151,5 @@ class Inventario:
         return tuple(c for c in self.campioni if not c.ha_lotto)
 
     def campioni_per_piastra(self) -> dict[str, int]:
+        """Il numero di campioni di ciascuna piastra."""
         return dict(Counter(c.piastra for c in self.campioni if c.piastra is not None))

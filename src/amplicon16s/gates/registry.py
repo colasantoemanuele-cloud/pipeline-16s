@@ -80,6 +80,7 @@ class EsitoGate:
 
 @dataclass(frozen=True)
 class _Voce:
+    """Un gate del registro: nome, descrizione e funzione di controllo."""
     nome: str
     descrizione: str
     controllo: Any

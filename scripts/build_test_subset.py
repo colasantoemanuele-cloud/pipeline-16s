@@ -68,6 +68,9 @@ NOME_LOTTI: Final = "lotti.tsv"
 
 @dataclass(frozen=True)
 class Scelto:
+    """Un campione della selezione: accession, nome, letture, lunghezza minima e MD5 del
+    file originale.
+    """
     accession: str
     campione: str
     letture: int
@@ -76,6 +79,7 @@ class Scelto:
 
 
 def leggi_selezione(percorso: Path = SELEZIONE) -> list[Scelto]:
+    """I campioni della tabella di selezione, nell'ordine della tabella."""
     with open(percorso, encoding="utf-8", newline="") as file:
         return [
             Scelto(
@@ -87,6 +91,7 @@ def leggi_selezione(percorso: Path = SELEZIONE) -> list[Scelto]:
 
 
 def md5(percorso: Path) -> str:
+    """L'MD5 del file, letto a blocchi."""
     impronta = hashlib.md5()
     with open(percorso, "rb") as file:
         while blocco := file.read(1 << 20):
@@ -95,6 +100,9 @@ def md5(percorso: Path) -> str:
 
 
 def _file_di(config: Config, accession: str) -> Path:
+    """L'unico file di letture dell'accession nella cartella dei dati; si ferma se non è
+    uno solo.
+    """
     trovati = [
         p for p in Path(config.io.fastq_dir).glob(config.io.fastq_glob)
         if p.name.startswith(f"{accession}_")
@@ -159,6 +167,7 @@ def scrivi_metadati(config: Config, scelti: list[Scelto], cartella: Path) -> Non
 
 
 def _record(percorso: Path) -> Iterator[tuple[str, str, str, str]]:
+    """I record FASTQ del file compresso, come quadruple di righe."""
     with gzip.open(percorso, "rt", encoding="ascii") as file:
         while intestazione := file.readline():
             yield intestazione, file.readline(), file.readline(), file.readline()
@@ -198,6 +207,9 @@ def sottocampiona(sorgente: Path, destinazione: Path, accession: str) -> tuple[i
 
 
 def _verifica(config: Config, scelti: list[Scelto]) -> dict[str, Path]:
+    """I file originali dei campioni scelti, dopo averne verificato l'MD5 contro la
+    selezione.
+    """
     percorsi = {}
     for scelto in scelti:
         percorso = _file_di(config, scelto.accession)
@@ -208,6 +220,9 @@ def _verifica(config: Config, scelti: list[Scelto]) -> dict[str, Path]:
 
 
 def completo(config: Config, destinazione: Path) -> None:
+    """Copia i file originali dei campioni scelti e ne scrive i metadati nella
+    destinazione.
+    """
     scelti = leggi_selezione()
     percorsi = _verifica(config, scelti)
     (destinazione / "fastq").mkdir(parents=True, exist_ok=True)
@@ -218,6 +233,9 @@ def completo(config: Config, destinazione: Path) -> None:
 
 
 def ridotto(config: Config, destinazione: Path) -> None:
+    """Scrive la versione ridotta dei campioni scelti, i metadati e il manifesto con gli
+    MD5.
+    """
     scelti = leggi_selezione()
     percorsi = _verifica(config, scelti)
     cartella = destinazione / "fastq"
@@ -245,6 +263,7 @@ def ridotto(config: Config, destinazione: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Punto d'ingresso da riga di comando: sottocomandi ``completo`` e ``ridotto``."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     comandi = parser.add_subparsers(dest="comando", required=True)
     for nome in ("completo", "ridotto"):

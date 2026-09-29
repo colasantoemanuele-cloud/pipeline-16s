@@ -56,6 +56,9 @@ class TabellaSequenze(PipelineStep):
     parametri: ClassVar[tuple[str, ...]] = ("qc.max_asv_count",)
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Esegue ``R/05_seqtab.R``, che costruisce la tabella campioni per varianti
+        dalle varianti di S4.
+        """
         if contesto.inventario is None:
             raise RuntimeError("S5 richiede l'inventario prodotto da S0")
         config = contesto.config

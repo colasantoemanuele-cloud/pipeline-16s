@@ -120,6 +120,7 @@ class PuntoDiRipresa:
     origine: str = "fase"
 
     def come_documento(self) -> dict[str, Any]:
+        """Il punto di ripresa come documento JSON, scritto in ``99_logs``."""
         return {
             "passo": str(self.passo) if self.passo else None,
             "origine": self.origine,
@@ -158,6 +159,9 @@ class PuntoDiRipresa:
 
 @dataclass(frozen=True)
 class EsitoEsecuzione:
+    """L'esito di un'esecuzione: come si è conclusa, le fasi eseguite e l'eventuale
+    punto di ripresa.
+    """
     conclusione: Conclusione
     #: Le fasi eseguite in questa esecuzione, nell'ordine.
     eseguite: tuple[StepResult, ...] = ()
@@ -171,6 +175,8 @@ class EsitoEsecuzione:
 
 
 class _Arresto(Exception):
+    """Arresto ai controlli di avvio, che porta con sé il punto di ripresa dichiarato.
+    """
     def __init__(self, punto: PuntoDiRipresa) -> None:
         super().__init__(punto.testo())
         self.punto = punto
@@ -205,6 +211,7 @@ class Esecutore:
 
     @property
     def config(self) -> Config:
+        """La configurazione dichiarata dell'esecuzione."""
         return self.run.config
 
     # ----------------------------------------------------------------- #
@@ -336,6 +343,9 @@ class Esecutore:
             )
 
     def _registra_configurazione(self, valutazione: Valutazione) -> Registrazione:
+        """Registra la configurazione risolta nella cartella di output e segnala se
+        differisce dall'ultima.
+        """
         registrazione = registra_risolta(valutazione.risolta, self.config.io.out_root)
         extra = {
             "file": registrazione.percorso.name,
@@ -361,6 +371,9 @@ class Esecutore:
         return None
 
     def _esegui_con_tentativi(self, passo: Passo, valutazione: Valutazione) -> StepResult:
+        """Esegue una fase applicando la politica di retry, e registra ogni
+        aggiustamento.
+        """
         fase = self.run.fase(passo)
         config = self.config
         aggiustamenti: list[dict[str, Any]] = []
@@ -433,6 +446,7 @@ class Esecutore:
     def _punto(
         self, passo: Passo, e: ErrorePipeline, motivo: Motivo, tentativi: int
     ) -> PuntoDiRipresa:
+        """Il punto di ripresa che corrisponde a un errore della fase indicata."""
         return PuntoDiRipresa(
             passo=passo,
             codice=e.codice,
@@ -459,6 +473,7 @@ class Esecutore:
     # ----------------------------------------------------------------- #
 
     def _percorsi_punto(self) -> tuple[Path, Path]:
+        """I percorsi JSON e testuale del punto di ripresa in ``99_logs``."""
         cartella = self.run.albero.cartella(Fase.LOGS)
         return (
             cartella / f"{NOME_PUNTO_DI_RIPRESA}.json",
@@ -466,6 +481,7 @@ class Esecutore:
         )
 
     def _scrivi_punto(self, punto: PuntoDiRipresa) -> None:
+        """Scrive il punto di ripresa nei due formati e lo registra nel log."""
         self.run.albero.prepara(Fase.LOGS)
         documento, testo = self._percorsi_punto()
         documento.write_text(
@@ -476,5 +492,6 @@ class Esecutore:
         self.log.error("punto di ripresa dichiarato", extra=punto.come_documento())
 
     def _rimuovi_punto(self) -> None:
+        """Rimuove il punto di ripresa di un'esecuzione precedente, se presente."""
         for percorso in self._percorsi_punto():
             percorso.unlink(missing_ok=True)

@@ -196,6 +196,7 @@ class ConfigRisolta:
 
     @property
     def completa(self) -> bool:
+        """Vero quando anche i derivati dipendenti dai dati sono stati calcolati."""
         return self.derivati.completi
 
     def con_campioni_biologici(self, quanti: int) -> ConfigRisolta:
@@ -254,6 +255,9 @@ _INTESTAZIONE = """\
 
 
 def _testo_risolta(risolta: ConfigRisolta, aggiunte: dict[str, Any] | None = None) -> str:
+    """Il testo YAML della configurazione risolta, preceduto dall'intestazione che ne
+    vieta il riuso.
+    """
     documento: dict[str, Any] = {
         "digest": risolta.digest,
         **(aggiunte or {}),
@@ -314,6 +318,7 @@ class Registrazione:
 
 
 def _appiattisci(mappa: dict[str, Any]) -> dict[str, Any]:
+    """Da ``{gruppo: {chiave: valore}}`` a ``{"gruppo.chiave": valore}``."""
     return {
         f"{gruppo}.{chiave}": valore
         for gruppo, parametri in mappa.items()

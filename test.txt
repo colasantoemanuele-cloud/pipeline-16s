@@ -30,11 +30,16 @@ integrazione del progetto con output dettagliato (un test per riga), lanciare:
 
     pytest tests/ -v
 
-Totale complessivo della suite: 816 test su 18 moduli (747 passed e 69 skipped
-in ambiente locale con R base + jsonlite ma senza Bioconductor e dati reali in
-circa 35 secondi; 790 passed e 26 skipped nel container CI con Bioconductor;
-769 passed e 47 skipped in locale con i dati reali OSD-734; 816 passed
-eseguendo l'intera suite nel container con i 2.4 GB di dati reali OSD-734).
+Totale complessivo della suite: 816 test su 18 moduli:
+  * 747 passed e 69 skipped in ambiente locale standard (R base + jsonlite, senza
+    Bioconductor e senza dati reali), in circa 35 secondi;
+  * 770 passed e 46 skipped in locale con i dati reali OSD-734;
+  * 787 passed e 29 skipped nel container CI standard (senza dati reali
+    OSD-734): 27 test sui dati reali OSD-734, 1 test sull'allocazione R legata
+    alla lingua e 1 test che richiede il repository .git;
+  * 814 passed e 2 skipped nel container Docker con i 2.4 GB di dati reali
+    OSD-734, in circa 89 minuti: i 2 salti strutturali, sulla lingua di R e
+    sul repository .git, restano anche in questo scenario.
 
 Per includere anche i test end-to-end sui 960 file FASTQ reali di OSD-734,
 impostare la variabile d'ambiente che punta al file di configurazione reale:
@@ -52,14 +57,14 @@ funzione di test uno dei seguenti tre stati:
 
   * SKIPPED (in giallo):
     Il test è stato saltato intenzionalmente e in modo controllato. Nella suite
-    questo accade per i 26 test su dati reali di 'tests/test_w07_dati_reali.py'
-    (22 test), 'tests/test_w11_s01_profile.py' (1 test),
+    questo accade per i 27 test sui dati reali OSD-734 di
+    'tests/test_w07_dati_reali.py' (22 test), 'tests/test_w11_s01_profile.py' (2 test),
     'tests/test_w12_s02_filter.py' (1 test), 'tests/test_w13_s03_batch.py'
     (1 test) e 'tests/test_w14_s04_s07_denoising.py' (1 test) quando la
     variabile 'AMPLICON16S_CONFIG_DATI_REALI' non è definita (ad esempio su
     macchine portatili o nei runner di Continuous Integration privi dei 2.4 GB
-    di sequenze FASTQ della NASA) e per i 43 test R/Bioconductor di
-    'tests/test_w11_s01_profile.py' (7 test), 'tests/test_w12_s02_filter.py'
+    di sequenze FASTQ della NASA) e per i 42 test R/Bioconductor di
+    'tests/test_w11_s01_profile.py' (6 test), 'tests/test_w12_s02_filter.py'
     (6 test), 'tests/test_w13_s03_batch.py' (7 test),
     'tests/test_w14_s04_s07_denoising.py' (12 test) e
     'tests/test_w15_consolidamento.py' (11 test) quando si esegue fuori dal
@@ -118,7 +123,7 @@ predisporre i seguenti 5 blocchi funzionali di file:
   3. Metadati ISA-Tab ufficiali NASA GeneLab:
      - Tabella di studio ('io.study_table'): file 's_OSD-734.txt' (es.
        '/home/nemo/ASI/OSD-734/OSD-734_metadata_OSD-734-ISA/s_OSD-734.txt')
-       contenente i metadati generali e le caratteristiche di 1.072 campioni
+       contenente i metadati generali e le caratteristiche di 1.056 campioni
        complessivi dello studio (inclusi saggi multi-omici e controlli di
        solvente).
      - Tabella di saggio 16S ('io.assay_table'): file
@@ -274,7 +279,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
 --------------------------------------------------------------------------------
 
-5.1 Catalogo centralizzato degli errori (49 codici)
+5.1 Catalogo centralizzato degli errori (50 codici catalogati)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   * SETTIMANA E FASE:
     Settimana W5 (esteso in W11 e W13), Fase F1/F4 (Tassonomia formale degli
@@ -284,17 +289,17 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     tests/test_w05_errors_catalog.py
 
   * COSA VALUTA:
-    Ispeziona sistematicamente tutti i 49 codici del catalogo ('CATALOGO': 35
-    codici di fase S0-S14 inclusi 'E-S1-02' ed 'E-S3-02', 9 codici di
+    Ispeziona sistematicamente tutti i 50 codici del catalogo ('CATALOGO': 35
+    codici di fase S0-S14 inclusi 'E-S1-02' ed 'E-S3-02', 10 codici di
     configurazione G15, 4 codici del ponte verso R 'E-R-01..04' e 1 codice del
     grafo 'E-GRAFO-01'). Verifica che ogni codice appartenga a una delle 4
     categorie formali ('revisione_umana', 'retry', 'retry_poi_revisione',
     'degradazione'), possieda un messaggio diagnostico non banale (> 30
     caratteri) che prescriva un'azione operativa concreta e si mappi sulla
     sottoclasse corretta di 'ErrorePipeline'. Verifica inoltre che la whitelist
-    dei codici ripetibili ('CODICI_RIPETIBILI') sia chiusa ermeticamente ai soli
+    dei codici ripetibili ('AMMESSI_AL_RETRY') sia chiusa ermeticamente ai soli
     4 codici tecnici 'E-S2-03', 'E-S3-01', 'E-S4-02', 'E-S5-01' e che i restanti
-    45 codici non ammettano mai il retry.
+    46 codici non ammettano mai il retry.
 
   * COMANDO BASH:
     pytest tests/test_w05_errors_catalog.py -v
@@ -448,12 +453,12 @@ SETTIMANA 6 (W6) : CROSSWALK METADATI, CONTROLLI E JOIN RISTRETTO
     7 passed in ~0.20s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
-    1. Caso reale OSD-734 (1.072 righe contro 960): nel pacchetto ufficiale
+    1. Caso reale OSD-734 (1.056 righe contro 960): nel pacchetto ufficiale
        NASA GeneLab OSD-734, la tabella di studio ('s_OSD-734.txt') elenca
-       1.072 campioni complessivi, inclusi controlli di solvente con
+       1.056 campioni complessivi, inclusi controlli di solvente con
        'Material Type = solvent control' non pertinenti al 16S. Senza il join
        ristretto all'Assay Table 16S (960 campioni), la pipeline tenterebbe di
-       validare 112 campioni fantasma privi di letture, bloccando l'intero
+       validare 96 campioni fantasma privi di letture, bloccando l'intero
        studio per un falso allarme relazionale.
 
 
@@ -520,7 +525,7 @@ SETTIMANA 7 (W7) : I 15 GATE DI INGRESSO, FASE S0 E DATI REALI OSD-734
   * COSA VALUTA:
     Esegue il crosswalk e l'intera Fase S0 direttamente sui 960 file
     '.fastq.gz' reali di OSD-734 (2.4 GB compressi). Verifica i conteggi esatti
-    dello studio: 960 campioni 16S totali estratti dalla Study Table di 1.072
+    dello studio: 960 campioni 16S totali estratti dalla Study Table di 1.056
     righe, ripartiti esattamente in 803 campioni biologici, 80 controlli
     positivi e 77 controlli negativi (somma controlli: 80 + 77 = 157),
     distribuiti su 10 piastre da 96 pozzetti (10 x 96 = 960 librerie) e 2 corse
@@ -537,7 +542,7 @@ SETTIMANA 7 (W7) : I 15 GATE DI INGRESSO, FASE S0 E DATI REALI OSD-734
     termina in 0.05s riportando 22 SKIPPED).
 
   * RISULTATO ATTESO:
-    22 test (22 passed in ~24.00s con dataset reale OSD-734 collegato;
+    22 test (22 passed in ~42s con dataset reale OSD-734 collegato;
     22 skipped se non è presente AMPLICON16S_CONFIG_DATI_REALI)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
@@ -709,8 +714,8 @@ SETTIMANA 11 (W11) : FASE S1 (PROFILO DELLE LETTURE) E SOTTOINSIEME OSD-734
     campioni di Airlock/aria/superfici) e collauda l'esecuzione della Fase S1
     ('src/amplicon16s/steps/s01_profile.py' e 'R/01_profile.R' tramite
     Bioconductor 'ShortRead'). Controlla la produzione in '02_qc_profiles/' dei
-    4 artefatti ('lunghezze.tsv', 'qualita_per_posizione.tsv',
-    'conteggio_letture.tsv', 'riepilogo.json'), la chiusura del limite noto del
+    4 artefatti ('lunghezze.tsv', 'qualita.tsv', 'letture_grezze.tsv',
+    'riepilogo.json'), la chiusura del limite noto del
     Gate G09 mediante verifica di 'filter.truncLen' sul minimo reale dell'intero
     file (arresto a revisione umana con 'E-S1-02' se 'truncLen > lunghezza_minima')
     e la registrazione della degradazione 'E-S1-01' quando la lunghezza utile
@@ -722,7 +727,8 @@ SETTIMANA 11 (W11) : FASE S1 (PROFILO DELLE LETTURE) E SOTTOINSIEME OSD-734
 
   * RISULTATO ATTESO:
     15 test (7 passed, 8 skipped in ~1.25s in ambiente locale privo di
-    Bioconductor ShortRead e dati reali; 15 passed con container e dati reali)
+    Bioconductor ShortRead e dati reali; 14 passed, 1 skipped con container e
+    dati reali: resta saltato il controllo che richiede il repository .git)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Chiusura del limite campionatorio di G09 ('E-S1-02'): il Gate G09 in S0
@@ -733,7 +739,8 @@ SETTIMANA 11 (W11) : FASE S1 (PROFILO DELLE LETTURE) E SOTTOINSIEME OSD-734
        con certezza matematica e ferma la pipeline con 'E-S1-02' prima del
        filtraggio DADA2.
     2. Sottoinsieme reale stratificato (28 campioni): invece di collaudare le
-       fasi R solo su sequenze casuali generate al volo, il repository conserva
+       fasi R solo su una generazione deterministica di sequenze sintetiche
+       pseudo-casuali, il repository conserva
        un sottoinsieme stratificato dei 28 campioni più critici di OSD-734
        (sottocampionati con seme fisso a ~2 MB), riproducendo fedelmente la
        struttura multi-corsa, i profili di qualità Phred reali e i casi limite

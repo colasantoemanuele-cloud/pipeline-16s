@@ -46,6 +46,9 @@ class FiltroLunghezza(PipelineStep):
     parametri: ClassVar[tuple[str, ...]] = ("asv", "filter.truncLen", "filter.trimLeft")
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Esegue ``R/07_asv_length.R``, che toglie dalla tabella senza chimere le
+        varianti fuori da ``asv.len_min``-``asv.len_max``.
+        """
         if contesto.inventario is None:
             raise RuntimeError("S7 richiede l'inventario prodotto da S0")
         derivati = contesto.risolta.derivati

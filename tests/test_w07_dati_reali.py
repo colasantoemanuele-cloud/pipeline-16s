@@ -1,81 +1,95 @@
 r"""Suite di validazione end-to-end sul dataset reale di riferimento NASA GeneLab OSD-734.
 
-1. Inquadramento nel Piano Operativo:
-    - **Settimana di riferimento**: **Settimana 7 (W7: Fase F2, Validazione
-      pre-analitica su scala reale OSD-734)**.
-    - **Moduli sorgente coperti**:
-        * ``src/amplicon16s/metadata/crosswalk.py``
-        * ``src/amplicon16s/io_layer/reads.py``
-        * ``src/amplicon16s/gates/g01_g15.py``
-        * ``src/amplicon16s/steps/s00_validate.py``
+1. Inquadramento nel Piano Operativo
+------------------------------------
+Settimana 7 (W7), Fase F2 (validazione pre-analitica su scala reale OSD-734).
 
-2. Meccanismo di attivazione e comandi Bash (Locale e Docker):
-    - I 22 test di questo modulo sono progettati per essere saltati in modo
-      controllato (stato SKIPPED) negli ambienti di Continuous Integration
-      o su stazioni di lavoro prive dei dati grezzi pesanti, evitando fallimenti
-      spuri quando il dataset non e' montato localmente.
-    - Variabile d'ambiente necessaria per l'attivazione:
-      AMPLICON16S_CONFIG_DATI_REALI (deve puntare al file di configurazione
-      YAML contenente i percorsi locali del dataset OSD-734).
+2. Moduli sorgente coperti
+--------------------------
+* ``src/amplicon16s/metadata/crosswalk.py``
+* ``src/amplicon16s/io_layer/reads.py``
+* ``src/amplicon16s/gates/g01_g15.py``
+* ``src/amplicon16s/steps/s00_validate.py``
 
-    A. Esecuzione in ambiente locale (host):
-       AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml pytest tests/test_w07_dati_reali.py -v
-       Risultato atteso: 22 passed in ~24s.
+3. Cosa valuta questo file
+--------------------------
+I 22 test portano il marcatore ``dati_reali`` e si attivano con la variabile
+``AMPLICON16S_CONFIG_DATI_REALI``, che punta a una configurazione YAML con i
+percorsi locali del dataset; senza, si saltano in modo pulito. File richiesti
+(sezioni ``io:`` e ``tax:`` della configurazione):
 
-    B. Esecuzione dentro il container Docker (amplicon16s:dev):
+- ``io.fastq_dir``: i 960 file ``.fastq.gz`` single-end (circa 2.4 GB);
+- ``io.assay_table``: ``a_OSD-734_amplicon-sequencing_16s_Illumina MiSeq.txt``,
+  che definisce i 960 campioni del saggio 16S;
+- ``io.study_table``: ``s_OSD-734.txt``, la tabella di studio condivisa fra i
+  saggi (1.056 righe);
+- ``io.batch_table``: ``plate_well_map_960.tsv``, che associa per accession
+  piastra di estrazione, corsa di sequenziamento e modulo;
+- ``tax.ref_fasta`` e ``tax.ref_md5``: ``silva_nr99_v138_train_set.fa.gz`` e il
+  suo MD5.
+
+Proprietà verificate:
+
+- 960 accession univoci, nessun orfano fra file e metadati, un file per
+  campione; ripartizione in 803 biologici, 80 controlli positivi e 77
+  negativi, con il join ristretto che esclude il materiale di altri saggi;
+- dieci piastre da 96 pozzetti su due corse, lotti distinti per i campioni
+  risequenziati, esecuzione completa anche senza arricchimento, nessun avviso
+  sulla piastra 10 a composizione diversa;
+- nove moduli con i nomi originali con l'arricchimento, otto senza (manca
+  l'Airlock), e nessun'altra differenza fra le due modalità;
+- S0 supera tutti i gate in meno di 300 secondi, produce gli artefatti con
+  checksum e registra il denominatore di prevalenza sui soli 803 biologici;
+- G10 passa anche sui controlli negativi, perché il motivo conservato non
+  distingue segnale e contaminazione; G09 fallisce con un troncamento oltre il
+  minimo osservato; nessuna lettura contiene il primer.
+
+4. Comandi Bash e scenari di esecuzione
+---------------------------------------
+    1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
+       dati reali):
+       pytest tests/test_w07_dati_reali.py -v
+
+    2. Modalità container Docker standard (sottoinsieme ridotto con
+       R/Bioconductor):
        docker run --rm \
          -e PYTHONPATH=/app/src \
-         -e AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml \
          -v "$(pwd)":/app \
-         -v /home/nemo/ASI:/home/nemo/ASI \
          -w /app \
          amplicon16s:dev \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w07_dati_reali.py -v
-       Risultato atteso: 22 passed in ~24s.
 
-    Note tecniche per l'ambiente Docker:
-    1. Il flag '-e PYTHONPATH=/app/src' impone l'importazione dei moduli locali
-       aggiornati montati in /app invece delle versioni pregresse del container.
-    2. Il montaggio '-v /home/nemo/ASI:/home/nemo/ASI' e' indispensabile per
-       rendere accessibili al container i 2.4 GB di archivi FASTQ e i metadati.
-    3. Il parametro '-o cache_dir=/tmp/.pytest_cache' impedisce la scrittura di
-       file di cache con privilegi di root sulla directory di lavoro dell'host.
+    3. Modalità container Docker completa (con i 2.4 GB di dati reali OSD-734;
+       la configurazione e i percorsi che contiene devono stare nella cartella
+       montata):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
+         -v "$(pwd)":/app \
+         -v "$HOME/ASI":"$HOME/ASI" \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w07_dati_reali.py -v
 
-3. Censimento dettagliato dei file reali richiesti (sezioni ``io:`` e ``tax:`` della configurazione):
-    1. **Archivio letture FASTQ** (``io.fastq_dir``): cartella contenente i 960
-       file grezzi compressi ``.fastq.gz`` a lettura singola (single-end
-       Illumina MiSeq, volume complessivo di circa 2.4 GB).
-    2. **Tabella di Assay ISA-Tab** (``io.assay_table``):
-       ``a_OSD-734_amplicon-sequencing_16s_Illumina MiSeq.txt`` (definisce
-       l'universo dei 960 campioni dell'amplicone 16S rRNA e mappa gli accession
-       ENA/SRA sui rispettivi file FASTQ).
-    3. **Tabella di Studio ISA-Tab** (``io.study_table``):
-       ``s_OSD-734.txt`` (raccoglie i metadati biologici e ambientali dei 1.072
-       campioni dell'intero studio multi-omico, inclusi i saggi WGS e
-       metabolomica esclusi dal join ristretto).
-    4. **Mappatura lotti e piastre di arricchimento** (``io.plate_map``):
-       ``plate_well_map_960.tsv`` (associa a ciascuno dei 960 campioni la
-       piastra di estrazione da 96 pozzetti su 10 piastre totali, la corsa di
-       sequenziamento e il modulo abitativo ISS).
-    5. **Database di riferimento tassonomico** (``tax.train_set`` e ``tax.train_set_md5``):
-       ``silva_nr99_v138_train_set.fa.gz`` (archivio FASTA compresso con
-       relativo checksum MD5 dichiarato per la classificazione tassonomica).
+5. Risultato atteso
+-------------------
+22 test totali:
+- 22 skipped in ambiente locale standard (~0.1s): senza la variabile
+  ``AMPLICON16S_CONFIG_DATI_REALI`` tutti i test si saltano;
+- 22 skipped nel container Docker standard sul sottoinsieme ridotto (~0.1s): i
+  dati reali non sono montati;
+- 22 passed nel container Docker con i dati reali OSD-734 (~41.9s).
+In locale con la sola variabile ``AMPLICON16S_CONFIG_DATI_REALI``: 22 passed
+(~41.7s).
 
-4. Proprietà biologiche e metriche verificate:
-    - Ripartizione esatta dei 960 campioni dell'amplicone 16S: **803 campioni
-      biologici**, **80 controlli positivi** e **77 controlli negativi**
-      (totale controlli: 157), estratti dalle 1.072 righe complessive della
-      Study Table mediante join ristretto.
-    - Partizione sperimentale su **10 piastre da 96 pozzetti** (10 x 96 = 960
-      librerie) distribuite su **2 corse Illumina MiSeq**, e copertura dei
-      moduli ISS (9 moduli con Airlock ``A/L1`` tramite mappatura supplementare
-      contro 8 moduli tramite espressione regolare sulla posizione).
-    - Denominatore di prevalenza calcolato esclusivamente sui **803 campioni
-      biologici** (``prev.min_samples = ceil(0.01 * 803) = 9``), escludendo i
-      157 controlli tecnici.
-    - Tempo di scansione dell'intera Fase S0 inferiore a 60 secondi (~24 secondi
-      reali su 960 file) grazie all'ispezione in streaming a memoria costante
-      delle prime letture (``qc.head_reads``).
+6. Razionale scientifico e sistemistico
+---------------------------------------
+- I test sintetici verificano la logica, non le assunzioni sul dataset: solo
+  l'esecuzione sui 960 file reali conferma che conteggi, piastre, corse e
+  moduli siano quelli accertati nella campagna di verifica dei dati.
+- Il denominatore di prevalenza deve contare i soli biologici: includere i 157
+  controlli abbasserebbe la soglia di prevalenza e lascerebbe passare varianti
+  presenti solo nei controlli.
 """
 
 from __future__ import annotations
@@ -147,7 +161,7 @@ def test_960_accession_univoci(inventario):
     **Obiettivo**: Verificare che l'inventario estratto da OSD-734 contenga
     esattamente 960 campioni con 960 codici accession ENA distinti.
 
-    **Razionale Scientifico/Sistemistico**: Certifica sul dataset reale che
+    **Razionale scientifico e sistemistico**: Certifica sul dataset reale che
     l'indicizzazione per ``accession`` (a differenza del ``Sample Name`` che si
     ripete sulle repliche tecniche) mappa univocamente tutte le 960 librerie
     sequenziate sulle 10 piastre da 96 pozzetti.
@@ -162,7 +176,7 @@ def test_nessun_orfano_da_nessuna_delle_due_parti(configurazione):
     ``.fastq.gz`` in ``fastq_full/`` e le 960 righe dell'Assay Table 16S
     (zero file orfani, zero righe prive di file).
 
-    **Razionale Scientifico/Sistemistico**: Conferma l'integrità del deposito
+    **Razionale scientifico e sistemistico**: Conferma l'integrità del deposito
     locale di OSD-734 rispetto al Gate G06.
     """
     analisi = analizza(configurazione)
@@ -177,7 +191,7 @@ def test_ogni_campione_ha_il_proprio_file(inventario):
     **Obiettivo**: Verificare che ciascuno dei 960 campioni dell'inventario sia
     collegato a un file ``.fastq.gz`` fisicamente esistente su disco.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che nessun percorso
+    **Razionale scientifico e sistemistico**: Garantisce che nessun percorso
     risolto dal crosswalk punti a un link simbolico interrotto o a un file mancante.
     """
     assert all(c.file is not None and c.file.is_file() for c in inventario)
@@ -193,7 +207,7 @@ def test_conteggi_delle_classi(inventario):
     **Obiettivo**: Verificare che i 960 campioni di OSD-734 siano ripartiti
     esattamente in 803 biologici, 80 controlli positivi e 77 controlli negativi.
 
-    **Razionale Scientifico/Sistemistico**: Fissa come invariante di regressione
+    **Razionale scientifico e sistemistico**: Fissa come invariante di regressione
     il censimento esatto delle classi di OSD-734 da cui dipendono il calcolo di
     ``prev.min_samples`` (su 803 biologici), la calibrazione `KatharoSeq` (sui
     controlli positivi) e la decontaminazione `decontam` (sui controlli negativi).
@@ -209,13 +223,13 @@ def test_il_join_ristretto_esclude_il_materiale_di_altri_assay(configurazione):
     """
     **Obiettivo**: Verificare che la Study Sample Table di OSD-734 contenga più
     di 960 righe e includa materiali estranei all'amplicon 16S (come
-    ``"solvent control"`` appartenente al saggio di metagenomica), ma che il
+    ``"solvent control"`` appartenente ai saggi di metabolomica), ma che il
     join ristretto li escluda producendo ``materiali_non_mappati == {}``.
 
-    **Razionale Scientifico/Sistemistico**: Nelle indagini multi-assay di NASA
+    **Razionale scientifico e sistemistico**: Nelle indagini multi-assay di NASA
     GeneLab, la Study Table ``s_OSD-734.txt`` elenca tutti i campioni dell'intero
-    studio (1.072 righe), inclusi i controlli di solvente usati solo per la
-    metagenomica shotgun. Se la pipeline validasse l'intera Study Table prima
+    studio (1.056 righe), inclusi i controlli di solvente usati solo per la
+    metabolomica. Se la pipeline validasse l'intera Study Table prima
     di restringerla ai ``Sample Name`` presenti nell'Assay Table 16S, il Gate G11
     fallirebbe falsamente con ``E-S0-11`` su ``"solvent control"``.
     """
@@ -243,7 +257,7 @@ def test_dieci_piastre_da_96_e_due_corse(inventario, configurazione):
     assegni i 960 campioni a esattamente 10 piastre da 96 pozzetti ciascuna e
     2 corse MiSeq, senza alcun campione privo di lotto.
 
-    **Razionale Scientifico/Sistemistico**: Conferma che la struttura fisica di
+    **Razionale scientifico e sistemistico**: Conferma che la struttura fisica di
     laboratorio (10 piastre × 96 pozzetti = 960 librerie distribuite su 2 run di
     sequenziamento) è ricostruita al 100% per i modelli di errore S3 e `decontam` S12.
     """
@@ -260,7 +274,7 @@ def test_il_file_di_arricchimento_copre_dieci_piastre_da_96(configurazione):
     **Obiettivo**: Verificare direttamente sul file ``plate_well_map_960.tsv``
     la presenza di 10 piastre con 96 righe ciascuna.
 
-    **Razionale Scientifico/Sistemistico**: Accerta la coerenza interna del file
+    **Razionale scientifico e sistemistico**: Accerta la coerenza interna del file
     di arricchimento indipendentemente dalla logica di join Python.
     """
     if configurazione.io.batch_table is None:
@@ -281,7 +295,7 @@ def test_i_campioni_replicati_ricevono_lotti_distinti(inventario, configurazione
     (``LAB1P3.L1_rep1``/``_rep2`` e ``NOD2S4.R6_rep1``/``_rep2``) ricevano
     ciascuna la propria piastra e la propria corsa distinte.
 
-    **Razionale Scientifico/Sistemistico**: Dimostra sul dato reale che le
+    **Razionale scientifico e sistemistico**: Dimostra sul dato reale che le
     repliche ``_rep1`` e ``_rep2`` sono state processate su piastre e corse
     diverse: grazie all'aggancio per ``accession``, ogni replica viene associata
     al modello d'errore della propria corsa effettiva.
@@ -308,7 +322,7 @@ def test_senza_arricchimento_l_esecuzione_completa_lo_stesso(configurazione):
     configurazione di OSD-734 tutti i gate dei metadati continuino a passare
     sui 960 campioni.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che la pipeline resti
+    **Razionale scientifico e sistemistico**: Garantisce che la pipeline resti
     pienamente operativa anche qualora l'utente disponga dei soli file ISA-Tab
     scaricati da NASA GeneLab senza la mappa pozzetti supplementare.
     """
@@ -333,7 +347,7 @@ def test_la_piastra_a_composizione_diversa_non_produce_avvisi(inventario, config
     controlli negativi (5 negativi e > 80 biologici contro gli 8 negativi delle
     altre 9 piastre) venga accettata senza errori né falsi allarmi.
 
-    **Razionale Scientifico/Sistemistico**: Documenta una caratteristica reale
+    **Razionale scientifico e sistemistico**: Documenta una caratteristica reale
     del disegno sperimentale di OSD-734 (``Plate4_B``): poiché possiede 5
     controlli negativi e la soglia metodologica ``decontam.min_blanks`` è fissata
     a 5, la piastra dispone di potenza statistica sufficiente per `decontam`
@@ -364,7 +378,7 @@ def test_con_arricchimento_i_moduli_sono_nove_con_i_nomi_originali(
     **Obiettivo**: Verificare che con ``batch_table`` attiva vengano identificati
     tutti i 9 moduli della ISS coi nomi estesi ufficiali (incluso ``"Airlock"``).
 
-    **Razionale Scientifico/Sistemistico**: Certifica che la colonna ``module``
+    **Razionale scientifico e sistemistico**: Certifica che la colonna ``module``
     della ``batch_table`` restituisce la nomenclatura completa dei 9 compartimenti
     abitativi della Stazione Spaziale Internazionale.
     """
@@ -382,7 +396,7 @@ def test_senza_arricchimento_i_moduli_sono_otto_e_manca_l_airlock(configurazione
     identifichi 8 moduli (``COL1``..``PMM1``) lasciando ``modulo = None`` sui
     16 tamponi di superficie dell'Airlock (prefisso ``A/L1``).
 
-    **Razionale Scientifico/Sistemistico**: Documenta quantitativamente il
+    **Razionale scientifico e sistemistico**: Documenta quantitativamente il
     limite noto della regex a 3 lettere (``^[A-Z]{3}[0-9]``) rispetto al codice
     ``A/L1`` dell'Airlock, dimostrando perché l'arricchimento con ``batch_table``
     recupera esattamente quei 16 campioni.
@@ -411,7 +425,7 @@ def test_le_due_modalita_differiscono_solo_per_l_airlock(inventario, configurazi
     e quella senza ``batch_table`` (239 senza modulo) differisca esclusivamente
     per i 16 tamponi dell'Airlock (``239 - 223 = 16``).
 
-    **Razionale Scientifico/Sistemistico**: Dimostra che i campioni non di
+    **Razionale scientifico e sistemistico**: Dimostra che i campioni non di
     superficie (campioni d'aria, controlli negativi e positivi: 223 in totale)
     ricevono ``modulo = None`` in modo identico in entrambe le modalità.
     """
@@ -465,7 +479,7 @@ def test_s0_supera_tutti_i_gate_sul_dataset_reale(risultato_s0):
     **Obiettivo**: Verificare che l'esecuzione completa di ``esegui_s0`` su
     OSD-734 esegua e superi tutti i 15 gate (`G15` e `G01..G14`).
 
-    **Razionale Scientifico/Sistemistico**: Costituisce il criterio di
+    **Razionale scientifico e sistemistico**: Costituisce il criterio di
     accettazione primario della Fase F2: l'intero dataset reale di riferimento
     supera tutti i controlli formali, relazionali e bioinformatici di ingresso.
     """
@@ -479,7 +493,7 @@ def test_s0_costa_minuti_non_ore(risultato_s0):
     **Obiettivo**: Verificare che l'intera Fase S0 sui 960 archivi ``.fastq.gz``
     reali completi in meno di 300 secondi (tipicamente ~24 secondi).
 
-    **Razionale Scientifico/Sistemistico**: Se i gate G09, G10 e G13
+    **Razionale scientifico e sistemistico**: Se i gate G09, G10 e G13
     decomprimessero per intero i 960 file FASTQ caricandoli in RAM e riaprendoli
     tre volte, la sola validazione iniziale S0 impiegherebbe decine di minuti.
     Lo scanner single-pass ``reads.scansiona_file()`` legge in streaming solo le
@@ -495,7 +509,7 @@ def test_s0_produce_gli_artefatti_con_checksum(risultato_s0, configurazione):
     artefatti previsti (``gates.json``, ``crosswalk.tsv``, ``inventario.json``,
     ``letture_ispezionate.tsv``) e li registri con SHA-256 valido nel manifesto.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che gli output di S0
+    **Razionale scientifico e sistemistico**: Garantisce che gli output di S0
     siano immediatamente verificabili da ``AlberoOutput`` e pronti per essere
     consumati da S1, S2 e S10.
     """
@@ -515,7 +529,7 @@ def test_s0_registra_il_denominatore_di_prevalenza(risultato_s0):
     **Obiettivo**: Verificare che ``01_input_validation/inventario.json``
     registri ``campioni == 960`` e ``denominatore_prevalenza == 803``.
 
-    **Razionale Scientifico/Sistemistico**: Il filtro di prevalenza in S13
+    **Razionale scientifico e sistemistico**: Il filtro di prevalenza in S13
     (``prev.min_fraction = 0.01``) deve essere calcolato esclusivamente sugli
     **803 campioni biologici** ($\lceil 0.01 \times 803 \rceil = 9$ campioni).
     Includere nel denominatore i 92 controlli negativi e i 65 controlli positivi
@@ -534,7 +548,7 @@ def test_g08_non_avvisa_sulle_dieci_piastre_reali(risultato_s0, configurazione):
     **Obiettivo**: Verificare che il Gate G08 passi su tutte le 10 piastre di
     OSD-734 senza emettere alcun avviso ``E-S0-15`` (``g08.avvisi == ()``).
 
-    **Razionale Scientifico/Sistemistico**: Anche la piastra anomala ``Plate4_B``
+    **Razionale scientifico e sistemistico**: Anche la piastra anomala ``Plate4_B``
     possiede esattamente 5 controlli negativi, raggiungendo la soglia minima
     ``decontam.min_blanks = 5`` richiesta per l'inferenza dei contaminanti per-lotto.
     """
@@ -550,7 +564,7 @@ def test_g10_passa_anche_sui_controlli_negativi(risultato_s0, configurazione):
     **Obiettivo**: Verificare che il Gate G10 risulti superato senza violazioni
     sull'intero dataset OSD-734.
 
-    **Razionale Scientifico/Sistemistico**: Accerta che nessun file di OSD-734
+    **Razionale scientifico e sistemistico**: Accerta che nessun file di OSD-734
     contenga residui del primer 515F in 5' e che la mediana del motivo V4 sui
     campioni attesi superi ampiamente ``qc.min_motif_frac = 0.25``.
     """
@@ -567,7 +581,7 @@ def test_il_motivo_non_distingue_segnale_e_contaminazione(risultato_s0, configur
     che esistano singoli campioni biologici legittimi con frazione sotto soglia
     (``< 0.10``).
 
-    **Razionale Scientifico/Sistemistico**: Questo test fissa una verità
+    **Razionale scientifico e sistemistico**: Questo test fissa una verità
     bioinformatica fondamentale: i controlli negativi (blank) in esperimenti a
     bassa biomassa amplificano il DNA batterico contaminante dei reagenti (*kitome*),
     e i batteri contaminanti possiedono lo stesso gene 16S rRNA (e quindi lo
@@ -610,7 +624,7 @@ def test_g09_fallisce_se_il_troncamento_supera_il_minimo(configurazione, tmp_pat
     dataset reale OSD-734 il Gate G09 fallisca con codice ``E-S0-09`` segnalando
     la presenza di letture da ``137 bp``.
 
-    **Razionale Scientifico/Sistemistico**: Sebbene la lunghezza nominale della
+    **Razionale scientifico e sistemistico**: Sebbene la lunghezza nominale della
     corsa MiSeq sia 151 bp, le letture reali di OSD-734 contengono sequenze già
     trimmed fino a 137 bp: se ``filterAndTrim`` venisse lanciato con
     ``truncLen = 152`` (o ``140`` su file con letture da ``137 bp``), DADA2
@@ -634,7 +648,7 @@ def test_le_letture_non_contengono_il_primer(risultato_s0, configurazione):
     **Obiettivo**: Verificare che in tutti i 960 file di OSD-734 la frazione di
     letture che iniziano col primer forward 515F sia esattamente ``0.0``.
 
-    **Razionale Scientifico/Sistemistico**: Conferma sperimentalmente che i
+    **Razionale scientifico e sistemistico**: Conferma sperimentalmente che i
     FASTQ depositati in OSD-734 iniziano già a valle del sito di legame del
     primer 515F, giustificando il parametro predefinito ``filter.trimLeft = 0``.
     """

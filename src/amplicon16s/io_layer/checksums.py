@@ -32,6 +32,7 @@ _BLOCCO: Final = 1024 * 1024
 
 
 def _formatta(digest: str) -> str:
+    """Il digest nella forma ``algoritmo:esadecimale``."""
     return f"{ALGORITMO}:{digest}"
 
 

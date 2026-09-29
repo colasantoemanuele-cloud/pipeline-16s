@@ -60,6 +60,9 @@ class ErrorePipeline(Exception):
         super().__init__(self._testo())
 
     def _testo(self) -> str:
+        """Il messaggio completo: codice, sintesi, dettaglio se presente e azione da
+        compiere.
+        """
         parti = [f"[{self.codice}] {self.voce.sintesi}"]
         if self.dettaglio:
             parti.append(self.dettaglio)
@@ -68,14 +71,17 @@ class ErrorePipeline(Exception):
 
     @property
     def categoria(self) -> Categoria:
+        """La categoria di gestione del codice, dal catalogo."""
         return self.voce.categoria
 
     @property
     def fase(self) -> str:
+        """La fase a cui il codice appartiene, dal catalogo."""
         return self.voce.fase
 
     @property
     def ammette_retry(self) -> bool:
+        """Vero se il codice ammette un nuovo tentativo automatico."""
         return self.voce.ammette_retry
 
     def come_evento(self) -> dict[str, Any]:

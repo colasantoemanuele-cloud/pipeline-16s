@@ -70,6 +70,7 @@ __all__ = [
 
 
 def _impronta(valore: Any) -> str:
+    """L'impronta SHA-256 della serializzazione JSON canonica di un valore."""
     canonico = json.dumps(
         valore, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str
     )
@@ -136,6 +137,9 @@ class StepContext:
 
     @property
     def risolta_dichiarata(self) -> ConfigRisolta:
+        """La configurazione risolta dichiarata, o quella effettiva se la fase non ne ha
+        una distinta.
+        """
         return self.dichiarata or self.risolta
 
     def ristretto(self, parametri: tuple[str, ...]) -> StepContext:
@@ -212,6 +216,7 @@ class StepResult:
 
     @property
     def completata(self) -> bool:
+        """Vero se la fase si è conclusa superando la verifica."""
         return self.esito is Esito.COMPLETATA
 
 
@@ -247,10 +252,12 @@ class PipelineStep(ABC):
 
     @property
     def nodo(self) -> Nodo:
+        """Il nodo del grafo che corrisponde alla fase."""
         return self.grafo.nodo(self.passo)
 
     @property
     def cartella(self) -> Fase:
+        """La cartella di output della fase, dal nodo del grafo."""
         return self.nodo.cartella
 
     # ----------------------------------------------------------------- #
@@ -436,4 +443,5 @@ class PipelineStep(ABC):
 
 
 def _ordine(passo: Passo) -> int:
+    """La posizione della fase nell'ordine di dichiarazione di :class:`Passo`."""
     return list(Passo).index(passo)

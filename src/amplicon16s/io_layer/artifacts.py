@@ -111,6 +111,9 @@ class Artefatto:
 
 
 def _canonico(documento: Mapping[str, Any]) -> str:
+    """La serializzazione JSON canonica: chiavi ordinate, senza spazi, senza valori non
+    finiti.
+    """
     return json.dumps(
         documento, sort_keys=True, ensure_ascii=False, separators=(",", ":"),
         allow_nan=False,
@@ -118,6 +121,7 @@ def _canonico(documento: Mapping[str, Any]) -> str:
 
 
 def _impronta(documento: Mapping[str, Any]) -> str:
+    """L'impronta SHA-256 della serializzazione canonica di un documento."""
     return "sha256:" + hashlib.sha256(_canonico(documento).encode("utf-8")).hexdigest()
 
 
@@ -151,6 +155,7 @@ class ManifestoPasso:
     degradazioni: tuple[dict[str, Any], ...] = ()
 
     def _contenuto(self) -> dict[str, Any]:
+        """Il contenuto del manifesto su cui si calcola l'impronta, impronta esclusa."""
         return {
             "passo": self.passo,
             "cartella": self.fase.value,
@@ -166,10 +171,12 @@ class ManifestoPasso:
         }
 
     def come_documento(self) -> dict[str, Any]:
+        """Il manifesto come documento JSON, con l'impronta in testa."""
         return {"impronta": self.impronta, **self._contenuto()}
 
     @property
     def nomi(self) -> tuple[str, ...]:
+        """I nomi degli artefatti registrati nel manifesto."""
         return tuple(str(v["nome"]) for v in self.artefatti)
 
 
@@ -244,6 +251,7 @@ class AlberoOutput:
     # ----------------------------------------------------------------- #
 
     def percorso_manifesto(self, fase: Fase) -> Path:
+        """Il percorso del manifesto della cartella di una fase."""
         return self.cartella(fase) / NOME_MANIFESTO
 
     def manifesto(self, fase: Fase) -> dict[str, dict[str, object]]:
@@ -255,6 +263,9 @@ class AlberoOutput:
         return {v["nome"]: v for v in documento.get("artefatti", [])}
 
     def _aggiorna_manifesto(self, artefatto: Artefatto) -> None:
+        """Aggiunge o sostituisce la voce di un artefatto nel manifesto della sua
+        cartella.
+        """
         voci = self.manifesto(artefatto.fase)
         voci[artefatto.nome] = artefatto.come_voce()
 
@@ -311,6 +322,7 @@ class AlberoOutput:
     # ----------------------------------------------------------------- #
 
     def percorso_manifesto_passo(self, passo: str, fase: Fase) -> Path:
+        """Il percorso del manifesto di un passo nella cartella indicata."""
         return self.cartella(fase) / nome_manifesto_passo(passo)
 
     def rimuovi_manifesto_passo(self, passo: str, fase: Fase) -> None:

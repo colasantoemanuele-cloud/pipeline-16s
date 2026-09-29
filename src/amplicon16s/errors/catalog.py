@@ -77,10 +77,14 @@ class Categoria(StrEnum):
 
     @property
     def ammette_retry(self) -> bool:
+        """Vero per le categorie che prevedono un nuovo tentativo automatico."""
         return self in (Categoria.RETRY_AUTOMATICO, Categoria.RETRY_POI_REVISIONE)
 
     @property
     def ferma_esecuzione(self) -> bool:
+        """Vero per le categorie che, esauriti o esclusi i tentativi, fermano
+        l'esecuzione.
+        """
         return self in (Categoria.REVISIONE_UMANA, Categoria.RETRY_POI_REVISIONE)
 
 
@@ -101,6 +105,7 @@ class VoceCatalogo:
 
     @property
     def ammette_retry(self) -> bool:
+        """Vero se la categoria del codice prevede un nuovo tentativo automatico."""
         return self.categoria.ammette_retry
 
     @property
@@ -119,6 +124,7 @@ def _v(
     azione: str,
     categoria: Categoria,
 ) -> VoceCatalogo:
+    """Costruisce una voce del catalogo; abbrevia la tabella dei codici."""
     return VoceCatalogo(codice, fase, sintesi, azione, categoria)
 
 

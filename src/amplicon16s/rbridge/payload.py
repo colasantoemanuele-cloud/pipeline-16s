@@ -94,6 +94,7 @@ class DichiarazioneNonValida(ValueError):
 
 
 def _json_nativo(valore: Any) -> Any:
+    """Converte in testo i percorsi; ogni altro tipo non JSON è un errore."""
     # I percorsi sono l'unico tipo non nativo che ha senso passare a R: tutto
     # il resto deve gia' essere JSON, e un oggetto qualunque trasformato in
     # testo arriverebbe dall'altra parte come una stringa senza significato.
@@ -105,6 +106,9 @@ def _json_nativo(valore: Any) -> Any:
 
 
 def _scrivi_atomico(percorso: Path, documento: Mapping[str, Any]) -> None:
+    """Scrive il documento JSON su un file temporaneo nella stessa cartella e lo
+    sostituisce al percorso finale.
+    """
     # allow_nan=False: NaN e Infinity non sono JSON, e il lettore R li
     # rifiuterebbe o, peggio, li leggerebbe come stringhe.
     testo = json.dumps(
@@ -153,6 +157,9 @@ def scrivi_richiesta(
 
 
 def _nome_relativo(nome: Any) -> str:
+    """Il nome dell'artefatto, se è un percorso relativo che non esce dalla cartella di
+    fase.
+    """
     if not isinstance(nome, str) or not nome:
         raise DichiarazioneNonValida(f"nome di artefatto non valido: {nome!r}")
     forma = PurePosixPath(nome)

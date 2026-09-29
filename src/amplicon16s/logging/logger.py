@@ -65,6 +65,7 @@ class FormattatoreJsonl(logging.Formatter):
     """Un oggetto JSON per riga, con i campi aggiunti via ``extra``."""
 
     def format(self, record: logging.LogRecord) -> str:
+        """L'evento come oggetto JSON su una riga, con i campi aggiuntivi del record."""
         evento: dict[str, Any] = {
             "istante": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
             "livello": record.levelname,
@@ -90,6 +91,7 @@ class _FormattatoreConsole(logging.Formatter):
     """Una riga leggibile, con il codice di errore in evidenza se presente."""
 
     def format(self, record: logging.LogRecord) -> str:
+        """Livello, codice di errore se presente e messaggio, su una riga."""
         codice = getattr(record, "codice", None)
         prefisso = f"[{codice}] " if codice else ""
         return "{:<8} {}{}".format(record.levelname, prefisso, record.getMessage())

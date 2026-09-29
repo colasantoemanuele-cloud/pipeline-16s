@@ -1,37 +1,74 @@
-"""Suite di verifica del sistema di logging strutturato JSONL, della rotazione e dell'esecuzione integrata.
+r"""Suite di verifica del sistema di logging strutturato JSONL, della rotazione e dell'esecuzione integrata.
 
-Inquadramento nel Piano Operativo
----------------------------------
-* **Settimana di riferimento**: **Settimana 5 (W5 : Fase F1: Logging strutturato,
-  tracciabilità e gestione artefatti)**.
-* **Moduli sorgente coperti**:
-  - ``src/amplicon16s/logging/logger.py``
-  - ``src/amplicon16s/io_layer/artifacts.py``
-  - ``src/amplicon16s/config/resolve.py``
-* **Comando Bash**: ``pytest tests/test_w05_logging.py -v``
-* **Risultato atteso**: ``14 passed in ~0.25s``
+1. Inquadramento nel Piano Operativo
+------------------------------------
+Settimana 5 (W5), Fase F1 (logging strutturato, tracciabilità e gestione
+degli artefatti).
 
-Scopo sperimentale e razionale scientifico/sistemistico
--------------------------------------------------------
-Durante l'elaborazione di 960 campioni (OSD-734) attraverso 15 fasi, il sistema
-di tracciamento deve soddisfare quattro requisiti ingegneristici:
+2. Moduli sorgente coperti
+--------------------------
+* ``src/amplicon16s/logging/logger.py``
+* ``src/amplicon16s/io_layer/artifacts.py``
+* ``src/amplicon16s/config/resolve.py``
 
-1. **Architettura a doppio canale**: affianca a uno ``StreamHandler`` sintetico
-   su console per l'operatore umano un file strutturato in formato **JSON Lines**
-   (``99_logs/pipeline.jsonl``), progettato per essere interrogato programmaticamente
-   per fase, codice d'errore o lotto.
-2. **Rotazione automatica dei log (``RotatingFileHandler``)**: impone un tetto
-   di dimensione (``maxBytes``) e un numero finito di copie di backup
-   (``backupCount``), prevenendo la saturazione dello spazio disco durante corse
-   prolungate o verbose.
-3. **Arricchimento contestuale e serializzazione resiliente (``default=str``)**:
-   ogni evento incorpora i campi ``extra`` (fase, codice, metriche, durate) e
-   converte automaticamente in stringa tipi Python non nativamente JSON (come
-   ``pathlib.Path`` o ``Enum``), scongiurando il rischio che un ``TypeError``
-   del formattatore faccia perdere il log proprio mentre si registra un guasto.
-4. **Coesistenza armonica dei tre servizi di Fase F1**: verifica che
-   ``AlberoOutput``, ``scrivi_risolta`` (``00_config/resolved.yaml``) e il
-   logger JSONL operino sinergicamente sulla stessa radice di esecuzione.
+3. Cosa valuta questo file
+--------------------------
+- doppio canale: console sintetica per l'operatore e file strutturato JSON
+  Lines in ``99_logs/``, con la sola console quando manca la radice di output
+  e nessun accumulo di uscite a configurazioni ripetute;
+- rotazione del file di log (``RotatingFileHandler``) con dimensione massima e
+  numero finito di copie;
+- ogni riga del file è un oggetto JSON; i campi aggiuntivi dell'evento
+  (fase, codice, metriche) diventano campi interrogabili, anche per codice;
+- serializzazione resiliente (``default=str``): un valore non serializzabile
+  non fa perdere l'evento; le eccezioni finiscono nel log con la categoria di
+  gestione dell'errore;
+- livello del file più verboso di quello della console;
+- esecuzione fittizia che combina ``AlberoOutput``, ``scrivi_risolta``
+  (``00_config/resolved.yaml``) e il logger sulla stessa radice.
+
+4. Comandi Bash e scenari di esecuzione
+---------------------------------------
+    1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
+       dati reali):
+       pytest tests/test_w05_logging.py -v
+
+    2. Modalità container Docker standard (sottoinsieme ridotto con
+       R/Bioconductor):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -v "$(pwd)":/app \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w05_logging.py -v
+
+    3. Modalità container Docker completa (con i 2.4 GB di dati reali OSD-734;
+       la configurazione e i percorsi che contiene devono stare nella cartella
+       montata):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
+         -v "$(pwd)":/app \
+         -v "$HOME/ASI":"$HOME/ASI" \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w05_logging.py -v
+
+5. Risultato atteso
+-------------------
+14 test totali:
+- 14 passed in ambiente locale standard (~0.1s);
+- 14 passed nel container Docker standard sul sottoinsieme ridotto (~0.1s);
+- 14 passed nel container Docker con i dati reali OSD-734 (~0.1s).
+
+6. Razionale scientifico e sistemistico
+---------------------------------------
+- In un'elaborazione di 960 campioni attraverso più fasi, il log strutturato è
+  lo strumento con cui si ricostruisce che cosa è successo e perché: deve
+  poter essere interrogato per fase e per codice.
+- Un errore del formattatore farebbe perdere il log proprio nel momento in cui
+  si registra un guasto; la rotazione impedisce che un'esecuzione lunga o
+  verbosa saturi il disco.
 """
 
 from __future__ import annotations
@@ -70,6 +107,7 @@ def uscite_pulite():
 
 
 def _righe(percorso) -> list[dict]:
+    """Gli eventi di un file JSONL, uno per riga non vuota."""
     testo = percorso.read_text(encoding="utf-8")
     return [json.loads(r) for r in testo.splitlines() if r.strip()]
 
@@ -84,7 +122,7 @@ def test_il_log_strutturato_nasce_sotto_99_logs(tmp_path):
     **Obiettivo**: Verificare che ``configura(tmp_path)`` crei la sottocartella
     ``99_logs/`` e restituisca il percorso ``99_logs/pipeline.jsonl``.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che la traccia di audit
+    **Razionale scientifico e sistemistico**: Garantisce che la traccia di audit
     della pipeline risieda sempre nella collocazione canonica ``99_logs/``
     dell'albero degli artefatti.
     """
@@ -98,7 +136,7 @@ def test_senza_radice_resta_la_sola_console(tmp_path):
     **Obiettivo**: Verificare che ``configura(None)`` attivi unicamente lo
     ``StreamHandler`` di console senza creare file o cartelle su disco.
 
-    **Razionale Scientifico/Sistemistico**: Permette ai comandi preliminari o
+    **Razionale scientifico e sistemistico**: Permette ai comandi preliminari o
     alle validazioni in memoria (es. prima che ``out_root`` sia creata) di
     emettere messaggi diagnostici su console senza sporcare il filesystem.
     """
@@ -113,7 +151,7 @@ def test_le_uscite_sono_due(tmp_path):
     **Obiettivo**: Verificare che dopo ``configura(tmp_path)`` il logger radice
     di ``amplicon16s`` possieda esattamente 2 handler (console + file JSONL).
 
-    **Razionale Scientifico/Sistemistico**: Accerta l'attivazione simultanea del
+    **Razionale scientifico e sistemistico**: Accerta l'attivazione simultanea del
     canale leggibile dall'uomo e del canale strutturato per le macchine.
     """
     configura(tmp_path)
@@ -125,7 +163,7 @@ def test_configurare_piu_volte_non_accumula_uscite(tmp_path):
     **Obiettivo**: Verificare che chiamate ripetute a ``configura(tmp_path)``
     chiudano gli handler precedenti mantenendo il conteggio fisso a 2.
 
-    **Razionale Scientifico/Sistemistico**: Previene il classico bug di
+    **Razionale scientifico e sistemistico**: Previene il classico bug di
     duplicazione dei messaggi nel modulo ``logging`` di Python e la perdita di
     file descriptor aperti durante invocazioni multiple nello stesso processo.
     """
@@ -140,7 +178,7 @@ def test_il_file_ruota(tmp_path):
     **Obiettivo**: Verificare che l'handler su file sia un'istanza di
     ``RotatingFileHandler`` configurata con ``maxBytes == MAX_BYTE`` e ``backupCount > 0``.
 
-    **Razionale Scientifico/Sistemistico**: Protegge il filesystem dall'esaurimento
+    **Razionale scientifico e sistemistico**: Protegge il filesystem dall'esaurimento
     dello spazio disco qualora la pipeline produca un volume elevato di log
     diagnostici sui 960 campioni.
     """
@@ -159,7 +197,7 @@ def test_la_rotazione_avviene_davvero(tmp_path):
     **Obiettivo**: Verificare sperimentalmente che superando ``max_byte=500``
     vengano generati su disco sia ``pipeline.jsonl`` sia l'archivio ruotato ``pipeline.jsonl.1``.
 
-    **Razionale Scientifico/Sistemistico**: Certifica che il meccanismo di
+    **Razionale scientifico e sistemistico**: Certifica che il meccanismo di
     rollover dei file di log funzioni effettivamente su filesystem reale senza
     interrompere il flusso di scrittura.
     """
@@ -184,7 +222,7 @@ def test_ogni_riga_e_un_oggetto_json(tmp_path):
     **Obiettivo**: Verificare che ogni riga di ``pipeline.jsonl`` sia un oggetto
     JSON autonomo e valido dotato dei campi ``messaggio`` e ``livello``.
 
-    **Razionale Scientifico/Sistemistico**: Il formato JSON Lines (un documento
+    **Razionale scientifico e sistemistico**: Il formato JSON Lines (un documento
     JSON per riga) consente la lettura in streaming e il parsing riga per riga
     anche se il processo dovesse interrompersi bruscamente a metà esecuzione.
     """
@@ -206,7 +244,7 @@ def test_i_campi_aggiunti_diventano_campi_dell_evento(tmp_path):
     (``fase="S2"``, ``conservate=0.83``) vengano promossi a chiavi di primo
     livello nell'oggetto JSON insieme a ``origine`` e ``istante``.
 
-    **Razionale Scientifico/Sistemistico**: Permette di registrare metriche
+    **Razionale scientifico e sistemistico**: Permette di registrare metriche
     quantitative di fase (es. frazione di letture conservate dopo ``filterAndTrim``)
     direttamente interrogabili senza espressioni regolari sul testo.
     """
@@ -226,7 +264,7 @@ def test_gli_eventi_si_filtrano_per_codice(tmp_path):
     **Obiettivo**: Verificare che gli errori registrati tramite ``registra_errore``
     siano filtrabili esaminando ``r.get("codice") == "E-S2-03"``.
 
-    **Razionale Scientifico/Sistemistico**: Consente al generatore di report e
+    **Razionale scientifico e sistemistico**: Consente al generatore di report e
     agli script di audit di estrarre istantaneamente tutti gli episodi di
     memoria esaurita o degradazione avvenuti su specifici lotti.
     """
@@ -248,7 +286,7 @@ def test_l_errore_registrato_porta_con_se_la_gestione(tmp_path):
     ``codice``, ``fase``, ``categoria``, i parametri di contesto (``sequenze=12000``)
     e l'``azione`` prescrittiva del catalogo.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che ogni evento d'errore
+    **Razionale scientifico e sistemistico**: Garantisce che ogni evento d'errore
     nel file ``pipeline.jsonl`` sia autosufficiente e contenga già la politica di
     gestione e l'istruzione operativa per il ricercatore.
     """
@@ -269,7 +307,7 @@ def test_un_valore_non_serializzabile_non_fa_perdere_l_evento(tmp_path):
     **Obiettivo**: Verificare che passare oggetti ``Path`` o ``Enum`` dentro
     ``extra`` non sollevi ``TypeError`` ma li converta in stringa nel JSON finale.
 
-    **Razionale Scientifico/Sistemistico**: Se ``json.dumps`` fallisse su un
+    **Razionale scientifico e sistemistico**: Se ``json.dumps`` fallisse su un
     oggetto ``Path`` passato nel contesto di un errore, l'evento diagnostico
     andrebbe perso proprio nel momento critico del guasto; il fallback
     ``default=str`` rende il logger immune a tipi non nativamente JSON.
@@ -288,7 +326,7 @@ def test_l_eccezione_finisce_nel_log(tmp_path):
     **Obiettivo**: Verificare che ``log.exception(...)`` catturi lo stacktrace
     corrente nel campo ``"eccezione"`` dell'oggetto JSON.
 
-    **Razionale Scientifico/Sistemistico**: Conserva nel file JSONL la traccia
+    **Razionale scientifico e sistemistico**: Conserva nel file JSONL la traccia
     completa delle chiamate Python in caso di errore imprevisto senza corrompere
     la struttura a riga singola del file ``pipeline.jsonl``.
     """
@@ -307,7 +345,7 @@ def test_il_livello_del_file_e_piu_verboso_della_console(tmp_path):
     **Obiettivo**: Verificare che anche impostando ``livello_console=logging.WARNING``
     i messaggi ``DEBUG`` vengano comunque scritti in ``pipeline.jsonl``.
 
-    **Razionale Scientifico/Sistemistico**: Mantiene pulito il terminale
+    **Razionale scientifico e sistemistico**: Mantiene pulito il terminale
     dell'operatore mostrando solo avvisi ed errori, ma preserva sul disco tutti
     i dettagli diagnostici di livello ``DEBUG`` indispensabili per il post-mortem.
     """
@@ -329,8 +367,8 @@ def test_esecuzione_fittizia_produce_albero_configurazione_e_log(tmp_path):
     di ``00_config/resolved.yaml`` con 803 campioni biologici, e registrazione
     degli eventi in ``99_logs/pipeline.jsonl``.
 
-    **Razionale Scientifico/Sistemistico**: Simula il ciclo di vita completo
-    dell'infrastruttura di base (Settimane W4–W5), dimostrando che
+    **Razionale scientifico e sistemistico**: Simula il ciclo di vita completo
+    dell'infrastruttura di base (Settimane W4-W5), dimostrando che
     configurazione risolta, manifesti SHA-256 degli artefatti e log JSONL
     coesistono senza conflitti nella medesima directory di esecuzione.
     """

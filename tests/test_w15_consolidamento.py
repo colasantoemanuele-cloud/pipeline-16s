@@ -86,6 +86,9 @@ from amplicon16s.steps.s00_validate import esegui_s0
 
 @pytest.fixture(autouse=True)
 def uscite_pulite():
+    """Chiude le uscite del log prima e dopo ogni test, perché nessun handler resti
+    aperto sulla cartella temporanea.
+    """
     chiudi()
     yield
     chiudi()

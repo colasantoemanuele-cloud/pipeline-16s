@@ -30,7 +30,7 @@ scheduler:
 * ``4``: arresto con punto di ripresa dichiarato, stampato e scritto in
   ``99_logs/punto_di_ripresa.json`` e ``.txt``;
 * ``5``: tutte le fasi realizzate sono concluse, ma la prossima non esiste
-  ancora come codice. È uno stato transitorio dello sviluppo: oggi, dopo S0.
+  ancora come codice. È uno stato dello sviluppo: pipeline consolidata fino a S7.
 """
 
 from __future__ import annotations
@@ -81,10 +81,12 @@ def _passi() -> dict[Passo, PipelineStep]:
 
 
 def _comando_ripresa(percorso: Path) -> str:
+    """Il comando da stampare per riprendere l'esecuzione con questa configurazione."""
     return f"amplicon16s resume --config {shlex.quote(str(percorso.resolve()))}"
 
 
 def _stampa(testo: str = "") -> None:
+    """Scrive una riga sullo standard output senza bufferizzarla."""
     print(testo, flush=True)
 
 
@@ -96,6 +98,7 @@ def _stampa(testo: str = "") -> None:
 def _esegui(
     config: Config, percorso: Path, *, fino_a: Passo | None = None
 ) -> EsitoEsecuzione:
+    """Esegue il grafo fino alla fase indicata, o fino all'ultima realizzata."""
     configura(config.io.out_root)
     run = ProjectRun(config, passi=_passi(), logger=ottieni("run"))
     esecutore = Esecutore(run, comando_ripresa=_comando_ripresa(percorso), fino_a=fino_a)
@@ -103,6 +106,7 @@ def _esegui(
 
 
 def _uscita(esito: EsitoEsecuzione) -> int:
+    """Riporta l'esito dell'esecuzione e lo traduce nel codice di uscita del comando."""
     registrazione = esito.configurazione
     if registrazione is not None and registrazione.nuova and registrazione.differenze:
         _stampa(
@@ -126,6 +130,7 @@ def _uscita(esito: EsitoEsecuzione) -> int:
 
 
 def _cmd_validate(config: Config, percorso: Path, args: argparse.Namespace) -> int:
+    """Comando ``validate``: esegue la sola S0 e ne riporta l'esito."""
     esito = _esegui(config, percorso, fino_a=Passo.S0)
     if esito.conclusione is Conclusione.COMPLETATA:
         registrazione = esito.configurazione
@@ -143,10 +148,13 @@ def _cmd_validate(config: Config, percorso: Path, args: argparse.Namespace) -> i
 
 
 def _cartella_usata(radice: Path) -> bool:
+    """Vero se la cartella di output esiste e contiene già almeno un elemento."""
     return radice.exists() and any(radice.iterdir())
 
 
 def _cmd_run(config: Config, percorso: Path, args: argparse.Namespace) -> int:
+    """Comando ``run``: avvia un'esecuzione nuova, solo in una cartella di output vuota.
+    """
     radice = Path(config.io.out_root)
     if _cartella_usata(radice):
         _stampa(
@@ -162,6 +170,7 @@ def _cmd_run(config: Config, percorso: Path, args: argparse.Namespace) -> int:
 
 
 def _cmd_resume(config: Config, percorso: Path, args: argparse.Namespace) -> int:
+    """Comando ``resume``: riprende l'esecuzione dalla prima fase non valida."""
     return _uscita(_esegui(config, percorso))
 
 
@@ -196,6 +205,7 @@ def resoconto(run: ProjectRun) -> dict[str, Any]:
 
 
 def _testo_resoconto(documento: dict[str, Any]) -> str:
+    """Il resoconto dello stato in forma leggibile, una riga per fase."""
     righe = [
         "RESOCONTO PROVVISORIO DELLO STATO (non e' il report definitivo)",
         "",
@@ -221,6 +231,9 @@ def _testo_resoconto(documento: dict[str, Any]) -> str:
 
 
 def _cmd_report(config: Config, percorso: Path, args: argparse.Namespace) -> int:
+    """Comando ``report``: scrive in ``99_logs`` il resoconto provvisorio dello stato e
+    lo stampa.
+    """
     radice = Path(config.io.out_root)
     if not _cartella_usata(radice):
         _stampa(f"Nessuna esecuzione in {radice}: non c'e' nulla da riportare.")

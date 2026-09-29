@@ -94,6 +94,9 @@ class InferenzaVarianti(PipelineStep):
     }
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Esegue ``R/04_dada.R`` sui campioni con letture filtrate, ciascuno con il
+        modello d'errore della sua corsa.
+        """
         if contesto.inventario is None:
             raise RuntimeError("S4 richiede l'inventario prodotto da S0")
         config = contesto.config

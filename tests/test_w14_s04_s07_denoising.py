@@ -118,6 +118,9 @@ from amplicon16s.steps.s06_chimera import controlla_chimere, misura_chimere
 
 @pytest.fixture(autouse=True)
 def uscite_pulite():
+    """Chiude le uscite del log prima e dopo ogni test, perché nessun handler resti
+    aperto sulla cartella temporanea.
+    """
     chiudi()
     yield
     chiudi()
@@ -133,7 +136,7 @@ def test_e_s4_02_si_ritenta_con_il_lotto_dimezzato(tmp_path):
     **Obiettivo**: Verificare che la politica ritenti E-S4-02 con
     ``run.batch_size`` dimezzato, e smetta quando il lotto e' gia' 1.
 
-    **Razionale Scientifico/Sistemistico**: Il lotto decide la memoria
+    **Razionale scientifico e sistemistico**: Il lotto decide la memoria
     dell'inferenza e non il suo risultato: ridurlo non cambia alcuna
     assunzione metodologica.
     """
@@ -152,7 +155,7 @@ def test_e_s5_01_dichiarato_inutile_ferma_con_il_motivo(tmp_path):
     E-S5-01 che dichiara il retry inutile si fermi con il motivo della fase,
     anche senza un'azione correttiva.
 
-    **Razionale Scientifico/Sistemistico**: La tabella e' una matrice densa
+    **Razionale scientifico e sistemistico**: La tabella e' una matrice densa
     campioni x varianti: ridurre il lotto non ne cambia la memoria. Il motivo
     specifico dice all'operatore perche' non si ritenta.
     """
@@ -170,6 +173,7 @@ def test_e_s5_01_dichiarato_inutile_ferma_con_il_motivo(tmp_path):
 
 
 def _classe(letture: int, chimeriche: int, varianti: int = 10, var_chim: int = 1) -> dict[str, int]:
+    """Le misure delle chimere di una classe con un solo campione."""
     return {
         "campioni": 1, "letture": letture, "letture_chimeriche": chimeriche,
         "varianti": varianti, "varianti_chimeriche": var_chim,
@@ -182,7 +186,7 @@ def test_la_frazione_chimerica_si_misura_sulle_letture_delle_classi_controllate(
     letture di biologici e positivi insieme, che i negativi ne restino fuori,
     e che per ogni classe si riportino letture e varianti.
 
-    **Razionale Scientifico/Sistemistico**: Una chimera abbondante pesa piu'
+    **Razionale scientifico e sistemistico**: Una chimera abbondante pesa piu'
     di cento chimere da una lettura; i bianchi hanno poche letture e una
     frazione che non dice nulla sulla PCR dei campioni.
     """
@@ -203,7 +207,7 @@ def test_oltre_l_avviso_si_degrada_oltre_l_arresto_si_ferma(tmp_path):
     ``qc.stop_frac_chimeric`` restituisca l'avviso di E-S6-02, e che oltre
     l'arresto si sollevi E-S6-01, di revisione umana.
 
-    **Razionale Scientifico/Sistemistico**: Un avviso e un arresto non
+    **Razionale scientifico e sistemistico**: Un avviso e un arresto non
     condividono mai lo stesso codice.
     """
     qc = config_ridotta(tmp_path).qc  # 0.25 e 0.50
@@ -247,6 +251,7 @@ def catena(catena_calcolata):
 
 
 def _impronte(cartella: Path) -> dict[str, str]:
+    """L'MD5 di ogni file della cartella, esclusi i file del ponte e i manifesti."""
     return {
         p.name: hashlib.md5(p.read_bytes()).hexdigest()
         for p in sorted(cartella.iterdir())
@@ -255,6 +260,9 @@ def _impronte(cartella: Path) -> dict[str, str]:
 
 
 def _r(codice: str) -> str:
+    """Esegue un'espressione con Rscript e ne restituisce l'output; fallisce se R esce
+    con errore.
+    """
     esito = subprocess.run(
         [str(trova_rscript()), "--vanilla", "-e", codice],
         capture_output=True, text=True, check=False,
@@ -264,6 +272,7 @@ def _r(codice: str) -> str:
 
 
 def _tsv(percorso: Path) -> list[dict[str, str]]:
+    """Le righe di una tabella separata da tabulazioni."""
     with open(percorso, encoding="utf-8", newline="") as file:
         return list(csv.DictReader(file, delimiter="\t"))
 
@@ -273,7 +282,7 @@ def test_la_catena_s4_s7_si_conclude(dada2, catena):
     **Obiettivo**: Verificare che S4, S5, S6 e S7 si concludano sulla versione
     ridotta, ciascuna con il proprio manifesto, e le metriche attese.
 
-    **Razionale Scientifico/Sistemistico**: E' il nucleo del denoising: dalle
+    **Razionale scientifico e sistemistico**: E' il nucleo del denoising: dalle
     letture filtrate alla tabella delle varianti senza chimere.
     """
     run, esito = catena
@@ -295,7 +304,7 @@ def test_il_pseudo_pooling_a_lotti_e_quello_di_dada2(dada2, ridotta_calcolata, t
     per 8 campioni della stessa corsa esattamente le varianti di
     ``dada(pool = "pseudo")`` in una sola chiamata con lo stesso modello.
 
-    **Razionale Scientifico/Sistemistico**: Le due passate esplicite devono
+    **Razionale scientifico e sistemistico**: Le due passate esplicite devono
     riprodurre la regola di dada2 sulle informazioni a priori (prevalenza
     almeno PSEUDO_PREVALENCE) e il modello d'errore che dada ricalcola per la
     seconda passata; se una sola delle due differisse, i risultati no.
@@ -336,7 +345,7 @@ def test_il_lotto_non_cambia_i_byte_dell_inferenza(dada2, ridotta_calcolata, cat
     gli stessi byte di S4 con il valore d'esempio (24, due lotti), per ogni
     artefatto.
 
-    **Razionale Scientifico/Sistemistico**: E' la condizione per escludere
+    **Razionale scientifico e sistemistico**: E' la condizione per escludere
     ``run.batch_size`` dall'impronta e per rendere legittimo il retry di
     E-S4-02 che lo dimezza.
     """
@@ -356,7 +365,7 @@ def test_due_esecuzioni_danno_gli_stessi_byte(dada2, ridotta_calcolata, catena, 
     **Obiettivo**: Verificare che una seconda esecuzione di S4-S7 produca in
     ``05_asv_inference``, ``06_seqtab`` e ``07_chimera`` gli stessi byte.
 
-    **Razionale Scientifico/Sistemistico**: La verifica finale di
+    **Razionale scientifico e sistemistico**: La verifica finale di
     riproducibilita' confronta i checksum di due esecuzioni.
     """
     run, _ = catena
@@ -375,7 +384,7 @@ def test_con_memoria_ridotta_scatta_e_s4_02_e_il_retry_dimezza_il_lotto(
     riesegua l'inferenza con ``run.batch_size`` dimezzato, fino ai tentativi
     ammessi.
 
-    **Razionale Scientifico/Sistemistico**: Il limite e' sotto quanto chiede
+    **Razionale scientifico e sistemistico**: Il limite e' sotto quanto chiede
     anche un lotto di un campione (misurato: circa 1,3 GB di memoria
     virtuale), quindi fallisce ogni tentativo: il test verifica il
     riconoscimento e l'azione correttiva, non il loro successo.
@@ -407,7 +416,7 @@ def test_oltre_qc_max_asv_count_s5_si_ferma_prima_della_tabella(dada2, catena, t
     della versione ridotta S5 sollevi E-S5-01 prima di costruire la tabella,
     dichiarando inutile il retry, e che la politica non ritenti.
 
-    **Razionale Scientifico/Sistemistico**: Il numero di varianti e' una
+    **Razionale scientifico e sistemistico**: Il numero di varianti e' una
     proprieta' dei dati: un nuovo tentativo darebbe lo stesso numero. La fase
     si chiama direttamente: attraverso l'esecutore, cambiare un parametro qc
     rifarebbe anche S0-S4, perche' S0 dichiara l'intero gruppo qc.
@@ -448,7 +457,7 @@ def test_la_tabella_prima_delle_chimere_resta_in_s5_e_si_ricostruisce(dada2, cat
     chimeriche, e che la tabella senza chimere sia quella di S5 meno le
     colonne elencate, con gli stessi conteggi.
 
-    **Razionale Scientifico/Sistemistico**: La tabella prima delle chimere
+    **Razionale scientifico e sistemistico**: La tabella prima delle chimere
     resta recuperabile e distinta senza raddoppiare su disco l'artefatto
     piu' grande della pipeline.
     """
@@ -483,7 +492,7 @@ def test_la_frazione_chimerica_e_riportata_per_classe(dada2, catena):
     chimerica su letture e varianti, e la frazione controllata su biologici e
     positivi, coerente con i conteggi per campione.
 
-    **Razionale Scientifico/Sistemistico**: Il controllo guarda le letture
+    **Razionale scientifico e sistemistico**: Il controllo guarda le letture
     delle classi controllate; le altre misure restano per chi legge.
     """
     run, _ = catena
@@ -514,7 +523,7 @@ def test_il_filtro_di_lunghezza_toglie_le_varianti_fuori_intervallo(dada2, tmp_p
     137, 140 e 150 che S7 tenga solo quelle fra ``137 - tolleranza`` e
     ``137 + tolleranza``, con le letture tolte registrate.
 
-    **Razionale Scientifico/Sistemistico**: Sul dataset di riferimento le
+    **Razionale scientifico e sistemistico**: Sul dataset di riferimento le
     varianti hanno tutte 137 basi e il filtro non toglie nulla: l'efficacia
     si verifica solo su varianti costruite apposta.
     """
@@ -553,7 +562,7 @@ def test_sui_dati_reali_il_filtro_di_lunghezza_non_toglie_nulla(dada2, catena):
     **Obiettivo**: Verificare che sulla versione ridotta S7 non tolga alcuna
     variante, perche' hanno tutte la lunghezza del troncamento.
 
-    **Razionale Scientifico/Sistemistico**: Letture troncate a 137 basi e
+    **Razionale scientifico e sistemistico**: Letture troncate a 137 basi e
     senza fusione di coppie danno varianti di 137 basi: il filtro non ha
     effetto, e non gliene va attribuito.
     """
@@ -572,7 +581,7 @@ def test_il_tracciamento_e_completo_un_passo_per_fase(dada2, catena):
     per ciascuna fase da S1 a S7, nell'ordine, per tutti i 28 campioni, con
     letture che non crescono mai da un passo al successivo.
 
-    **Razionale Scientifico/Sistemistico**: Un buco nel tracciamento
+    **Razionale scientifico e sistemistico**: Un buco nel tracciamento
     nasconderebbe dove si perdono le letture di un campione.
     """
     run, _ = catena
@@ -600,7 +609,7 @@ def test_s4_s7_sul_dataset_completo(dada2, tmp_path):
     **Obiettivo**: Verificare che sul dataset completo la catena S0-S7 si
     concluda, e riportarne durate, varianti e frazioni chimeriche per classe.
 
-    **Razionale Scientifico/Sistemistico**: Le misure sul dataset completo
+    **Razionale scientifico e sistemistico**: Le misure sul dataset completo
     decidono se i controlli sono tarati sulle classi giuste.
     """
     import logging

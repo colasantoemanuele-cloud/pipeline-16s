@@ -88,6 +88,7 @@ def leggi_per_gruppo(percorso: Path) -> dict[str, dict[str, int]]:
 
 
 def _frazione(parte: int, totale: int) -> float | None:
+    """Il rapporto arrotondato a quattro decimali, o ``None`` se il totale è zero."""
     return round(parte / totale, 4) if totale else None
 
 
@@ -148,6 +149,9 @@ class RimozioneChimere(PipelineStep):
     )
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Esegue ``R/06_chimera.R`` sulla tabella di S5, scrive il riepilogo per classe
+        e applica i controlli sulle chimere.
+        """
         if contesto.inventario is None:
             raise RuntimeError("S6 richiede l'inventario prodotto da S0")
         config = contesto.config

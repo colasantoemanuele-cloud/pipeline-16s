@@ -82,14 +82,21 @@ class StatisticheFile:
 
     @property
     def valido(self) -> bool:
+        """Vero se il file si è letto senza errori."""
         return self.errore is None
 
     @property
     def frazione_primer(self) -> float:
+        """La frazione delle letture esaminate che iniziano con il primer; 0 se nessuna
+        è stata esaminata.
+        """
         return self.con_primer / self.letture_esaminate if self.letture_esaminate else 0.0
 
     @property
     def frazione_motivo(self) -> float:
+        """La frazione delle letture esaminate che contengono il motivo conservato; 0 se
+        nessuna è stata esaminata.
+        """
         return self.con_motivo / self.letture_esaminate if self.letture_esaminate else 0.0
 
 

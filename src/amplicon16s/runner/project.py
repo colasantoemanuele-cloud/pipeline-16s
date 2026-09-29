@@ -152,14 +152,17 @@ class Valutazione:
     risolta: ConfigRisolta
 
     def _con_stato(self, *stati: StatoPasso) -> tuple[Passo, ...]:
+        """Le fasi che si trovano in uno degli stati indicati, nell'ordine del grafo."""
         return tuple(p for p, s in self.situazioni.items() if s.stato in stati)
 
     @property
     def completate(self) -> tuple[Passo, ...]:
+        """Le fasi concluse e ancora valide."""
         return self._con_stato(StatoPasso.COMPLETATA)
 
     @property
     def disattivate(self) -> tuple[Passo, ...]:
+        """Le fasi disattivate dalla configurazione."""
         return self._con_stato(StatoPasso.DISATTIVATA)
 
     @property
@@ -212,6 +215,9 @@ class ProjectRun:
     def _risolta(
         self, inventario: Inventario | None, config: Config | None = None
     ) -> ConfigRisolta:
+        """La configurazione risolta, con i derivati dipendenti dai dati se l'inventario
+        è noto.
+        """
         risolta = risolvi(config or self.config)
         if inventario is not None:
             risolta = risolta.con_campioni_biologici(inventario.denominatore_prevalenza())
@@ -261,6 +267,9 @@ class ProjectRun:
         return richieste
 
     def _valuta(self, checksum: _Checksum, forzate: Mapping[Passo, str]) -> Valutazione:
+        """Una passata di valutazione dello stato, con le fasi indicate forzate da
+        eseguire.
+        """
         situazioni: dict[Passo, Situazione] = {}
         impronte: dict[Passo, str | None] = {}
         inventario: Inventario | None = None
@@ -306,6 +315,9 @@ class ProjectRun:
         a_monte: Mapping[Passo, str | None],
         checksum: _Checksum,
     ) -> Situazione:
+        """Lo stato di una fase attiva: manifesto, integrità degli artefatti e impronta
+        attesa.
+        """
         passo = fase.passo
         da_eseguire = StatoPasso.DA_ESEGUIRE
 
@@ -346,29 +358,36 @@ class ProjectRun:
 
     @property
     def completate(self) -> tuple[Passo, ...]:
+        """Le fasi concluse e ancora valide, da una valutazione nuova."""
         return self.valuta().completate
 
     @property
     def disattivate(self) -> tuple[Passo, ...]:
+        """Le fasi disattivate dalla configurazione, da una valutazione nuova."""
         return self.valuta().disattivate
 
     @property
     def da_eseguire(self) -> tuple[Passo, ...]:
+        """Le fasi da eseguire, da una valutazione nuova."""
         return self.valuta().da_eseguire
 
     def prossima(self) -> Passo | None:
+        """La prima fase da eseguire, o ``None`` se non ne resta alcuna."""
         return self.valuta().prossima()
 
     @property
     def completa(self) -> bool:
+        """Vero se nessuna fase attiva resta da eseguire."""
         return self.valuta().completa
 
     @property
     def inventario(self) -> Inventario | None:
+        """L'inventario dei campioni, se S0 è conclusa."""
         return self.valuta().inventario
 
     @property
     def risolta(self) -> ConfigRisolta:
+        """La configurazione risolta, da una valutazione nuova."""
         return self.valuta().risolta
 
     # ----------------------------------------------------------------- #

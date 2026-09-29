@@ -1,12 +1,12 @@
-"""Gate di validazione G01–G15.
+"""Gate di validazione G01-G15.
 
 I gate sono i controlli che precedono l'esecuzione: servono a fermare un'analisi
 prima che venga allocato qualunque calcolo, non a metà di un'elaborazione che
 dura ore.
 
-Il modulo implementa l'insieme completo dei quindici gate previsti (G01–G15):
+Il modulo implementa l'insieme completo dei quindici gate previsti (G01-G15):
 dalla coerenza interna della configurazione (G15), alla verifica di esistenza e
-integrità degli ingressi e delle tabelle ISA-Tab (G01–G06), fino al controllo di
+integrità degli ingressi e delle tabelle ISA-Tab (G01-G06), fino al controllo di
 layout single-end (G07), plausibilità dei lotti (G08), compatibilità delle
 lunghezze e assenza primer con controllo positivo del motivo conservato (G09,
 G10), classificazione controlli (G11), checksum del database tassonomico (G12),
@@ -88,14 +88,17 @@ class Controllo:
 
     @property
     def voce(self) -> VoceCatalogo:
+        """La voce del catalogo corrispondente al codice del controllo."""
         return voce(self.codice)
 
     @property
     def descrizione(self) -> str:
+        """La sintesi del controllo, presa dal catalogo."""
         return self.voce.sintesi
 
     @property
     def categoria(self) -> Categoria:
+        """La categoria di gestione del controllo, presa dal catalogo."""
         return self.voce.categoria
 
 
@@ -191,6 +194,7 @@ class Violazione:
 
     @property
     def voce(self) -> VoceCatalogo:
+        """La voce del catalogo corrispondente al codice violato."""
         return voce(self.codice)
 
     @property
@@ -223,6 +227,8 @@ class ErroreGate(ErrorePipeline):
         super().__init__(primo, gate=gate, violazioni=[v.codice for v in self.violazioni])
 
     def _testo(self) -> str:
+        """Il messaggio con il nome del gate e l'elenco delle violazioni, una per riga.
+        """
         return "{} ha respinto la configurazione: {} violazion{}\n{}".format(
             self.gate,
             len(self.violazioni),
@@ -649,12 +655,14 @@ class Contesto:
 
     @property
     def analisi(self) -> Analisi:
+        """L'analisi dei metadati (crosswalk), calcolata alla prima richiesta."""
         if self._analisi is None:
             self._analisi = analizza(self.config)
         return self._analisi
 
     @property
     def inventario(self) -> Inventario:
+        """L'inventario dei campioni, ricavato dall'analisi dei metadati."""
         return self.analisi.inventario()
 
     @property
@@ -729,6 +737,7 @@ def _g01_ingressi_leggibili(contesto: Contesto) -> tuple[list[Violazione], list[
 
 
 def _intestazione(percorso: Path) -> list[str]:
+    """I nomi delle colonne della prima riga di una tabella separata da tabulazioni."""
     with open(percorso, encoding="utf-8", newline="") as file:
         lettore = csv.reader(file, delimiter="\t")
         return [c.strip().strip('"') for c in next(lettore, [])]

@@ -38,6 +38,7 @@ class Tracciamento:
     origine: dict[str, str]
 
     def totali(self) -> dict[str, int]:
+        """Il totale delle letture di tutti i campioni per ciascun passo."""
         return {
             passo: sum(v.get(passo, 0) for v in self.letture.values()) for passo in self.passi
         }

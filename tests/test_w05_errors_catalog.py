@@ -1,31 +1,79 @@
-"""Suite di verifica del catalogo degli errori, della whitelist di retry e delle eccezioni tipizzate.
+r"""Suite di verifica del catalogo degli errori, della whitelist di retry e delle eccezioni tipizzate.
 
-Inquadramento nel Piano Operativo:
-    - **Settimana di riferimento**: **Settimana 5 (W5 : Fase F1: Catalogo degli
-      errori, gestione degli artefatti e logging)**.
-    - **Scopo del modulo**: Verifica l'integrità formale e metodologica del
-      catalogo centralizzato dei codici di errore (``CATALOGO``, **49 codici totali**:
-      **35 codici di fase** inclusi ``E-S1-02`` ed ``E-S3-02``, **4 codici del ponte R**,
-      **1 codice del grafo** e **9 codici del Gate G15**) e della gerarchia di eccezioni
-      (``ErrorePipeline``). In particolare certifica:
-        * Che ogni codice possieda sia una sintesi diagnostica sia un'azione
-          operativa prescrittiva in italiano (> 30 caratteri) che indichi
-          all'operatore *cosa fare* e non solo *cosa è fallito*;
-        * La chiusura ermetica della whitelist dei tentativi ripetuti a
-          **esattamente 4 codici** (``E-S2-03``, ``E-S3-01``, ``E-S4-02``,
-          ``E-S5-01``), mentre i restanti **45 codici** non sono ripetibili,
-          poiché il retry automatico è ammesso solo dove l'azione
-          correttiva (es. riduzione di ``run.batch_size`` per OOM) non altera
-          alcuna assunzione scientifica dell'analisi;
-        * Che tutti i guasti del ponte verso R (``E-R-01`` .. ``E-R-04``),
-          del grafo delle precedenze (``E-GRAFO-01``) e dei controlli di
-          configurazione (``CONTROLLI`` di G15) appartengano tassativamente a
-          ``Categoria.REVISIONE_UMANA``.
-    - **Moduli sorgente coperti**:
-        * ``src/amplicon16s/errors/catalog.py``
-        * ``src/amplicon16s/errors/exceptions.py``
-    - **Comando Bash**: ``pytest tests/test_w05_errors_catalog.py -v``
-    - **Risultato atteso**: ``282 passed in ~0.35s``
+1. Inquadramento nel Piano Operativo
+------------------------------------
+Settimana 5 (W5), Fase F1 (catalogo degli errori, gestione degli artefatti e
+logging), con i codici aggiunti nelle settimane successive.
+
+2. Moduli sorgente coperti
+--------------------------
+* ``src/amplicon16s/errors/catalog.py``
+* ``src/amplicon16s/errors/exceptions.py``
+
+3. Cosa valuta questo file
+--------------------------
+- completezza del catalogo ``CATALOGO``, **50 codici totali**: **35 codici di
+  fase** inclusi ``E-S1-02`` ed ``E-S3-02``, **4 codici del ponte R**,
+  **1 codice del grafo** e **10 codici del Gate G15** (compreso ``E-G15-99``);
+  nessun codice inatteso, fase coerente con il codice, errore esplicito su un
+  codice sconosciuto;
+- ogni codice possiede una sintesi diagnostica e un'azione operativa in
+  italiano (oltre 30 caratteri) che dice all'operatore *cosa fare* e non solo
+  *cosa è fallito*;
+- chiusura della whitelist dei tentativi ripetuti a **esattamente 4 codici**
+  (``E-S2-03``, ``E-S3-01``, ``E-S4-02``, ``E-S5-01``), coerente con
+  ``retry.whitelist``; i restanti **46 codici** non ammettono il retry;
+- corrispondenza fra categoria di gestione e classe dell'eccezione, rifiuto di
+  una classe sbagliata, messaggio con codice, dettaglio e azione, traduzione
+  in evento strutturato del log;
+- appartenenza a ``Categoria.REVISIONE_UMANA`` dei guasti del ponte verso R
+  (``E-R-01`` .. ``E-R-04``), del grafo (``E-GRAFO-01``) e dei controlli di
+  configurazione di G15; elenco chiuso delle degradazioni; uso di ciascuna
+  delle quattro categorie.
+
+4. Comandi Bash e scenari di esecuzione
+---------------------------------------
+    1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
+       dati reali):
+       pytest tests/test_w05_errors_catalog.py -v
+
+    2. Modalità container Docker standard (sottoinsieme ridotto con
+       R/Bioconductor):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -v "$(pwd)":/app \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w05_errors_catalog.py -v
+
+    3. Modalità container Docker completa (con i 2.4 GB di dati reali OSD-734;
+       la configurazione e i percorsi che contiene devono stare nella cartella
+       montata):
+       docker run --rm \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
+         -v "$(pwd)":/app \
+         -v "$HOME/ASI":"$HOME/ASI" \
+         -w /app \
+         amplicon16s:dev \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w05_errors_catalog.py -v
+
+5. Risultato atteso
+-------------------
+282 test totali:
+- 282 passed in ambiente locale standard (~0.1s);
+- 282 passed nel container Docker standard sul sottoinsieme ridotto (~0.1s);
+- 282 passed nel container Docker con i dati reali OSD-734 (~0.1s).
+
+6. Razionale scientifico e sistemistico
+---------------------------------------
+- Il catalogo è l'unica fonte di verità dei codici: un codice rimosso per
+  errore, o spostato in una categoria che ammette il retry, cambierebbe il
+  comportamento della pipeline davanti a un guasto senza che nessun altro test
+  se ne accorga.
+- Il retry automatico è ammesso solo dove l'azione correttiva (per esempio
+  dimezzare ``run.batch_size`` o raddoppiare ``err.nbases``) non cambia alcuna
+  assunzione metodologica dell'analisi.
 """
 
 from __future__ import annotations
@@ -50,7 +98,7 @@ from amplicon16s.errors.exceptions import (
 )
 from amplicon16s.gates.g01_g15 import CONTROLLI
 
-#: Elenco esplicito di controllo dei 34 codici di fase (S0–S14): mantenuto nel test
+#: Elenco esplicito di controllo dei 35 codici di fase (S0-S14): mantenuto nel test
 #: per intercettare qualsiasi rimozione accidentale dal dizionario ``CATALOGO``.
 CODICI_DI_FASE = (
     "E-S0-01", "E-S0-02", "E-S0-03", "E-S0-04", "E-S0-05", "E-S0-06", "E-S0-07",
@@ -93,7 +141,7 @@ def test_ogni_voce_ha_messaggio_e_categoria(codice):
     ``fase``, ``sintesi``, ``azione`` non vuoti e una ``categoria`` tipizzata
     ``Categoria``.
 
-    **Razionale Scientifico/Sistemistico**: Impedisce che venga registrato nel
+    **Razionale scientifico e sistemistico**: Impedisce che venga registrato nel
     codice un identificativo d'errore "muto" o incompleto che lascerebbe
     l'operatore e il file ``punto_di_ripresa.json`` privi di istruzioni.
     """
@@ -113,7 +161,7 @@ def test_il_messaggio_dice_anche_cosa_fare(codice):
     campo ``azione`` sia distinto dalla ``sintesi``, abbia lunghezza ``> 30``
     caratteri e compaia nel messaggio completo dell'eccezione.
 
-    **Razionale Scientifico/Sistemistico**: Un messaggio d'errore che si limita
+    **Razionale scientifico e sistemistico**: Un messaggio d'errore che si limita
     a constatare il sintomo (es. *"troncamento superiore alle letture"*) non è
     operativo. Imporre un campo ``azione`` distinto e articolato (> 30 caratteri)
     obbliga ogni voce del catalogo a prescrivere il parametro YAML o l'intervento
@@ -131,7 +179,7 @@ def test_tutti_i_codici_previsti_sono_catalogati(codice):
     **Obiettivo**: Verificare che ciascuno dei codici di fase, del ponte R e
     del grafo previsti dalla specifica sia effettivamente presente in ``CATALOGO``.
 
-    **Razionale Scientifico/Sistemistico**: Evita che durante il refactoring
+    **Razionale scientifico e sistemistico**: Evita che durante il refactoring
     un codice referenziato da una fase R o da un gate venga cancellato dal
     catalogo causando un ``KeyError`` proprio nel momento in cui si verifica il guasto.
     """
@@ -143,7 +191,7 @@ def test_la_fase_corrisponde_al_codice():
     **Obiettivo**: Verificare che l'attributo ``v.fase`` di ogni voce coincida
     con il segmento centrale del codice ``E-<FASE>-<NN>`` (es. ``E-S12-02 -> S12``).
 
-    **Razionale Scientifico/Sistemistico**: Garantisce la coerenza dei filtri di
+    **Razionale scientifico e sistemistico**: Garantisce la coerenza dei filtri di
     ricerca nei log strutturati ``99_logs/pipeline.jsonl`` e nei report di fase.
     """
     for codice, v in CATALOGO.items():
@@ -157,7 +205,7 @@ def test_nessun_codice_inatteso_nel_catalogo():
     esattamente con l'unione di ``CODICI_DI_FASE``, ``CODICI_DEL_PONTE``,
     ``CODICI_DEL_GRAFO`` e dei ``CONTROLLI`` del Gate G15.
 
-    **Razionale Scientifico/Sistemistico**: Impedisce l'accumulo di codici
+    **Razionale scientifico e sistemistico**: Impedisce l'accumulo di codici
     orfani o non documentati nella specifica dell'architettura.
     """
     dai_gate = {c.codice for c in CONTROLLI}
@@ -171,7 +219,7 @@ def test_codice_sconosciuto_solleva_un_errore_esplicito():
     **Obiettivo**: Verificare che ``voce("E-S99-99")`` sollevi ``KeyError`` con
     il messaggio esplicito ``"non presente nel catalogo"``.
 
-    **Razionale Scientifico/Sistemistico**: Intercetta immediatamente eventuali
+    **Razionale scientifico e sistemistico**: Intercetta immediatamente eventuali
     errori di battitura nei codici d'errore passati a ``errore()`` o ``codice_memoria``.
     """
     with pytest.raises(KeyError, match="non presente nel catalogo"):
@@ -183,7 +231,7 @@ def test_codici_di_fase_raggruppa():
     **Obiettivo**: Verificare che ``codici_di_fase("S6")`` restituisca tutti e
     soli i codici appartenenti alla fase indicata (``("E-S6-01", "E-S6-02")``).
 
-    **Razionale Scientifico/Sistemistico**: Supporta l'introspezione per-fase
+    **Razionale scientifico e sistemistico**: Supporta l'introspezione per-fase
     del catalogo da parte del generatore di report e della documentazione.
     """
     assert codici_di_fase("S6") == ("E-S6-01", "E-S6-02")
@@ -200,7 +248,7 @@ def test_i_codici_ammessi_al_retry_sono_esattamente_quattro():
     **Obiettivo**: Verificare che ``codici_con_retry()`` restituisca esattamente
     i 4 codici ``{"E-S2-03", "E-S3-01", "E-S4-02", "E-S5-01"}``.
 
-    **Razionale Scientifico/Sistemistico**: La chiusura ermetica della whitelist
+    **Razionale scientifico e sistemistico**: La chiusura ermetica della whitelist
     di retry a questi 4 soli codici è un pilastro metodologico della pipeline:
     ritentare automaticamente è lecito solo per esaurimenti di memoria in
     `filterAndTrim` (`E-S2-03`), inferenza DADA2 (`E-S4-02`), costruzione
@@ -219,7 +267,7 @@ def test_ogni_codice_ammesso_al_retry_esiste_nel_catalogo(codice):
     **Obiettivo**: Verificare che ciascuno dei 4 codici in ``AMMESSI_AL_RETRY``
     esista in ``CATALOGO`` ed esponga ``ammette_retry is True``.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce la consistenza interna
+    **Razionale scientifico e sistemistico**: Garantisce la consistenza interna
     del flag ``ammette_retry`` sui 4 codici della whitelist.
     """
     assert codice in CATALOGO
@@ -234,7 +282,7 @@ def test_nessun_altro_codice_ammette_il_retry(codice):
     **Obiettivo**: Verificare che tutti i restanti 44 codici del catalogo abbiano
     tassativamente ``ammette_retry is False``.
 
-    **Razionale Scientifico/Sistemistico**: Impedisce che un nuovo codice
+    **Razionale scientifico e sistemistico**: Impedisce che un nuovo codice
     d'errore biologico o di validazione venga accidentalmente classificato in
     una categoria che abilita il retry automatico.
     """
@@ -248,7 +296,7 @@ def test_l_elenco_del_catalogo_coincide_con_retry_whitelist():
     **Obiettivo**: Verificare l'identità insiemistica tra ``defaults.RETRY_WHITELIST``
     e ``codici_con_retry()``.
 
-    **Razionale Scientifico/Sistemistico**: Allinea la costante predefinita
+    **Razionale scientifico e sistemistico**: Allinea la costante predefinita
     dello schema di configurazione (`defaults.py`) con la definizione formale
     del catalogo degli errori (`catalog.py`), garantendo che il Gate G15
     (`E-G15-09`) validi contro lo stesso identico insieme chiuso.
@@ -275,7 +323,7 @@ def test_la_classe_discende_dalla_categoria(codice, classe):
     **Obiettivo**: Verificare che la factory ``errore(codice)`` istanzi la
     sottoclasse di ``ErrorePipeline`` corrispondente alla ``Categoria`` del codice.
 
-    **Razionale Scientifico/Sistemistico**: Consente all'``Esecutore`` e a
+    **Razionale scientifico e sistemistico**: Consente all'``Esecutore`` e a
     ``PipelineStep.esegui()`` di intercettare il comportamento di gestione
     tramite ``except DegradazioneRichiesta:`` o ``isinstance(..., ErroreRitentabile)``
     senza catene di ``if`` sui codici stringa.
@@ -289,7 +337,7 @@ def test_ogni_codice_produce_un_errore_coerente(codice):
     **Obiettivo**: Verificare che ``errore(codice)`` produca un'istanza valida
     di ``ErrorePipeline`` per tutti i 47 codici del catalogo.
 
-    **Razionale Scientifico/Sistemistico**: Assicura che nessuna voce del
+    **Razionale scientifico e sistemistico**: Assicura che nessuna voce del
     catalogo abbia una categoria non mappata nella tabella di dispatch di
     ``exceptions.py``.
     """
@@ -305,7 +353,7 @@ def test_sollevare_un_codice_con_la_classe_sbagliata_e_respinto():
     **Obiettivo**: Verificare che istanziare manualmente ``ErroreRitentabile("E-S0-01")``
     su un codice di ``REVISIONE_UMANA`` sollevi immediatamente ``TypeError``.
 
-    **Razionale Scientifico/Sistemistico**: Chi solleva un errore nel codice
+    **Razionale scientifico e sistemistico**: Chi solleva un errore nel codice
     dichiara *quale condizione si è verificata* (il codice), ma è solo il
     catalogo a decidere *come va gestita* (la categoria): questo controllo
     impedisce a qualsiasi modulo di forzare un retry su un codice non autorizzato.
@@ -320,7 +368,7 @@ def test_il_messaggio_contiene_codice_dettaglio_e_azione():
     ``ErrorePipeline`` includa il codice, il dettaglio contestuale e l'azione
     prescrittiva del catalogo.
 
-    **Razionale Scientifico/Sistemistico**: Garantisce che sia sulla console
+    **Razionale scientifico e sistemistico**: Garantisce che sia sulla console
     ``stderr`` sia nei traceback l'operatore legga immediatamente quale campione
     ha causato il problema e quale azione correttiva adottare.
     """
@@ -337,7 +385,7 @@ def test_l_errore_si_traduce_in_evento_strutturato():
     un dizionario JSON-compatibile comprensivo dei metadati contestuali
     (``lotto=7``, ``memoria_mb=32000``).
 
-    **Razionale Scientifico/Sistemistico**: Fornisce il payload strutturato per
+    **Razionale scientifico e sistemistico**: Fornisce il payload strutturato per
     ``registra_errore()`` in ``99_logs/pipeline.jsonl`` e per i manifesti di fase.
     """
     e = errore("E-S4-02", "lotto 7", lotto=7, memoria_mb=32000)
@@ -361,8 +409,8 @@ def test_ogni_controllo_del_gate_e_nel_catalogo(controllo):
     **Obiettivo**: Verificare che ogni controllo del Gate G15 (`CONTROLLI`) sia
     registrato in ``CATALOGO`` con la medesima descrizione e categoria.
 
-    **Razionale Scientifico/Sistemistico**: Unifica i codici dei gate `G01–G15`
-    e i codici delle fasi `S1–S14` in un'unica fonte di verità.
+    **Razionale scientifico e sistemistico**: Unifica i codici dei gate `G01-G15`
+    e i codici delle fasi `S1-S14` in un'unica fonte di verità.
     """
     assert controllo.codice in CATALOGO
     assert controllo.descrizione == CATALOGO[controllo.codice].sintesi
@@ -375,7 +423,7 @@ def test_i_codici_del_ponte_e_del_grafo_chiedono_revisione_umana(codice):
     **Obiettivo**: Verificare che tutti i codici del ponte R (``E-R-01`` ..
     ``E-R-04``) e del grafo (``E-GRAFO-01``) abbiano ``Categoria.REVISIONE_UMANA``.
 
-    **Razionale Scientifico/Sistemistico**: Se l'interprete ``Rscript`` non è
+    **Razionale scientifico e sistemistico**: Se l'interprete ``Rscript`` non è
     installato (`E-R-01`), se il processo R muore per segfault o timeout senza
     dichiarare l'esito (`E-R-02`), se solleva un bug R imprevisto (`E-R-03`),
     se esaurisce la memoria in una fase che non prevede riduzione del lotto
@@ -391,7 +439,7 @@ def test_nessun_controllo_di_configurazione_e_ritentabile():
     **Obiettivo**: Verificare che tutti i controlli di configurazione in
     ``CONTROLLI`` (Gate G15) appartengano a ``Categoria.REVISIONE_UMANA``.
 
-    **Razionale Scientifico/Sistemistico**: Un errore formale o logico nel file
+    **Razionale scientifico e sistemistico**: Un errore formale o logico nel file
     YAML dell'utente è deterministico: rilanciare la pipeline con la stessa
     configurazione invalida fallirebbe all'infinito.
     """
@@ -413,7 +461,7 @@ def test_le_degradazioni_sono_quelle_previste():
     **Obiettivo**: Verificare che i codici con ``Categoria.DEGRADAZIONE_AUTOMATICA``
     siano esattamente ``{"E-S0-15", "E-S1-01", "E-S6-02", "E-S11-02"}``.
 
-    **Razionale Scientifico/Sistemistico**: Limita i comportamenti di ripiego
+    **Razionale scientifico e sistemistico**: Limita i comportamenti di ripiego
     non bloccanti ai soli 4 casi scientificamente previsti dal protocollo (piastra
     con pochi blank che passa a `decontam` globale in G08/S12, avviso di scarto
     `truncLen` in G09, warning chimere intermedio in S6, e controllo positivo
@@ -432,7 +480,7 @@ def test_la_guardia_sulla_filogenesi_ferma_l_esecuzione():
     con filogenesi abilitata) appartenga a ``Categoria.REVISIONE_UMANA`` e non a
     ``DEGRADAZIONE_AUTOMATICA``.
 
-    **Razionale Scientifico/Sistemistico**: Quando l'utente abilita esplicitamente
+    **Razionale scientifico e sistemistico**: Quando l'utente abilita esplicitamente
     ``phylo.enabled = True`` per calcolare metriche UniFrac, saltare silenziosamente
     la costruzione dell'albero in S9 per l'elevato numero di ASV consegnerebbe
     in ``10_phyloseq`` un oggetto privo dell'albero filogenetico richiesto: la
@@ -450,7 +498,7 @@ def test_le_categorie_sono_quattro():
     **Obiettivo**: Verificare che l'enumerazione ``Categoria`` contenga
     esattamente 4 stati di gestione.
 
-    **Razionale Scientifico/Sistemistico**: Mantiene chiusa e ortogonale la
+    **Razionale scientifico e sistemistico**: Mantiene chiusa e ortogonale la
     tassonomia decisionale dell'esecutore della pipeline.
     """
     assert len(Categoria) == 4
@@ -461,7 +509,7 @@ def test_ogni_categoria_e_usata_almeno_una_volta():
     **Obiettivo**: Verificare che ciascuna delle 4 categorie di ``Categoria``
     sia assegnata ad almeno un codice in ``CATALOGO``.
 
-    **Razionale Scientifico/Sistemistico**: Assicura che non esistano rami morti
+    **Razionale scientifico e sistemistico**: Assicura che non esistano rami morti
     nella logica di gestione delle eccezioni.
     """
     usate = {v.categoria for v in CATALOGO.values()}
@@ -482,7 +530,7 @@ def test_proprieta_delle_categorie(categoria, retry, ferma):
     **Obiettivo**: Verificare la tabella di verità delle proprietà booleane
     ``ammette_retry`` e ``ferma_esecuzione`` per ciascuna ``Categoria``.
 
-    **Razionale Scientifico/Sistemistico**: ``PoliticaRetry`` ed ``Esecutore``
+    **Razionale scientifico e sistemistico**: ``PoliticaRetry`` ed ``Esecutore``
     decidono se ritentare e se arrestare la pipeline interrogando queste due
     proprietà; questo test certifica il comportamento esatto delle 4 categorie.
     """

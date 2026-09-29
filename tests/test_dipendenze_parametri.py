@@ -105,6 +105,9 @@ DOPPIONI_R = Path(__file__).resolve().parent / "r_doppioni"
 
 @pytest.fixture(autouse=True)
 def uscite_pulite():
+    """Chiude le uscite del log prima e dopo ogni test, perché nessun handler resti
+    aperto sulla cartella temporanea.
+    """
     chiudi()
     yield
     chiudi()
@@ -183,6 +186,7 @@ class _Distratta(PipelineStep):
     parametri: ClassVar[tuple[str, ...]] = ("filter.truncLen",)
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Legge ``err.nbases``, che la fase non dichiara."""
         testo = f"{contesto.config.filter.truncLen} {contesto.config.err.nbases}"
         artefatto = contesto.albero.scrivi_testo(self.cartella, "profilo.txt", testo)
         return Produzione((artefatto,))
@@ -211,9 +215,13 @@ def test_una_fase_che_legge_un_parametro_non_dichiarato_fallisce(tmp_path):
 
 
 class _SenzaDichiarazione(PipelineStep):
+    """Fase doppione di S1 a cui ogni caso assegna una dichiarazione dei parametri
+    mancante o non valida.
+    """
     passo: ClassVar[Passo] = Passo.S1
 
     def calcola(self, contesto: StepContext) -> Produzione:
+        """Non deve essere mai eseguita: la registrazione fallisce prima."""
         raise AssertionError("non deve girare")
 
 

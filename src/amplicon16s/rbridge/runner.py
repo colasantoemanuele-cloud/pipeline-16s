@@ -156,6 +156,7 @@ class EsitoR:
 
     @property
     def riuscito(self) -> bool:
+        """Vero se il processo R è uscito con codice 0."""
         return self.codice_uscita == 0
 
 
@@ -197,6 +198,8 @@ def cartella_r() -> Path:
 
 
 def _memoria_esaurita(testo: str) -> bool:
+    """Vero se il testo contiene uno dei messaggi con cui R segnala la memoria esaurita.
+    """
     return bool(_MEMORIA_ESAURITA.search(testo))
 
 
@@ -229,6 +232,9 @@ def classifica(
 
 
 def _descrivi_uscita(codice_uscita: int) -> dict[str, Any]:
+    """Il codice di uscita e, se il processo è stato terminato da un segnale, il nome
+    del segnale.
+    """
     descrizione: dict[str, Any] = {"codice_uscita": codice_uscita}
     if codice_uscita < 0:
         try:
@@ -239,6 +245,7 @@ def _descrivi_uscita(codice_uscita: int) -> dict[str, Any]:
 
 
 def _coda(testo: str, limite: int = MAX_CARATTERI_USCITA) -> tuple[str, bool]:
+    """Gli ultimi ``limite`` caratteri del testo, e se è stato troncato."""
     if len(testo) <= limite:
         return testo, False
     return testo[-limite:], True
@@ -272,6 +279,9 @@ def _limita_memoria(byte: int) -> Callable[[], None]:
 
 @dataclass(frozen=True)
 class _Concluso:
+    """Ciò che resta di un processo concluso: codice di uscita, uscite e scadenza del
+    tempo.
+    """
     codice_uscita: int
     stdout: str
     stderr: str
@@ -285,6 +295,9 @@ def _lancia(
     preparazione: Callable[[], None] | None,
     tempo_massimo_s: float | None,
 ) -> _Concluso:
+    """Avvia il processo in una sessione propria e ne attende la fine, uccidendo il
+    gruppo se scade il tempo.
+    """
     # Il figlio apre una propria sessione: allo scadere del tempo si uccide
     # l'intero gruppo, compresi i processi che R avesse generato a sua volta.
     processo = subprocess.Popen(
@@ -319,6 +332,8 @@ def _registra_uscita(
     livello: int,
     contesto: Mapping[str, Any],
 ) -> None:
+    """Registra nel log la coda di un flusso di uscita del processo R, se non è vuoto.
+    """
     if not testo:
         return
     coda, troncato = _coda(testo)
@@ -497,6 +512,9 @@ def _eccezione(
     codice_memoria: str | None,
     contesto: dict[str, Any],
 ) -> ErrorePipeline:
+    """L'eccezione del catalogo che corrisponde alla condizione di uscita del processo
+    R.
+    """
     messaggio = dichiarazione.messaggio if dichiarazione else ""
 
     if condizione is Condizione.ERRORE_DICHIARATO:

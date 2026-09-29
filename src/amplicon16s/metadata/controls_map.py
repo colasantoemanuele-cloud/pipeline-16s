@@ -67,7 +67,11 @@ class MappaControlli:
 
     @property
     def etichette(self) -> tuple[str, ...]:
+        """Le etichette mappate, normalizzate e in ordine alfabetico."""
         return tuple(sorted(self.per_etichetta))
 
     def etichette_di(self, classe: ClasseCampione) -> tuple[str, ...]:
+        """Le etichette normalizzate assegnate alla classe indicata, in ordine
+        alfabetico.
+        """
         return tuple(sorted(e for e, c in self.per_etichetta.items() if c is classe))

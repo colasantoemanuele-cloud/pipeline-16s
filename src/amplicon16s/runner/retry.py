@@ -189,12 +189,16 @@ RITENTARE_INUTILE: Final = "ritentare_inutile"
 
 @dataclass(frozen=True)
 class Decisione:
+    """La decisione della politica di retry su un errore, con il nuovo valore del
+    parametro se si ritenta.
+    """
     motivo: Motivo
     #: Per :attr:`Motivo.RITENTA`, il valore da usare.
     nuovo_valore: Any = None
 
     @property
     def ritenta(self) -> bool:
+        """Vero se la decisione è un nuovo tentativo."""
         return self.motivo is Motivo.RITENTA
 
 
@@ -209,6 +213,7 @@ class PoliticaRetry:
 
     @classmethod
     def da_config(cls, config: Config) -> PoliticaRetry:
+        """La politica costruita dal gruppo ``retry`` della configurazione."""
         return cls(
             abilitata=config.retry.enabled,
             tentativi_massimi=config.retry.max_attempts,
