@@ -72,8 +72,10 @@ Le versioni sono bloccate su entrambi i fronti: le dipendenze Python in
 `pyproject.toml` (e nei file `requirements.txt` / `requirements-dev.txt`), quelle R in
 `renv.lock`. `renv.lock` è generato dall'immagine già
 costruita, quindi registra le versioni effettivamente ottenute e non quelle attese; la
-build lo rilegge e fallisce se anche una sola versione non coincide. Dopo ogni modifica
-ai pacchetti R va rigenerato:
+build lo rilegge e fallisce se anche una sola versione, o una correzione dichiarata, non
+coincide. Dopo ogni modifica ai pacchetti R va rigenerato: si costruisce l'immagine da
+una copia del repository senza `renv.lock`, che salta la verifica, si rigenera il file
+da quell'immagine e si ricostruisce con la verifica attiva:
 
 ```bash
 scripts/genera_renv_lock.sh amplicon16s:dev
@@ -81,6 +83,30 @@ scripts/genera_renv_lock.sh amplicon16s:dev
 
 Le immagini di partenza sono ancorate per digest e non per tag, perché un tag può essere
 riassegnato a un'immagine diversa mentre un digest no.
+
+**L'immagine contiene dada2 con una correzione.** In dada2 1.36.0, `assignTaxonomy`
+sceglie fra generi a pari probabilità con `std::random_device` (`src/taxonomy.cpp`,
+`get_best_genus`), un seme preso dal sistema che `set.seed()` non controlla: due
+esecuzioni con lo stesso seme non danno la stessa tassonomia. La correzione
+(`container/dada2/dada2-1.36.0-pareggi.patch`) inizializza il generatore dei pareggi
+con un seme che dipende dal seme di R, dall'indice della sequenza e dal caso
+(classificazione diretta, complementare inversa, replica di bootstrap): ogni pareggio
+ha un seme fisso qualunque thread lo esegua. La scelta resta uniforme fra i generi a
+pari probabilità, e fuori dai pareggi il risultato non cambia. Il Dockerfile scarica i
+sorgenti ufficiali di dada2 1.36.0, ne verifica lo SHA-256, applica la correzione e li
+compila come versione 1.36.0.1; il DESCRIPTION del pacchetto e `renv.lock` registrano la
+versione di partenza, la correzione e il suo SHA-256, e la verifica di `renv.lock`
+accetta la versione modificata solo se questi coincidono.
+Misure sul dataset di riferimento (12.045 varianti, SILVA 138, stesso seme). Con la
+versione ufficiale due esecuzioni a 12 thread differiscono in 3 varianti per la
+tassonomia e in 99 per il bootstrap, e in dieci esecuzioni 160 varianti non restano
+identiche. Il bootstrap cambia al più di 8 punti, e le assegnazioni cambiano a cavallo
+di `tax.min_boot`. Nessuna di quelle 160 varianti è priva di pareggi: 820 varianti ne
+incontrano almeno uno (120 nella classificazione principale, 1.662 repliche di bootstrap
+su 1.204.500).
+Con la correzione, tre esecuzioni a 12, 12 e 4 thread danno gli stessi byte. Confrontata
+con dieci esecuzioni ufficiali, differisce solo sulle 160 varianti che la versione
+ufficiale stessa fa variare, tutte con pareggi, e su nessuna senza pareggi.
 
 ### Identificare l'immagine per digest
 
@@ -144,7 +170,7 @@ Codici di uscita, per chi lancia la pipeline da uno script o da uno scheduler:
 | 2 | riga di comando non valida (argomenti mancanti o sconosciuti) |
 | 3 | errore di configurazione: il file non è valido, G15 lo respinge, oppure `run` trova la cartella di output già usata; nessuna fase è partita |
 | 4 | arresto con punto di ripresa dichiarato, stampato e scritto in `99_logs/punto_di_ripresa.json` e `.txt` |
-| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S7 |
+| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S8 |
 
 ## Stato dell'implementazione
 
@@ -278,11 +304,14 @@ Sono realizzati:
   (`config/vista.py`), che solleva un errore su qualunque altro accesso, e gli script
   R ricevono soltanto i parametri che la fase passa e falliscono se ne leggono uno
   non ricevuto. Una dipendenza dimenticata diventa così un errore al primo test che
-  esercita la fase, non un risultato obsoleto. L'unica eccezione è G15, che verifica
-  la coerenza dell'intera configurazione: S0 lo esegue sulla configurazione completa,
-  prima di vederla ristretta, e i parametri che servono solo a G15 non entrano nella
-  sua impronta, perché G15 si ripete comunque a ogni avvio; cambiare una soglia di S6
-  rifà S6 e ciò che segue, non S0. I parametri che non incidono sui
+  esercita la fase, non un risultato obsoleto. Le eccezioni sono G15, che verifica
+  la coerenza dell'intera configurazione, e G12, che verifica il riferimento
+  tassonomico contro `tax.ref_md5`: sono precondizioni, S0 li esegue sulla
+  configurazione completa prima di vederla ristretta, e i parametri che servono solo a
+  loro non entrano nella sua impronta, perché si ripetono comunque a ogni avvio.
+  Cambiare una soglia di S6 rifà S6 e ciò che segue, non S0; cambiare il riferimento
+  tassonomico rifà S8 e ciò che segue, perché il riferimento entra nell'impronta di S8
+  con `tax.ref_md5`. I parametri che non incidono sui
   risultati, dichiarati in un solo elenco in `config/resolve.py` (`run.threads`,
   `run.keep_filtered_fastq`, `run.batch_size`, `io.out_root`, `retry.enabled`,
   `retry.max_attempts`), sono leggibili da ogni fase e non entrano in nessuna impronta: cambiarli, o spostare
@@ -294,13 +323,31 @@ Sono realizzati:
   fasi sono concluse, quali disattivate, quali da eseguire e quale è la prossima;
   dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
   una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
-  gigabyte, costa secondi (5,6 sul dataset di riferimento con S0-S7 concluse); delle quindici fasi oggi esistono come codice le prime
-  otto, da S0 a S7, e le altre risultano non realizzate;
+  gigabyte, costa secondi (5,1 sul dataset di riferimento con S0-S8
+  concluse); delle quindici fasi oggi esistono come codice le prime nove, da S0 a S8,
+  e le altre risultano non realizzate;
+- **la versione del calcolo e la provenienza** (`runner/provenienza.py`). Ogni fase
+  dichiara una versione, che entra nell'impronta: si incrementa quando cambia ciò che
+  la fase calcola, e la ripresa rifà allora quella fase e le successive. Il registro
+  `src/amplicon16s/steps/registro_sorgente.json` riporta per ogni fase la versione e
+  l'impronta del suo sorgente (il modulo, i moduli in cui vive il calcolo, lo script R e
+  i file di `R/lib` che carica); un test fallisce se non corrisponde al codice, e
+  `scripts/registro_sorgente.py --aggiorna` lo aggiorna solo se, per ogni fase
+  modificata a parità di versione, si dichiara la modifica senza effetto con
+  `--senza-effetto`. Il manifesto di ogni fase registra la provenienza: versione,
+  impronta del sorgente, commit del repository se disponibile, immagine dichiarata in
+  `run.container`. L'impronta del sorgente si calcola sui file effettivamente usati:
+  i moduli importati e gli script R della cartella che il ponte esegue
+  (`AMPLICON16S_R_DIR`), non le copie del repository, così un'immagine che esegue
+  script diversi risulta tale nel manifesto. A parità di versione una provenienza
+  diversa produce un avviso nel log e nel resoconto, non un ricalcolo;
 - **l'esecutore e la politica dei tentativi** (`runner/executor.py`,
   `runner/retry.py`). A ogni avvio, con `run` come con `resume`, l'esecutore ripete
-  la verifica di coerenza della configurazione (G15) e quella delle risorse della
-  macchina (G14), senza rieseguire S0: processori e spazio su disco si controllano
-  anche quando S0 è già conclusa. Poi esegue in ordine le fasi da eseguire. Una fase
+  la verifica di coerenza della configurazione (G15), quella delle risorse della
+  macchina (G14) e quella del riferimento tassonomico contro `tax.ref_md5` (G12),
+  senza rieseguire S0: processori, spazio su disco e integrità del riferimento si
+  controllano anche quando S0 è già conclusa, e un riferimento alterato dopo S0 ferma
+  l'esecuzione con E-S0-12 prima di arrivare a S8. Poi esegue in ordine le fasi da eseguire. Una fase
   fallita si comporta secondo la categoria del suo codice: a revisione umana ci si
   ferma subito; un codice ripetibile si ritenta solo se è in `retry.whitelist` e
   `retry.enabled` è vero, entro `retry.max_attempts` tentativi totali compreso il
@@ -429,6 +476,32 @@ Sono realizzati:
   quella di S6 era già vuota o perché tutte cadono fuori intervallo, ferma la fase con
   E-S7-01, a revisione umana: le fasi successive fallirebbero più avanti con un errore
   che non ne indica la causa;
+- **la fase S8, l'assegnazione tassonomica** (`steps/s08_taxonomy.py`,
+  `R/08_taxonomy.R`), con `dada2::assignTaxonomy`, il classificatore bayesiano naive
+  (`tax.classifier: naive_bayes`: il training set di SILVA per IdTaxa non è distribuito
+  da alcuna fonte), sul riferimento `tax.ref_fasta` (SILVA 138), in `08_taxonomy/`.
+  `tax.min_boot` vale 50 e `tax.assign_species` è falso, perché le letture coprono 137
+  delle circa 253 basi dell'amplicone e su sequenze corte il bootstrap è più basso a
+  parità di correttezza. Scrive la tabella tassonomica fino al genere, il bootstrap di
+  ogni rango, la copertura del phylum per classe di campioni e un riepilogo. Il seme
+  del bootstrap viene da `run.seed`; con la correzione di dada2 descritta sopra due
+  esecuzioni danno gli stessi byte, anche con un numero di thread diverso, e
+  `run.threads` resta fuori dall'impronta. Il riferimento non si modifica: se
+  `tax.ref_bad_taxa` indica l'elenco dei taxa con un difetto noto (per SILVA 138
+  versione 2, un rango mancante in 10 famiglie e 114 generi, che fa comparire il nome
+  nella colonna del rango superiore), `difetto_riferimento.tsv` marca le assegnazioni
+  che vi ricadono, in qualunque colonna, e il riepilogo conta varianti e letture
+  interessate. E-S8-02 ferma la fase se nei campioni biologici o nei controlli
+  positivi la frazione di varianti con il phylum è sotto `qc.min_frac_phylum` (0,80).
+  Sul dataset di riferimento S8 impiega circa 5 minuti con 12 thread. Il phylum è
+  assegnato al 99,0% delle varianti dei biologici, al 99,1% di quelle dei controlli
+  positivi e al 99,5% di quelle dei negativi, con oltre il 99,9% delle letture in
+  ogni classe. Le assegnazioni sui taxa col difetto noto riguardano 320 varianti e
+  506.697 letture (1,6%), quasi tutte anaerobi dell'ordine
+  Peptostreptococcales-Tissierellales (Anaerococcus, Finegoldia, Peptoniphilus). Nei
+  controlli positivi la variante dominante è Variovorax, il ceppo della serie, ai due
+  livelli di diluizione più alti in tutte le dieci piastre; ai livelli più bassi
+  prevalgono i contaminanti di reagente, come atteso nella serie KatharoSeq;
 - il tracciamento delle letture (`runner/tracciamento.py`): ogni fase registra i propri
   passi in file suoi, `letture_<passo>.tsv`, e la tabella completa si ricompone
   leggendo quelli delle fasi concluse nell'ordine del grafo, senza che una fase
@@ -442,7 +515,7 @@ Sono realizzati:
   aggiustamenti applicati, degradazioni registrate. Non è il report definitivo, che
   non è ancora realizzato.
 
-Delle fasi di analisi sono realizzate quelle da S1 a S7; le altre, da S8 a S14, non
+Delle fasi di analisi sono realizzate quelle da S1 a S8; le altre, da S9 a S14, non
 sono ancora realizzate.
 
 Questa sezione viene aggiornata a ogni avanzamento del lavoro.

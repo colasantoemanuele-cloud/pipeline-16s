@@ -689,7 +689,11 @@ class Contesto:
 
 
 def _g01_ingressi_leggibili(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
-    """Ogni ingresso dichiarato esiste ed e' leggibile."""
+    """Ogni ingresso di S0 dichiarato esiste ed e' leggibile.
+
+    Il riferimento tassonomico non e' un ingresso di S0: lo verifica G12, che
+    si esegue a ogni avvio come precondizione e ne controlla anche il checksum.
+    """
     config = contesto.config
     violazioni: list[Violazione] = []
 
@@ -697,7 +701,6 @@ def _g01_ingressi_leggibili(contesto: Contesto) -> tuple[list[Violazione], list[
         ("io.fastq_dir", Path(config.io.fastq_dir), True),
         ("io.assay_table", Path(config.io.assay_table), False),
         ("io.study_table", Path(config.io.study_table), False),
-        ("tax.ref_fasta", Path(config.tax.ref_fasta), False),
     ]
     if config.io.batch_table is not None:
         attesi.append(("io.batch_table", Path(config.io.batch_table), False))
@@ -822,17 +825,27 @@ def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[A
 
 
 def _g12_riferimento_verificato(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
-    """Il database tassonomico esiste e il suo checksum e' quello dichiarato."""
+    """Il database tassonomico esiste e il suo checksum e' quello dichiarato.
+
+    Se ``tax.ref_bad_taxa`` indica l'elenco dei taxa difettosi del riferimento,
+    anche quel file deve esistere: S8 lo legge.
+    """
     config = contesto.config
+    elenco = config.tax.ref_bad_taxa
+    if elenco is not None and not Path(elenco).is_file():
+        return [Violazione("E-S0-12", f"tax.ref_bad_taxa: {elenco} non esiste")], []
     percorso = Path(config.tax.ref_fasta)
 
     if not percorso.is_file():
         return [Violazione("E-S0-12", f"tax.ref_fasta: {percorso} non esiste")], []
 
     impronta = hashlib.md5()
-    with open(percorso, "rb") as file:
-        while blocco := file.read(1024 * 1024):
-            impronta.update(blocco)
+    try:
+        with open(percorso, "rb") as file:
+            while blocco := file.read(1024 * 1024):
+                impronta.update(blocco)
+    except OSError as e:
+        return [Violazione("E-S0-12", f"tax.ref_fasta: {percorso} non e' leggibile: {e}")], []
     ottenuto = impronta.hexdigest()
 
     if ottenuto.lower() != config.tax.ref_md5.lower():

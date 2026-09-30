@@ -271,6 +271,10 @@ class Tax(_Gruppo):
     min_boot: Annotated[int, Field(ge=0, le=100)] = d.TAX_MIN_BOOT
     try_rc: StrictBool = d.TAX_TRY_RC
     assign_species: StrictBool = d.TAX_ASSIGN_SPECIES
+    # Elenco dei taxa con un difetto noto del riferimento, nella forma
+    # rank,name,path,ranks_present,ranks_expected: S8 marca le assegnazioni che
+    # vi ricadono. Facoltativo: non tutti i riferimenti ne hanno uno.
+    ref_bad_taxa: Path | None = d.TAX_REF_BAD_TAXA
 
 
 class Filt(_Gruppo):
@@ -370,6 +374,9 @@ class Qc(_Gruppo):
     max_frac_lost_filter: Frazione = d.QC_MAX_FRAC_LOST_FILTER
     warn_frac_chimeric: Frazione = d.QC_WARN_FRAC_CHIMERIC
     stop_frac_chimeric: Frazione = d.QC_STOP_FRAC_CHIMERIC
+    # Frazione minima di varianti con il phylum assegnato (S8, E-S8-02): vedi
+    # steps/s08_taxonomy.py per le classi a cui si applica.
+    min_frac_phylum: Frazione = d.QC_MIN_FRAC_PHYLUM
     # Letture ispezionate per file dai gate che leggono le sequenze.
     head_reads: InteroPositivo = d.QC_HEAD_READS
     max_primer_hit_frac: Frazione = d.QC_MAX_PRIMER_HIT_FRAC

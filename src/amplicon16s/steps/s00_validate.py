@@ -191,13 +191,17 @@ def leggi_inventario(config: Config) -> Inventario:
 
 
 def impronta_dati_grezzi(config: Config) -> str:
-    """Impronta dei dati letti da S0: letture, tabelle, riferimento.
+    """Impronta dei dati letti da S0: letture e tabelle.
 
     Si basa su nome, dimensione e istante di modifica di ogni file, non sul
     contenuto: rileggere 2,5 GB a ogni ripresa costerebbe piu' della
     validazione stessa. Un file sostituito sotto lo stesso nome cambia quasi
-    sempre dimensione o istante di modifica; il contenuto del riferimento e'
-    comunque verificato da G12 contro tax.ref_md5.
+    sempre dimensione o istante di modifica.
+
+    Il riferimento tassonomico non ne fa parte: non e' un ingresso dei
+    risultati di S0, e cambiarlo deve rifare S8 e le fasi successive, non la
+    catena intera. Il suo contenuto entra nell'impronta di S8 con tax.ref_md5,
+    e G12 lo verifica contro quel checksum a ogni avvio.
     """
 
     def descrivi(percorso: Path) -> list[Any]:
@@ -209,7 +213,7 @@ def impronta_dati_grezzi(config: Config) -> str:
 
     io = config.io
     file: list[Path] = sorted(Path(io.fastq_dir).glob(io.fastq_glob))
-    file += [Path(io.assay_table), Path(io.study_table), Path(config.tax.ref_fasta)]
+    file += [Path(io.assay_table), Path(io.study_table)]
     if io.batch_table is not None:
         file.append(Path(io.batch_table))
 
@@ -226,36 +230,48 @@ class ValidazioneIngressi(PipelineStep):
     """
 
     passo: ClassVar[Passo] = Passo.S0
+    versione: ClassVar[int] = 1
+    #: I gate, il crosswalk e la lettura delle statistiche, dove vive il calcolo di S0.
+    moduli_sorgente: ClassVar[tuple[str, ...]] = (
+        "amplicon16s.gates.g01_g15",
+        "amplicon16s.gates.registry",
+        "amplicon16s.metadata.crosswalk",
+        "amplicon16s.metadata.controls_map",
+        "amplicon16s.metadata.models",
+        "amplicon16s.io_layer.reads",
+    )
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta, ctrl); di qc le cinque chiavi
     #: di G10 e della scansione; di decontam la colonna e il minimo di bianchi
     #: per piastra (G08, E-S0-15); la colonna della corsa (crosswalk, G08); il
-    #: troncamento (G09); il riferimento e il suo MD5 (G01, G12). L'elenco e'
-    #: stato ricavato registrando i parametri letti da un'esecuzione vera, e
-    #: confrontato con il codice dei gate.
+    #: troncamento (G09). L'elenco e' stato ricavato registrando i parametri
+    #: letti da un'esecuzione vera, e confrontato con il codice dei gate.
     #:
-    #: G15 legge invece l'intera configurazione, per verificarne la coerenza,
-    #: e non vi contribuisce: se fallisce S0 non produce nulla, e l'esecutore
-    #: lo ripete a ogni avvio, prima di qualunque fase. I parametri che servono
-    #: solo a G15 (asv, prev, le altre chiavi di decontam e di qc,
-    #: filter.trimLeft, retry.whitelist) restano quindi fuori dall'impronta di
-    #: S0: cambiare una soglia di S5 o S6 non la rende da rifare, e con lei la
-    #: catena intera. G15 si esegue in :meth:`esegui`, sulla configurazione
-    #: completa, prima che la fase la veda ristretta.
+    #: G15 e G12 sono precondizioni, come G14: non contribuiscono ai risultati
+    #: di S0 (se falliscono S0 non produce nulla) e l'esecutore li ripete a ogni
+    #: avvio, prima di qualunque fase. G15 legge l'intera configurazione per
+    #: verificarne la coerenza; G12 verifica il riferimento tassonomico contro
+    #: tax.ref_md5. I parametri che servono solo a loro (asv, prev, le altre
+    #: chiavi di decontam e di qc, filter.trimLeft, retry.whitelist, tax)
+    #: restano quindi fuori dall'impronta di S0: cambiare una soglia di S6 o il
+    #: riferimento tassonomico non la rende da rifare, e con lei la catena
+    #: intera; il riferimento entra nell'impronta di S8. G15 e G12 si eseguono
+    #: in :meth:`esegui`, sulla configurazione completa, prima che la fase la
+    #: veda ristretta, e figurano in gates.json fra gli altri gate.
     parametri: ClassVar[tuple[str, ...]] = (
         "io", "meta", "ctrl",
         "qc.primer_sequence", "qc.conserved_motif", "qc.head_reads",
         "qc.max_primer_hit_frac", "qc.min_motif_frac",
         "decontam.batch_column", "decontam.min_blanks", "err.batch_column",
-        "filter.truncLen", "tax.ref_fasta", "tax.ref_md5",
+        "filter.truncLen",
     )
 
     def __init__(self, *, solleva: bool = True) -> None:
         self.solleva = solleva
-        #: L'esito di G15, calcolato in :meth:`esegui` sulla configurazione
-        #: completa e registrato da :meth:`calcola` fra gli altri gate.
-        self._coerenza: EsitoGate | None = None
+        #: Gli esiti di G15 e G12, calcolati in :meth:`esegui` sulla
+        #: configurazione completa e registrati da :meth:`calcola` fra gli altri gate.
+        self._precondizioni: dict[str, EsitoGate] | None = None
 
     def impronta_dati_esterni(self, config: Config) -> str | None:
         """L'impronta dei dati grezzi da nome, dimensione e istante di modifica dei
@@ -264,12 +280,13 @@ class ValidazioneIngressi(PipelineStep):
         return impronta_dati_grezzi(config)
 
     def esegui(self, contesto: StepContext) -> StepResult:
-        """G15 sulla configurazione completa, poi la fase sulla sua vista."""
-        self._coerenza = esegui_gate("G15", Contesto(contesto.config))
+        """G15 e G12 sulla configurazione completa, poi la fase sulla sua vista."""
+        completa = Contesto(contesto.config)
+        self._precondizioni = {g: esegui_gate(g, completa) for g in ("G15", "G12")}
         try:
             return super().esegui(contesto)
         finally:
-            self._coerenza = None
+            self._precondizioni = None
 
     def calcola(self, contesto: StepContext) -> Produzione:
         """Esegue i gate G15 e G01-G14 e scrive esiti, crosswalk, inventario e
@@ -280,9 +297,11 @@ class ValidazioneIngressi(PipelineStep):
         inizio = time.perf_counter()
 
         gate = Contesto(config)
-        if self._coerenza is None:
-            raise RuntimeError("S0 si esegue con esegui(): G15 legge la configurazione completa")
-        esiti = tuple(esegui_tutti(gate, {"G15": self._coerenza}))
+        if self._precondizioni is None:
+            raise RuntimeError(
+                "S0 si esegue con esegui(): G15 e G12 leggono la configurazione completa"
+            )
+        esiti = tuple(esegui_tutti(gate, self._precondizioni))
         secondi = time.perf_counter() - inizio
 
         # L'inventario esiste solo se i gate che lo costruiscono sono passati.

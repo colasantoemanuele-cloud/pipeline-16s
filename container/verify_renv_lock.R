@@ -15,6 +15,20 @@ if (!file.exists(lock)) {
 
 registrati <- jsonlite::fromJSON(lock, simplifyVector = FALSE)$Packages
 
+# Un pacchetto compilato con una correzione del progetto porta nel DESCRIPTION
+# la versione di partenza, il nome della correzione e il suo SHA-256
+# (container/dada2/installa_dada2_corretto.sh). renv.lock lo registra con un
+# blocco Patch: la verifica accetta la versione modificata solo se il blocco
+# c'e' e coincide con cio' che e' installato, e se la correzione nell'immagine
+# ha ancora quel checksum. Un pacchetto modificato senza blocco Patch, o un
+# blocco Patch per un pacchetto ufficiale, e' una discordanza.
+correzione <- function(nome) {
+  d <- utils::packageDescription(nome)
+  campi <- c(Base = "Amplicon16sBase", File = "Amplicon16sPatch", SHA256 = "Amplicon16sPatchSHA256")
+  valori <- lapply(campi, function(c) d[[c]])
+  if (all(vapply(valori, is.null, logical(1)))) NULL else valori
+}
+
 discordanze <- character()
 for (nome in names(registrati)) {
   attesa <- registrati[[nome]]$Version
@@ -34,6 +48,38 @@ for (nome in names(registrati)) {
       discordanze,
       sprintf("%s: atteso %s, trovato %s", nome, attesa, as.character(trovata))
     )
+  }
+
+  dichiarata <- registrati[[nome]]$Patch
+  installata <- correzione(nome)
+  if (is.null(dichiarata) != is.null(installata)) {
+    discordanze <- c(discordanze, sprintf(
+      "%s: correzione %s in renv.lock, %s nell'immagine", nome,
+      if (is.null(dichiarata)) "assente" else "dichiarata",
+      if (is.null(installata)) "assente" else "presente"
+    ))
+  } else if (!is.null(dichiarata)) {
+    prima <- length(discordanze)
+    for (campo in c("Base", "File", "SHA256")) {
+      if (!identical(dichiarata[[campo]], installata[[campo]])) {
+        discordanze <- c(discordanze, sprintf(
+          "%s: correzione, %s %s in renv.lock e %s nell'immagine",
+          nome, campo, dichiarata[[campo]], installata[[campo]]
+        ))
+      }
+    }
+    # La correzione sta in container/<pacchetto>/, copiata nell'immagine.
+    file <- file.path("container", nome, dichiarata$File)
+    trovato <- if (file.exists(file)) sub(" .*", "", system2("sha256sum", file, stdout = TRUE)) else NA
+    if (!identical(trovato, dichiarata$SHA256)) {
+      discordanze <- c(discordanze, sprintf(
+        "%s: la correzione %s nell'immagine non ha lo SHA-256 registrato", nome, file
+      ))
+    }
+    if (length(discordanze) == prima) {
+      cat(sprintf("%s %s: versione modificata accettata (%s su %s)\n",
+                  nome, attesa, dichiarata$File, dichiarata$Base))
+    }
   }
 }
 

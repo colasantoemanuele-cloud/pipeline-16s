@@ -142,6 +142,8 @@ class RimozioneChimere(PipelineStep):
     """S6: la tabella senza chimere."""
 
     passo: ClassVar[Passo] = Passo.S6
+    versione: ClassVar[int] = 1
+    script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("senza_chimere",)
     #: Il gruppo chimera e le due soglie sulla frazione chimerica.
     parametri: ClassVar[tuple[str, ...]] = (

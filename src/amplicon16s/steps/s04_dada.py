@@ -83,6 +83,8 @@ class InferenzaVarianti(PipelineStep):
     """S4: le varianti di sequenza di ogni campione."""
 
     passo: ClassVar[Passo] = Passo.S4
+    versione: ClassVar[int] = 1
+    script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("denoised",)
     #: Il gruppo dada: la modalita' di pooling e la soglia omega_a. Le letture
     #: filtrate e i modelli d'errore arrivano da S2 e S3, la cui impronta entra

@@ -592,27 +592,16 @@ def test_il_tracciamento_e_completo_un_passo_per_fase(dada2, catena):
 
 
 @pytest.mark.dati_reali
-def test_s4_s7_sul_dataset_completo(dada2, tmp_path):
+def test_s4_s7_sul_dataset_completo(dada2, catena_reale):
     """
-    **Obiettivo**: Verificare che sul dataset completo la catena S0-S7 si
-    concluda, e riportarne durate, varianti e frazioni chimeriche per classe.
+    **Obiettivo**: Verificare che sul dataset completo la catena si concluda
+    fino a S7, e riportarne durate, varianti e frazioni chimeriche per classe.
 
     **Razionale scientifico e sistemistico**: Le misure sul dataset completo
-    decidono se i controlli sono tarati sulle classi giuste.
+    decidono se i controlli sono tarati sulle classi giuste. La catena e'
+    quella condivisa ``catena_reale`` (S0-S8), calcolata una volta per sessione.
     """
-    import logging
-
-    from amplicon16s.config.schema import carica
-
-    percorso = os.environ.get("AMPLICON16S_CONFIG_DATI_REALI")
-    if not percorso or not Path(percorso).expanduser().is_file():
-        pytest.skip("AMPLICON16S_CONFIG_DATI_REALI non impostata o file assente")
-    dati = carica(Path(percorso).expanduser()).model_dump(mode="python")
-    dati["io"]["out_root"] = str(tmp_path / "out")
-    logging.getLogger("amplicon16s").setLevel(logging.WARNING)
-
-    run = ProjectRun(valida(dati))
-    esito = Esecutore(run, fino_a=Passo.S7).esegui()
+    run, esito = catena_reale
     assert esito.conclusione is Conclusione.COMPLETATA
     for risultato in esito.eseguite:
         print(f"\n{risultato.passo}: {risultato.secondi} s, {dict(risultato.metriche)}")

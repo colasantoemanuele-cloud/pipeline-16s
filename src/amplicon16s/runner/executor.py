@@ -59,6 +59,7 @@ from amplicon16s.gates.g01_g15 import (
     Contesto,
     ErroreGate,
     _controlla_coerenza,
+    _g12_riferimento_verificato,
     _g14_risorse_disponibili,
 )
 from amplicon16s.io_layer.artifacts import Fase
@@ -219,38 +220,43 @@ class Esecutore:
     # ----------------------------------------------------------------- #
 
     def controlli_di_avvio(self, valutazione: Valutazione) -> None:
-        """G15 e G14, prima di qualunque fase.
+        """G15, G14 e G12, prima di qualunque fase.
 
         Solleva :class:`ErroreGate` per G15, che è un errore di
-        configurazione, e :class:`_Arresto` per G14, che dichiara un punto di
-        ripresa: rimossa la causa, si riprende.
+        configurazione, e :class:`_Arresto` per G14 e G12, che dichiarano un
+        punto di ripresa: rimossa la causa, si riprende. G12 verifica il
+        riferimento tassonomico contro tax.ref_md5 a ogni avvio, anche con S0
+        conclusa: un file alterato dopo S0 non arriva a S8.
         """
         violazioni = _controlla_coerenza(risolvi(self.config))
         if violazioni:
             raise ErroreGate("G15", violazioni)
 
-        violazioni, _ = _g14_risorse_disponibili(Contesto(self.config))
-        if violazioni:
-            prima = violazioni[0]
-            dettaglio = "; ".join(v.dettaglio for v in violazioni)
-            v = voce(prima.codice)
-            punto = PuntoDiRipresa(
-                passo=valutazione.prossima(),
-                codice=prima.codice,
-                categoria=v.categoria.value,
-                sintesi=v.sintesi,
-                azione=v.azione,
-                dettaglio=dettaglio,
-                motivo=(
-                    "Le risorse della macchina si verificano a ogni avvio, anche "
-                    "con S0 gia' conclusa."
-                ),
-                tentativi=0,
-                tentativi_massimi=self.politica.tentativi_massimi,
-                comando=self.comando_ripresa,
-                origine="controlli di avvio",
-            )
-            raise _Arresto(punto)
+        completa = Contesto(self.config)
+        for controllo, motivo in (
+            (_g14_risorse_disponibili,
+             "Le risorse della macchina si verificano a ogni avvio, anche con S0 gia' conclusa."),
+            (_g12_riferimento_verificato,
+             "Il riferimento tassonomico si verifica contro tax.ref_md5 a ogni avvio, "
+             "anche con S0 gia' conclusa."),
+        ):
+            violazioni, _ = controllo(completa)
+            if violazioni:
+                prima = violazioni[0]
+                v = voce(prima.codice)
+                raise _Arresto(PuntoDiRipresa(
+                    passo=valutazione.prossima(),
+                    codice=prima.codice,
+                    categoria=v.categoria.value,
+                    sintesi=v.sintesi,
+                    azione=v.azione,
+                    dettaglio="; ".join(x.dettaglio for x in violazioni),
+                    motivo=motivo,
+                    tentativi=0,
+                    tentativi_massimi=self.politica.tentativi_massimi,
+                    comando=self.comando_ripresa,
+                    origine="controlli di avvio",
+                ))
 
     # ----------------------------------------------------------------- #
     # Esecuzione                                                         #
@@ -264,6 +270,14 @@ class Esecutore:
         try:
             self.controlli_di_avvio(valutazione)
             configurazione = self._registra_configurazione(valutazione)
+            # Una provenienza diversa a parita' di versione non rifa' la fase:
+            # si segnala una volta per esecuzione, e resta nel resoconto.
+            for passo, situazione in valutazione.situazioni.items():
+                if situazione.avviso is not None:
+                    self.log.warning(
+                        f"{passo} conclusa con una provenienza diversa: {situazione.avviso}",
+                        extra={"passo": str(passo), "avviso": situazione.avviso},
+                    )
             ultima: Passo | None = None
             while True:
                 valutazione = self.run.valuta()

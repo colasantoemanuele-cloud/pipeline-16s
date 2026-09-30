@@ -384,8 +384,8 @@ def test_s2_ferma_su_un_biologico_azzerato_e_non_su_un_negativo(tmp_path):
 # --------------------------------------------------------------------------- #
 
 #: Le fasi del catalogo realizzate come codice, con l'esecutore, il ponte e il
-#: grafo. I codici delle fasi da S8 in poi restano fuori finche' non esistono.
-_REALIZZATE = frozenset({"G15", "S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "GRAFO", "R"})
+#: grafo. I codici delle fasi da S9 in poi restano fuori finche' non esistono.
+_REALIZZATE = frozenset({"G15", "S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "GRAFO", "R"})
 
 #: Per ogni codice sollevabile dal codice realizzato, il test che lo provoca
 #: attraverso quel codice (non costruendo l'errore a mano) e ne verifica la
@@ -435,6 +435,7 @@ COPERTURA: dict[str, str] = {
     "E-S6-01": "test_w15_consolidamento.py::test_s6_oltre_l_arresto_si_ferma_per_la_revisione",
     "E-S6-02": "test_w15_consolidamento.py::test_s6_oltre_l_avviso_registra_la_degradazione_e_prosegue",
     "E-S7-01": "test_w16_recupero.py::test_s7_senza_varianti_si_ferma_con_e_s7_01",
+    "E-S8-02": "test_w17_tassonomia.py::test_e_s8_02_ferma_con_una_copertura_insufficiente",
 }
 
 _RADICE = Path(__file__).resolve().parents[1]

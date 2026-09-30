@@ -30,7 +30,7 @@ scheduler:
 * ``4``: arresto con punto di ripresa dichiarato, stampato e scritto in
   ``99_logs/punto_di_ripresa.json`` e ``.txt``;
 * ``5``: tutte le fasi realizzate sono concluse, ma la prossima non esiste
-  ancora come codice. È uno stato dello sviluppo: pipeline consolidata fino a S7.
+  ancora come codice. È uno stato dello sviluppo: pipeline realizzata fino a S8.
 """
 
 from __future__ import annotations
@@ -185,6 +185,8 @@ def resoconto(run: ProjectRun) -> dict[str, Any]:
             "stato": situazione.stato.value,
             "motivo": situazione.motivo,
         }
+        if situazione.avviso is not None:
+            voce["avviso"] = situazione.avviso
         if situazione.stato is StatoPasso.COMPLETATA:
             manifesto = run.albero.manifesto_passo(passo, run.grafo.nodo(passo).cartella)
             assert manifesto is not None
@@ -222,6 +224,8 @@ def _testo_resoconto(documento: dict[str, Any]) -> str:
                 )
         for d in fase.get("degradazioni", []):
             righe.append(f"         degradazione [{d['codice']}]: {d['dettaglio']}")
+        if "avviso" in fase:
+            righe.append(f"         provenienza: {fase['avviso']}")
     righe += [
         "",
         "Esecuzione completa." if documento["completa"]

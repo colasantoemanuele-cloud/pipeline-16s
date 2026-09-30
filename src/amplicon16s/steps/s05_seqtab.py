@@ -51,6 +51,8 @@ class TabellaSequenze(PipelineStep):
     """S5: la tabella campioni x varianti."""
 
     passo: ClassVar[Passo] = Passo.S5
+    versione: ClassVar[int] = 1
+    script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("tabella",)
     #: La soglia sul numero di varianti. Le varianti arrivano da S4.
     parametri: ClassVar[tuple[str, ...]] = ("qc.max_asv_count",)

@@ -71,6 +71,7 @@ TAX_CLASSIFIER: Final = "naive_bayes"
 TAX_MIN_BOOT: Final = 50
 TAX_TRY_RC: Final = True
 TAX_ASSIGN_SPECIES: Final = False
+TAX_REF_BAD_TAXA: Final = None
 
 # filt: filtraggio tassonomico
 FILT_REMOVE_NA_PHYLUM: Final = True
@@ -99,6 +100,7 @@ QC_MAX_ZEROED_SAMPLES: Final = 0
 QC_MAX_FRAC_LOST_FILTER: Final = 0.30
 QC_WARN_FRAC_CHIMERIC: Final = 0.25
 QC_STOP_FRAC_CHIMERIC: Final = 0.50
+QC_MIN_FRAC_PHYLUM: Final = 0.80
 # Frazione di letture che iniziano col primer oltre la quale G10 lo considera
 # presente e chiede di tagliarlo.
 QC_MAX_PRIMER_HIT_FRAC: Final = 0.05

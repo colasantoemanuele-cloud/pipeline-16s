@@ -1,0 +1,4 @@
+rank,name,path,ranks_present,ranks_expected
+family,Famiglia_10,Bacteria;Phylum_B;Classe_2;Famiglia_10;,4,5
+genus,Genere_20,Bacteria;Phylum_B;Classe_2;Famiglia_10;Genere_20;,5,6
+genus,Genere_21,Bacteria;Phylum_B;Classe_2;Famiglia_10;Genere_21;,5,6

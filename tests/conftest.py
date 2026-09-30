@@ -313,3 +313,45 @@ def catena_calcolata(ridotta_calcolata, tmp_path_factory):
         return None
     run = copia_esecuzione(ridotta_calcolata, tmp_path_factory.mktemp("catena"))
     return run, Esecutore(run, fino_a=Passo.S7).esegui()
+
+
+@pytest.fixture(scope="session")
+def tassonomia_calcolata(catena_calcolata, tmp_path_factory):
+    """S8 sulla versione ridotta, sopra S0-S7, con il riferimento sintetico.
+
+    In sola lettura, come ``catena_calcolata``; ``None`` dove mancano R e
+    Bioconductor.
+    """
+    from amplicon16s.runner.executor import Esecutore
+    from amplicon16s.runner.graph import Passo
+
+    if catena_calcolata is None:
+        return None
+    run = copia_esecuzione(catena_calcolata, tmp_path_factory.mktemp("tassonomia"))
+    return run, Esecutore(run, fino_a=Passo.S8).esegui()
+
+
+@pytest.fixture(scope="session")
+def catena_reale(tmp_path_factory):
+    """S0-S8 sul dataset completo, una volta sola per la sessione.
+
+    Serve ai test sui dati reali delle fasi da S4 in poi: ciascuna catena
+    completa costa tre quarti d'ora, e condividerla fra i moduli evita di
+    ripeterla. Salta senza ``AMPLICON16S_CONFIG_DATI_REALI``; in sola lettura.
+    """
+    import logging
+    import os
+
+    from amplicon16s.config.schema import carica, valida
+    from amplicon16s.runner.executor import Esecutore
+    from amplicon16s.runner.graph import Passo
+    from amplicon16s.runner.project import ProjectRun
+
+    percorso = os.environ.get("AMPLICON16S_CONFIG_DATI_REALI")
+    if not percorso or not Path(percorso).expanduser().is_file():
+        pytest.skip("AMPLICON16S_CONFIG_DATI_REALI non impostata o file assente")
+    dati = carica(Path(percorso).expanduser()).model_dump(mode="python")
+    dati["io"]["out_root"] = str(tmp_path_factory.mktemp("reale") / "out")
+    logging.getLogger("amplicon16s").setLevel(logging.WARNING)
+    run = ProjectRun(valida(dati))
+    return run, Esecutore(run, fino_a=Passo.S8).esegui()

@@ -462,8 +462,10 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S8-02", "S8",
         "La copertura tassonomica e' insufficiente.",
-        "Troppe varianti restano senza assegnazione: verifica che tax.ref_fasta "
-        "copra la regione amplificata e che tax.min_boot non sia troppo alto.",
+        "In una classe controllata la frazione di varianti con il phylum assegnato "
+        "e' sotto qc.min_frac_phylum: verifica che tax.ref_fasta copra la regione "
+        "amplificata e che tax.min_boot non sia troppo alto; le misure per classe "
+        "sono in 08_taxonomy/riepilogo.json.",
         _UMANA,
     ),
     # ----------------------------------------------------------------- S9 ---

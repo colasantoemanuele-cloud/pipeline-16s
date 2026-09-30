@@ -48,6 +48,8 @@ class ProfiloLetture(PipelineStep):
     """S1: profili di qualità e lunghezza, sul contenuto intero dei file."""
 
     passo: ClassVar[Passo] = Passo.S1
+    versione: ClassVar[int] = 1
+    script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("grezze",)
     #: I profili dipendono solo dalle letture, cioe' da S0; il troncamento e la
     #: sua tolleranza servono ai controlli E-S1-01 ed E-S1-02. Poiche' S1 non

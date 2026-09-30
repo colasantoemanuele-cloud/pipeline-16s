@@ -1,0 +1,128 @@
+--- a/src/taxonomy.cpp
++++ b/src/taxonomy.cpp
+@@ -3,7 +3,30 @@
+ #include <RcppParallel.h>
+ #include <random>
+ #include <algorithm>
++#include <cstdint>
+ #define NBOOT 100
++
++// Reproducible tie-breaking. When several genera share the best log-probability,
++// get_best_genus picks one uniformly at random. The draws come from a small
++// generator (splitmix64) seeded per call from a base seed, the index of the
++// sequence and the case: forward classification, reverse-complement
++// classification, or bootstrap replicate. The base seed is drawn from R's RNG
++// after the bootstrap uniforms, so set.seed() makes the whole classification
++// reproducible, and each tie has a fixed seed whichever thread computes it.
++#define TIE_CASE_FORWARD 0
++#define TIE_CASE_RC 1
++#define TIE_CASE_BOOT(b) (2 + (b))
++
++static inline uint64_t tie_mix(uint64_t x) {
++  x += 0x9E3779B97F4A7C15ULL;
++  x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
++  x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
++  return x ^ (x >> 31);
++}
++
++static inline uint64_t tie_seed(uint64_t base, uint64_t seq_index, uint64_t tie_case) {
++  return tie_mix(tie_mix(base ^ tie_mix(seq_index)) ^ tie_case);
++}
+   
+ using namespace Rcpp;
+ 
+@@ -70,16 +93,13 @@
+   return(j);
+ }
+ 
+-int get_best_genus(int *karray, float *out_logp, unsigned int arraylen, unsigned int n_kmers, unsigned int ngenus, float *lgk_probability) {
++int get_best_genus(int *karray, float *out_logp, unsigned int arraylen, unsigned int n_kmers, unsigned int ngenus, float *lgk_probability, uint64_t tie_state) {
+   unsigned int pos;
+   float *lgk_v;
+   int kmer, g, max_g = -1;
+   float logp, max_logp = -FLT_MAX; // Init value to be replaced on first iteration
+   double rv; // Dummy random variable
+   unsigned int nmax=0; // Number of times the current max logp has been seen
+-  std::random_device rd;  //Will be used to obtain a seed for the random number engine
+-  std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
+-  std::uniform_real_distribution<> cunif(0.0, 1.0);
+   
+   for(g=0;g<ngenus;g++) {
+     lgk_v = &lgk_probability[g*n_kmers];
+@@ -99,7 +119,8 @@
+       nmax=1;
+     } else if (max_logp == logp) { // With uniform prob, store if equal to current max
+       nmax++;
+-      rv = (double) cunif(gen);
++      tie_state += 0x9E3779B97F4A7C15ULL;
++      rv = (double) (tie_mix(tie_state) >> 11) / 9007199254740992.0; // uniform in [0, 1), 53 bits
+       if(rv < 1.0/nmax) {
+         max_g = g;
+       }
+@@ -130,14 +151,17 @@
+   size_t ngenus, nlevel;
+   unsigned int max_arraylen;
+   bool try_rc;
++  uint64_t tie_base;
+   
+   // initialize with source and destination
+   AssignParallel(std::vector<std::string> seqs, std::vector<std::string> rcs, float *lgk_probability,
+                  int *C_genusmat, double *C_unifs, int *C_rboot, int *C_rboot_tax, int *C_rval, 
+-                 unsigned int k, size_t n_kmers, size_t ngenus, size_t nlevel, unsigned int max_arraylen, bool try_rc)
++                 unsigned int k, size_t n_kmers, size_t ngenus, size_t nlevel, unsigned int max_arraylen, bool try_rc,
++                 uint64_t tie_base)
+     : seqs(seqs), rcs(rcs), lgk_probability(lgk_probability), 
+       C_genusmat(C_genusmat), C_unifs(C_unifs), C_rboot(C_rboot), C_rboot_tax(C_rboot_tax), C_rval(C_rval), 
+-      k(k), n_kmers(n_kmers), ngenus(ngenus), nlevel(nlevel), max_arraylen(max_arraylen), try_rc(try_rc) {}
++      k(k), n_kmers(n_kmers), ngenus(ngenus), nlevel(nlevel), max_arraylen(max_arraylen), try_rc(try_rc),
++      tie_base(tie_base) {}
+ 
+   // Rprintf("Classify the sequences.\n");
+   void operator()(std::size_t begin, std::size_t end) {
+@@ -165,11 +189,13 @@
+         arraylen = tax_karray(seqs[j].c_str(), k, karray);
+   
+         // Find best hit
+-        max_g = get_best_genus(karray, &logp, arraylen, n_kmers, ngenus, lgk_probability);
++        max_g = get_best_genus(karray, &logp, arraylen, n_kmers, ngenus, lgk_probability,
++                               tie_seed(tie_base, j, TIE_CASE_FORWARD));
+         if(try_rc) { // see if rev-comp is a better match to refs
+           arraylen_rc = tax_karray(rcs[j].c_str(), k, karray_rc);
+           if(arraylen != arraylen_rc) { Rcpp::stop("Discrepancy between forward and RC arraylen."); }
+-          max_g_rc = get_best_genus(karray_rc, &logp_rc, arraylen_rc, n_kmers, ngenus, lgk_probability);
++          max_g_rc = get_best_genus(karray_rc, &logp_rc, arraylen_rc, n_kmers, ngenus, lgk_probability,
++                                    tie_seed(tie_base, j, TIE_CASE_RC));
+           if(logp_rc > logp) { // rev-comp is better, replace with it
+             max_g = max_g_rc;
+             memcpy(karray, karray_rc, arraylen * sizeof(int));
+@@ -184,7 +210,8 @@
+           for(i=0;i<(arraylen/8);i++,booti++) {
+             bootarray[i] = karray[(int) (arraylen*unifs[booti])];
+           }
+-          boot_g = get_best_genus(bootarray, &logp, (arraylen/8), n_kmers, ngenus, lgk_probability);
++          boot_g = get_best_genus(bootarray, &logp, (arraylen/8), n_kmers, ngenus, lgk_probability,
++                                  tie_seed(tie_base, j, TIE_CASE_BOOT(boot)));
+           C_rboot_tax[j*NBOOT+boot] = boot_g+1; // 1-index for return
+           for(i=0;i<nlevel;i++) {
+             if(C_genusmat[boot_g*nlevel+i] == C_genusmat[max_g*nlevel+i]) {
+@@ -284,6 +311,11 @@
+   unifs = Rcpp::runif(nseq*NBOOT*(max_arraylen/8));
+   double *C_unifs = (double *) malloc(unifs.size() * sizeof(double)); //E
+   for(i=0;i<unifs.size();i++) { C_unifs[i] = unifs(i); }
++  // Base seed for tie-breaking, drawn after the bootstrap uniforms so that the
++  // bootstrap subsampling is unchanged: 2 x 32 bits from R's RNG.
++  Rcpp::NumericVector tie_unifs = Rcpp::runif(2);
++  uint64_t tie_base = ((uint64_t) (tie_unifs(0) * 4294967296.0) << 32) |
++                      (uint64_t) (tie_unifs(1) * 4294967296.0);
+   
+   // Allocate return values, plus thread-safe C versions of source data
+   Rcpp::IntegerVector rval(nseq);
+@@ -300,7 +332,7 @@
+     }
+   }
+   
+-  AssignParallel assignParallel(seqs, rcs, lgk_probability, C_genusmat, C_unifs, C_rboot, C_rboot_tax, C_rval, k, n_kmers, ngenus, nlevel, max_arraylen, try_rc);
++  AssignParallel assignParallel(seqs, rcs, lgk_probability, C_genusmat, C_unifs, C_rboot, C_rboot_tax, C_rval, k, n_kmers, ngenus, nlevel, max_arraylen, try_rc, tie_base);
+   int INTERRUPT_BLOCK_SIZE=128;
+   for(i=0;i<nseq;i+=INTERRUPT_BLOCK_SIZE) {
+     j = i+INTERRUPT_BLOCK_SIZE;

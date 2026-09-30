@@ -132,10 +132,21 @@ tax:
   ref_md5: "00000000000000000000000000000000"  # [SOSTITUIRE] md5 reale del file
   ref_name: SILVA                   # [OSD-734]
   ref_version: "138"                # [OSD-734] fra virgolette: è una stringa
+  # Il classificatore bayesiano naive di dada2 (assignTaxonomy): il training
+  # set di SILVA per IdTaxa non e' distribuito da alcuna fonte.
   classifier: naive_bayes
-  min_boot: 50
+  # Bootstrap minimo per assegnare un rango: 50 e non 80, perche' le letture
+  # coprono 137 delle circa 253 basi dell'amplicone V4, e su sequenze piu'
+  # corte il bootstrap e' sistematicamente piu' basso a parita' di correttezza.
+  min_boot: 50                      # [OSD-734]
+  # Prova anche il complemento inverso di ogni variante.
   try_rc: true
-  assign_species: false
+  # Nessuna assegnazione di specie, per la stessa ragione di min_boot.
+  assign_species: false             # [OSD-734]
+  # Elenco dei taxa con un difetto noto del riferimento (rank,name,path,...):
+  # S8 marca le assegnazioni che vi ricadono. Per SILVA 138 versione 2 e' il
+  # file silva_138_v2_bad-taxa.csv degli autori. null se non ce n'e' uno.
+  ref_bad_taxa: null
 
 # --------------------------------------------------------------------------- #
 # filt: filtraggio tassonomico successivo all'assegnazione                    #
@@ -211,6 +222,8 @@ qc:
   max_frac_lost_filter: 0.30
   warn_frac_chimeric: 0.25
   stop_frac_chimeric: 0.50
+  # Frazione minima di varianti con il phylum assegnato da S8 (E-S8-02).
+  min_frac_phylum: 0.80
   # Letture ispezionate per file dai gate che leggono le sequenze. La
   # validazione iniziale deve costare minuti, non ore: nessun gate legge un
   # file intero, l'integrità completa è già garantita dai checksum.

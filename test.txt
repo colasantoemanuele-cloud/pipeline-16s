@@ -1,13 +1,13 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W16 (Fasi F1, F2, F3, F4)
+Piano Operativo: Settimane W1 - W17 (Fasi F1, F2, F3, F4)
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W16 del Piano Operativo.
+W1 - W17 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -30,15 +30,15 @@ integrazione del progetto con output dettagliato (un test per riga), lanciare:
 
     pytest tests/ -v
 
-Totale complessivo della suite: 829 test su 19 moduli:
-  * 758 passed e 71 skipped in ambiente locale standard (R base + jsonlite, senza
-    Bioconductor e senza dati reali), in circa 30 secondi;
-  * 781 passed e 48 skipped in locale con i dati reali OSD-734;
-  * 800 passed e 29 skipped nel container CI standard (senza dati reali
-    OSD-734), in circa 10 minuti: 27 test sui dati reali OSD-734, 1 test
+Totale complessivo della suite: 850 test su 20 moduli:
+  * 770 passed e 80 skipped in ambiente locale standard (R base + jsonlite, senza
+    Bioconductor e senza dati reali), in circa 40 secondi;
+  * 793 passed e 57 skipped in locale con i dati reali OSD-734;
+  * 820 passed e 30 skipped nel container CI standard (senza dati reali
+    OSD-734), in circa 14 minuti: 28 test sui dati reali OSD-734, 1 test
     sull'allocazione R legata alla lingua e 1 test che richiede il repository .git;
-  * 827 passed e 2 skipped nel container Docker con i 2.4 GB di dati reali
-    OSD-734, in circa 89 minuti: i 2 salti strutturali, sulla lingua di R e
+  * 848 passed e 2 skipped nel container Docker con i 2.4 GB di dati reali
+    OSD-734, in circa 107 minuti: i 2 salti strutturali, sulla lingua di R e
     sul repository .git, restano anche in questo scenario.
 
 Per includere anche i test end-to-end sui 960 file FASTQ reali di OSD-734,
@@ -57,18 +57,20 @@ funzione di test uno dei seguenti tre stati:
 
   * SKIPPED (in giallo):
     Il test è stato saltato intenzionalmente e in modo controllato. Nella suite
-    questo accade per i 27 test sui dati reali OSD-734 di
+    questo accade per i 28 test sui dati reali OSD-734 di
     'tests/test_w07_dati_reali.py' (22 test), 'tests/test_w11_s01_profile.py' (2 test),
     'tests/test_w12_s02_filter.py' (1 test), 'tests/test_w13_s03_batch.py'
-    (1 test) e 'tests/test_w14_s04_s07_denoising.py' (1 test) quando la
+    (1 test), 'tests/test_w14_s04_s07_denoising.py' (1 test) e
+    'tests/test_w17_tassonomia.py' (1 test) quando la
     variabile 'AMPLICON16S_CONFIG_DATI_REALI' non è definita (ad esempio su
     macchine portatili o nei runner di Continuous Integration privi dei 2.4 GB
-    di sequenze FASTQ della NASA) e per i 44 test R/Bioconductor di
+    di sequenze FASTQ della NASA) e per i 52 test R/Bioconductor di
     'tests/test_w11_s01_profile.py' (6 test), 'tests/test_w12_s02_filter.py'
     (6 test), 'tests/test_w13_s03_batch.py' (6 test),
     'tests/test_w14_s04_s07_denoising.py' (11 test),
-    'tests/test_w15_consolidamento.py' (11 test) e
-    'tests/test_w16_recupero.py' (4 test) quando si esegue fuori dal
+    'tests/test_w15_consolidamento.py' (11 test),
+    'tests/test_w16_recupero.py' (4 test) e 'tests/test_w17_tassonomia.py'
+    (8 test) quando si esegue fuori dal
     container senza i pacchetti 'ShortRead', 'dada2' e 'ggplot2'. Non indica un
     difetto del codice.
 
@@ -152,7 +154,7 @@ predisporre i seguenti 5 blocchi funzionali di file:
 
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W16)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W17)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -1000,6 +1002,57 @@ SETTIMANA 16 (W16) : RECUPERO SU S0 - S7 (ARTEFATTI RIPRODUCIBILI, PONTE PER FAS
 
 
 --------------------------------------------------------------------------------
+SETTIMANA 17 (W17) : CODICE NELL'IMPRONTA, G12 PRECONDIZIONE, FASE S8 (TASSONOMIA)
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W17, Fase F4 (Assegnazione tassonomica S8, preceduta dalla
+    versione del calcolo nell'impronta di fase e da G12 fra le precondizioni).
+
+  * FILE DI TEST:
+    tests/test_w17_tassonomia.py
+
+  * COSA VALUTA:
+    Che il registro del sorgente ('src/amplicon16s/steps/registro_sorgente.json')
+    corrisponda al codice e che ogni fase dichiari la propria versione; che una
+    modifica al sorgente non registrata faccia fallire il controllo e che
+    'scripts/registro_sorgente.py' chieda di scegliere fra versione incrementata
+    e '--senza-effetto'; che la provenienza nel manifesto si calcoli sugli
+    script R effettivamente eseguiti ('AMPLICON16S_R_DIR'), con un avviso e non
+    un ricalcolo a parita' di versione, e un ricalcolo a versione incrementata;
+    che S0 non dichiari il riferimento tassonomico, che cambiarlo rifaccia solo
+    S8 e che G12 respinga all'avvio un riferimento alterato; che 'renv.lock'
+    dichiari dada2 1.36.0.1 con la correzione dei pareggi e l'immagine carichi
+    quella versione; che S8, con il riferimento sintetico di
+    'tests/fixtures/riferimento_sintetico/', produca tabella tassonomica e
+    bootstrap per rango, marchi i taxa difettosi, si fermi con 'E-S8-02' e dia
+    gli stessi byte fra due esecuzioni e con un numero di thread diverso; sul
+    dataset completo, che la variante dominante dei controlli positivi ai due
+    livelli di diluizione piu' alti sia Variovorax in ogni piastra.
+
+  * COMANDO BASH:
+    pytest tests/test_w17_tassonomia.py -v
+
+  * RISULTATO ATTESO:
+    21 test (12 passed, 9 skipped in ~0.40s in ambiente locale privo di
+    Bioconductor; 20 passed, 1 skipped nel container CI in ~41s; 21 passed nel
+    container con dati reali OSD-734)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. Senza il codice nell'impronta, correggere un difetto di una fase
+       lascerebbe validi gli artefatti prodotti dal codice difettoso: la
+       versione decide la validita', il registro obbliga a scegliere, la
+       provenienza sugli script eseguiti rende visibile un'immagine che esegue
+       codice diverso dal repository.
+    2. Il riferimento tassonomico e' un ingresso di S8, non di S0.
+    3. In dada2 1.36.0 i pareggi di assignTaxonomy si risolvevano con un seme
+       di sistema: la correzione nell'immagine rende S8 riproducibile, e gli
+       stessi byte con thread diversi confermano 'run.threads' fuori
+       dall'impronta.
+    4. I controlli positivi, un solo ceppo noto, sono un riscontro con una
+       verita' nota sull'intera catena, dal FASTQ alla tassonomia.
+
+
+--------------------------------------------------------------------------------
 MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
 --------------------------------------------------------------------------------
   * SETTIMANA E FASE:
@@ -1082,7 +1135,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W14       | tests/test_w14_s04_s07_denoising.py   |   16 | pytest tests/test_w14_s04_s07_denoising.py -v
   W15       | tests/test_w15_consolidamento.py      |   16 | pytest tests/test_w15_consolidamento.py -v
   W16       | tests/test_w16_recupero.py            |    9 | pytest tests/test_w16_recupero.py -v
+  W17       | tests/test_w17_tassonomia.py          |   21 | pytest tests/test_w17_tassonomia.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (19 moduli)              |  829 | pytest tests/ -v
+  TOTALE    | Intera suite (20 moduli)              |  850 | pytest tests/ -v
 ================================================================================

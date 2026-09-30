@@ -1961,8 +1961,8 @@
     },
     "dada2": {
       "Package": "dada2",
-      "Version": "1.36.0",
-      "Source": "Bioconductor",
+      "Version": "1.36.0.1",
+      "Source": "Local",
       "Type": "Package",
       "Title": "Accurate, high-resolution sample inference from amplicon sequencing data",
       "Description": "The dada2 package infers exact amplicon sequence variants (ASVs) from  high-throughput amplicon sequencing data, replacing the coarser and less accurate OTU clustering approach. The dada2 pipeline takes as input demultiplexed fastq  files, and outputs the sequence variants and their sample-wise abundances after  removing substitution and chimera errors. Taxonomic classification is available via a native implementation of the RDP naive Bayesian classifier, and species-level assignment to 16S rRNA gene fragments by exact matching.",
@@ -2008,8 +2008,15 @@
       "git_branch": "RELEASE_3_21",
       "git_last_commit": "c21d55c",
       "git_last_commit_date": "2025-04-15",
-      "Repository": "Bioconductor 3.21",
-      "NeedsCompilation": "yes"
+      "NeedsCompilation": "yes",
+      "Amplicon16sBase": "1.36.0",
+      "Amplicon16sPatch": "dada2-1.36.0-pareggi.patch",
+      "Amplicon16sPatchSHA256": "9a2ea560a1720ef4c0b8d4a862474fed7ee53eedd960e07e38e160b9bbde3705",
+      "Patch": {
+        "Base": "1.36.0",
+        "File": "dada2-1.36.0-pareggi.patch",
+        "SHA256": "9a2ea560a1720ef4c0b8d4a862474fed7ee53eedd960e07e38e160b9bbde3705"
+      }
     },
     "data.table": {
       "Package": "data.table",

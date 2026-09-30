@@ -52,6 +52,16 @@ RUN uv python install "${PYTHON_VERSION}" \
 COPY container/install_r_packages.R /opt/amplicon16s/container/
 RUN Rscript /opt/amplicon16s/container/install_r_packages.R
 
+# dada2 1.36.0 con la correzione dei pareggi di assignTaxonomy, compilato dai
+# sorgenti ufficiali verificati per checksum, al posto della versione dei binari.
+# In get_best_genus la scelta fra generi a pari probabilità usa
+# std::random_device, che set.seed() non controlla: senza la correzione due
+# esecuzioni con lo stesso seme non danno la stessa tassonomia. La versione
+# compilata è 1.36.0.1 e renv.lock la registra con la correzione e il suo
+# checksum (container/dada2/installa_dada2_corretto.sh).
+COPY container/dada2/ /opt/amplicon16s/container/dada2/
+RUN bash /opt/amplicon16s/container/dada2/installa_dada2_corretto.sh
+
 # --------------------------------------------------------------------------- #
 # Pacchetto Python del repository                                              #
 # --------------------------------------------------------------------------- #
@@ -63,6 +73,9 @@ COPY tests/ tests/
 # La configurazione di esempio e' un'istanza dello schema e i test la
 # verificano: senza, la suite non potrebbe girare dentro l'immagine.
 COPY config/ config/
+# Gli strumenti del repository che i test esercitano (per esempio
+# scripts/registro_sorgente.py).
+COPY scripts/ scripts/
 # Gli script R e le loro funzioni condivise. Il pacchetto Python e' installato
 # in modo non modificabile e non sta piu' accanto a R/: la variabile dice al
 # ponte dove trovarli.

@@ -13,10 +13,13 @@ alla tabella di selezione, al manifesto delle letture sottocampionate e al
 costruttore della configurazione validata che punta alla versione ridotta,
 ereditando tutti i parametri scientifici da ``config/config.example.yaml``.
 
-Il database tassonomico non fa parte della versione ridotta: pesa centinaia
-di megabyte, e fino all'assegnazione tassonomica nessuna fase lo legge. Al
-suo posto viene generato un file segnaposto con il proprio MD5, affinché la
-Fase S0 (Gate G12) ne verifichi regolarmente l'integrità.
+Il database tassonomico reale non fa parte della versione ridotta: pesa 138 MB.
+Al suo posto la configurazione indica il riferimento sintetico di
+``tests/fixtures/riferimento_sintetico/`` (24 varianti della versione ridotta
+con linee tassonomiche inventate, prodotto da
+``scripts/costruisci_riferimento_sintetico.py``), con il proprio MD5 e il suo
+elenco di taxa difettosi: G12 ne verifica l'integrità, e S8 lo usa per
+classificare. Il riferimento reale serve solo ai test sui dati reali.
 """
 
 from __future__ import annotations
@@ -33,6 +36,10 @@ from amplicon16s.config.schema import Config, valida
 RADICE: Final = Path(__file__).resolve().parent / "fixtures" / "osd734"
 SELEZIONE: Final = RADICE / "selezione.tsv"
 RIDOTTO: Final = RADICE / "ridotto"
+#: Il riferimento tassonomico sintetico e il suo elenco di taxa difettosi.
+SINTETICO: Final = Path(__file__).resolve().parent / "fixtures" / "riferimento_sintetico"
+RIFERIMENTO: Final = SINTETICO / "riferimento.fa.gz"
+TAXA_DIFETTOSI: Final = SINTETICO / "taxa_difettosi.csv"
 ESEMPIO: Final = Path(__file__).resolve().parents[1] / "config" / "config.example.yaml"
 
 
@@ -61,9 +68,6 @@ def manifesto() -> list[dict[str, str]]:
 def dati_config(cartella: Path, **sovrascrivi: dict[str, Any]) -> dict[str, Any]:
     """I parametri d'esempio con i percorsi della versione ridotta."""
     dati = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
-    riferimento = cartella / "riferimento.fa.gz"
-    if not riferimento.exists():
-        riferimento.write_bytes(b">segnaposto\nACGT\n")
     metadati = RIDOTTO / "metadati"
     dati["io"].update(
         fastq_dir=str(RIDOTTO / "fastq"),
@@ -73,8 +77,9 @@ def dati_config(cartella: Path, **sovrascrivi: dict[str, Any]) -> dict[str, Any]
         out_root=str(cartella / "out"),
     )
     dati["tax"].update(
-        ref_fasta=str(riferimento),
-        ref_md5=hashlib.md5(riferimento.read_bytes()).hexdigest(),
+        ref_fasta=str(RIFERIMENTO),
+        ref_md5=hashlib.md5(RIFERIMENTO.read_bytes()).hexdigest(),
+        ref_bad_taxa=str(TAXA_DIFETTOSI),
     )
     dati["run"]["threads"] = 2
     for gruppo, valori in sovrascrivi.items():
@@ -85,8 +90,9 @@ def dati_config(cartella: Path, **sovrascrivi: dict[str, Any]) -> dict[str, Any]
 def config_ridotta(cartella: Path, **sovrascrivi: dict[str, Any]) -> Config:
     """Costruisce e valida un'istanza immutabile ``Config`` rivolta al subset ridotto.
 
-    Crea un file FASTA segnaposto con relativo checksum MD5 nella directory
-    temporanea indicata da ``cartella``, indirizza ``io.*`` ai 28 campioni
+    Indica il riferimento tassonomico sintetico con il suo MD5 e l'elenco dei
+    taxa difettosi, scrive l'output nella directory temporanea ``cartella``,
+    indirizza ``io.*`` ai 28 campioni
     sottocampionati di ``tests/fixtures/osd734/ridotto/``, applica eventuali
     sovrascritture per sezione e restituisce il modello Pydantic validato.
     """

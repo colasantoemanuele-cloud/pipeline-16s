@@ -24,7 +24,15 @@ ingressi che non esistono piu'. Il manifesto registra quindi, in
   artefatti. Ogni esecuzione produce un'impronta nuova, quindi ricalcolare una
   fase invalida tutte quelle che l'avevano registrata, e a cascata le loro;
 * ``dati_esterni``: per le fasi che leggono dati fuori dall'albero di output,
-  un'impronta di quei dati.
+  un'impronta di quei dati;
+* ``versione``: la versione del calcolo che la fase dichiara
+  (:attr:`PipelineStep.versione`), da incrementare quando cambia ciò che la fase
+  calcola. Correggere un difetto di una fase e incrementarne la versione rifà
+  quella fase e le successive alla ripresa.
+
+Il manifesto registra inoltre la **provenienza** del risultato (versione,
+impronta del sorgente effettivamente eseguito, commit, immagine), che non
+decide la validità: :mod:`amplicon16s.runner.provenienza`.
 
 Una fase è conclusa se il suo manifesto esiste, i suoi artefatti sono integri
 e ``calcolata_su`` coincide con ciò che si otterrebbe adesso.
@@ -57,6 +65,7 @@ from amplicon16s.io_layer.artifacts import AlberoOutput, Artefatto, Fase, Manife
 from amplicon16s.logging.logger import registra_errore
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.runner.graph import GRAFO, Grafo, Nodo, Passo
+from amplicon16s.runner.provenienza import provenienza
 from amplicon16s.runner.retry import Aggiustamento
 
 __all__ = [
@@ -249,6 +258,17 @@ class PipelineStep(ABC):
     #: I passi del tracciamento delle letture che la fase registra, nel loro
     #: ordine: ciascuno in un file ``letture_<passo>.tsv`` della sua cartella.
     passi_tracciamento: ClassVar[tuple[str, ...]] = ()
+    #: La versione del calcolo, che entra nell'impronta: si incrementa quando
+    #: cambia cio' che la fase calcola (metodo, script R, forma di un
+    #: artefatto), e la ripresa rifa' allora la fase e le successive. Ogni fase
+    #: realizzata la dichiara, e il registro del sorgente la riporta
+    #: (:mod:`amplicon16s.runner.provenienza`).
+    versione: ClassVar[int] = 1
+    #: Lo script R della fase, nella cartella degli script, se ne ha uno.
+    script_r: ClassVar[str | None] = None
+    #: Moduli Python, oltre a quello della fase, in cui vive il suo calcolo: il
+    #: loro sorgente entra nell'impronta del sorgente.
+    moduli_sorgente: ClassVar[tuple[str, ...]] = ()
 
     @property
     def nodo(self) -> Nodo:
@@ -317,6 +337,7 @@ class PipelineStep(ABC):
             },
             "a_monte": {str(p): a_monte[p] for p in sorted(a_monte, key=_ordine)},
             "dati_esterni": self.impronta_dati_esterni(risolta.config),
+            "versione": self.versione,
         }
 
     def verifica_prerequisiti(self, contesto: StepContext) -> None:
@@ -379,6 +400,7 @@ class PipelineStep(ABC):
         calcolata_su = self.calcolata_su(
             contesto.risolta_dichiarata, dict(contesto.a_monte)
         )
+        origine = provenienza(self, contesto.risolta_dichiarata.config)
 
         # Da qui la fase non risulta piu' conclusa: se il calcolo si
         # interrompe, la ripresa la rifa' invece di fidarsi del manifesto
@@ -412,6 +434,7 @@ class PipelineStep(ABC):
                 produzione.metriche,
                 aggiustamenti,
                 degradazioni,
+                origine,
             )
             impronta = manifesto.impronta
             esito = Esito.COMPLETATA

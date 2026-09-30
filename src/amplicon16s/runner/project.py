@@ -50,6 +50,7 @@ from amplicon16s.io_layer.checksums import checksum_file
 from amplicon16s.logging.logger import ottieni
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.runner.graph import GRAFO, Grafo, Passo
+from amplicon16s.runner.provenienza import provenienza
 from amplicon16s.steps.base import PipelineStep, StepContext, impronta_parametri
 from amplicon16s.steps.s00_validate import ValidazioneIngressi, leggi_inventario
 from amplicon16s.steps.s01_profile import ProfiloLetture
@@ -59,6 +60,7 @@ from amplicon16s.steps.s04_dada import InferenzaVarianti
 from amplicon16s.steps.s05_seqtab import TabellaSequenze
 from amplicon16s.steps.s06_chimera import RimozioneChimere
 from amplicon16s.steps.s07_asv_length import FiltroLunghezza
+from amplicon16s.steps.s08_taxonomy import AssegnazioneTassonomica
 
 __all__ = [
     "ProjectRun",
@@ -80,6 +82,7 @@ def passi_realizzati() -> dict[Passo, PipelineStep]:
         Passo.S5: TabellaSequenze(),
         Passo.S6: RimozioneChimere(),
         Passo.S7: FiltroLunghezza(),
+        Passo.S8: AssegnazioneTassonomica(),
     }
 
 
@@ -103,6 +106,9 @@ class Situazione:
     motivo: str
     #: Impronta del manifesto, per le sole fasi concluse.
     impronta: str | None = None
+    #: Per una fase conclusa, la provenienza registrata che differisce da quella
+    #: di adesso a parita' di versione: un avviso, non un motivo per rifarla.
+    avviso: str | None = None
 
 
 def _differenze(registrata: Mapping[str, Any], attesa: Mapping[str, Any]) -> str:
@@ -120,7 +126,35 @@ def _differenze(registrata: Mapping[str, Any], attesa: Mapping[str, Any]) -> str
             motivi.append(f"ricalcolate a monte: {', '.join(ricalcolate)}")
     if registrata.get("dati_esterni") != attesa["dati_esterni"]:
         motivi.append("dati di ingresso cambiati")
+    if registrata.get("versione") != attesa["versione"]:
+        motivi.append(
+            f"versione del calcolo cambiata: {registrata.get('versione')} -> {attesa['versione']}"
+        )
     return "; ".join(motivi) or "calcolata su ingressi diversi"
+
+
+def _avviso_di_provenienza(
+    registrata: Mapping[str, Any], attuale: Mapping[str, Any]
+) -> str | None:
+    """In che cosa la provenienza registrata differisce da quella di adesso.
+
+    La versione e' nell'impronta e decide la validita'; qui si confrontano il
+    sorgente eseguito e l'immagine, a parita' di versione. Il commit no: ogni
+    commit lo cambia, anche senza toccare la fase.
+    """
+    motivi = []
+    if registrata.get("sorgente") != attuale["sorgente"]:
+        diversi = sorted(
+            n for n in set(registrata.get("file", {})) | set(attuale["file"])
+            if registrata.get("file", {}).get(n) != attuale["file"].get(n)
+        )
+        motivi.append(
+            "sorgente diverso da quello che l'ha calcolata, a parita' di versione "
+            f"({', '.join(diversi) or 'file non registrati'})"
+        )
+    if registrata.get("immagine") != attuale["immagine"]:
+        motivi.append(f"immagine diversa ({registrata.get('immagine')} -> {attuale['immagine']})")
+    return "; ".join(motivi) or None
 
 
 class _Checksum:
@@ -346,7 +380,10 @@ class ProjectRun:
         motivo = (
             f"conclusa; {len(rimossi)} artefatti rimossi di proposito" if rimossi else "conclusa"
         )
-        return Situazione(passo, StatoPasso.COMPLETATA, motivo, manifesto.impronta)
+        return Situazione(
+            passo, StatoPasso.COMPLETATA, motivo, manifesto.impronta,
+            _avviso_di_provenienza(manifesto.provenienza, provenienza(fase, self.config)),
+        )
 
     # ----------------------------------------------------------------- #
     # Scorciatoie: una valutazione nuova per ogni domanda                #

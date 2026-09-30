@@ -1,0 +1,104 @@
+{
+  "S0": {
+    "file": [
+      "python/amplicon16s.gates.g01_g15",
+      "python/amplicon16s.gates.registry",
+      "python/amplicon16s.io_layer.reads",
+      "python/amplicon16s.metadata.controls_map",
+      "python/amplicon16s.metadata.crosswalk",
+      "python/amplicon16s.metadata.models",
+      "python/amplicon16s.steps.s00_validate"
+    ],
+    "sorgente": "sha256:93d4ce78a9063d8717a9317cd2adb4856c6c2d290a9d70040cbf91f4a810e048",
+    "versione": 1
+  },
+  "S1": {
+    "file": [
+      "R/01_profile.R",
+      "R/lib/errors.R",
+      "R/lib/io_json.R",
+      "R/lib/letture.R",
+      "python/amplicon16s.steps.s01_profile"
+    ],
+    "sorgente": "sha256:bd1f9aa8fee65f5f419b3296df5c3c7c984a114ddb27b8745d51d2511d6f9e77",
+    "versione": 1
+  },
+  "S2": {
+    "file": [
+      "R/02_filter.R",
+      "R/lib/errors.R",
+      "R/lib/io_json.R",
+      "R/lib/letture.R",
+      "python/amplicon16s.steps.s02_filter"
+    ],
+    "sorgente": "sha256:ac392bc7ed646d40c8eeca51b8ae7ed62a0e00fa57bb28a4e31cdf2c287b13cd",
+    "versione": 1
+  },
+  "S3": {
+    "file": [
+      "R/03_learn_errors.R",
+      "R/lib/errors.R",
+      "R/lib/io_json.R",
+      "R/lib/letture.R",
+      "python/amplicon16s.steps.s03_learn_errors"
+    ],
+    "sorgente": "sha256:0619099e05cb0f560ac37196fc33ad489226578ad9135f555c20928c670cb0f4",
+    "versione": 1
+  },
+  "S4": {
+    "file": [
+      "R/04_dada.R",
+      "R/lib/errors.R",
+      "R/lib/io_json.R",
+      "R/lib/letture.R",
+      "R/lib/risorse.R",
+      "python/amplicon16s.steps.s04_dada"
+    ],
+    "sorgente": "sha256:29adb0a551165dce41a2219f0607d7782c5db368ccb8ef16e38011fe471090ba",
+    "versione": 1
+  },
+  "S5": {
+    "file": [
+      "R/05_seqtab.R",
+      "R/lib/errors.R",
+      "R/lib/io_json.R",
+      "R/lib/letture.R",
+      "R/lib/risorse.R",
+      "python/amplicon16s.steps.s05_seqtab"
+    ],
+    "sorgente": "sha256:bebab7d372ca482ea039297eed3422542f044544466debdfb8172ece24e9c927",
+    "versione": 1
+  },
+  "S6": {
+    "file": [
+      "R/06_chimera.R",
+      "R/lib/errors.R",
+      "R/lib/io_json.R",
+      "R/lib/letture.R",
+      "python/amplicon16s.steps.s06_chimera"
+    ],
+    "sorgente": "sha256:22a7abb0980bae6fb80beec86a31a6cf0575faaa8eed25efd3dd28659c7f4152",
+    "versione": 1
+  },
+  "S7": {
+    "file": [
+      "R/07_asv_length.R",
+      "R/lib/errors.R",
+      "R/lib/io_json.R",
+      "R/lib/letture.R",
+      "python/amplicon16s.steps.s07_asv_length"
+    ],
+    "sorgente": "sha256:a845c08a86a690e5d602b06b1797f1e6191c888eded555eef4d7f3f85f62e050",
+    "versione": 1
+  },
+  "S8": {
+    "file": [
+      "R/08_taxonomy.R",
+      "R/lib/errors.R",
+      "R/lib/io_json.R",
+      "python/amplicon16s.steps.s08_taxonomy"
+    ],
+    "sorgente": "sha256:003626707939cc9598771c99d50d6d1723018fdb3affe19c9e8a17ec6e36e3ff",
+    "versione": 1
+  }
+}

@@ -32,7 +32,7 @@ import os
 import tempfile
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
@@ -153,6 +153,9 @@ class ManifestoPasso:
     aggiustamenti: tuple[dict[str, Any], ...] = ()
     #: Degradazioni registrate: la fase si e' conclusa con un ripiego.
     degradazioni: tuple[dict[str, Any], ...] = ()
+    #: Da quale codice e' stato calcolato il risultato: versione, impronta del
+    #: sorgente eseguito, commit, immagine. Non decide la validita'.
+    provenienza: dict[str, Any] = field(default_factory=dict)
 
     def _contenuto(self) -> dict[str, Any]:
         """Il contenuto del manifesto su cui si calcola l'impronta, impronta esclusa."""
@@ -164,6 +167,7 @@ class ManifestoPasso:
             "metriche": self.metriche,
             "aggiustamenti": list(self.aggiustamenti),
             "degradazioni": list(self.degradazioni),
+            "provenienza": self.provenienza,
             "conclusa": self.conclusa,
             # Identifica l'esecuzione: due calcoli della stessa fase non hanno
             # mai la stessa impronta, anche se producono gli stessi byte.
@@ -393,6 +397,7 @@ class AlberoOutput:
         metriche: Mapping[str, Any] | None = None,
         aggiustamenti: Iterable[Mapping[str, Any]] = (),
         degradazioni: Iterable[Mapping[str, Any]] = (),
+        provenienza: Mapping[str, Any] | None = None,
     ) -> ManifestoPasso:
         """Scrive il manifesto di una fase conclusa, per ultimo e atomicamente."""
         voci = []
@@ -416,6 +421,7 @@ class AlberoOutput:
             esecuzione=uuid.uuid4().hex,
             aggiustamenti=tuple(dict(a) for a in aggiustamenti),
             degradazioni=tuple(dict(d) for d in degradazioni),
+            provenienza=dict(provenienza or {}),
         )
         # Il passaggio per JSON e ritorno fissa la forma che verra' riletta:
         # l'impronta si calcola su quella, non sugli oggetti in memoria.
@@ -431,6 +437,7 @@ class AlberoOutput:
             esecuzione=contenuto["esecuzione"],
             aggiustamenti=tuple(contenuto["aggiustamenti"]),
             degradazioni=tuple(contenuto["degradazioni"]),
+            provenienza=contenuto["provenienza"],
         )
 
         self.prepara(fase)
@@ -474,6 +481,7 @@ class AlberoOutput:
                 esecuzione=documento["esecuzione"],
                 aggiustamenti=tuple(documento.get("aggiustamenti", ())),
                 degradazioni=tuple(documento.get("degradazioni", ())),
+                provenienza=documento.get("provenienza", {}),
             )
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
             raise ManifestoPassoNonValido(f"manifesto di {passo} illeggibile: {e}") from e

@@ -47,6 +47,8 @@ class FiltroLunghezza(PipelineStep):
     """S7: le varianti di lunghezza ammessa."""
 
     passo: ClassVar[Passo] = Passo.S7
+    versione: ClassVar[int] = 1
+    script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("lunghezza",)
     #: I tre parametri da cui discendono asv.len_min e asv.len_max.
     parametri: ClassVar[tuple[str, ...]] = ("asv", "filter.truncLen", "filter.trimLeft")
