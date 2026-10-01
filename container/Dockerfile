@@ -24,6 +24,12 @@ LABEL org.opencontainers.image.title="amplicon16s" \
 # Versioni bloccate: cambiarle qui è l'unico modo di cambiare l'ambiente.
 ARG PYTHON_VERSION=3.11.16
 ARG BIOCONDUCTOR_VERSION=3.21
+# Istantanea datata del repository CRAN da cui si installano le dipendenze che
+# l'immagine di partenza non contiene. L'immagine Bioconductor punta a
+# p3m.dev/.../latest, che cambia nel tempo: una build da zero prenderebbe le
+# versioni del giorno, diverse da renv.lock (igraph 2.3.4 contro 2.3.3 il 1
+# ottobre 2026). La data e' quella in cui e' stato generato renv.lock.
+ARG CRAN_SNAPSHOT=https://p3m.dev/cran/__linux__/noble/2026-09-25
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
@@ -50,7 +56,7 @@ RUN uv python install "${PYTHON_VERSION}" \
 # R: pacchetti dei calcoli scientifici                                         #
 # --------------------------------------------------------------------------- #
 COPY container/install_r_packages.R /opt/amplicon16s/container/
-RUN Rscript /opt/amplicon16s/container/install_r_packages.R
+RUN CRAN_SNAPSHOT="${CRAN_SNAPSHOT}" Rscript /opt/amplicon16s/container/install_r_packages.R
 
 # dada2 1.36.0 con la correzione dei pareggi di assignTaxonomy, compilato dai
 # sorgenti ufficiali verificati per checksum, al posto della versione dei binari.

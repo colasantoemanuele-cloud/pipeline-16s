@@ -18,6 +18,16 @@ if (!identical(bioc_installato, bioc_atteso)) {
   stop("release Bioconductor attesa ", bioc_atteso, ", trovata ", bioc_installato)
 }
 
+# Le dipendenze da CRAN vengono da un'istantanea datata e non da "latest", che
+# cambia nel tempo: una build da zero darebbe altrimenti versioni diverse da
+# renv.lock. I pacchetti gia' presenti nell'immagine di partenza, ancorata per
+# digest, non vengono aggiornati (update = FALSE).
+istantanea <- Sys.getenv("CRAN_SNAPSHOT")
+if (!nzchar(istantanea)) {
+  stop("variabile CRAN_SNAPSHOT non impostata")
+}
+options(repos = c(CRAN = istantanea))
+
 binari <- sprintf(
   "https://bioconductor.org/packages/%s/container-binaries/bioconductor_docker",
   bioc_atteso

@@ -82,7 +82,11 @@ scripts/genera_renv_lock.sh amplicon16s:dev
 ```
 
 Le immagini di partenza sono ancorate per digest e non per tag, perché un tag può essere
-riassegnato a un'immagine diversa mentre un digest no.
+riassegnato a un'immagine diversa mentre un digest no. Per la stessa ragione le
+dipendenze R installate da CRAN vengono da un'istantanea datata del repository P3M
+(`CRAN_SNAPSHOT` nel Dockerfile) e non dall'indirizzo `latest` dell'immagine di partenza,
+che cambia nel tempo: una costruzione da zero, come quella della CI, otterrebbe
+altrimenti versioni diverse da `renv.lock`.
 
 **L'immagine contiene dada2 con una correzione.** In dada2 1.36.0, `assignTaxonomy`
 sceglie fra generi a pari probabilità con `std::random_device` (`src/taxonomy.cpp`,
