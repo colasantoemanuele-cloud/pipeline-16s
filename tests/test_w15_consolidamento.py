@@ -197,7 +197,6 @@ def _altera(percorso: Path) -> None:
 
 _RIPRESE = [
     # fase, cartella, artefatto, azione, fasi che si rifanno
-    (Passo.S1, Fase.QC_PROFILES, "lunghezze.tsv", "altera", [Passo.S1]),
     (Passo.S2, Fase.FILTERED, "letture_filtrate.tsv", "rimuovi",
      [Passo.S2, Passo.S3, Passo.S4, Passo.S5, Passo.S6, Passo.S7]),
     (Passo.S3, Fase.ERROR_MODELS, "corrispondenza.tsv", "altera",
@@ -219,15 +218,17 @@ def test_la_ripresa_rifa_la_fase_e_solo_quelle_che_ne_dipendono(
     dada2, catena_calcolata, tmp_path, passo, cartella, nome, azione, rifatte
 ):
     """
-    **Obiettivo**: Verificare, per ogni fase da S1 a S7, che rimosso o
+    **Obiettivo**: Verificare, per ogni fase da S2 a S7, che rimosso o
     alterato un suo artefatto la valutazione la dia da rifare, che la ripresa
     riesegua esattamente quella fase e le fasi che ne dipendono, nell'ordine
     del grafo, e che gli artefatti rifatti siano identici agli originali.
 
     **Razionale scientifico e sistemistico**: Una ripresa che rifacesse meno
     consegnerebbe risultati calcolati su un artefatto che non c'e' piu'; una
-    che rifacesse di piu' costerebbe ore sul dataset completo. S1 non ha fasi
-    realizzate a valle; S2 alimenta S3, S4 e S7; S7 non alimenta nulla.
+    che rifacesse di piu' costerebbe ore sul dataset completo. S2 alimenta S3,
+    S4 e S7; S7 non alimenta nulla. S1 non e' fra gli antenati di S7, e
+    l'esecuzione fino a S7 non la rifarebbe: la sua ripresa e' verificata con i
+    test di S1 (``tests/test_w11_s01_profile.py``).
     """
     originale, _ = catena_calcolata
     run = copia_esecuzione(catena_calcolata, tmp_path)

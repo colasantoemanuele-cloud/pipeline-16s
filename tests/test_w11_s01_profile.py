@@ -102,6 +102,7 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
+from conftest import copia_esecuzione
 from sottoinsieme import RIDOTTO, config_ridotta, manifesto, selezione
 
 from amplicon16s.config.schema import carica, valida
@@ -339,6 +340,7 @@ def _profili(run) -> Path:
 def eseguita(ridotta_calcolata):
     """S0 e S1 sulla versione ridotta, una volta sola per i test che leggono.
 
+    E' l'esecuzione condivisa, che esegue S1 a parte (``ridotta_calcolata``).
     Caricare ShortRead costa da solo alcuni secondi: ripeterlo per ogni test
     non aggiungerebbe nulla alla verifica.
     """
@@ -359,13 +361,49 @@ def test_s1_scrive_i_profili_con_il_proprio_manifesto(bioconductor, eseguita):
     """
     run, esito = eseguita
     assert esito.conclusione is Conclusione.COMPLETATA
-    assert [r.passo for r in esito.eseguite][:2] == [Passo.S0, Passo.S1]
 
     manifesto_s1 = run.albero.manifesto_passo(Passo.S1, Fase.QC_PROFILES)
     assert set(manifesto_s1.nomi) == {
         "lunghezze.tsv", "qualita.tsv", "letture_grezze.tsv", "riepilogo.json"
     }
     assert run.valuta().situazioni[Passo.S1].stato.value == "completata"
+
+
+def test_la_ripresa_rifa_solo_s1_se_un_suo_artefatto_e_alterato(bioconductor, eseguita, tmp_path):
+    """Verifica che, alterato ``lunghezze.tsv`` di S1, la ripresa rifaccia soltanto S1.
+
+    * **Obiettivo**: in una copia dell'esecuzione, alterare un artefatto di S1
+      e controllare che la valutazione dia S1 da rifare, per quell'artefatto,
+      lasciando concluse S0, S2 e S3; che l'esecuzione fino a S1 rifaccia
+      soltanto S1; e che gli artefatti rifatti siano identici agli originali.
+    * **Razionale scientifico e sistemistico**: S1 non ha fasi realizzate a
+      valle: alterarne un profilo non deve rifare il filtro e i modelli
+      d'errore, e la profilatura rifatta deve dare gli stessi byte.
+    """
+    originale, _ = eseguita
+    run = copia_esecuzione(eseguita, tmp_path)
+    artefatto = run.albero.cartella(Fase.QC_PROFILES) / "lunghezze.tsv"
+    artefatto.write_bytes(artefatto.read_bytes() + b"\n")
+
+    situazione = run.valuta().situazioni
+    assert situazione[Passo.S1].stato.value == "da_eseguire"
+    assert "lunghezze.tsv" in situazione[Passo.S1].motivo
+    for altro in (Passo.S0, Passo.S2, Passo.S3):
+        assert situazione[altro].stato.value == "completata", altro
+
+    esito = Esecutore(run, fino_a=Passo.S1).esegui()
+    assert esito.conclusione is Conclusione.COMPLETATA
+    assert [r.passo for r in esito.eseguite] == [Passo.S1]
+
+    def impronte(cartella):
+        return {
+            f.name: hashlib.md5(f.read_bytes()).hexdigest()
+            for f in sorted(cartella.iterdir()) if not f.name.startswith(("rbridge_", "manifest"))
+        }
+
+    assert impronte(run.albero.cartella(Fase.QC_PROFILES)) == impronte(
+        originale.albero.cartella(Fase.QC_PROFILES)
+    )
 
 
 def test_s1_legge_tutte_le_letture(bioconductor, eseguita):

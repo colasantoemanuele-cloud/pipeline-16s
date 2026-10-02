@@ -173,6 +173,22 @@ class Grafo:
             d for d in self._nodi[passo].dipendenze if self._nodi[d].attiva(config)
         )
 
+    def antenati(self, passo: Passo, config: Config) -> tuple[Passo, ...]:
+        """Le fasi attive da cui la fase dipende, anche indirettamente, in ordine.
+
+        Si seguono le sole dipendenze attive: una fase disattivata non e'
+        lavoro da fare, e le sue dipendenze non diventano antenati per suo
+        tramite. La fase stessa non ne fa parte.
+        """
+        raggiunti: set[Passo] = set()
+        da_visitare = [passo]
+        while da_visitare:
+            for dipendenza in self.dipendenze_attive(da_visitare.pop(), config):
+                if dipendenza not in raggiunti:
+                    raggiunti.add(dipendenza)
+                    da_visitare.append(dipendenza)
+        return tuple(p for p in self._nodi if p in raggiunti)
+
     def discendenti(self, passo: Passo) -> tuple[Passo, ...]:
         """Le fasi che dipendono, anche indirettamente, da quella data."""
         raggiunti = {passo}

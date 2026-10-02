@@ -80,7 +80,7 @@ sorgente, e da G12 spostato fra le precondizioni).
 - 20 passed, 1 skipped nel container Docker standard sul sottoinsieme ridotto
   (~41s): resta saltato il test sui dati reali;
 - 21 passed nel container Docker con i dati reali OSD-734 (~39s oltre la catena
-  S0-S8 condivisa ``catena_reale``, calcolata una volta per sessione).
+  S0-S10 condivisa ``catena_reale``, calcolata una volta per sessione).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -376,17 +376,18 @@ def test_una_provenienza_diversa_avvisa_e_una_versione_nuova_rifa(tmp_path, monk
     assert "versione del calcolo cambiata: 1 -> 2" in situazione.motivo
 
 
-def test_i_manifesti_della_catena_registrano_il_sorgente_del_registro(dada2, tassonomia_calcolata):
+def test_i_manifesti_della_catena_registrano_il_sorgente_del_registro(dada2, oggetto_calcolato):
     """
-    **Obiettivo**: Verificare che nei manifesti di S0-S8 della versione ridotta
-    la provenienza riporti la versione e l'impronta del sorgente del registro.
+    **Obiettivo**: Verificare che nei manifesti di ogni fase realizzata della
+    versione ridotta, S0-S8 e S10, la provenienza riporti la versione e
+    l'impronta del sorgente del registro.
 
     **Razionale scientifico e sistemistico**: Nel job del container, con
     l'immagine costruita dal repository, gli script eseguiti sono quelli del
     repository; con un'immagine che esegue script diversi questo test fallisce,
     ed e' il modo in cui la differenza si vede.
     """
-    run, esito = tassonomia_calcolata
+    run, esito = oggetto_calcolato
     assert esito.conclusione is Conclusione.COMPLETATA
     registro = leggi_registro()
     for passo, fase in passi_realizzati().items():

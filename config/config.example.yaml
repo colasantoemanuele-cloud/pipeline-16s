@@ -274,8 +274,29 @@ retry:
 # --------------------------------------------------------------------------- #
 out:
   serialization: rds
+  # Varianti sulle righe, campioni sulle colonne. S10 lo verifica sugli
+  # identificativi, non sulle dimensioni.
   taxa_are_rows: true
+  # Identificativi ASV1, ASV2, ... per abbondanza decrescente nei campioni
+  # biologici; a parita', abbondanza in tutti i campioni, poi la sequenza.
+  # Assegnati in S10, mai rinumerati: dopo i filtri la numerazione ha dei vuoti.
   asv_id_scheme: abundance_rank
+  # Identificativi dei campioni nell'oggetto integrato.
+  sample_id_source: accession
+  # Colonne dei metadati portate nell'oggetto integrato oltre a quelle
+  # dell'inventario (accession, sample_name, classe, materiale, posizione,
+  # modulo, piastra, corsa), con il nome originale. Nell'oggetto prendono un
+  # nome sintattico; la corrispondenza e' in 10_phyloseq/colonne_metadati.tsv.
+  study_columns:                    # [OSD-734] dalla tabella campioni di studio
+    - "Factor Value[Spaceflight]"
+    - "Parameter Value[Sample Preservation Method]"
+  batch_columns:                    # [OSD-734] dal file di arricchimento del lotto
+    - extraction_plate_id
+    - well_id
+    - extraction_date
+    - primer_plate
+    - run_date
+    - katharoseq_cell_count
   export_flat: true
 
 # --------------------------------------------------------------------------- #

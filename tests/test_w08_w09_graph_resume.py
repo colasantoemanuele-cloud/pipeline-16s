@@ -1248,14 +1248,15 @@ def test_l_inventario_e_riletto_dall_artefatto_di_s0(scenario):
     assert run.risolta.derivati.prev_min_samples is not None
 
 
-def test_oggi_esistono_le_fasi_da_s0_a_s8(scenario):
+def test_oggi_esistono_le_fasi_da_s0_a_s8_e_s10(scenario):
     """
-    **Obiettivo**: Verificare che allo stato della Settimana 17 ``passi_realizzati()``
-    contenga le fasi da ``Passo.S0`` a ``Passo.S8``: dopo S0, ``Passo.S1``
-    e ``Passo.S2`` sono da eseguire (S2 dipende da S0, non da S1), ``Passo.S3``
-    attende S2, ``Passo.S8`` attende S7, mentre ``Passo.S10`` (S9 e' disattivata
-    per difetto) e' marcata ``StatoPasso.NON_REALIZZATA`` e solleva
-    ``LookupError`` se richiesta a ``run.fase(Passo.S10)``.
+    **Obiettivo**: Verificare che allo stato della Settimana 18 ``passi_realizzati()``
+    contenga le fasi da ``Passo.S0`` a ``Passo.S8`` e ``Passo.S10``: dopo S0,
+    ``Passo.S1`` e ``Passo.S2`` sono da eseguire (S2 dipende da S0, non da S1),
+    ``Passo.S3`` attende S2, ``Passo.S8`` attende S7, ``Passo.S10`` attende S7
+    e S8 (S9 e' disattivata per difetto), mentre ``Passo.S11`` e' marcata
+    ``StatoPasso.NON_REALIZZATA`` e solleva ``LookupError`` se richiesta a
+    ``run.fase(Passo.S11)``.
 
     **Razionale scientifico e sistemistico**: Separa in modo trasparente le fasi
     già implementate nel codice di produzione dalle fasi successive
@@ -1264,7 +1265,7 @@ def test_oggi_esistono_le_fasi_da_s0_a_s8(scenario):
     run = ProjectRun(scenario.config)
     assert set(passi_realizzati()) == {
         Passo.S0, Passo.S1, Passo.S2, Passo.S3, Passo.S4, Passo.S5, Passo.S6, Passo.S7,
-        Passo.S8,
+        Passo.S8, Passo.S10,
     }
     esegui_s0(scenario.config)
 
@@ -1275,11 +1276,12 @@ def test_oggi_esistono_le_fasi_da_s0_a_s8(scenario):
     assert situazione[Passo.S3].motivo == "a monte da eseguire: S2"
     assert situazione[Passo.S4].motivo == "a monte da eseguire: S2, S3"
     assert situazione[Passo.S8].motivo == "a monte da eseguire: S7"
-    assert situazione[Passo.S10].stato is StatoPasso.NON_REALIZZATA
+    assert situazione[Passo.S10].motivo == "a monte da eseguire: S7, S8"
+    assert situazione[Passo.S11].stato is StatoPasso.NON_REALIZZATA
     assert run.prossima() is Passo.S1
     assert not run.completa
-    with pytest.raises(LookupError, match="S10"):
-        run.fase(Passo.S10)
+    with pytest.raises(LookupError, match="S11"):
+        run.fase(Passo.S11)
 
 
 def test_l_albero_e_quello_della_configurazione(scenario):

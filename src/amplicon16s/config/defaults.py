@@ -125,6 +125,9 @@ OUT_SERIALIZATION: Final = "rds"
 OUT_TAXA_ARE_ROWS: Final = True
 OUT_ASV_ID_SCHEME: Final = "abundance_rank"
 OUT_EXPORT_FLAT: Final = True
+# Identificativi dei campioni nell'oggetto integrato: l'accession, la chiave
+# del join in tutta la pipeline. Il nome del campione resta fra i metadati.
+OUT_SAMPLE_ID_SOURCE: Final = "accession"
 
 # run: esecuzione
 # File di blocco delle versioni dei pacchetti R. Dichiararlo nella
@@ -200,6 +203,25 @@ QC_CONSERVED_MOTIF: Final = r"TAC[AG].AGG..GC.AGCGTT"
 # Taxon atteso nei controlli positivi, usato per la calibrazione KatharoSeq.
 KATHAROSEQ_TARGET_TAXON: Final = "Variovorax"
 
+# Colonne dei metadati portate nell'oggetto integrato (S10) oltre a quelle
+# dell'inventario. Dalla tabella campioni di studio: se il campione e' stato in
+# volo, e come e' stato conservato. Dal file di arricchimento: identificativo
+# della piastra, pozzetto, date di estrazione e di sequenziamento, piastra dei
+# primer, e le cellule seminate nei controlli positivi della serie KatharoSeq,
+# che servono alla calibrazione di S11.
+OUT_STUDY_COLUMNS: Final = (
+    "Factor Value[Spaceflight]",
+    "Parameter Value[Sample Preservation Method]",
+)
+OUT_BATCH_COLUMNS: Final = (
+    "extraction_plate_id",
+    "well_id",
+    "extraction_date",
+    "primer_plate",
+    "run_date",
+    "katharoseq_cell_count",
+)
+
 
 #: Chiavi il cui valore predefinito descrive il dataset di riferimento e non la
 #: pipeline. Passando a un altro dataset vanno rivalutate una per una.
@@ -219,4 +241,6 @@ DERIVATI_DAL_DATASET: Final[tuple[str, ...]] = (
     "katharoseq.target_taxon",
     "qc.primer_sequence",
     "qc.conserved_motif",
+    "out.study_columns",
+    "out.batch_columns",
 )

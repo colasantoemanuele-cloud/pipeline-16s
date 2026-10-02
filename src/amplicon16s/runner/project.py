@@ -61,6 +61,7 @@ from amplicon16s.steps.s05_seqtab import TabellaSequenze
 from amplicon16s.steps.s06_chimera import RimozioneChimere
 from amplicon16s.steps.s07_asv_length import FiltroLunghezza
 from amplicon16s.steps.s08_taxonomy import AssegnazioneTassonomica
+from amplicon16s.steps.s10_phyloseq import AssemblaggioOggetto
 
 __all__ = [
     "ProjectRun",
@@ -83,6 +84,7 @@ def passi_realizzati() -> dict[Passo, PipelineStep]:
         Passo.S6: RimozioneChimere(),
         Passo.S7: FiltroLunghezza(),
         Passo.S8: AssegnazioneTassonomica(),
+        Passo.S10: AssemblaggioOggetto(),
     }
 
 

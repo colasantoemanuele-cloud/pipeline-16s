@@ -174,7 +174,7 @@ Codici di uscita, per chi lancia la pipeline da uno script o da uno scheduler:
 | 2 | riga di comando non valida (argomenti mancanti o sconosciuti) |
 | 3 | errore di configurazione: il file non è valido, G15 lo respinge, oppure `run` trova la cartella di output già usata; nessuna fase è partita |
 | 4 | arresto con punto di ripresa dichiarato, stampato e scritto in `99_logs/punto_di_ripresa.json` e `.txt` |
-| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S8 |
+| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S10 |
 
 ## Stato dell'implementazione
 
@@ -237,7 +237,7 @@ Sono realizzati:
   manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
   in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
   lo stesso checksum fra due esecuzioni sugli stessi ingressi;
-- il catalogo degli errori (51 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (52 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -327,9 +327,10 @@ Sono realizzati:
   fasi sono concluse, quali disattivate, quali da eseguire e quale è la prossima;
   dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
   una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
-  gigabyte, costa secondi (5,1 sul dataset di riferimento con S0-S8
+  gigabyte, costa secondi (4,5 sul dataset di riferimento con S0-S8 e S10
   concluse); delle quindici fasi oggi esistono come codice le prime nove, da S0 a S8,
-  e le altre risultano non realizzate;
+  e S10, e le altre risultano non realizzate (S9, la filogenesi, è disattivata per
+  difetto);
 - **la versione del calcolo e la provenienza** (`runner/provenienza.py`). Ogni fase
   dichiara una versione, che entra nell'impronta: si incrementa quando cambia ciò che
   la fase calcola, e la ripresa rifà allora quella fase e le successive. Il registro
@@ -351,7 +352,11 @@ Sono realizzati:
   macchina (G14) e quella del riferimento tassonomico contro `tax.ref_md5` (G12),
   senza rieseguire S0: processori, spazio su disco e integrità del riferimento si
   controllano anche quando S0 è già conclusa, e un riferimento alterato dopo S0 ferma
-  l'esecuzione con E-S0-12 prima di arrivare a S8. Poi esegue in ordine le fasi da eseguire. Una fase
+  l'esecuzione con E-S0-12 prima di arrivare a S8. Poi esegue in ordine le fasi da
+  eseguire. Chiamato con una fase di arrivo (`validate` arriva a S0), esegue quella
+  fase e i soli suoi antenati secondo le dipendenze del grafo, non tutte le fasi che
+  la precedono: arrivare a S2 non esegue S1, da cui S2 non dipende; le fasi non
+  richieste restano da eseguire, e una ripresa completa le esegue. Una fase
   fallita si comporta secondo la categoria del suo codice: a revisione umana ci si
   ferma subito; un codice ripetibile si ritenta solo se è in `retry.whitelist` e
   `retry.enabled` è vero, entro `retry.max_attempts` tentativi totali compreso il
@@ -506,6 +511,38 @@ Sono realizzati:
   controlli positivi la variante dominante è Variovorax, il ceppo della serie, ai due
   livelli di diluizione più alti in tutte le dieci piastre; ai livelli più bassi
   prevalgono i contaminanti di reagente, come atteso nella serie KatharoSeq;
+- **la fase S10, l'oggetto integrato** (`steps/s10_phyloseq.py`, `R/10_phyloseq.R`,
+  `R/lib/oggetto.R`), in `10_phyloseq/`: un oggetto phyloseq, `ps_integrato.rds`, con
+  quattro componenti allineati, la tabella dei conteggi di S7, la tabella tassonomica
+  di S8, i metadati dei campioni e le sequenze di riferimento delle varianti; l'albero,
+  che verrebbe da S9, manca perché la filogenesi è disattivata. L'oggetto contiene
+  tutti i campioni dell'inventario, nell'ordine dell'inventario: un campione rimasto
+  senza letture, che non ha una riga nelle tabelle di S5-S7, vi entra con conteggi a
+  zero e il riepilogo lo elenca (sul dataset di riferimento non ce ne sono; il caso è
+  verificato togliendo un controllo negativo dalla tabella di S7). I campioni sono
+  identificati dall'accession (`out.sample_id_source`), le varianti da `ASV1`, `ASV2`,
+  ... (`out.asv_id_scheme: abundance_rank`): letture decrescenti nei campioni
+  biologici, a parità letture in tutti i campioni, a parità ancora la sequenza in
+  ordine di byte, così la numerazione è deterministica. Il denominatore sono i
+  biologici perché a questo punto l'oggetto contiene ancora i controlli. Gli
+  identificativi non si rinumerano nelle fasi successive, e la sequenza resta
+  l'identità stabile della variante. Con `out.taxa_are_rows` vero le varianti stanno
+  sulle righe: lo script lo verifica a ogni esecuzione sui nomi di righe e colonne,
+  identificativi delle varianti e accession, non sulle dimensioni, che una matrice
+  quadrata trasposta non distinguerebbe; e verifica di nuovo ogni componente
+  dell'oggetto assemblato, perché `phyloseq()` tiene in silenzio solo campioni e
+  varianti comuni. Un disallineamento ferma con `E-S10-01`. I metadati portano le
+  colonne dell'inventario (accession, nome, classe, materiale, posizione, modulo,
+  piastra, corsa) e quelle indicate in `out.study_columns` e `out.batch_columns`, con
+  nomi sintattici scelti dalla fase, che R non altera; la corrispondenza con le
+  colonne originali è in `colonne_metadati.tsv`, e una colonna assente, ripetuta
+  nell'intestazione o con un nome già usato ferma con `E-S10-02`. Il bootstrap di
+  ogni rango e la marcatura dei taxa col difetto noto del riferimento, che non hanno
+  uno slot nell'oggetto, stanno in `varianti_accessorie.tsv`, per identificativo di
+  variante; `varianti.tsv` dà sequenza e letture di ogni identificativo. Due
+  esecuzioni danno gli stessi byte, oggetto compreso. Sul dataset di riferimento S10
+  impiega 6 secondi: 960 campioni, 12.045 varianti, 30.912.706 letture, oggetto di
+  1,1 MB; ASV1 è un Pseudomonas, con 4.129.599 letture nei biologici;
 - il tracciamento delle letture (`runner/tracciamento.py`): ogni fase registra i propri
   passi in file suoi, `letture_<passo>.tsv`, e la tabella completa si ricompone
   leggendo quelli delle fasi concluse nell'ordine del grafo, senza che una fase
@@ -519,7 +556,7 @@ Sono realizzati:
   aggiustamenti applicati, degradazioni registrate. Non è il report definitivo, che
   non è ancora realizzato.
 
-Delle fasi di analisi sono realizzate quelle da S1 a S8; le altre, da S9 a S14, non
-sono ancora realizzate.
+Delle fasi di analisi sono realizzate quelle da S1 a S8 e S10; le altre, S9 e da S11
+a S14, non sono ancora realizzate.
 
 Questa sezione viene aggiornata a ogni avanzamento del lavoro.

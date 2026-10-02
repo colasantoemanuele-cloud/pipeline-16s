@@ -167,9 +167,10 @@ def _impronte(cartella: Path) -> dict[str, str]:
     }
 
 
-#: Le cartelle delle fasi realizzate, da S0 a S7.
-_CARTELLE_S0_S7 = (
-    Fase.INPUT_VALIDATION, Fase.QC_PROFILES, Fase.FILTERED, Fase.ERROR_MODELS,
+#: Le cartelle delle fasi che l'esecuzione fino a S7 esegue: S0 e S2-S7, non
+#: S1, che non e' fra gli antenati di S7.
+_CARTELLE_FINO_A_S7 = (
+    Fase.INPUT_VALIDATION, Fase.FILTERED, Fase.ERROR_MODELS,
     Fase.ASV_INFERENCE, Fase.SEQTAB, Fase.CHIMERA,
 )
 
@@ -242,21 +243,24 @@ def test_le_durate_dei_gate_finiscono_nel_log(tmp_path):
 
 def test_una_seconda_esecuzione_da_zero_di_s0_s7_da_gli_stessi_byte(dada2, catena_calcolata, tmp_path):
     """
-    **Obiettivo**: Verificare che una seconda esecuzione da zero di S0-S7 sulla
-    versione ridotta, in un'altra cartella di output, produca in ciascuna delle
-    sette cartelle di fase gli stessi byte della prima, ``gates.json``, modelli
+    **Obiettivo**: Verificare che una seconda esecuzione da zero fino a S7 sulla
+    versione ridotta, in un'altra cartella di output, produca nelle cartelle
+    delle fasi eseguite gli stessi byte della prima, ``gates.json``, modelli
     d'errore e grafici compresi.
 
     **Razionale scientifico e sistemistico**: E' la verifica di riproducibilita'
     che si fara' sul dataset completo da un clone pulito, qui sulla versione
     ridotta. Una sola esecuzione condivisa sostituisce le due riesecuzioni
-    parziali di S3 e di S4-S7 e copre anche S0, S1 e S2.
+    parziali di S3 e di S4-S7 e copre anche S0 e S2. S1 non e' fra gli
+    antenati di S7 e qui non si esegue: che rieseguita dia gli stessi byte e'
+    verificato dai test di S1 (``tests/test_w11_s01_profile.py``).
     """
     run, _ = catena_calcolata
     seconda = Esecutore(ProjectRun(config_ridotta(tmp_path)), fino_a=Passo.S7)
     esito = seconda.esegui()
     assert esito.conclusione is Conclusione.COMPLETATA
-    for fase in _CARTELLE_S0_S7:
+    assert Passo.S1 not in [r.passo for r in esito.eseguite]
+    for fase in _CARTELLE_FINO_A_S7:
         assert _impronte(seconda.run.albero.cartella(fase)) == _impronte(run.albero.cartella(fase)), fase
 
 

@@ -485,9 +485,24 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S10-01", "S10",
         "Gli slot dell'oggetto integrato non sono coerenti fra loro.",
-        "Campioni o varianti non concordano fra gli slot. Conserva 10_phyloseq "
-        "e verifica con il manifesto l'integrita' degli artefatti delle fasi "
-        "precedenti: l'incoerenza nasce quasi sempre a monte.",
+        "Campioni o varianti non concordano fra gli slot, oppure la tabella dei "
+        "conteggi non ha l'orientamento di out.taxa_are_rows: righe e colonne "
+        "si riconoscono dagli identificativi (varianti e accession), non dalle "
+        "dimensioni. Il dettaglio dice quale slot non torna. Conserva "
+        "10_phyloseq e verifica con il manifesto l'integrita' degli artefatti "
+        "delle fasi precedenti: l'incoerenza nasce quasi sempre a monte.",
+        _UMANA,
+    ),
+    _v(
+        "E-S10-02", "S10",
+        "Una colonna dei metadati richiesta per l'oggetto integrato non si puo' "
+        "portare nell'oggetto senza ambiguita'.",
+        "Il dettaglio indica la colonna di out.study_columns o out.batch_columns "
+        "e il motivo: assente nella tabella, ripetuta nella sua intestazione, "
+        "chiesta al file di arricchimento senza io.batch_table, oppure con un "
+        "nome nell'oggetto gia' usato da un'altra colonna. Correggi l'elenco "
+        "nella configurazione: indovinare quale colonna si intendesse "
+        "attaccherebbe ai campioni un dato diverso da quello richiesto.",
         _UMANA,
     ),
     # ---------------------------------------------------------------- S11 ---

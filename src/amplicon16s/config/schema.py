@@ -420,6 +420,18 @@ class Out(_Gruppo):
     asv_id_scheme: Literal["abundance_rank"] = d.OUT_ASV_ID_SCHEME
     taxa_are_rows: StrictBool = d.OUT_TAXA_ARE_ROWS
     export_flat: StrictBool = d.OUT_EXPORT_FLAT
+    # Da dove vengono gli identificativi dei campioni nell'oggetto integrato.
+    sample_id_source: Literal["accession"] = d.OUT_SAMPLE_ID_SOURCE
+    # Colonne dei metadati portate nell'oggetto integrato oltre a quelle
+    # dell'inventario, con il loro nome originale: dalla tabella campioni di
+    # studio e dal file di arricchimento. Nell'oggetto prendono un nome
+    # sintattico, e la corrispondenza resta in 10_phyloseq/colonne_metadati.tsv.
+    study_columns: list[StringaNonVuota] = Field(
+        default_factory=lambda: list(d.OUT_STUDY_COLUMNS)
+    )
+    batch_columns: list[StringaNonVuota] = Field(
+        default_factory=lambda: list(d.OUT_BATCH_COLUMNS)
+    )
 
 
 class Run(_Gruppo):

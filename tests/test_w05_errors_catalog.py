@@ -12,8 +12,8 @@ logging), con i codici aggiunti nelle settimane successive.
 
 3. Cosa valuta questo file
 --------------------------
-- completezza del catalogo ``CATALOGO``, **51 codici totali**: **36 codici di
-  fase** inclusi ``E-S1-02`` ed ``E-S3-02``, **4 codici del ponte R**,
+- completezza del catalogo ``CATALOGO``, **52 codici totali**: **37 codici di
+  fase** inclusi ``E-S1-02``, ``E-S3-02`` ed ``E-S10-02``, **4 codici del ponte R**,
   **1 codice del grafo** e **10 codici del Gate G15** (compreso ``E-G15-99``);
   nessun codice inatteso, fase coerente con il codice, errore esplicito su un
   codice sconosciuto;
@@ -22,7 +22,7 @@ logging), con i codici aggiunti nelle settimane successive.
   *cosa è fallito*;
 - chiusura della whitelist dei tentativi ripetuti a **esattamente 4 codici**
   (``E-S2-03``, ``E-S3-01``, ``E-S4-02``, ``E-S5-01``), coerente con
-  ``retry.whitelist``; i restanti **47 codici** non ammettono il retry;
+  ``retry.whitelist``; i restanti **48 codici** non ammettono il retry;
 - corrispondenza fra categoria di gestione e classe dell'eccezione, rifiuto di
   una classe sbagliata, messaggio con codice, dettaglio e azione, traduzione
   in evento strutturato del log;
@@ -100,7 +100,7 @@ from amplicon16s.errors.exceptions import (
 )
 from amplicon16s.gates.g01_g15 import CONTROLLI
 
-#: Elenco esplicito di controllo dei 36 codici di fase (S0-S14): mantenuto nel test
+#: Elenco esplicito di controllo dei 37 codici di fase (S0-S14): mantenuto nel test
 #: per intercettare qualsiasi rimozione accidentale dal dizionario ``CATALOGO``.
 CODICI_DI_FASE = (
     "E-S0-01", "E-S0-02", "E-S0-03", "E-S0-04", "E-S0-05", "E-S0-06", "E-S0-07",
@@ -115,7 +115,7 @@ CODICI_DI_FASE = (
     "E-S7-01",
     "E-S8-02",
     "E-S9-01",
-    "E-S10-01",
+    "E-S10-01", "E-S10-02",
     "E-S11-02", "E-S11-03",
     "E-S12-02",
     "E-S13-01", "E-S13-02",
@@ -339,7 +339,7 @@ def test_la_classe_discende_dalla_categoria(codice, classe):
 def test_ogni_codice_produce_un_errore_coerente(codice):
     """
     **Obiettivo**: Verificare che ``errore(codice)`` produca un'istanza valida
-    di ``ErrorePipeline`` per tutti i 47 codici del catalogo.
+    di ``ErrorePipeline`` per tutti i 52 codici del catalogo.
 
     **Razionale scientifico e sistemistico**: Assicura che nessuna voce del
     catalogo abbia una categoria non mappata nella tabella di dispatch di

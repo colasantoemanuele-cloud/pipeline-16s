@@ -260,12 +260,16 @@ import pytest  # noqa: E402
 
 @pytest.fixture(scope="session")
 def ridotta_calcolata(tmp_path_factory):
-    """S0-S3 sulla versione ridotta, una volta sola per l'intera sessione.
+    """S0-S3 sulla versione ridotta, con S1, una volta sola per l'intera sessione.
 
     Serve ai test che leggono gli artefatti delle fasi: rifarla in ogni modulo
-    costerebbe mezzo minuto a modulo senza verificare nulla di piu'. E' in sola
-    lettura: un test che deve modificare l'albero ne usa una copia. ``None``
-    dove mancano R e Bioconductor; le fixture dei moduli decidono se saltare.
+    costerebbe mezzo minuto a modulo senza verificare nulla di piu'. S1 non e'
+    fra gli antenati di S3, e ``fino_a=S3`` non la esegue: la si chiede a parte,
+    perche' i test di S1, del filtro e del tracciamento ne leggono gli
+    artefatti. L'esito restituito e' quello dell'esecuzione fino a S3. E' in
+    sola lettura: un test che deve modificare l'albero ne usa una copia.
+    ``None`` dove mancano R e Bioconductor; le fixture dei moduli decidono se
+    saltare.
     """
     from sottoinsieme import config_ridotta, motivo_pacchetti_r_assenti
 
@@ -276,7 +280,9 @@ def ridotta_calcolata(tmp_path_factory):
     if motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "Biostrings", "jsonlite"):
         return None
     run = ProjectRun(config_ridotta(tmp_path_factory.mktemp("ridotta")))
-    return run, Esecutore(run, fino_a=Passo.S3).esegui()
+    esito = Esecutore(run, fino_a=Passo.S3).esegui()
+    Esecutore(run, fino_a=Passo.S1).esegui()
+    return run, esito
 
 
 def copia_esecuzione(base, cartella, **sovrascrivi):
@@ -332,12 +338,29 @@ def tassonomia_calcolata(catena_calcolata, tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
+def oggetto_calcolato(tassonomia_calcolata, tmp_path_factory):
+    """S10 sulla versione ridotta, sopra S0-S8, una volta per la sessione.
+
+    In sola lettura, come ``tassonomia_calcolata``; ``None`` dove mancano R e
+    Bioconductor.
+    """
+    from amplicon16s.runner.executor import Esecutore
+    from amplicon16s.runner.graph import Passo
+
+    if tassonomia_calcolata is None:
+        return None
+    run = copia_esecuzione(tassonomia_calcolata, tmp_path_factory.mktemp("oggetto"))
+    return run, Esecutore(run, fino_a=Passo.S10).esegui()
+
+
+@pytest.fixture(scope="session")
 def catena_reale(tmp_path_factory):
-    """S0-S8 sul dataset completo, una volta sola per la sessione.
+    """S0-S10 sul dataset completo, una volta sola per la sessione.
 
     Serve ai test sui dati reali delle fasi da S4 in poi: ciascuna catena
     completa costa tre quarti d'ora, e condividerla fra i moduli evita di
-    ripeterla. Salta senza ``AMPLICON16S_CONFIG_DATI_REALI``; in sola lettura.
+    ripeterla. Con fino_a si eseguono solo gli antenati di S10: S1 no.
+    Salta senza ``AMPLICON16S_CONFIG_DATI_REALI``; in sola lettura.
     """
     import logging
     import os
@@ -354,4 +377,4 @@ def catena_reale(tmp_path_factory):
     dati["io"]["out_root"] = str(tmp_path_factory.mktemp("reale") / "out")
     logging.getLogger("amplicon16s").setLevel(logging.WARNING)
     run = ProjectRun(valida(dati))
-    return run, Esecutore(run, fino_a=Passo.S8).esegui()
+    return run, Esecutore(run, fino_a=Passo.S10).esegui()

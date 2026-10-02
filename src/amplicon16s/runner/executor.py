@@ -377,10 +377,18 @@ class Esecutore:
         return registrazione
 
     def _prossima(self, valutazione: Valutazione) -> Passo | None:
-        """La prossima fase da eseguire, entro ``fino_a``."""
-        ordine = self.run.grafo.ordine()
+        """La prossima fase da eseguire, entro ``fino_a``.
+
+        Con ``fino_a`` si eseguono la fase indicata e i suoi antenati secondo
+        le dipendenze del grafo, non tutte le fasi che la precedono
+        nell'ordine: S2 non dipende da S1, e chiedere S2 non esegue S1.
+        """
+        if self.fino_a is None:
+            richieste = None
+        else:
+            richieste = {self.fino_a, *self.run.grafo.antenati(self.fino_a, self.config)}
         for passo in valutazione.da_eseguire:
-            if self.fino_a is None or ordine.index(passo) <= ordine.index(self.fino_a):
+            if richieste is None or passo in richieste:
                 return passo
         return None
 

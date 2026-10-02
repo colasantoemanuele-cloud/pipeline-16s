@@ -251,8 +251,8 @@ def test_una_fase_senza_dichiarazione_valida_non_si_registra(tmp_path, parametri
 
 def test_ogni_fase_realizzata_dichiara_i_propri_parametri(tmp_path):
     """
-    **Obiettivo**: Verificare che le fasi realizzate, da S0 a S8, dichiarino
-    i propri parametri e che la registrazione le accetti.
+    **Obiettivo**: Verificare che le fasi realizzate, da S0 a S8 e S10,
+    dichiarino i propri parametri e che la registrazione le accetti.
 
     **Razionale scientifico e sistemistico**: E' la condizione perche' la loro
     validita' si giudichi sui parametri da cui dipendono davvero.
@@ -260,7 +260,7 @@ def test_ogni_fase_realizzata_dichiara_i_propri_parametri(tmp_path):
     passi = passi_realizzati()
     assert set(passi) == {
         Passo.S0, Passo.S1, Passo.S2, Passo.S3, Passo.S4, Passo.S5, Passo.S6, Passo.S7,
-        Passo.S8,
+        Passo.S8, Passo.S10,
     }
     assert all(f.parametri for f in passi.values())
     ProjectRun(config_ridotta(tmp_path))

@@ -23,6 +23,18 @@
     "sorgente": "sha256:bd1f9aa8fee65f5f419b3296df5c3c7c984a114ddb27b8745d51d2511d6f9e77",
     "versione": 1
   },
+  "S10": {
+    "file": [
+      "R/10_phyloseq.R",
+      "R/lib/errors.R",
+      "R/lib/io_json.R",
+      "R/lib/oggetto.R",
+      "python/amplicon16s.metadata.crosswalk",
+      "python/amplicon16s.steps.s10_phyloseq"
+    ],
+    "sorgente": "sha256:8540a0d30b9126ecb909acfb94ce69dd059b0bd3067e69fbf837b2c8d481be09",
+    "versione": 1
+  },
   "S2": {
     "file": [
       "R/02_filter.R",
