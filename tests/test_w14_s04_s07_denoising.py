@@ -599,7 +599,7 @@ def test_s4_s7_sul_dataset_completo(dada2, catena_reale):
 
     **Razionale scientifico e sistemistico**: Le misure sul dataset completo
     decidono se i controlli sono tarati sulle classi giuste. La catena e'
-    quella condivisa ``catena_reale`` (S0-S10), calcolata una volta per sessione.
+    quella condivisa ``catena_reale`` (S0-S11), calcolata una volta per sessione.
     """
     run, esito = catena_reale
     assert esito.conclusione is Conclusione.COMPLETATA

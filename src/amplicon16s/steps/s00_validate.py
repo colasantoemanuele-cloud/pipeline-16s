@@ -242,7 +242,8 @@ class ValidazioneIngressi(PipelineStep):
     )
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
-    #: Ingressi e metadati per intero (io, meta, ctrl); di qc le cinque chiavi
+    #: Ingressi e metadati per intero (io, meta); di ctrl la colonna e le tre
+    #: etichette della classificazione, non le chiavi di S11; di qc le cinque chiavi
     #: di G10 e della scansione; di decontam la colonna e il minimo di bianchi
     #: per piastra (G08, E-S0-15); la colonna della corsa (crosswalk, G08); il
     #: troncamento (G09). L'elenco e' stato ricavato registrando i parametri
@@ -260,7 +261,8 @@ class ValidazioneIngressi(PipelineStep):
     #: in :meth:`esegui`, sulla configurazione completa, prima che la fase la
     #: veda ristretta, e figurano in gates.json fra gli altri gate.
     parametri: ClassVar[tuple[str, ...]] = (
-        "io", "meta", "ctrl",
+        "io", "meta",
+        "ctrl.column", "ctrl.blank_values", "ctrl.positive_values", "ctrl.biological_values",
         "qc.primer_sequence", "qc.conserved_motif", "qc.head_reads",
         "qc.max_primer_hit_frac", "qc.min_motif_frac",
         "decontam.batch_column", "decontam.min_blanks", "err.batch_column",

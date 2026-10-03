@@ -354,12 +354,28 @@ def oggetto_calcolato(tassonomia_calcolata, tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
+def controlli_calcolati(oggetto_calcolato, tmp_path_factory):
+    """S11 sulla versione ridotta, sopra S0-S10, una volta per la sessione.
+
+    In sola lettura, come ``oggetto_calcolato``; ``None`` dove mancano R e
+    Bioconductor.
+    """
+    from amplicon16s.runner.executor import Esecutore
+    from amplicon16s.runner.graph import Passo
+
+    if oggetto_calcolato is None:
+        return None
+    run = copia_esecuzione(oggetto_calcolato, tmp_path_factory.mktemp("controlli"))
+    return run, Esecutore(run, fino_a=Passo.S11).esegui()
+
+
+@pytest.fixture(scope="session")
 def catena_reale(tmp_path_factory):
-    """S0-S10 sul dataset completo, una volta sola per la sessione.
+    """S0-S11 sul dataset completo, una volta sola per la sessione.
 
     Serve ai test sui dati reali delle fasi da S4 in poi: ciascuna catena
     completa costa tre quarti d'ora, e condividerla fra i moduli evita di
-    ripeterla. Con fino_a si eseguono solo gli antenati di S10: S1 no.
+    ripeterla. Con fino_a si eseguono solo gli antenati di S11: S1 no.
     Salta senza ``AMPLICON16S_CONFIG_DATI_REALI``; in sola lettura.
     """
     import logging
@@ -377,4 +393,4 @@ def catena_reale(tmp_path_factory):
     dati["io"]["out_root"] = str(tmp_path_factory.mktemp("reale") / "out")
     logging.getLogger("amplicon16s").setLevel(logging.WARNING)
     run = ProjectRun(valida(dati))
-    return run, Esecutore(run, fino_a=Passo.S10).esegui()
+    return run, Esecutore(run, fino_a=Passo.S11).esegui()

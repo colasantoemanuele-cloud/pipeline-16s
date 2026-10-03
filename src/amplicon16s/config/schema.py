@@ -310,6 +310,10 @@ class Ctrl(_Gruppo):
     biological_values: ElencoNonVuoto = Field(
         default_factory=lambda: list(d.CTRL_BIOLOGICAL_VALUES)
     )
+    # Validazione della corsa dai controlli positivi (S11).
+    min_positives: InteroPositivo = d.CTRL_MIN_POSITIVES
+    min_positive_pass_frac: Frazione = d.CTRL_MIN_POSITIVE_PASS_FRAC
+    positive_gate: StrictBool = d.CTRL_POSITIVE_GATE
 
     @model_validator(mode="after")
     def _categorie_disgiunte(self) -> Ctrl:
@@ -336,8 +340,22 @@ class Ctrl(_Gruppo):
 class Katharoseq(_Gruppo):
     """Calibrazione KatharoSeq sui controlli positivi."""
 
-    # Derivato dal dataset di riferimento.
+    # Derivati dal dataset di riferimento.
     target_taxon: StringaNonVuota = d.KATHAROSEQ_TARGET_TAXON
+    # Colonna del file di arricchimento con le cellule di ciascun controllo
+    # positivo, il livello di diluizione; nome originale della colonna.
+    cell_count_column: StringaNonVuota = d.KATHAROSEQ_CELL_COUNT_COLUMN
+    collapse_rank: Literal["Phylum", "Class", "Order", "Family", "Genus"] = (
+        d.KATHAROSEQ_COLLAPSE_RANK
+    )
+    # Insiemi chiusi: vanno estesi quando un'altra forma viene realizzata.
+    curve_model: Literal["allosteric_sigmoid"] = d.KATHAROSEQ_CURVE_MODEL
+    # Strettamente fra 0 e 1: a fedelta' 1 la profondita' richiesta e' infinita.
+    target_sensitivity: Annotated[float, Field(gt=0.0, lt=1.0)] = (
+        d.KATHAROSEQ_TARGET_SENSITIVITY
+    )
+    min_r2: Frazione = d.KATHAROSEQ_MIN_R2
+    read_stage: Literal["nonchimeric"] = d.KATHAROSEQ_READ_STAGE
 
 
 class Decontam(_Gruppo):
@@ -365,6 +383,7 @@ class Qc(_Gruppo):
     """Soglie dei controlli di qualità che governano avvisi e arresti."""
 
     min_reads_raw: InteroNonNegativo = d.QC_MIN_READS_RAW
+    min_reads_mode: Literal["fixed", "katharoseq_if_available"] = d.QC_MIN_READS_MODE
     min_reads_filtered: InteroNonNegativo = d.QC_MIN_READS_FILTERED
     min_reads_final: InteroNonNegativo = d.QC_MIN_READS_FINAL
     max_asv_count: InteroPositivo = d.QC_MAX_ASV_COUNT

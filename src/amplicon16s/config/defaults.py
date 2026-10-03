@@ -93,6 +93,10 @@ PREV_APPLY: Final = True
 
 # qc: soglie dei controlli di qualità
 QC_MIN_READS_RAW: Final = 1000
+# Da dove viene la profondita' minima dei campioni: la soglia derivata dai
+# controlli positivi (S11) quando la curva e' attendibile, altrimenti
+# qc.min_reads_raw sulle letture grezze; "fixed" usa sempre il ripiego.
+QC_MIN_READS_MODE: Final = "katharoseq_if_available"
 QC_MIN_READS_FILTERED: Final = 500
 QC_MIN_READS_FINAL: Final = 1000
 QC_MAX_ASV_COUNT: Final = 300000
@@ -119,6 +123,28 @@ RETRY_MAX_ATTEMPTS: Final = 2
 # l'azione correttiva non modifica alcuna assunzione dell'analisi, e vale
 # quindi su qualunque dataset.
 RETRY_WHITELIST: Final = ("E-S2-03", "E-S3-01", "E-S4-02", "E-S5-01")
+
+# ctrl: validazione della corsa dai controlli positivi (S11)
+# Controlli valutabili minimi: per costruire una curva, e per giudicare la
+# conformita' dei controlli di un livello di concentrazione.
+CTRL_MIN_POSITIVES: Final = 3
+# Frazione minima di controlli positivi conformi alla loro concentrazione.
+CTRL_MIN_POSITIVE_PASS_FRAC: Final = 0.75
+# Se vero, una frazione di conformi sotto il minimo ferma l'esecuzione
+# (E-S11-03); se falso si prosegue con un avviso (E-S11-04).
+CTRL_POSITIVE_GATE: Final = False
+
+# katharoseq: la curva fedelta'-profondita' dei controlli positivi (S11)
+# Rango a cui si sommano le varianti del taxon atteso.
+KATHAROSEQ_COLLAPSE_RANK: Final = "Genus"
+KATHAROSEQ_CURVE_MODEL: Final = "allosteric_sigmoid"
+# Fedelta' a cui si legge la profondita' minima sulla curva.
+KATHAROSEQ_TARGET_SENSITIVITY: Final = 0.90
+# Bonta' minima dell'adattamento (R^2 sulla scala della fedelta').
+KATHAROSEQ_MIN_R2: Final = 0.80
+# Stadio delle letture su cui si misurano profondita' e fedelta', e a cui si
+# applica la soglia derivata.
+KATHAROSEQ_READ_STAGE: Final = "nonchimeric"
 
 # out: forma degli artefatti prodotti
 OUT_SERIALIZATION: Final = "rds"
@@ -203,6 +229,10 @@ QC_CONSERVED_MOTIF: Final = r"TAC[AG].AGG..GC.AGCGTT"
 # Taxon atteso nei controlli positivi, usato per la calibrazione KatharoSeq.
 KATHAROSEQ_TARGET_TAXON: Final = "Variovorax"
 
+# Colonna del file di arricchimento con le cellule seminate in ciascun
+# controllo positivo della serie di diluizione: e' il livello di diluizione.
+KATHAROSEQ_CELL_COUNT_COLUMN: Final = "katharoseq_cell_count"
+
 # Colonne dei metadati portate nell'oggetto integrato (S10) oltre a quelle
 # dell'inventario. Dalla tabella campioni di studio: se il campione e' stato in
 # volo, e come e' stato conservato. Dal file di arricchimento: identificativo
@@ -239,6 +269,7 @@ DERIVATI_DAL_DATASET: Final[tuple[str, ...]] = (
     "tax.ref_name",
     "tax.ref_version",
     "katharoseq.target_taxon",
+    "katharoseq.cell_count_column",
     "qc.primer_sequence",
     "qc.conserved_motif",
     "out.study_columns",

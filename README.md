@@ -174,7 +174,7 @@ Codici di uscita, per chi lancia la pipeline da uno script o da uno scheduler:
 | 2 | riga di comando non valida (argomenti mancanti o sconosciuti) |
 | 3 | errore di configurazione: il file non è valido, G15 lo respinge, oppure `run` trova la cartella di output già usata; nessuna fase è partita |
 | 4 | arresto con punto di ripresa dichiarato, stampato e scritto in `99_logs/punto_di_ripresa.json` e `.txt` |
-| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S10 |
+| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S11 |
 
 ## Stato dell'implementazione
 
@@ -237,7 +237,7 @@ Sono realizzati:
   manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
   in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
   lo stesso checksum fra due esecuzioni sugli stessi ingressi;
-- il catalogo degli errori (52 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (53 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -315,7 +315,9 @@ Sono realizzati:
   loro non entrano nella sua impronta, perché si ripetono comunque a ogni avvio.
   Cambiare una soglia di S6 rifà S6 e ciò che segue, non S0; cambiare il riferimento
   tassonomico rifà S8 e ciò che segue, perché il riferimento entra nell'impronta di S8
-  con `tax.ref_md5`. I parametri che non incidono sui
+  con `tax.ref_md5`. Del gruppo `ctrl` S0 dichiara le sole quattro chiavi che legge
+  (la colonna e le tre etichette delle classi): i parametri dei controlli positivi
+  sono di S11, e cambiarli rifà soltanto S11. I parametri che non incidono sui
   risultati, dichiarati in un solo elenco in `config/resolve.py` (`run.threads`,
   `run.keep_filtered_fastq`, `run.batch_size`, `io.out_root`, `retry.enabled`,
   `retry.max_attempts`), sono leggibili da ogni fase e non entrano in nessuna impronta: cambiarli, o spostare
@@ -327,10 +329,10 @@ Sono realizzati:
   fasi sono concluse, quali disattivate, quali da eseguire e quale è la prossima;
   dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
   una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
-  gigabyte, costa secondi (4,5 sul dataset di riferimento con S0-S8 e S10
-  concluse); delle quindici fasi oggi esistono come codice le prime nove, da S0 a S8,
-  e S10, e le altre risultano non realizzate (S9, la filogenesi, è disattivata per
-  difetto);
+  gigabyte, costa secondi (4,8 sul dataset di riferimento con S0-S8, S10 e S11
+  concluse); delle quindici fasi oggi esistono come codice undici, da S0 a S8,
+  S10 e S11, e le altre risultano non realizzate (S9, la filogenesi, è disattivata
+  per difetto);
 - **la versione del calcolo e la provenienza** (`runner/provenienza.py`). Ogni fase
   dichiara una versione, che entra nell'impronta: si incrementa quando cambia ciò che
   la fase calcola, e la ripresa rifà allora quella fase e le successive. Il registro
@@ -543,6 +545,45 @@ Sono realizzati:
   esecuzioni danno gli stessi byte, oggetto compreso. Sul dataset di riferimento S10
   impiega 6 secondi: 960 campioni, 12.045 varianti, 30.912.706 letture, oggetto di
   1,1 MB; ASV1 è un Pseudomonas, con 4.129.599 letture nei biologici;
+- **la fase S11, la validazione della corsa dai controlli positivi**
+  (`steps/s11_controls.py`, `R/11_controls.R`, `R/lib/katharoseq.R`), in
+  `11_controls/`, sull'oggetto di S10. Per ogni controllo positivo misura la
+  fedeltà, la frazione delle sue letture assegnate al taxon atteso
+  (`katharoseq.target_taxon`, sommando le varianti al rango
+  `katharoseq.collapse_rank`), e la lega alla profondità con la sigmoide allosterica
+  di KatharoSeq, f = x^h / (k' + x^h) con x = log10(profondità), stimata con `nls`
+  nella forma equivalente con k' = x50^h, da valori iniziali ricavati dai dati senza
+  numeri casuali. La bontà è R² = 1 − SS_res / SS_tot sulla scala della fedeltà, che
+  per un modello non lineare dice solo quanto la curva riduce l'errore rispetto alla
+  media. La profondità minima è quella a cui la curva raggiunge
+  `katharoseq.target_sensitivity` (0,90). Il livello di diluizione viene dai dati, la
+  colonna `katharoseq.cell_count_column` del file di arricchimento, non dai nomi dei
+  campioni. Si adattano la curva aggregata e una per piastra, e si sceglie il modello
+  con la bontà maggiore fra quelli ammissibili; una curva vale se ha almeno
+  `ctrl.min_positives` punti, R² non inferiore a `katharoseq.min_r2`, la soglia
+  dentro le profondità osservate e determinata dai dati: almeno un'osservazione deve
+  cadere fra il punto medio della curva, dove la fedeltà vale 1/2, e la soglia,
+  altrimenti la posizione della soglia verrebbe solo dalla forma del modello. La soglia è un artefatto, `soglia.json`, per
+  piastra, e ogni valore porta lo stadio a cui si applica: la soglia derivata sulle
+  letture dell'oggetto integrato (senza chimere, `katharoseq.read_stage`), il
+  ripiego `qc.min_reads_raw` sulle letture grezze. Una piastra senza curva valida
+  ripiega con `E-S11-02` e il motivo (bontà insufficiente, soglia non determinata,
+  controlli insufficienti, colonna dei livelli assente). Un controllo è conforme se fedeltà e profondità non
+  si discostano da quelle dei controlli dello stesso livello di concentrazione
+  nelle altre piastre (z modificato entro 3,5): ai livelli diluiti la fedeltà attesa
+  è bassa e i contaminanti non lo rendono non conforme. Sotto
+  `ctrl.min_positive_pass_frac` conformi la fase si ferma con `E-S11-03` se
+  `ctrl.positive_gate` è vero, altrimenti registra l'avviso `E-S11-04`; i non
+  conformi non entrano nella curva. `profondita_campioni.tsv` dice per ogni campione
+  se cadrebbe sotto la sua soglia, come misura: il filtro è di S13. Due esecuzioni
+  danno gli stessi byte. Sul dataset di riferimento S11 impiega 5 secondi: 74
+  controlli conformi su 80; il modello per piastra (R² complessivo 0,925) prevale
+  sull'aggregato (0,566), con soglie fra 6.376 e 41.968 letture nelle piastre 3-10.
+  Le piastre 1 e 2 ripiegano su 1.000 letture grezze: nella 1, dove un contaminante
+  cloroplastico gonfia la profondità dei controlli diluiti, la curva è un gradino in
+  un tratto senza osservazioni, fra 49.417 e 99.521 letture, e la soglia non è
+  determinata; nella 2 l'R² è 0,532. Sotto la propria soglia cadrebbero 308 campioni
+  biologici su 803;
 - il tracciamento delle letture (`runner/tracciamento.py`): ogni fase registra i propri
   passi in file suoi, `letture_<passo>.tsv`, e la tabella completa si ricompone
   leggendo quelli delle fasi concluse nell'ordine del grafo, senza che una fase
@@ -556,7 +597,7 @@ Sono realizzati:
   aggiustamenti applicati, degradazioni registrate. Non è il report definitivo, che
   non è ancora realizzato.
 
-Delle fasi di analisi sono realizzate quelle da S1 a S8 e S10; le altre, S9 e da S11
-a S14, non sono ancora realizzate.
+Delle fasi di analisi sono realizzate quelle da S1 a S8, S10 e S11; le altre, S9 e da
+S12 a S14, non sono ancora realizzate.
 
 Questa sezione viene aggiornata a ogni avanzamento del lavoro.

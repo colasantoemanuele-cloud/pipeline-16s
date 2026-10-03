@@ -178,12 +178,29 @@ ctrl:
     - Positive Control
   biological_values:                         # [OSD-734]
     - Surface swab
+  # Validazione della corsa dai controlli positivi (S11). Un controllo e'
+  # conforme se la sua fedelta' e la sua profondita' non si discostano da
+  # quelle degli altri controlli dello stesso livello di concentrazione.
+  min_positives: 3              # controlli minimi per una curva o per un livello
+  min_positive_pass_frac: 0.75  # frazione minima di controlli conformi
+  positive_gate: false          # true: sotto la frazione si ferma (E-S11-03);
+                                # false: si prosegue con un avviso (E-S11-04)
 
 # --------------------------------------------------------------------------- #
 # katharoseq: calibrazione sui controlli positivi                             #
 # --------------------------------------------------------------------------- #
 katharoseq:
   target_taxon: Variovorax          # [OSD-734] taxon atteso nei controlli positivi
+  # [OSD-734] colonna del file di arricchimento con le cellule di ciascun
+  # controllo positivo: il livello di diluizione. Senza, nessuna curva (E-S11-02).
+  cell_count_column: katharoseq_cell_count
+  collapse_rank: Genus              # rango a cui si somma il taxon atteso
+  # Fedelta' (frazione delle letture del controllo sul taxon atteso) in funzione
+  # di x = log10(profondita'): f = x^h / (k' + x^h), con k' = x50^h.
+  curve_model: allosteric_sigmoid
+  target_sensitivity: 0.90          # fedelta' a cui si legge la profondita' minima
+  min_r2: 0.80                      # bonta' minima: 1 - SS_res / SS_tot sulla fedelta'
+  read_stage: nonchimeric           # letture dell'oggetto integrato (dopo S7)
 
 # --------------------------------------------------------------------------- #
 # decontam: rimozione dei contaminanti a partire dai controlli negativi       #
@@ -208,7 +225,12 @@ prev:
 # warn_frac_chimeric non può superare stop_frac_chimeric: l'esecuzione si
 # fermerebbe prima di emettere l'avviso.
 qc:
+  # Ripiego della profondita' minima, sulle letture GREZZE: non e' confrontabile
+  # con la soglia derivata da S11, che si applica allo stadio katharoseq.read_stage.
   min_reads_raw: 1000
+  # katharoseq_if_available: la soglia di S11 se la curva e' attendibile,
+  # altrimenti min_reads_raw con E-S11-02; fixed: sempre min_reads_raw.
+  min_reads_mode: katharoseq_if_available
   min_reads_filtered: 500
   min_reads_final: 1000
   max_asv_count: 300000

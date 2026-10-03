@@ -240,7 +240,8 @@ GRAFO: Final = Grafo(
         ),
         Nodo(
             Passo.S11, "validazione dai controlli positivi", Fase.CONTROLS,
-            (Passo.S10,),
+            # S2 per le letture grezze, a cui si applica il ripiego.
+            (Passo.S2, Passo.S10),
         ),
         Nodo(
             Passo.S12, "decontaminazione", Fase.CONTROLS,

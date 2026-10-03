@@ -9,7 +9,7 @@
       "python/amplicon16s.metadata.models",
       "python/amplicon16s.steps.s00_validate"
     ],
-    "sorgente": "sha256:93d4ce78a9063d8717a9317cd2adb4856c6c2d290a9d70040cbf91f4a810e048",
+    "sorgente": "sha256:b51d3212f92bac96eaeb8d669d0375ee58552771756edc24ef0a8b6ed58a46f5",
     "versione": 1
   },
   "S1": {
@@ -33,6 +33,18 @@
       "python/amplicon16s.steps.s10_phyloseq"
     ],
     "sorgente": "sha256:8540a0d30b9126ecb909acfb94ce69dd059b0bd3067e69fbf837b2c8d481be09",
+    "versione": 1
+  },
+  "S11": {
+    "file": [
+      "R/11_controls.R",
+      "R/lib/errors.R",
+      "R/lib/io_json.R",
+      "R/lib/katharoseq.R",
+      "R/lib/letture.R",
+      "python/amplicon16s.steps.s11_controls"
+    ],
+    "sorgente": "sha256:ab722a964011bb3fe5c80e15b39a742f9d2b79dac698b17987ffc98e54803a39",
     "versione": 1
   },
   "S2": {

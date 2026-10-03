@@ -40,6 +40,9 @@ RIDOTTO: Final = RADICE / "ridotto"
 SINTETICO: Final = Path(__file__).resolve().parent / "fixtures" / "riferimento_sintetico"
 RIFERIMENTO: Final = SINTETICO / "riferimento.fa.gz"
 TAXA_DIFETTOSI: Final = SINTETICO / "taxa_difettosi.csv"
+#: Il genere che il riferimento sintetico assegna alla variante di Variovorax,
+#: il ceppo dei controlli positivi: la piu' abbondante della serie KatharoSeq.
+TAXON_SINTETICO: Final = "Genere_01"
 ESEMPIO: Final = Path(__file__).resolve().parents[1] / "config" / "config.example.yaml"
 
 
@@ -81,6 +84,9 @@ def dati_config(cartella: Path, **sovrascrivi: dict[str, Any]) -> dict[str, Any]
         ref_md5=hashlib.md5(RIFERIMENTO.read_bytes()).hexdigest(),
         ref_bad_taxa=str(TAXA_DIFETTOSI),
     )
+    # Nel riferimento sintetico la variante del ceppo dei controlli positivi
+    # (Variovorax su SILVA 138) ha la linea inventata del genere Genere_01.
+    dati["katharoseq"]["target_taxon"] = TAXON_SINTETICO
     dati["run"]["threads"] = 2
     for gruppo, valori in sovrascrivi.items():
         dati.setdefault(gruppo, {}).update(valori)

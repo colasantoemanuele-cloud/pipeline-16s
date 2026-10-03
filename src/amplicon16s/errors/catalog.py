@@ -510,18 +510,32 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "E-S11-02", "S11",
         "La soglia di profondita' derivata dai controlli positivi non e' "
         "attendibile.",
-        "Si prosegue usando qc.min_reads_final come soglia, e il ripiego viene "
-        "registrato in 11_controls. Per una soglia derivata, verifica che i "
-        "controlli positivi siano sufficienti e conformi.",
+        "Si prosegue con qc.min_reads_raw, che si applica alle letture grezze e "
+        "non a quelle senza chimere, e il motivo e' registrato in "
+        "11_controls/soglia.json, per piastra se la curva manca solo per alcune. "
+        "Per una soglia derivata servono la colonna katharoseq.cell_count_column, "
+        "almeno ctrl.min_positives controlli e una curva con bonta' non inferiore "
+        "a katharoseq.min_r2: le misure di ogni curva sono in curve.tsv.",
         _DEGRADA,
     ),
     _v(
         "E-S11-03", "S11",
         "I controlli positivi non sono conformi.",
-        "Verifica ctrl.positive_values e katharoseq.target_taxon: un controllo "
-        "positivo anomalo mette in dubbio l'intero lotto, quindi la decisione "
-        "di proseguire non puo' essere automatica.",
+        "Verifica ctrl.positive_values e katharoseq.target_taxon, poi i "
+        "controlli non conformi in 11_controls/positivi.tsv: un controllo "
+        "positivo anomalo per la sua concentrazione mette in dubbio l'intero "
+        "lotto, quindi la decisione di proseguire non puo' essere automatica.",
         _UMANA,
+    ),
+    _v(
+        "E-S11-04", "S11",
+        "I controlli positivi conformi alla loro concentrazione sono meno di "
+        "ctrl.min_positive_pass_frac.",
+        "L'esecuzione prosegue perche' ctrl.positive_gate e' falso; i controlli "
+        "non conformi e il motivo sono in 11_controls/positivi.tsv. Esaminali "
+        "prima di usare i risultati: se il problema e' sistematico, imposta "
+        "ctrl.positive_gate a true perche' fermi l'esecuzione (E-S11-03).",
+        _DEGRADA,
     ),
     # ---------------------------------------------------------------- S12 ---
     _v(

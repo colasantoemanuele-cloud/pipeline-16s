@@ -30,13 +30,13 @@ integrazione del progetto con output dettagliato (un test per riga), lanciare:
 
     pytest tests/ -v
 
-Totale complessivo della suite: 885 test su 21 moduli:
-  * 799 passed e 86 skipped in ambiente locale standard (R base + jsonlite, senza
-    Bioconductor e senza dati reali), in circa 40 secondi;
-  * 854 passed e 31 skipped nel container CI standard (senza dati reali
-    OSD-734), in circa 11 minuti: 29 test sui dati reali OSD-734, 1 test
+Totale complessivo della suite: 915 test su 22 moduli:
+  * 818 passed e 97 skipped in ambiente locale standard (R base + jsonlite, senza
+    Bioconductor e senza dati reali), in circa 50 secondi;
+  * 883 passed e 32 skipped nel container CI standard (senza dati reali
+    OSD-734), in circa 11 minuti: 30 test sui dati reali OSD-734, 1 test
     sull'allocazione R legata alla lingua e 1 test che richiede il repository .git;
-  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 29 test che li
+  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 30 test che li
     richiedono; i 2 salti strutturali, sulla lingua di R e sul repository .git,
     restano anche in questo scenario.
 
@@ -153,7 +153,7 @@ predisporre i seguenti 5 blocchi funzionali di file:
 
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W18)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W19)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -281,7 +281,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
 --------------------------------------------------------------------------------
 
-5.1 Catalogo centralizzato degli errori (52 codici catalogati)
+5.1 Catalogo centralizzato degli errori (53 codici catalogati)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   * SETTIMANA E FASE:
     Settimana W5 (esteso in W11 e W13), Fase F1/F4 (Tassonomia formale degli
@@ -291,8 +291,8 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     tests/test_w05_errors_catalog.py
 
   * COSA VALUTA:
-    Ispeziona sistematicamente tutti i 52 codici del catalogo ('CATALOGO': 37
-    codici di fase S0-S14 inclusi 'E-S1-02', 'E-S3-02' ed 'E-S10-02', 10 codici di
+    Ispeziona sistematicamente tutti i 53 codici del catalogo ('CATALOGO': 38
+    codici di fase S0-S14 inclusi 'E-S1-02', 'E-S3-02', 'E-S10-02' ed 'E-S11-04', 10 codici di
     configurazione G15, 4 codici del ponte verso R 'E-R-01..04' e 1 codice del
     grafo 'E-GRAFO-01'). Verifica che ogni codice appartenga a una delle 4
     categorie formali ('revisione_umana', 'retry', 'retry_poi_revisione',
@@ -301,13 +301,13 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     sottoclasse corretta di 'ErrorePipeline'. Verifica inoltre che la whitelist
     dei codici ripetibili ('AMMESSI_AL_RETRY') sia chiusa ermeticamente ai soli
     4 codici tecnici 'E-S2-03', 'E-S3-01', 'E-S4-02', 'E-S5-01' e che i restanti
-    48 codici non ammettano mai il retry.
+    49 codici non ammettano mai il retry.
 
   * COMANDO BASH:
     pytest tests/test_w05_errors_catalog.py -v
 
   * RISULTATO ATTESO:
-    292 passed in ~0.35s
+    297 passed in ~0.35s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
@@ -1104,6 +1104,59 @@ SETTIMANA 18 (W18) : FINO_A SUGLI ANTENATI, FASE S10 (OGGETTO INTEGRATO)
 
 
 --------------------------------------------------------------------------------
+SETTIMANA 19 (W19) : FASE S11 (VALIDAZIONE DELLA CORSA DAI CONTROLLI POSITIVI)
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W19, Fase F4 (Curva KatharoSeq, soglia di profondita' e
+    conformita' dei controlli positivi, S11 in '11_controls/').
+
+  * FILE DI TEST:
+    tests/test_w19_controlli.py
+
+  * COSA VALUTA:
+    Che lo schema porti i parametri di S11 con i valori del piano e che
+    cambiarli non tocchi l'impronta di S0 ne' di S10; che la sigmoide
+    allosterica di 'R/lib/katharoseq.R' ritrovi i parametri da cui sono
+    generati i punti, con la bonta' '1 - SS_res / SS_tot' sulla fedelta' e la
+    soglia dell'equazione dichiarata, e che una soglia in un tratto senza
+    osservazioni fra il punto medio della curva e la soglia (il gradino della
+    piastra 1 del dataset di riferimento) risulti non determinata; che la conformita' dipenda dal livello di
+    concentrazione (a bassa concentrazione i contaminanti non rendono un
+    controllo non conforme, un controllo con fedelta' bassa o profondita'
+    anomala per il suo livello si'; un livello con meno di 'ctrl.min_positives'
+    controlli non e' valutabile); che S11 sul sottoinsieme di prova adatti la
+    curva aggregata e quelle per piastra, motivi la scelta e scriva la soglia
+    per piastra con lo stadio delle letture a cui si applica, ripiegando con
+    'E-S11-02' dove la curva manca, con gli stessi byte in due esecuzioni; che
+    bonta' insufficiente, colonna dei livelli assente o controlli insufficienti
+    facciano ripiegare tutte le piastre con 'E-S11-02' e il motivo, e
+    'qc.min_reads_mode: fixed' senza degradazione; che su un oggetto costruito
+    controlli conformi alla concentrazione non facciano scattare nulla e una
+    piastra di controlli non conformi faccia scattare 'E-S11-03' con
+    'ctrl.positive_gate' vero e l'avviso 'E-S11-04' con falso; sul dataset
+    completo, soglia, curve e conformita'.
+
+  * COMANDO BASH:
+    pytest tests/test_w19_controlli.py -v
+
+  * RISULTATO ATTESO:
+    25 test (14 passed, 11 skipped in ~9s in ambiente locale privo di
+    Bioconductor; 24 passed, 1 skipped nel container CI; 25 passed nel
+    container con dati reali OSD-734)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. La soglia di profondita' e' un risultato dei controlli, non una scelta:
+       va scritta con lo stadio delle letture a cui si applica, perche' il
+       ripiego sulle letture grezze e la soglia sulle letture senza chimere
+       non sono confrontabili.
+    2. Ai livelli piu' diluiti della serie i contaminanti prevalgono per
+       costruzione: giudicare un controllo senza la sua concentrazione darebbe
+       un falso allarme proprio dove la curva prevede una fedelta' bassa.
+    3. Un ripiego non passa inosservato: il motivo resta negli artefatti e
+       nel manifesto.
+
+
+--------------------------------------------------------------------------------
 MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
 --------------------------------------------------------------------------------
   * SETTIMANA E FASE:
@@ -1112,7 +1165,7 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
     'src/amplicon16s/steps/base.py' e 'R/lib/errors.R'). Come 'conftest.py' e
     'sottoinsieme.py', non porta il prefisso di una singola settimana perché
     presidia il contratto di scoping dei parametri dell'intero grafo S0 - S14
-    (fasi realizzate da S0 a S8 e S10).
+    (fasi realizzate da S0 a S8, S10 e S11).
 
   * FILE DI TEST:
     tests/test_dipendenze_parametri.py
@@ -1170,7 +1223,7 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   ----------+---------------------------------------+------+-------------------------------------------------
   W1 - W2   | tests/test_w01_w02_import.py          |   10 | pytest tests/test_w01_w02_import.py -v
   W3 - W4   | tests/test_w03_w04_config_schema.py   |   88 | pytest tests/test_w03_w04_config_schema.py -v
-  W5        | tests/test_w05_errors_catalog.py      |  292 | pytest tests/test_w05_errors_catalog.py -v
+  W5        | tests/test_w05_errors_catalog.py      |  297 | pytest tests/test_w05_errors_catalog.py -v
   W5        | tests/test_w05_artifacts.py           |   25 | pytest tests/test_w05_artifacts.py -v
   W5        | tests/test_w05_logging.py             |   14 | pytest tests/test_w05_logging.py -v
   W6        | tests/test_w06_crosswalk.py           |   43 | pytest tests/test_w06_crosswalk.py -v
@@ -1188,7 +1241,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W16       | tests/test_w16_recupero.py            |    9 | pytest tests/test_w16_recupero.py -v
   W17       | tests/test_w17_tassonomia.py          |   21 | pytest tests/test_w17_tassonomia.py -v
   W18       | tests/test_w18_oggetto.py             |   30 | pytest tests/test_w18_oggetto.py -v
+  W19       | tests/test_w19_controlli.py           |   25 | pytest tests/test_w19_controlli.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (21 moduli)              |  885 | pytest tests/ -v
+  TOTALE    | Intera suite (22 moduli)              |  915 | pytest tests/ -v
 ================================================================================
