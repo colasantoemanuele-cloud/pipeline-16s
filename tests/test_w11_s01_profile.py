@@ -1,69 +1,75 @@
 r"""Suite di test per il sottoinsieme di prova OSD-734 e la Fase S1 (Profilo di qualità Phred e lunghezze).
 
-Inquadramento nel Piano Operativo:
-    - **Settimana di riferimento**: **Settimana 11 (W11: Fase F4, Fase S1:
-      Profilo di qualità Phred e subset di prova OSD-734)**.
-    - **Moduli sorgente coperti**:
-        * ``src/amplicon16s/steps/s01_profile.py``
-        * ``R/01_profile.R``
-        * ``scripts/build_test_subset.py``
-        * ``tests/sottoinsieme.py``
+1. Inquadramento nel Piano Operativo
+------------------------------------
+Settimana 11 (W11), Fase F4 (fase S1: profilo di qualita' Phred e delle
+lunghezze; sottoinsieme di prova OSD-734).
 
-Cosa valuta questo file:
-    1. **Integrità e rappresentatività del micro-dataset di test (28 campioni)**:
-       verifica che la selezione stratificata e la versione ridotta
-       (``tests/fixtures/osd734/ridotto/``, < 3 MB) conservino i 5 controlli
-       negativi per piastra richiesti da ``decontam.min_blanks``, gli 8 livelli
-       di diluizione dei controlli positivi, la lunghezza minima globale di
-       137 bp, i casi estremi di profondità (44 vs 228.431 letture) e il
-       tracciamento Git.
-    2. **Esecuzione di ``R/01_profile.R`` tramite ``rbridge`` e Fase S1**:
-       verifica la lettura integrale dei file FASTQ tramite Bioconductor
-       ``ShortRead``, la generazione in ``02_qc_profiles/`` dei profili per
-       campione e aggregati (``lunghezze.tsv``, ``qualita.tsv``,
-       ``letture_grezze.tsv``, ``riepilogo.json``) e la scrittura atomica di
-       ``manifest_S1.json``.
-    3. **Chiusura del limite di G09 e gestione dei troncamenti (137 bp vs 120 bp)**:
-       verifica l'assenza di scarto con ``truncLen = 137``, la registrazione
-       della degradazione ``E-S1-01`` in S1 (e non in S0) con ``truncLen = 120``
-       e l'arresto con ``E-S1-02`` quando ``truncLen`` supera il minimo vero
-       dell'intero file non intercettato dal campionamento ``qc.head_reads``.
-    4. **Riproducibilità dello script e validazione su scala reale (960 campioni)**:
-       verifica la ricostruzione deterministica bit-a-bit del subset ridotto e
-       l'esecuzione end-to-end di S1 sull'intero dataset NASA GeneLab OSD-734.
+2. Moduli sorgente coperti
+--------------------------
+* ``src/amplicon16s/steps/s01_profile.py``
+* ``R/01_profile.R``
+* ``scripts/build_test_subset.py``
+* ``tests/sottoinsieme.py``
 
-Comandi Bash e scenari di esecuzione:
-    1. Modalita locale standard (senza dati reali ne Bioconductor R):
+3. Cosa valuta questo file
+--------------------------
+1. **Integrità e rappresentatività del micro-dataset di test (28 campioni)**:
+   verifica che la selezione stratificata e la versione ridotta
+   (``tests/fixtures/osd734/ridotto/``, < 3 MB) conservino i 5 controlli
+   negativi per piastra richiesti da ``decontam.min_blanks``, gli 8 livelli
+   di diluizione dei controlli positivi, la lunghezza minima globale di
+   137 bp, i casi estremi di profondità (44 vs 228.431 letture) e il
+   tracciamento Git.
+2. **Esecuzione di ``R/01_profile.R`` tramite ``rbridge`` e Fase S1**:
+   verifica la lettura integrale dei file FASTQ tramite Bioconductor
+   ``ShortRead``, la generazione in ``02_qc_profiles/`` dei profili per
+   campione e aggregati (``lunghezze.tsv``, ``qualita.tsv``,
+   ``letture_grezze.tsv``, ``riepilogo.json``) e la scrittura atomica di
+   ``manifest_S1.json``.
+3. **Chiusura del limite di G09 e gestione dei troncamenti (137 bp vs 120 bp)**:
+   verifica l'assenza di scarto con ``truncLen = 137``, la registrazione
+   della degradazione ``E-S1-01`` in S1 (e non in S0) con ``truncLen = 120``
+   e l'arresto con ``E-S1-02`` quando ``truncLen`` supera il minimo vero
+   dell'intero file non intercettato dal campionamento ``qc.head_reads``.
+4. **Riproducibilità dello script e validazione su scala reale (960 campioni)**:
+   verifica la ricostruzione deterministica bit-a-bit del subset ridotto e
+   l'esecuzione end-to-end di S1 sull'intero dataset NASA GeneLab OSD-734.
+5. **Ripresa di S1**: alterato un suo artefatto, si rifa' soltanto S1, con gli
+   stessi byte.
+
+4. Comandi Bash e scenari di esecuzione
+---------------------------------------
+    ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
+    e' indicata in ``test.txt``, sezione 1.3.
+
+    1. Modalita' locale standard (senza dati reali ne' Bioconductor R):
        pytest tests/test_w11_s01_profile.py -v
-       Risultato atteso: 7 passed, 8 skipped in ~1.2s (7 test attendono
-       ShortRead/Biostrings, 1 test attende i dati completi).
 
-    2. Modalita locale con dati reali (senza Bioconductor R):
+    2. Modalita' locale con dati reali (senza Bioconductor R):
        AMPLICON16S_CONFIG_DATI_REALI=$HOME/ASI/config_osd734.yaml pytest tests/test_w11_s01_profile.py -v
-       Risultato atteso: 8 passed, 7 skipped in ~25s (test_lo_script... passa a verde).
 
-    3. Modalita container Docker standard (subset ridotto con Bioconductor):
+    3. Modalita' container Docker standard (sottoinsieme ridotto con Bioconductor):
        docker run --rm \
          -e PYTHONPATH=/app/src \
          -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
-         amplicon16s:dev \
+         <immagine> \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w11_s01_profile.py -v
-       Risultato atteso: 12 passed, 3 skipped in ~75s (i 7 test di calcolo R
-       passano; restano saltati i 2 test su dati reali e il controllo git).
 
-    4. Modalita container Docker completa (100% verde, inclusi 960 FASTQ reali):
+    4. Modalita' container Docker completa (con i 960 FASTQ reali):
        docker run --rm \
+         --memory=24g \
+         --memory-swap=24g \
          -e PYTHONPATH=/app/src \
          -e AMPLICON16S_R_DIR=/app/R \
-         -e AMPLICON16S_CONFIG_DATI_REALI=$HOME/ASI/config_osd734.yaml \
+         -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
          -v "$(pwd)":/app \
-         -v $HOME/ASI:$HOME/ASI \
+         -v "$HOME/ASI":"$HOME/ASI" \
          -w /app \
-         amplicon16s:dev \
+         <immagine> \
          bash -c "git config --global --add safe.directory /app && pytest -o cache_dir=/tmp/.pytest_cache tests/test_w11_s01_profile.py -v"
-       Risultato atteso: 15 passed in ~8 minuti (zero test saltati).
 
     Accorgimenti operativi per il container Docker:
     - Impostare '-e PYTHONPATH=/app/src' per caricare la versione corrente di amplicon16s.
@@ -71,20 +77,32 @@ Comandi Bash e scenari di esecuzione:
       al momento della costruzione, e senza la variabile non userebbe quelli montati.
     - Montare sia il repository ('-v $(pwd):/app') sia i dati reali ('-v $HOME/ASI:$HOME/ASI').
     - Usare '-o cache_dir=/tmp/.pytest_cache' per proteggere i permessi della cartella locale.
-    - Aggiungere 'safe.directory /app' in Git per abilitare il collaudo di test_i_fastq_di_prova_non_sono_ignorati_da_git.
+    - Aggiungere 'safe.directory /app' in Git per abilitare il collaudo di
+      test_i_fastq_di_prova_non_sono_ignorati_da_git, che altrimenti si salta.
 
-Razionale scientifico e sistemistico:
-    1. **Profilatura Phred e controllo esatto delle lunghezze a monte di DADA2**:
-       il Gate G09 in S0 ispeziona solo le prime ``qc.head_reads`` letture per
-       offrire una barriera rapida; S1 legge invece l'intero volume dei file
-       FASTQ tramite ``ShortRead``, garantendo che nessuna lettura più corta di
-       ``filter.truncLen`` sfugga al controllo prima del filtraggio e
-       dell'apprendimento parametrico degli errori di DADA2.
-    2. **Dataset miniaturizzato e portabile in CI**: il sottoinsieme di 28
-       campioni reali sottocampionati con seme fisso permette di eseguire i
-       calcoli R/Bioconductor in Continuous Integration in pochi secondi,
-       mantenendo intatte tutte le condizioni al contorno biologiche e
-       sperimentali di OSD-734.
+5. Risultato atteso
+-------------------
+16 test totali (16 funzioni di test):
+- modalita' 1: 7 passed, 9 skipped in ~1.2s (8 test attendono
+  ShortRead/Biostrings, 1 test attende i dati completi);
+- modalita' 2: 8 passed, 8 skipped in ~20s (test_lo_script... passa a verde);
+- modalita' 3: 13 passed, 3 skipped in ~2 minuti (restano saltati i 2 test sui
+  dati reali e il controllo git);
+- modalita' 4: 16 passed in ~10 minuti (zero test saltati).
+
+6. Razionale scientifico e sistemistico
+---------------------------------------
+1. **Profilatura Phred e controllo esatto delle lunghezze a monte di DADA2**:
+   il Gate G09 in S0 ispeziona solo le prime ``qc.head_reads`` letture per
+   offrire una barriera rapida; S1 legge invece l'intero volume dei file
+   FASTQ tramite ``ShortRead``, garantendo che nessuna lettura più corta di
+   ``filter.truncLen`` sfugga al controllo prima del filtraggio e
+   dell'apprendimento parametrico degli errori di DADA2.
+2. **Dataset miniaturizzato e portabile in CI**: il sottoinsieme di 28
+   campioni reali sottocampionati con seme fisso permette di eseguire i
+   calcoli R/Bioconductor in Continuous Integration in pochi secondi,
+   mantenendo intatte tutte le condizioni al contorno biologiche e
+   sperimentali di OSD-734.
 """
 
 from __future__ import annotations

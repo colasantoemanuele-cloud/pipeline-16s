@@ -29,7 +29,11 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
 - gestione del codice ``E-S3-02`` quando ``err.batch_column`` e' attivo ma un
   campione risulta privo di corsa associata.
 
-4. Comandi Bash e scenari di esecuzione:
+4. Comandi Bash e scenari di esecuzione
+---------------------------------------
+    ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
+    e' indicata in ``test.txt``, sezione 1.3.
+
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w13_s03_batch.py -v
        Risultato atteso: 19 test (12 passed in Python, 7 skipped per assenza
@@ -41,20 +45,22 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
          -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
-         amplicon16s:dev \
+         <immagine> \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w13_s03_batch.py -v
        Risultato atteso: 18 passed, 1 skipped in ~90s (resta saltato solo il
        test sui 960 file FASTQ reali).
 
     3. Modalita container Docker completa (100% verde con dati reali OSD-734):
        docker run --rm \
+         --memory=24g \
+         --memory-swap=24g \
          -e PYTHONPATH=/app/src \
          -e AMPLICON16S_R_DIR=/app/R \
          -e AMPLICON16S_CONFIG_DATI_REALI=$HOME/ASI/config_osd734.yaml \
          -v "$(pwd)":/app \
          -v $HOME/ASI:$HOME/ASI \
          -w /app \
-         amplicon16s:dev \
+         <immagine> \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w13_s03_batch.py -v
        Risultato atteso: 19 passed in ~15 minuti.
 

@@ -44,25 +44,44 @@ sequenza:
 Totale complessivo della suite: 957 test su 25 moduli:
   * 837 passed e 120 skipped in ambiente locale standard (R base + jsonlite, senza
     Bioconductor e senza dati reali), in circa 45 secondi;
-  * 914 passed e 43 skipped nel container CI standard (senza dati reali
-    OSD-734), in circa 9 minuti su quattro processi: 32 test sui dati reali
-    OSD-734, 1 test sull'allocazione R legata alla lingua, 1 test che richiede
-    il repository .git e i 9 test di dati/osd734/, cartella che l'immagine non
-    contiene;
+  * nel container CI standard (senza dati reali OSD-734), su quattro processi:
+    conteggio da aggiornare con l'esito della CI dopo la pubblicazione. L'ultima
+    misura, 914 passed e 34 skipped in circa 9 minuti (CI run 37231615718), e'
+    della suite di 948 test, prima di 'tests/test_w22_dati_osd734.py'; i salti
+    erano i 32 test sui dati reali OSD-734, 1 test sull'allocazione R legata
+    alla lingua e 1 test che richiede il repository .git;
   * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 32 test che li
-    richiedono, tutti sullo stesso processo: 946 passed e 2 skipped attesi
-    (misurati 945 e 2 in circa 85 minuti con la suite di 947 test, picco di
-    memoria del container 16 GB; il test aggiunto dopo non usa i dati reali);
-    i 2 salti
-    strutturali, sulla lingua di R e sul repository .git, restano anche in
-    questo scenario.
+    richiedono, tutti sullo stesso processo: conteggio da rimisurare con la
+    suite attuale. L'ultima misura, 945 passed e 2 skipped in circa 85 minuti
+    con picco di memoria del container di 16 GB, e' della suite di 947 test; i
+    2 salti strutturali, sulla lingua di R e sul repository .git, restano anche
+    in questo scenario.
 
 Per includere anche i test end-to-end sui 960 file FASTQ reali di OSD-734,
 impostare la variabile d'ambiente che punta al file di configurazione reale:
 
     AMPLICON16S_CONFIG_DATI_REALI=/percorso/a/config_osd734.yaml pytest tests/ -v
 
-1.3 Interpretazione degli esiti di Pytest
+1.3 Immagine del container
+--------------------------------------------------------------------------------
+Nei comandi delle intestazioni dei moduli di test, '<immagine>' sta per
+l'immagine del container della pipeline, costruita da 'container/Dockerfile'.
+Questo e' l'unico punto in cui e' indicata l'immagine corrente, da aggiornare a
+ogni ricostruzione:
+
+    immagine corrente: amplicon16s:w21
+
+Si costruisce dalla radice del repository con:
+
+    docker build -f container/Dockerfile -t amplicon16s:w21 .
+
+Con il repository montato su /app servono sempre '-e PYTHONPATH=/app/src' e
+'-e AMPLICON16S_R_DIR=/app/R': senza la seconda l'immagine esegue gli script R
+copiati quando e' stata costruita, non quelli del repository. Con i dati reali
+il container va limitato a '--memory=24g --memory-swap=24g', perche' un
+esaurimento della memoria fermi il container e non la macchina.
+
+1.4 Interpretazione degli esiti di Pytest
 --------------------------------------------------------------------------------
 Durante l'esecuzione con il flag verboso (-v), Pytest riporta per ciascuna
 funzione di test uno dei seguenti tre stati:
@@ -95,7 +114,7 @@ funzione di test uno dei seguenti tre stati:
     Pytest mostra l'asserzione fallita, i valori attesi rispetto a quelli
     ottenuti e la riga esatta del guasto.
 
-1.4 Nota metodologica su 'tests/conftest.py'
+1.5 Nota metodologica su 'tests/conftest.py'
 --------------------------------------------------------------------------------
 Il file 'tests/conftest.py' non contiene funzioni 'def test_*' e pertanto non
 si lancia autonomamente da riga di comando. Esso costituisce tuttavia il modulo
@@ -114,7 +133,7 @@ checksum MD5 e script eseguibili R. In questo modo ogni gate e ogni passo della
 pipeline vengono collaudati esercitando realmente il filesystem POSIX, il
 decompressore gzip e i sottoprocessi di sistema.
 
-1.5 Specifiche e inventario dei file per i test su dati reali (NASA GeneLab OSD-734)
+1.6 Specifiche e inventario dei file per i test su dati reali (NASA GeneLab OSD-734)
 --------------------------------------------------------------------------------
 Per garantire la piena riproducibilita deterministica dei test end-to-end su
 dati reali (attivati tramite la variabile d'ambiente
@@ -751,8 +770,9 @@ SETTIMANA 11 (W11) : FASE S1 (PROFILO DELLE LETTURE) E SOTTOINSIEME OSD-734
 
   * RISULTATO ATTESO:
     16 test (7 passed, 9 skipped in ~1.25s in ambiente locale privo di
-    Bioconductor ShortRead e dati reali; 15 passed, 1 skipped con container e
-    dati reali: resta saltato il controllo che richiede il repository .git)
+    Bioconductor ShortRead e dati reali; 13 passed, 3 skipped nel container
+    standard; 16 passed in ~10 minuti nel container con i dati reali e
+    'safe.directory' di git, come nella modalita' 4 dell'intestazione)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Chiusura del limite campionatorio di G09 ('E-S1-02'): il Gate G09 in S0
@@ -1308,8 +1328,12 @@ SETTIMANA 22 (W22) : DATI DI OSD-734 RECUPERABILI DAL REPOSITORY (dati/osd734/)
     pytest tests/test_w22_dati_osd734.py -v
 
   * RISULTATO ATTESO:
-    9 test (9 passed in ~1s in ambiente locale; 9 skipped nel container CI,
-    perche' l'immagine non contiene la cartella dati/)
+    9 test (9 passed in ~1s in ambiente locale; 8 passed e 1 skipped nel
+    container con il repository montato, dove git rifiuta la cartella di un
+    altro proprietario e il test su '.gitignore' si salta. Nell'immagine senza
+    il repository montato, come nella CI, la cartella dati/ manca e il modulo
+    si salta per intero: conteggio da aggiornare con l'esito della CI dopo la
+    pubblicazione)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Chi clona il repository deve poter riprodurre i risultati su OSD-734:

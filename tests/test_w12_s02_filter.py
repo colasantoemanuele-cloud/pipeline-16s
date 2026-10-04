@@ -30,7 +30,11 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S2:
 - ricomposizione non distruttiva del tracciamento delle letture
   (``letture_grezze.tsv``, ``letture_prefiltro.tsv``, ``letture_filtrate.tsv``).
 
-4. Comandi Bash e scenari di esecuzione:
+4. Comandi Bash e scenari di esecuzione
+---------------------------------------
+    ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
+    e' indicata in ``test.txt``, sezione 1.3.
+
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w12_s02_filter.py -v
        Risultato atteso: 25 test (18 passed in Python puro, 7 skipped
@@ -42,20 +46,22 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S2:
          -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
-         amplicon16s:dev \
+         <immagine> \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w12_s02_filter.py -v
        Risultato atteso: 24 passed, 1 skipped in ~40s (resta saltato solo il test
        sui 960 file FASTQ reali).
 
     3. Modalita container Docker completa (100% verde con dati reali OSD-734):
        docker run --rm \
+         --memory=24g \
+         --memory-swap=24g \
          -e PYTHONPATH=/app/src \
          -e AMPLICON16S_R_DIR=/app/R \
          -e AMPLICON16S_CONFIG_DATI_REALI=$HOME/ASI/config_osd734.yaml \
          -v "$(pwd)":/app \
          -v $HOME/ASI:$HOME/ASI \
          -w /app \
-         amplicon16s:dev \
+         <immagine> \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w12_s02_filter.py -v
        Risultato atteso: 25 passed in ~8 minuti.
 

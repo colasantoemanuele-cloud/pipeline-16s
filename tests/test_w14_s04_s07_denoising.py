@@ -41,6 +41,9 @@ S06 Rimozione delle chimere e S07 Filtro di lunghezza ASV in ``07_chimera/``).
 
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
+    ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
+    e' indicata in ``test.txt``, sezione 1.3.
+
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w14_s04_s07_denoising.py -v
        Risultato atteso: 16 test (4 passed in Python puro, 12 skipped per
@@ -52,20 +55,22 @@ S06 Rimozione delle chimere e S07 Filtro di lunghezza ASV in ``07_chimera/``).
          -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
-         amplicon16s:dev \
+         <immagine> \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w14_s04_s07_denoising.py -v
        Risultato atteso: 15 passed, 1 skipped in ~80s (resta saltato solo il
        test sui 960 campioni reali OSD-734).
 
     3. Modalita container Docker completa (con dati reali OSD-734):
        docker run --rm \
+         --memory=24g \
+         --memory-swap=24g \
          -e PYTHONPATH=/app/src \
          -e AMPLICON16S_R_DIR=/app/R \
          -e AMPLICON16S_CONFIG_DATI_REALI=$HOME/ASI/config_osd734.yaml \
          -v "$(pwd)":/app \
          -v $HOME/ASI:$HOME/ASI \
          -w /app \
-         amplicon16s:dev \
+         <immagine> \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w14_s04_s07_denoising.py -v
        Risultato atteso: 16 passed (100% verde).
 

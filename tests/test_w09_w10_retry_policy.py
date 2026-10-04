@@ -42,6 +42,9 @@ aggiustamenti correttivi, punto di ripresa e CLI ``run``, ``resume``,
 
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
+    ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
+    e' indicata in ``test.txt``, sezione 1.3.
+
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
        pytest tests/test_w09_w10_retry_policy.py -v
@@ -53,20 +56,22 @@ aggiustamenti correttivi, punto di ripresa e CLI ``run``, ``resume``,
          -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
-         amplicon16s:dev \
+         <immagine> \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w09_w10_retry_policy.py -v
 
     3. Modalità container Docker completa (con i 2.4 GB di dati reali OSD-734;
        la configurazione e i percorsi che contiene devono stare nella cartella
        montata):
        docker run --rm \
+         --memory=24g \
+         --memory-swap=24g \
          -e PYTHONPATH=/app/src \
          -e AMPLICON16S_R_DIR=/app/R \
          -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
          -v "$(pwd)":/app \
          -v "$HOME/ASI":"$HOME/ASI" \
          -w /app \
-         amplicon16s:dev \
+         <immagine> \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w09_w10_retry_policy.py -v
 
 5. Risultato atteso

@@ -29,6 +29,9 @@ funzionalita' nuova, si chiude il lavoro aperto sulle fasi gia' realizzate.
 
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
+    ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
+    e' indicata in ``test.txt``, sezione 1.3.
+
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w15_consolidamento.py -v
        Risultato atteso: 16 test (5 passed in Python puro, 11 skipped per
@@ -40,15 +43,24 @@ funzionalita' nuova, si chiude il lavoro aperto sulle fasi gia' realizzate.
          -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
-         amplicon16s:dev \
+         <immagine> \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w15_consolidamento.py -v
        Risultato atteso: 16 passed in ~4 minuti (le riprese rifanno sulla
        versione ridotta fino a sei fasi ciascuna).
 
-    3. Modalita container Docker completa (con dati reali OSD-734): come la
-       precedente, con ``-e AMPLICON16S_CONFIG_DATI_REALI=...`` e
-       ``-v $HOME/ASI:$HOME/ASI``. Nessun test del modulo legge i
-       dati reali: il risultato e' lo stesso, 16 passed.
+    3. Modalita container Docker completa (con dati reali OSD-734; nessun test
+       del modulo li legge, il risultato e' lo stesso: 16 passed):
+       docker run --rm \
+         --memory=24g \
+         --memory-swap=24g \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
+         -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
+         -v "$(pwd)":/app \
+         -v "$HOME/ASI":"$HOME/ASI" \
+         -w /app \
+         <immagine> \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w15_consolidamento.py -v
 
 5. Risultato atteso
 -------------------

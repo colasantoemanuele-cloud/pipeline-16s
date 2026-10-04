@@ -350,6 +350,8 @@ def ridotta_calcolata(tmp_path_factory):
         return None
 
     def calcola(cartella):
+        """S0-S3 e poi S1 sulla versione ridotta in ``cartella``: la coppia
+        (esecuzione, esito fino a S3) che :func:`_condivisa` mette in comune."""
         run = ProjectRun(config_ridotta(cartella))
         esito = Esecutore(run, fino_a=Passo.S3).esegui()
         Esecutore(run, fino_a=Passo.S1).esegui()
@@ -366,6 +368,8 @@ def _sopra(base, tmp_path_factory, nome, fino_a):
         return None
 
     def calcola(cartella):
+        """Copia ``base`` in ``cartella`` e prosegue fino a ``fino_a``: la coppia
+        (esecuzione, esito) che :func:`_condivisa` mette in comune."""
         run = copia_esecuzione(base, cartella)
         return run, Esecutore(run, fino_a=fino_a).esegui()
 
@@ -487,6 +491,9 @@ def catena_reale(tmp_path_factory):
     logging.getLogger("amplicon16s").setLevel(logging.WARNING)
 
     def calcola(cartella):
+        """La catena fino a S14 sul dataset completo, con gli artefatti in
+        ``cartella/out``: la coppia (esecuzione, esito) che :func:`_condivisa`
+        mette in comune."""
         dati = carica(Path(percorso).expanduser()).model_dump(mode="python")
         dati["io"]["out_root"] = str(cartella / "out")
         run = ProjectRun(valida(dati))

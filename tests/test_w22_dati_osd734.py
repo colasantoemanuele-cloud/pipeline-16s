@@ -28,25 +28,47 @@ dataset di riferimento recuperabili da un clone del repository).
 
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
+    ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
+    e' indicata in ``test.txt``, sezione 1.3.
+
     1. Modalità locale standard:
        pytest tests/test_w22_dati_osd734.py -v
 
-    2. Modalità container Docker standard: la cartella ``dati/`` non e' copiata
-       nell'immagine, quindi i test si saltano, salvo montare il repository:
+    2. Modalità container Docker standard (con il repository montato, che porta
+       la cartella ``dati/``: l'immagine non la contiene):
        docker run --rm \
          -e PYTHONPATH=/app/src \
          -e AMPLICON16S_R_DIR=/app/R \
          -v "$(pwd)":/app \
          -w /app \
-         amplicon16s:dev \
+         <immagine> \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w22_dati_osd734.py -v
 
-    3. Modalità container Docker completa: nessun test del modulo usa i dati
-       reali, che si verificano scaricandoli nella prima esecuzione completa.
+    3. Modalità container Docker completa (con i dati reali OSD-734; nessun test
+       del modulo li usa: i dati si verificano scaricandoli nella prima
+       esecuzione completa):
+       docker run --rm \
+         --memory=24g \
+         --memory-swap=24g \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
+         -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
+         -v "$(pwd)":/app \
+         -v "$HOME/ASI":"$HOME/ASI" \
+         -w /app \
+         <immagine> \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w22_dati_osd734.py -v
 
 5. Risultato atteso
 -------------------
-Vedi ``test.txt``, scheda W22.
+9 test totali (9 funzioni di test), in circa 1 s:
+- 9 passed in ambiente locale;
+- 8 passed, 1 skipped nel container con il repository montato (modalita' 2 e
+  3): git rifiuta un repository montato di un altro proprietario, e il test
+  su ``.gitignore`` si salta; 9 passed aggiungendo
+  ``git config --global --add safe.directory /app`` prima di pytest;
+- nell'immagine senza il repository montato, come nella CI, ``dati/`` manca e
+  il modulo si salta per intero: conteggio da confermare con l'esito della CI.
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -369,8 +391,12 @@ def test_i_dati_scaricati_sono_esclusi_da_git():
     **Razionale scientifico e sistemistico**: Gigabyte di letture o un file
     senza licenza di ridistribuzione non devono poter entrare in git per errore.
     """
-    if not (RADICE / ".git").exists():
-        pytest.skip("non e' un repository git")
+    dentro = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"],
+                            cwd=RADICE, capture_output=True, check=False)
+    if dentro.returncode != 0:
+        # Nell'immagine .git non c'e'; con il repository montato git lo rifiuta
+        # se il proprietario e' un altro utente (safe.directory).
+        pytest.skip("git non riconosce il repository")
     esclusi = ["dati/osd734/fastq/ERX1_A_ERR1.fastq.gz",
                "dati/osd734/riferimento/silva_nr99_v138_train_set.fa.gz",
                "dati/osd734/lotto/plate_well_map_960.tsv",

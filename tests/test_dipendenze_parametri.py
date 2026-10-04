@@ -1,83 +1,105 @@
-"""Suite di test per il contratto trasversale delle dipendenze di parametro (S0 - S14).
+r"""Suite di test per il contratto trasversale delle dipendenze di parametro (S0 - S14).
 
-Inquadramento nel Piano Operativo:
-    Modulo trasversale e infrastrutturale del DAG (Settimane W8 - W14, Fasi F3 e F4).
-    Presidia il contratto di scoping dei parametri dichiarati da ciascuna fase
-    della pipeline (fasi realizzate da S0 a S7 sull'intero grafo S0 - S14) e la
-    validita' selettiva dei manifesti di fase.
+1. Inquadramento nel Piano Operativo
+------------------------------------
+Modulo trasversale e infrastrutturale del DAG (Settimane W8 - W14, Fasi F3 e F4).
+Presidia il contratto di scoping dei parametri dichiarati da ciascuna fase
+della pipeline (fasi realizzate: da S0 a S14 tranne S9, la filogenesi
+opzionale) e la validita' selettiva dei manifesti di fase.
 
-Moduli sorgente coperti:
-    - src/amplicon16s/config/vista.py (VistaConfig, ParametroNonDichiarato,
-      risolta_ristretta, _VistaGruppo, _VistaDerivati)
-    - src/amplicon16s/config/resolve.py (ConfigRisolta.digest_parametri,
-      PARAMETRI_SENZA_EFFETTO, incluso run.batch_size)
-    - src/amplicon16s/steps/base.py (PipelineStep.__init_subclass__, validazione
-      statica dell'attributo di classe 'parametri' e impronta selettiva)
-    - R/lib/errors.R (classe S3 'parametri_dichiarati', operatori '$.parametri_dichiarati',
-      '[[.parametri_dichiarati' e funzione 'facoltativo')
-    - tests/r_doppioni/parametro_non_ricevuto.R
+2. Moduli sorgente coperti
+--------------------------
+- src/amplicon16s/config/vista.py (VistaConfig, ParametroNonDichiarato,
+  risolta_ristretta, _VistaGruppo, _VistaDerivati)
+- src/amplicon16s/config/resolve.py (ConfigRisolta.digest_parametri,
+  PARAMETRI_SENZA_EFFETTO, incluso run.batch_size)
+- src/amplicon16s/steps/base.py (PipelineStep.__init_subclass__, validazione
+  statica dell'attributo di classe 'parametri' e impronta selettiva)
+- R/lib/errors.R (classe S3 'parametri_dichiarati', operatori '$.parametri_dichiarati',
+  '[[.parametri_dichiarati' e funzione 'facoltativo')
+- tests/r_doppioni/parametro_non_ricevuto.R
 
-Cosa valuta questo file:
-    1. Validazione statica alla definizione della classe: una sottoclasse di
-       PipelineStep priva dell'attributo 'parametri', con una voce inesistente
-       nello schema o che dichiara un parametro operativo senza effetto
-       ('run.threads', 'io.out_root', 'run.batch_size') viene rifiutata
-       immediatamente con errore.
-    2. Isolamento a tempo di esecuzione in Python ('VistaConfig'): una fase vede
-       attraverso StepContext solo i gruppi e le chiavi che ha dichiarato (oltre
-       a 'PARAMETRI_SENZA_EFFETTO'); ogni lettura di parametri non dichiarati,
-       di derivati non ammessi o del digest/mappa globale solleva
-       'ParametroNonDichiarato' (sottoclasse di LookupError, non catturabile da
-       getattr(..., default) o hasattr).
-    3. Isolamento simmetrico negli script R ('parametri_dichiarati'): uno script R
-       che legge tramite '$' o '[[' un parametro non passato dalla fase Python
-       fallisce immediatamente invece di ricevere silenziosamente NULL.
-    4. Impronta selettiva e invalidazione mirata nel DAG (S0 - S7): cambiare un
-       parametro di una fase a valle (come 'filter.maxEE' in S2, 'err.nbases' in
-       S3, 'dada.omega_a' in S4, 'qc.max_asv_count' in S5, 'chimera.*' in S6 o
-       'asv.len_tol' in S7) invalida solo la fase interessata, mentre i parametri
-       operativi ('run.threads', 'run.keep_filtered_fastq', 'run.batch_size',
-       'io.out_root', 'retry.enabled', 'retry.max_attempts') non invalidano
-       nessuna fase.
+3. Cosa valuta questo file
+--------------------------
+1. Validazione statica alla definizione della classe: una sottoclasse di
+   PipelineStep priva dell'attributo 'parametri', con una voce inesistente
+   nello schema o che dichiara un parametro operativo senza effetto
+   ('run.threads', 'io.out_root', 'run.batch_size') viene rifiutata
+   immediatamente con errore; ogni fase realizzata dichiara i propri parametri.
+2. Isolamento a tempo di esecuzione in Python ('VistaConfig'): una fase vede
+   attraverso StepContext solo i gruppi e le chiavi che ha dichiarato (oltre
+   a 'PARAMETRI_SENZA_EFFETTO'); ogni lettura di parametri non dichiarati,
+   di derivati non ammessi o del digest/mappa globale solleva
+   'ParametroNonDichiarato' (sottoclasse di LookupError, non catturabile da
+   getattr(..., default) o hasattr).
+3. Isolamento simmetrico negli script R ('parametri_dichiarati'): uno script R
+   che legge tramite '$' o '[[' un parametro non passato dalla fase Python
+   fallisce immediatamente invece di ricevere silenziosamente NULL.
+4. Impronta selettiva e invalidazione mirata nel DAG: cambiare un parametro
+   di una fase a valle (come 'filter.maxEE' in S2, 'err.*' in S3,
+   'dada.omega_a' in S4, 'qc.max_asv_count' in S5, 'chimera.*' e le soglie
+   chimeriche in S6, 'asv.len_tol' in S7, 'decontam.threshold' in S12)
+   invalida solo la fase interessata; un parametro letto da un gate di S0
+   ('qc.min_motif_frac', 'err.batch_column') invalida S0; i parametri operativi
+   ('run.batch_size', 'retry.whitelist') non invalidano nessuna fase.
 
-Comandi Bash e scenari di esecuzione:
-    1. Modalita locale standard (con R base e jsonlite):
+4. Comandi Bash e scenari di esecuzione
+---------------------------------------
+    ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
+    e' indicata in ``test.txt``, sezione 1.3.
+
+    1. Modalita' locale standard (con R base e jsonlite):
        pytest tests/test_dipendenze_parametri.py -v
-       Risultato atteso: 24 test (24 passed se R e jsonlite sono presenti;
-       23 passed e 1 skipped se R/jsonlite non sono installati sull'host).
 
-    2. Modalita container Docker standard:
+    2. Modalita' container Docker standard:
        docker run --rm \
          -e PYTHONPATH=/app/src \
-         -v "$(pwd)":/app:ro \
-         --entrypoint pytest \
-         amplicon16s:dev \
-         tests/test_dipendenze_parametri.py -v
-       Risultato atteso: 24 passed.
+         -e AMPLICON16S_R_DIR=/app/R \
+         -v "$(pwd)":/app \
+         -w /app \
+         <immagine> \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_dipendenze_parametri.py -v
 
-Risultato atteso:
-    24 test totali (12 funzioni di test, di cui 3 parametrizzate):
-    24 passed in ambiente con R + jsonlite (~0.50s);
-    23 passed, 1 skipped in ambiente privo di R (~0.30s).
+    3. Modalita' container Docker completa (con i dati reali OSD-734; nessun test
+       del modulo li legge, il risultato e' lo stesso della modalita' standard):
+       docker run --rm \
+         --memory=24g \
+         --memory-swap=24g \
+         -e PYTHONPATH=/app/src \
+         -e AMPLICON16S_R_DIR=/app/R \
+         -e AMPLICON16S_CONFIG_DATI_REALI="$HOME/ASI/config_osd734.yaml" \
+         -v "$(pwd)":/app \
+         -v "$HOME/ASI":"$HOME/ASI" \
+         -w /app \
+         <immagine> \
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_dipendenze_parametri.py -v
 
-Razionale scientifico e sistemistico:
-    1. Prevenzione strutturale di risultati obsoleti silenziosi: in una pipeline
-       multi-step in cui il manifesto di ciascuna fase dipende solo dai propri
-       parametri dichiarati, dimenticare di dichiarare un parametro produrrebbe
-       artefatti non rigenerati al variare della configurazione. Rendi la
-       dichiarazione vincolante per costruzione ('VistaConfig' in Python e
-       'parametri_dichiarati' in R) trasforma ogni omissione in un errore
-       immediato al primo test che esercita la fase.
-    2. Ereditarieta' da LookupError anziche' AttributeError: in Python la
-       funzione built-in getattr(obj, nome, default) intercetta AttributeError
-       e restituisce il valore di fallback; derivando 'ParametroNonDichiarato'
-       da LookupError, nessun accesso indiretto puo' mascherare una lettura
-       non autorizzata.
-    3. Riduzione dei tempi di ricalcolo e di collaudo in container: poiche' S1
-       dichiara solo ('filter.truncLen', 'filter.truncLen_shortfall_warn') e S2
-       non dipende da 'err.*', i test e le riprese che variano parametri a valle
-       riutilizzano i profili e i filtrati gia' calcolati, riducendo la durata
-       del job containerizzato della CI da 6m27s a 4m40s.
+5. Risultato atteso
+-------------------
+24 test totali (12 funzioni di test, di cui 3 parametrizzate):
+- 24 passed in ambiente con R + jsonlite (~1.6s), nel container e con i dati
+  reali;
+- 23 passed, 1 skipped in ambiente privo di R o di jsonlite.
+
+6. Razionale scientifico e sistemistico
+---------------------------------------
+1. Prevenzione strutturale di risultati obsoleti silenziosi: in una pipeline
+   multi-step in cui il manifesto di ciascuna fase dipende solo dai propri
+   parametri dichiarati, dimenticare di dichiarare un parametro produrrebbe
+   artefatti non rigenerati al variare della configurazione. Rendi la
+   dichiarazione vincolante per costruzione ('VistaConfig' in Python e
+   'parametri_dichiarati' in R) trasforma ogni omissione in un errore
+   immediato al primo test che esercita la fase.
+2. Ereditarieta' da LookupError anziche' AttributeError: in Python la
+   funzione built-in getattr(obj, nome, default) intercetta AttributeError
+   e restituisce il valore di fallback; derivando 'ParametroNonDichiarato'
+   da LookupError, nessun accesso indiretto puo' mascherare una lettura
+   non autorizzata.
+3. Riduzione dei tempi di ricalcolo e di collaudo in container: poiche' S1
+   dichiara solo ('filter.truncLen', 'filter.truncLen_shortfall_warn') e S2
+   non dipende da 'err.*', i test e le riprese che variano parametri a valle
+   riutilizzano i profili e i filtrati gia' calcolati, riducendo la durata
+   del job containerizzato della CI da 6m27s a 4m40s.
 """
 
 from __future__ import annotations
