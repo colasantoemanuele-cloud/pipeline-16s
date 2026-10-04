@@ -541,9 +541,11 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S12-02", "S12",
         "I contaminanti individuati superano la quota attesa.",
-        "Esamina i controlli negativi e decontam.batch_column prima di "
-        "accettare il risultato: una quota anomala indica piu' spesso un "
-        "raggruppamento sbagliato che una contaminazione reale.",
+        "La modalita' dichiarata in decontam.mode rimuoverebbe dai campioni "
+        "biologici una frazione delle letture oltre qc.max_frac_contaminant: le "
+        "misure di entrambe le modalita' sono in 11_controls/decontam_riepilogo.json. Esamina i controlli negativi e "
+        "decontam.batch_column prima di accettare il risultato: una quota anomala "
+        "indica piu' spesso un raggruppamento sbagliato che una contaminazione reale.",
         _UMANA,
     ),
     # ---------------------------------------------------------------- S13 ---

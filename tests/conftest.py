@@ -258,6 +258,56 @@ def crea_scenario(
 import pytest  # noqa: E402
 
 
+def _condivisa(tmp_path_factory, nome, calcola):
+    """La coppia (esecuzione, esito) di una catena condivisa, calcolata una volta
+    sola per tutta la suite, anche con piu' processi (pytest-xdist).
+
+    ``calcola`` riceve la cartella in cui calcolare e restituisce la coppia, o
+    ``None``. In sequenza la si calcola qui. Con piu' processi la calcola il
+    primo che la chiede, in una cartella comune a tutti; gli altri ne attendono
+    la conclusione e ricostruiscono l'esecuzione dalla configurazione, con
+    l'esito scritto dal primo: senza, ogni processo rifarebbe la stessa catena
+    per i moduli che gli toccano (sul dataset completo, tre quarti d'ora per
+    processo). La catena resta in sola lettura, come in sequenza: i test che
+    devono modificarla ne usano una copia, e restano indipendenti fra loro.
+    """
+    import os
+    import pickle
+    import time
+
+    from amplicon16s.runner.project import ProjectRun
+
+    if os.environ.get("PYTEST_XDIST_WORKER") is None:
+        return calcola(tmp_path_factory.mktemp(nome))
+    comune = tmp_path_factory.getbasetemp().parent / "condivise"
+    comune.mkdir(exist_ok=True)
+    pronta = comune / f"{nome}.pickle"
+    guasta = comune / f"{nome}.guasta"
+    try:
+        os.close(os.open(comune / f"{nome}.blocco", os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        while not pronta.exists():
+            if guasta.exists():
+                raise RuntimeError(
+                    f"la catena condivisa {nome} e' fallita in un altro processo: "
+                    f"{guasta.read_text(encoding='utf-8')}"
+                ) from None
+            time.sleep(0.5)
+        valore = pickle.loads(pronta.read_bytes())
+        return None if valore is None else (ProjectRun(valore[0]), valore[1])
+    try:
+        risultato = calcola(comune / nome)
+    except BaseException as guasto:
+        guasta.write_text(repr(guasto), encoding="utf-8")
+        raise
+    provvisoria = comune / f"{nome}.provvisoria"
+    provvisoria.write_bytes(
+        pickle.dumps(None if risultato is None else (risultato[0].config, risultato[1]))
+    )
+    provvisoria.replace(pronta)
+    return risultato
+
+
 @pytest.fixture(scope="session")
 def ridotta_calcolata(tmp_path_factory):
     """S0-S3 sulla versione ridotta, con S1, una volta sola per l'intera sessione.
@@ -279,10 +329,28 @@ def ridotta_calcolata(tmp_path_factory):
 
     if motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "Biostrings", "jsonlite"):
         return None
-    run = ProjectRun(config_ridotta(tmp_path_factory.mktemp("ridotta")))
-    esito = Esecutore(run, fino_a=Passo.S3).esegui()
-    Esecutore(run, fino_a=Passo.S1).esegui()
-    return run, esito
+
+    def calcola(cartella):
+        run = ProjectRun(config_ridotta(cartella))
+        esito = Esecutore(run, fino_a=Passo.S3).esegui()
+        Esecutore(run, fino_a=Passo.S1).esegui()
+        return run, esito
+
+    return _condivisa(tmp_path_factory, "ridotta", calcola)
+
+
+def _sopra(base, tmp_path_factory, nome, fino_a):
+    """Una catena condivisa che prosegue fino a ``fino_a`` su una copia di ``base``."""
+    from amplicon16s.runner.executor import Esecutore
+
+    if base is None:
+        return None
+
+    def calcola(cartella):
+        run = copia_esecuzione(base, cartella)
+        return run, Esecutore(run, fino_a=fino_a).esegui()
+
+    return _condivisa(tmp_path_factory, nome, calcola)
 
 
 def copia_esecuzione(base, cartella, **sovrascrivi):
@@ -312,13 +380,9 @@ def catena_calcolata(ridotta_calcolata, tmp_path_factory):
     In sola lettura, come ``ridotta_calcolata``; ``None`` dove mancano R e
     Bioconductor.
     """
-    from amplicon16s.runner.executor import Esecutore
     from amplicon16s.runner.graph import Passo
 
-    if ridotta_calcolata is None:
-        return None
-    run = copia_esecuzione(ridotta_calcolata, tmp_path_factory.mktemp("catena"))
-    return run, Esecutore(run, fino_a=Passo.S7).esegui()
+    return _sopra(ridotta_calcolata, tmp_path_factory, "catena", Passo.S7)
 
 
 @pytest.fixture(scope="session")
@@ -328,13 +392,9 @@ def tassonomia_calcolata(catena_calcolata, tmp_path_factory):
     In sola lettura, come ``catena_calcolata``; ``None`` dove mancano R e
     Bioconductor.
     """
-    from amplicon16s.runner.executor import Esecutore
     from amplicon16s.runner.graph import Passo
 
-    if catena_calcolata is None:
-        return None
-    run = copia_esecuzione(catena_calcolata, tmp_path_factory.mktemp("tassonomia"))
-    return run, Esecutore(run, fino_a=Passo.S8).esegui()
+    return _sopra(catena_calcolata, tmp_path_factory, "tassonomia", Passo.S8)
 
 
 @pytest.fixture(scope="session")
@@ -344,13 +404,9 @@ def oggetto_calcolato(tassonomia_calcolata, tmp_path_factory):
     In sola lettura, come ``tassonomia_calcolata``; ``None`` dove mancano R e
     Bioconductor.
     """
-    from amplicon16s.runner.executor import Esecutore
     from amplicon16s.runner.graph import Passo
 
-    if tassonomia_calcolata is None:
-        return None
-    run = copia_esecuzione(tassonomia_calcolata, tmp_path_factory.mktemp("oggetto"))
-    return run, Esecutore(run, fino_a=Passo.S10).esegui()
+    return _sopra(tassonomia_calcolata, tmp_path_factory, "oggetto", Passo.S10)
 
 
 @pytest.fixture(scope="session")
@@ -360,22 +416,30 @@ def controlli_calcolati(oggetto_calcolato, tmp_path_factory):
     In sola lettura, come ``oggetto_calcolato``; ``None`` dove mancano R e
     Bioconductor.
     """
-    from amplicon16s.runner.executor import Esecutore
     from amplicon16s.runner.graph import Passo
 
-    if oggetto_calcolato is None:
-        return None
-    run = copia_esecuzione(oggetto_calcolato, tmp_path_factory.mktemp("controlli"))
-    return run, Esecutore(run, fino_a=Passo.S11).esegui()
+    return _sopra(oggetto_calcolato, tmp_path_factory, "controlli", Passo.S11)
+
+
+@pytest.fixture(scope="session")
+def decontam_calcolata(controlli_calcolati, tmp_path_factory):
+    """S12 sulla versione ridotta, sopra S0-S11, una volta per la sessione.
+
+    In sola lettura, come ``controlli_calcolati``; ``None`` dove mancano R e
+    Bioconductor.
+    """
+    from amplicon16s.runner.graph import Passo
+
+    return _sopra(controlli_calcolati, tmp_path_factory, "decontam", Passo.S12)
 
 
 @pytest.fixture(scope="session")
 def catena_reale(tmp_path_factory):
-    """S0-S11 sul dataset completo, una volta sola per la sessione.
+    """S0-S12 sul dataset completo, una volta sola per la sessione.
 
     Serve ai test sui dati reali delle fasi da S4 in poi: ciascuna catena
-    completa costa tre quarti d'ora, e condividerla fra i moduli evita di
-    ripeterla. Con fino_a si eseguono solo gli antenati di S11: S1 no.
+    completa costa tre quarti d'ora, e condividerla fra i moduli e fra i
+    processi evita di ripeterla. Con fino_a si eseguono solo gli antenati di S12: S1 no.
     Salta senza ``AMPLICON16S_CONFIG_DATI_REALI``; in sola lettura.
     """
     import logging
@@ -389,8 +453,12 @@ def catena_reale(tmp_path_factory):
     percorso = os.environ.get("AMPLICON16S_CONFIG_DATI_REALI")
     if not percorso or not Path(percorso).expanduser().is_file():
         pytest.skip("AMPLICON16S_CONFIG_DATI_REALI non impostata o file assente")
-    dati = carica(Path(percorso).expanduser()).model_dump(mode="python")
-    dati["io"]["out_root"] = str(tmp_path_factory.mktemp("reale") / "out")
     logging.getLogger("amplicon16s").setLevel(logging.WARNING)
-    run = ProjectRun(valida(dati))
-    return run, Esecutore(run, fino_a=Passo.S11).esegui()
+
+    def calcola(cartella):
+        dati = carica(Path(percorso).expanduser()).model_dump(mode="python")
+        dati["io"]["out_root"] = str(cartella / "out")
+        run = ProjectRun(valida(dati))
+        return run, Esecutore(run, fino_a=Passo.S12).esegui()
+
+    return _condivisa(tmp_path_factory, "reale", calcola)

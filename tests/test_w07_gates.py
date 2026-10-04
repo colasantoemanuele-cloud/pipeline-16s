@@ -849,7 +849,7 @@ def test_s0_registra_il_denominatore_di_prevalenza(tmp_path):
 
     **Razionale scientifico e sistemistico**: Sul dataset reale OSD-734 (960
     campioni totali), il filtro di prevalenza dell'1% in S13 deve essere
-    calcolato sui soli **803 campioni biologici** (escludendo i controlli
+    calcolato sui soli **770 campioni biologici** (escludendo i controlli
     positivi e negativi); questo test verifica l'esattezza della formula di
     conteggio registrata in ``inventario.json``.
     """

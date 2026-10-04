@@ -29,6 +29,10 @@ class MappaControlli:
 
     colonna: str
     per_etichetta: dict[str, ClasseCampione]
+    #: La regola di riclassificazione in controllo negativo: la colonna e i
+    #: valori normalizzati che la attivano; nessuna regola con l'insieme vuoto.
+    colonna_negativi: str | None = None
+    valori_negativi: frozenset[str] = frozenset()
 
     @classmethod
     def da_configurazione(cls, ctrl: Ctrl) -> MappaControlli:
@@ -46,7 +50,12 @@ class MappaControlli:
         ):
             for etichetta in etichette:
                 mappa[cls._normalizza(etichetta)] = classe
-        return cls(colonna=ctrl.column, per_etichetta=mappa)
+        return cls(
+            colonna=ctrl.column,
+            per_etichetta=mappa,
+            colonna_negativi=ctrl.blank_override_column,
+            valori_negativi=frozenset(cls._normalizza(v) for v in ctrl.blank_override_values),
+        )
 
     @staticmethod
     def _normalizza(valore: str) -> str:
@@ -64,6 +73,23 @@ class MappaControlli:
         if valore is None:
             return None
         return self.per_etichetta.get(self._normalizza(valore))
+
+    def riclassifica(
+        self, classe: ClasseCampione, riga: dict[str, str]
+    ) -> ClasseCampione:
+        """La classe dopo la regola di riclassificazione in controllo negativo.
+
+        ``riga`` e' la riga della tabella campioni di studio del campione. Se il
+        valore della colonna della regola e' fra quelli dichiarati, il campione
+        e' un controllo negativo qualunque sia il materiale: un tampone mai
+        aperto dichiarato come superficie non ha campionato alcuna superficie.
+        """
+        if self.colonna_negativi is None or not self.valori_negativi:
+            return classe
+        valore = riga.get(self.colonna_negativi)
+        if valore is not None and self._normalizza(valore) in self.valori_negativi:
+            return ClasseCampione.CONTROLLO_NEGATIVO
+        return classe
 
     @property
     def etichette(self) -> tuple[str, ...]:

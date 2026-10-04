@@ -52,7 +52,9 @@ pip install -e ".[dev]"
 `pip install -r requirements-dev.txt` (seguito da `pip install --no-deps -e .` per
 registrare il pacchetto in modalità modificabile). L'installazione rende disponibile il
 comando `amplicon16s`. La suite di test si esegue
-con `pytest`. I calcoli scientifici girano nell'immagine descritta qui sotto, che porta
+con `pytest`, su quattro processi con pytest-xdist (`addopts` in `pyproject.toml`), in
+locale come nella CI; `pytest -n 0` la esegue in sequenza. Le esecuzioni condivise
+del sottoinsieme di prova si calcolano una volta sola per tutti i processi. I calcoli scientifici girano nell'immagine descritta qui sotto, che porta
 con sé il proprio R. I test del ponte verso R lanciano invece script R veri, e chiedono
 solo `Rscript` nel PATH (o indicato con `AMPLICON16S_RSCRIPT`) e il pacchetto `jsonlite`;
 i test delle fasi di calcolo chiedono anche i pacchetti Bioconductor, e girano
@@ -174,7 +176,7 @@ Codici di uscita, per chi lancia la pipeline da uno script o da uno scheduler:
 | 2 | riga di comando non valida (argomenti mancanti o sconosciuti) |
 | 3 | errore di configurazione: il file non è valido, G15 lo respinge, oppure `run` trova la cartella di output già usata; nessuna fase è partita |
 | 4 | arresto con punto di ripresa dichiarato, stampato e scritto in `99_logs/punto_di_ripresa.json` e `.txt` |
-| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S11 |
+| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S12 |
 
 ## Stato dell'implementazione
 
@@ -205,7 +207,13 @@ Sono realizzati:
   più assay dello stesso studio. Un file facoltativo associa a ogni campione la
   piastra di estrazione, la corsa di sequenziamento e il modulo; anche quel file si
   aggancia per accession, e quando manca piastra e corsa restano nulle e la pipeline
-  procede in modalità a corsa singola;
+  procede in modalità a corsa singola. Una regola di configurazione
+  (`ctrl.blank_override_column` e `ctrl.blank_override_values`) tratta come controlli
+  negativi i campioni con un dato valore in una colonna della tabella campioni di
+  studio, qualunque sia il materiale dichiarato, che resta il valore originale
+  nell'inventario: in OSD-734 sono i 33 tamponi mai aperti ("Unopened 3DMM Swab Tube"),
+  dichiarati superfici ma senza alcuna superficie campionata, e i campioni diventano
+  770 biologici, 80 controlli positivi e 110 controlli negativi;
 - l'attribuzione del modulo, con una precedenza dichiarata: quando il file facoltativo
   fornisce la colonna del modulo, il modulo viene da lì con il nome originale;
   altrimenti si ricade sull'estrazione del prefisso della posizione tramite
@@ -315,9 +323,10 @@ Sono realizzati:
   loro non entrano nella sua impronta, perché si ripetono comunque a ogni avvio.
   Cambiare una soglia di S6 rifà S6 e ciò che segue, non S0; cambiare il riferimento
   tassonomico rifà S8 e ciò che segue, perché il riferimento entra nell'impronta di S8
-  con `tax.ref_md5`. Del gruppo `ctrl` S0 dichiara le sole quattro chiavi che legge
-  (la colonna e le tre etichette delle classi): i parametri dei controlli positivi
-  sono di S11, e cambiarli rifà soltanto S11. I parametri che non incidono sui
+  con `tax.ref_md5`. Del gruppo `ctrl` S0 dichiara le sole chiavi che legge (la
+  colonna, le tre etichette delle classi e la regola di riclassificazione in
+  controllo negativo): i parametri dei controlli positivi sono di S11, e cambiarli
+  rifà soltanto S11. I parametri che non incidono sui
   risultati, dichiarati in un solo elenco in `config/resolve.py` (`run.threads`,
   `run.keep_filtered_fastq`, `run.batch_size`, `io.out_root`, `retry.enabled`,
   `retry.max_attempts`), sono leggibili da ogni fase e non entrano in nessuna impronta: cambiarli, o spostare
@@ -329,9 +338,9 @@ Sono realizzati:
   fasi sono concluse, quali disattivate, quali da eseguire e quale è la prossima;
   dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
   una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
-  gigabyte, costa secondi (4,8 sul dataset di riferimento con S0-S8, S10 e S11
-  concluse); delle quindici fasi oggi esistono come codice undici, da S0 a S8,
-  S10 e S11, e le altre risultano non realizzate (S9, la filogenesi, è disattivata
+  gigabyte, costa secondi (4,6 sul dataset di riferimento con S0-S8 e S10-S12
+  concluse); delle quindici fasi oggi esistono come codice dodici, da S0 a S8 e
+  da S10 a S12, e le altre risultano non realizzate (S9, la filogenesi, è disattivata
   per difetto);
 - **la versione del calcolo e la provenienza** (`runner/provenienza.py`). Ogni fase
   dichiara una versione, che entra nell'impronta: si incrementa quando cambia ciò che
@@ -477,7 +486,7 @@ Sono realizzati:
   letture di biologici e positivi: E-S6-02 oltre `qc.warn_frac_chimeric` (0,25) si
   registra e si prosegue, E-S6-01 oltre `qc.stop_frac_chimeric` (0,50) ferma. Sul
   dataset di riferimento le letture chimeriche sono lo 0,44% nei biologici, lo 0,02%
-  nei positivi e lo 0,03% nei negativi, contro l'8,7% delle varianti nei biologici;
+  nei positivi e lo 0,04% nei negativi, contro l'8,8% delle varianti nei biologici;
 - **la fase S7, il filtro di lunghezza** (`steps/s07_asv_length.py`,
   `R/07_asv_length.R`), che tiene le varianti fra `asv.len_min` e `asv.len_max` e
   scrive la tabella delle varianti accanto a S6. Con letture troncate a lunghezza fissa
@@ -506,7 +515,7 @@ Sono realizzati:
   positivi la frazione di varianti con il phylum è sotto `qc.min_frac_phylum` (0,80).
   Sul dataset di riferimento S8 impiega circa 5 minuti con 12 thread. Il phylum è
   assegnato al 99,0% delle varianti dei biologici, al 99,1% di quelle dei controlli
-  positivi e al 99,5% di quelle dei negativi, con oltre il 99,9% delle letture in
+  positivi e al 99,4% di quelle dei negativi, con oltre il 99,9% delle letture in
   ogni classe. Le assegnazioni sui taxa col difetto noto riguardano 320 varianti e
   506.697 letture (1,6%), quasi tutte anaerobi dell'ordine
   Peptostreptococcales-Tissierellales (Anaerococcus, Finegoldia, Peptoniphilus). Nei
@@ -544,7 +553,7 @@ Sono realizzati:
   variante; `varianti.tsv` dà sequenza e letture di ogni identificativo. Due
   esecuzioni danno gli stessi byte, oggetto compreso. Sul dataset di riferimento S10
   impiega 6 secondi: 960 campioni, 12.045 varianti, 30.912.706 letture, oggetto di
-  1,1 MB; ASV1 è un Pseudomonas, con 4.129.599 letture nei biologici;
+  1,1 MB; ASV1 è un Pseudomonas, con 4.114.563 letture nei 770 biologici;
 - **la fase S11, la validazione della corsa dai controlli positivi**
   (`steps/s11_controls.py`, `R/11_controls.R`, `R/lib/katharoseq.R`), in
   `11_controls/`, sull'oggetto di S10. Per ogni controllo positivo misura la
@@ -582,22 +591,54 @@ Sono realizzati:
   Le piastre 1 e 2 ripiegano su 1.000 letture grezze: nella 1, dove un contaminante
   cloroplastico gonfia la profondità dei controlli diluiti, la curva è un gradino in
   un tratto senza osservazioni, fra 49.417 e 99.521 letture, e la soglia non è
-  determinata; nella 2 l'R² è 0,532. Sotto la propria soglia cadrebbero 308 campioni
-  biologici su 803;
+  determinata; nella 2 l'R² è 0,532. Sotto la propria soglia cadrebbero 278 campioni
+  biologici su 770;
+- **la fase S12, la decontaminazione dai controlli negativi** (`steps/s12_decontam.py`,
+  `R/12_decontam.R`, `R/lib/decontaminazione.R`), in `11_controls/` accanto a S11, con
+  i propri file del ponte e il proprio manifesto. Con `decontam::isContaminant` per
+  prevalenza (`decontam.method`; il metodo per frequenza richiede una concentrazione
+  del DNA che i metadati non hanno) confronta i controlli negativi con i campioni
+  biologici, secondo le classi dell'inventario; i controlli positivi restano fuori dal
+  confronto. Una variante è un contaminante se la probabilità è sotto
+  `decontam.threshold` (0,5, orientata alla sensibilità in bassa biomassa). Calcola
+  due modalità: aggregata, tutti i biologici contro tutti i negativi, e per piastra,
+  con le probabilità delle piastre combinate secondo `decontam.batch_combine`, il
+  `batch.combine` di decontam, dichiarato al suo predefinito `minimum`; una piastra
+  con meno di `decontam.min_blanks` negativi confronta i propri biologici con i
+  negativi di tutte le piastre. Quale delle due decide i contaminanti lo dichiara
+  `decontam.mode`, non l'esito; l'altra resta una diagnostica. Per OSD-734 è
+  l'aggregata: le piastre hanno pochi negativi, e il minimo di dieci probabilità
+  stimate ciascuna su così pochi negativi è permissivo per costruzione. Se la
+  modalità dichiarata rimuove dai biologici una frazione delle letture oltre
+  `qc.max_frac_contaminant` (0,40), `E-S12-02` ferma la fase. Il confronto numerico e
+  la frazione rimossa per classe sono in `decontam_riepilogo.json`; le probabilità e
+  le prevalenze di ogni variante in `decontam_varianti.tsv`, quelle di ogni piastra
+  in `decontam_per_piastra.tsv`, l'elenco dei contaminanti in
+  `decontam_contaminanti.tsv`. I contaminanti escono dall'oggetto in tutti i campioni,
+  `ps_decontaminato.rds`, e le altre varianti tengono il loro identificativo. Due
+  esecuzioni danno gli stessi byte. La precedenza su S13 è nel grafo: avviare il
+  filtro di prevalenza prima della decontaminazione solleva `E-S13-01`. Sul dataset di
+  riferimento, con i 110 controlli negativi (i tamponi mai aperti compresi), S12
+  impiega 34 secondi: l'aggregata trova 759 contaminanti, con il 4,9% delle letture
+  dei biologici, l'87,1% di quelle dei negativi e il 9,7% di quelle dei positivi; per
+  piastra, come diagnostica, sarebbero 1.138 e il 44,2% delle letture dei biologici.
+  Il contaminante cloroplastico dei negativi delle piastre 1 e 2 è identificato
+  nell'aggregata e, per piastra, nelle piastre 1 e 2; ASV1, un Pseudomonas con 4,1
+  milioni di letture nei biologici, non è un contaminante (probabilità 1);
 - il tracciamento delle letture (`runner/tracciamento.py`): ogni fase registra i propri
   passi in file suoi, `letture_<passo>.tsv`, e la tabella completa si ricompone
   leggendo quelli delle fasi concluse nell'ordine del grafo, senza che una fase
   modifichi mai un file di un'altra. Oggi i passi sono uno per fase: le letture
   grezze (S1), quelle in ingresso e in uscita dal filtro (S2), quelle attribuite a una
-  variante (S4), quelle nella tabella (S5), quelle senza chimere (S6) e quelle dopo il
-  filtro di lunghezza (S7);
+  variante (S4), quelle nella tabella (S5), quelle senza chimere (S6), quelle dopo il
+  filtro di lunghezza (S7) e quelle dopo la rimozione dei contaminanti (S12);
 - i quattro sottocomandi della riga di comando, descritti sopra, con i codici di
   uscita documentati. `report` produce oggi un **resoconto provvisorio** dello stato,
   ricavato dai manifesti delle fasi: fasi concluse, disattivate e da eseguire,
   aggiustamenti applicati, degradazioni registrate. Non è il report definitivo, che
   non è ancora realizzato.
 
-Delle fasi di analisi sono realizzate quelle da S1 a S8, S10 e S11; le altre, S9 e da
-S12 a S14, non sono ancora realizzate.
+Delle fasi di analisi sono realizzate quelle da S1 a S8 e da S10 a S12; le altre, S9,
+S13 e S14, non sono ancora realizzate.
 
 Questa sezione viene aggiornata a ogni avanzamento del lavoro.

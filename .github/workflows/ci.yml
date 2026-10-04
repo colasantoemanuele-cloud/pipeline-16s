@@ -64,6 +64,7 @@ jobs:
 
       # Con questa variabile i test che richiedono R falliscono invece di
       # saltarsi se R manca: un ambiente che lo ha perso non passa per verde.
+      # La suite gira su quattro processi (pytest-xdist, addopts in pyproject.toml).
       - name: Run test suite
         env:
           AMPLICON16S_RICHIEDI_R: "1"
@@ -87,7 +88,8 @@ jobs:
         run: docker build -f container/Dockerfile -t amplicon16s:ci .
 
       # Dentro l'immagine R e Bioconductor sono richiesti: se mancassero, i
-      # test che li usano fallirebbero invece di saltarsi.
+      # test che li usano fallirebbero invece di saltarsi. Quattro processi
+      # (pytest-xdist), come i processori del runner.
       - name: Run test suite in the image
         run: >
           docker run --rm

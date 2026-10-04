@@ -30,13 +30,21 @@ integrazione del progetto con output dettagliato (un test per riga), lanciare:
 
     pytest tests/ -v
 
-Totale complessivo della suite: 915 test su 22 moduli:
-  * 818 passed e 97 skipped in ambiente locale standard (R base + jsonlite, senza
-    Bioconductor e senza dati reali), in circa 50 secondi;
-  * 883 passed e 32 skipped nel container CI standard (senza dati reali
-    OSD-734), in circa 11 minuti: 30 test sui dati reali OSD-734, 1 test
+La suite gira su quattro processi con pytest-xdist (addopts in pyproject.toml,
+distribuzione dei singoli test, '--dist load'); le esecuzioni condivise del
+sottoinsieme di prova si calcolano una volta sola per tutti i processi. Per
+eseguirla in sequenza:
+
+    pytest tests/ -n 0
+
+Totale complessivo della suite: 929 test su 23 moduli:
+  * 822 passed e 107 skipped in ambiente locale standard (R base + jsonlite, senza
+    Bioconductor e senza dati reali), in circa 40 secondi;
+  * 896 passed e 33 skipped nel container CI standard (senza dati reali
+    OSD-734), in circa 8 minuti su quattro processi (15 in sequenza): 31 test
+    sui dati reali OSD-734, 1 test
     sull'allocazione R legata alla lingua e 1 test che richiede il repository .git;
-  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 30 test che li
+  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 31 test che li
     richiedono; i 2 salti strutturali, sulla lingua di R e sul repository .git,
     restano anche in questo scenario.
 
@@ -153,7 +161,7 @@ predisporre i seguenti 5 blocchi funzionali di file:
 
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W19)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W20)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -528,13 +536,14 @@ SETTIMANA 7 (W7) : I 15 GATE DI INGRESSO, FASE S0 E DATI REALI OSD-734
     Esegue il crosswalk e l'intera Fase S0 direttamente sui 960 file
     '.fastq.gz' reali di OSD-734 (2.4 GB compressi). Verifica i conteggi esatti
     dello studio: 960 campioni 16S totali estratti dalla Study Table di 1.056
-    righe, ripartiti esattamente in 803 campioni biologici, 80 controlli
-    positivi e 77 controlli negativi (somma controlli: 80 + 77 = 157),
+    righe, ripartiti esattamente in 770 campioni biologici, 80 controlli
+    positivi e 110 controlli negativi (77 dichiarati e 33 tamponi mai aperti
+    riclassificati dalla regola 'ctrl.blank_override_*'; somma controlli: 190),
     distribuiti su 10 piastre da 96 pozzetti (10 x 96 = 960 librerie) e 2 corse
     di sequenziamento Illumina MiSeq. Verifica inoltre la differenza di
     copertura dei moduli ISS con e senza file supplementare (9 moduli con
     Airlock 'A/L1' contro 8 moduli via regex), il denominatore del filtro di
-    prevalenza fissato a 803 (`prev.min_samples = ceil(0.01 * 803) = 9`) e il
+    prevalenza fissato a 770 (`prev.min_samples = ceil(0.01 * 770) = 8`) e il
     tempo complessivo di esecuzione di S0 inferiore a 30 secondi grazie al
     campionamento 'head_reads'.
 
@@ -548,10 +557,10 @@ SETTIMANA 7 (W7) : I 15 GATE DI INGRESSO, FASE S0 E DATI REALI OSD-734
     22 skipped se non è presente AMPLICON16S_CONFIG_DATI_REALI)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
-    1. Esclusione dei 157 controlli (80 positivi + 77 negativi) dal denominatore
-       di prevalenza: se il calcolo dell'1% di prevalenza usasse tutti i 960
-       file anziché i soli 803 campioni biologici, la soglia salirebbe da 9 a
-       10 campioni (`ceil(9.6)`), filtrando via taxa rari ma autenticamente
+    1. Esclusione dei 190 controlli (80 positivi + 110 negativi) dal
+       denominatore di prevalenza: se il calcolo dell'1% di prevalenza usasse
+       tutti i 960 file anziché i soli 770 campioni biologici, la soglia
+       salirebbe da 8 a 10 campioni (`ceil(9.6)`), filtrando via taxa rari ma autenticamente
        presenti nell'ecosistema della Stazione Spaziale Internazionale per
        colpa del numero di provette di controllo inserite dai tecnici di
        laboratorio.
@@ -1157,6 +1166,55 @@ SETTIMANA 19 (W19) : FASE S11 (VALIDAZIONE DELLA CORSA DAI CONTROLLI POSITIVI)
 
 
 --------------------------------------------------------------------------------
+SETTIMANA 20 (W20) : FASE S12 (DECONTAMINAZIONE DAI CONTROLLI NEGATIVI)
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W20, Fase F4 (Decontaminazione per prevalenza con decontam, S12 in
+    '11_controls/' accanto a S11).
+
+  * FILE DI TEST:
+    tests/test_w20_decontam.py
+
+  * COSA VALUTA:
+    Che la regola di riclassificazione di 'ctrl' renda controllo negativo un
+    tampone mai aperto dichiarato superficie, con il materiale originale, e
+    che entri nell'impronta di S0; che i parametri di S12 abbiano i valori
+    dichiarati, con 'decontam.batch_combine' al predefinito di decontam e
+    'decontam.mode' aggregata, e non tocchino
+    l'impronta di S0, S10 e S11; che la combinazione delle probabilita' delle
+    piastre segua le regole dichiarate e coincida con il 'batch.combine' di
+    decontam per 'minimum', 'product' e 'fisher'; su un oggetto costruito, che
+    un reagente presente nei negativi sia un contaminante e una variante dei
+    soli biologici no, che i controlli positivi non entrino nel confronto (le
+    probabilita' non cambiano qualunque cosa contengano), che una piastra con
+    meno di 'decontam.min_blanks' negativi si confronti con i negativi di tutte
+    le piastre, che la modalita' dichiarata decida i contaminanti rimossi e
+    che oltre 'qc.max_frac_contaminant' la fase si fermi con 'E-S12-02'; sul sottoinsieme di prova, il confronto
+    fra le modalita', la modalita' dichiarata, l'oggetto ripulito con gli
+    identificativi delle altre varianti invariati, il tracciamento e gli stessi
+    byte in due esecuzioni; che il filtro di prevalenza avviato prima della S12
+    vera fallisca con 'E-S13-01'; sul dataset completo, che ASV1 non sia
+    rimossa.
+
+  * COMANDO BASH:
+    pytest tests/test_w20_decontam.py -v
+
+  * RISULTATO ATTESO:
+    14 test (4 passed, 10 skipped in ~15s in ambiente locale privo di
+    Bioconductor; 13 passed, 1 skipped nel container CI; 14 passed nel
+    container con dati reali OSD-734)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. I controlli positivi contengono un organismo aggiunto e contaminanti di
+       reagente amplificati: nel confronto falserebbero la prevalenza.
+    2. Il minimo delle probabilita' di molte piastre con pochi negativi e' una
+       regola permissiva per costruzione: la modalita' si dichiara in
+       configurazione, non si sceglie dopo aver visto quanto rimuove.
+    3. La decontaminazione precede il filtro di prevalenza: i contaminanti da
+       reagente sono prevalenti per costruzione.
+
+
+--------------------------------------------------------------------------------
 MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
 --------------------------------------------------------------------------------
   * SETTIMANA E FASE:
@@ -1165,7 +1223,7 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
     'src/amplicon16s/steps/base.py' e 'R/lib/errors.R'). Come 'conftest.py' e
     'sottoinsieme.py', non porta il prefisso di una singola settimana perché
     presidia il contratto di scoping dei parametri dell'intero grafo S0 - S14
-    (fasi realizzate da S0 a S8, S10 e S11).
+    (fasi realizzate da S0 a S8 e da S10 a S12).
 
   * FILE DI TEST:
     tests/test_dipendenze_parametri.py
@@ -1242,7 +1300,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W17       | tests/test_w17_tassonomia.py          |   21 | pytest tests/test_w17_tassonomia.py -v
   W18       | tests/test_w18_oggetto.py             |   30 | pytest tests/test_w18_oggetto.py -v
   W19       | tests/test_w19_controlli.py           |   25 | pytest tests/test_w19_controlli.py -v
+  W20       | tests/test_w20_decontam.py            |   14 | pytest tests/test_w20_decontam.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (22 moduli)              |  915 | pytest tests/ -v
+  TOTALE    | Intera suite (23 moduli)              |  929 | pytest tests/ -v
 ================================================================================

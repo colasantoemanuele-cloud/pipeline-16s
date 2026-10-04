@@ -31,7 +31,7 @@ percorsi locali del dataset; senza, si saltano in modo pulito. File richiesti
 Proprietà verificate:
 
 - 960 accession univoci, nessun orfano fra file e metadati, un file per
-  campione; ripartizione in 803 biologici, 80 controlli positivi e 77
+  campione; ripartizione in 770 biologici, 80 controlli positivi e 110
   negativi, con il join ristretto che esclude il materiale di altri saggi;
 - dieci piastre da 96 pozzetti su due corse, lotti distinti per i campioni
   risequenziati, esecuzione completa anche senza arricchimento, nessun avviso
@@ -39,7 +39,7 @@ Proprietà verificate:
 - nove moduli con i nomi originali con l'arricchimento, otto senza (manca
   l'Airlock), e nessun'altra differenza fra le due modalità;
 - S0 supera tutti i gate in meno di 300 secondi, produce gli artefatti con
-  checksum e registra il denominatore di prevalenza sui soli 803 biologici;
+  checksum e registra il denominatore di prevalenza sui soli 770 biologici;
 - G10 passa anche sui controlli negativi, perché il motivo conservato non
   distingue segnale e contaminazione; G09 fallisce con un troncamento oltre il
   minimo osservato; nessuna lettura contiene il primer.
@@ -113,9 +113,9 @@ from amplicon16s.metadata.models import ClasseCampione
 VARIABILE = "AMPLICON16S_CONFIG_DATI_REALI"
 
 CAMPIONI_ATTESI = 960
-BIOLOGICI_ATTESI = 803
+BIOLOGICI_ATTESI = 770
 POSITIVI_ATTESI = 80
-NEGATIVI_ATTESI = 77
+NEGATIVI_ATTESI = 110
 
 pytestmark = pytest.mark.dati_reali
 
@@ -207,11 +207,12 @@ def test_ogni_campione_ha_il_proprio_file(inventario):
 def test_conteggi_delle_classi(inventario):
     """
     **Obiettivo**: Verificare che i 960 campioni di OSD-734 siano ripartiti
-    esattamente in 803 biologici, 80 controlli positivi e 77 controlli negativi.
+    esattamente in 770 biologici, 80 controlli positivi e 110 controlli negativi
+    (77 dichiarati e 33 tamponi mai aperti, riclassificati da ctrl.blank_override_*).
 
     **Razionale scientifico e sistemistico**: Fissa come invariante di regressione
     il censimento esatto delle classi di OSD-734 da cui dipendono il calcolo di
-    ``prev.min_samples`` (su 803 biologici), la calibrazione `KatharoSeq` (sui
+    ``prev.min_samples`` (su 770 biologici), la calibrazione `KatharoSeq` (sui
     controlli positivi) e la decontaminazione `decontam` (sui controlli negativi).
     """
     assert inventario.conteggi() == {
@@ -345,31 +346,39 @@ def test_senza_arricchimento_l_esecuzione_completa_lo_stesso(configurazione):
 
 def test_la_piastra_a_composizione_diversa_non_produce_avvisi(inventario, configurazione):
     """
-    **Obiettivo**: Verificare che l'unica piastra di OSD-734 avente meno di 8
-    controlli negativi (5 negativi e > 80 biologici contro gli 8 negativi delle
-    altre 9 piastre) venga accettata senza errori né falsi allarmi.
+    **Obiettivo**: Verificare che l'unica piastra di OSD-734 con meno di 8
+    controlli negativi dichiarati nei metadati (5 negativi e 83 biologici
+    dichiarati, la piastra 10) venga accettata senza errori né falsi allarmi, e
+    che con i tamponi mai aperti riclassificati ogni piastra abbia almeno
+    ``decontam.min_blanks`` controlli negativi: da 6 (piastra 10) a 14.
 
     **Razionale scientifico e sistemistico**: Documenta una caratteristica reale
-    del disegno sperimentale di OSD-734 (``Plate4_B``): poiché possiede 5
-    controlli negativi e la soglia metodologica ``decontam.min_blanks`` è fissata
-    a 5, la piastra dispone di potenza statistica sufficiente per `decontam`
-    senza richiedere il ripiego globale (`E-S0-15`).
+    del disegno sperimentale di OSD-734: la piastra 10 possiede 5 controlli
+    negativi dichiarati e la soglia metodologica ``decontam.min_blanks`` è
+    fissata a 5, quindi dispone di un confronto proprio anche senza la
+    riclassificazione. I negativi dichiarati si riconoscono dal materiale, che
+    la riclassificazione lascia intatto.
     """
     if configurazione.io.batch_table is None:
         pytest.skip("la configurazione non indica il file di arricchimento")
 
-    composizione = {}
+    dichiarati = {v.strip().casefold() for v in configurazione.ctrl.blank_values}
+    negativi_dichiarati: Counter = Counter()
+    negativi: Counter = Counter()
     for campione in inventario:
-        if campione.piastra:
-            composizione.setdefault(campione.piastra, Counter())[campione.classe] += 1
+        if not campione.piastra:
+            continue
+        if campione.materiale.strip().casefold() in dichiarati:
+            negativi_dichiarati[campione.piastra] += 1
+        if campione.classe is ClasseCampione.CONTROLLO_NEGATIVO:
+            negativi[campione.piastra] += 1
 
-    negativi = {p: c[ClasseCampione.CONTROLLO_NEGATIVO] for p, c in composizione.items()}
-    anomale = [p for p, n in negativi.items() if n != 8]
-    assert len(anomale) == 1, "una sola piastra ha una composizione diversa"
-
-    piastra = anomale[0]
-    assert negativi[piastra] < 8
-    assert composizione[piastra][ClasseCampione.BIOLOGICO] > 80
+    anomale = [p for p, n in negativi_dichiarati.items() if n != 8]
+    assert anomale == ["10"], "una sola piastra ha una composizione diversa"
+    assert negativi_dichiarati["10"] == 5
+    assert min(negativi.values()) >= configurazione.decontam.min_blanks
+    assert (min(negativi.values()), max(negativi.values())) == (6, 14)
+    assert sum(negativi.values()) == NEGATIVI_ATTESI
     assert len(inventario) == CAMPIONI_ATTESI
 
 
@@ -529,13 +538,13 @@ def test_s0_produce_gli_artefatti_con_checksum(risultato_s0, configurazione):
 def test_s0_registra_il_denominatore_di_prevalenza(risultato_s0):
     r"""
     **Obiettivo**: Verificare che ``01_input_validation/inventario.json``
-    registri ``campioni == 960`` e ``denominatore_prevalenza == 803``.
+    registri ``campioni == 960`` e ``denominatore_prevalenza == 770``.
 
     **Razionale scientifico e sistemistico**: Il filtro di prevalenza in S13
     (``prev.min_fraction = 0.01``) deve essere calcolato esclusivamente sugli
-    **803 campioni biologici** ($\lceil 0.01 \times 803 \rceil = 9$ campioni).
+    **770 campioni biologici** ($\lceil 0.01 \times 770 \rceil = 8$ campioni).
     Includere nel denominatore i 92 controlli negativi e i 65 controlli positivi
-    (usando 960 anziché 803) falserebbe la soglia ecologica di prevalenza.
+    (usando 960 anziché 770) falserebbe la soglia ecologica di prevalenza.
     """
     documento = json.loads(
         next(p for p in risultato_s0.artefatti if p.name == "inventario.json")

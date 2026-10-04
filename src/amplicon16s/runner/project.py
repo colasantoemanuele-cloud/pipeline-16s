@@ -63,6 +63,7 @@ from amplicon16s.steps.s07_asv_length import FiltroLunghezza
 from amplicon16s.steps.s08_taxonomy import AssegnazioneTassonomica
 from amplicon16s.steps.s10_phyloseq import AssemblaggioOggetto
 from amplicon16s.steps.s11_controls import ValidazioneControlli
+from amplicon16s.steps.s12_decontam import Decontaminazione
 
 __all__ = [
     "ProjectRun",
@@ -87,6 +88,7 @@ def passi_realizzati() -> dict[Passo, PipelineStep]:
         Passo.S8: AssegnazioneTassonomica(),
         Passo.S10: AssemblaggioOggetto(),
         Passo.S11: ValidazioneControlli(),
+        Passo.S12: Decontaminazione(),
     }
 
 

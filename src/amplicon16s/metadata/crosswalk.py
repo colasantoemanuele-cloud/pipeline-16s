@@ -307,6 +307,9 @@ def analizza(config: Config) -> Analisi:
         if classe is None:
             non_mappati[materiale].append(nome)
             continue
+        # La regola di riclassificazione cambia la classe, non il materiale,
+        # che resta il valore originale.
+        classe = mappa.riclassifica(classe, riga_studio)
 
         posizione = (
             _valore_o_assente(riga_studio.get(config.meta.module_column, ""))

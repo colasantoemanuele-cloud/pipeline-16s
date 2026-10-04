@@ -730,8 +730,9 @@ def test_la_configurazione_non_si_modifica_dopo_il_caricamento():
 # Gate G15 : coerenza interna della configurazione (W4)                        #
 # =========================================================================== #
 
-#: Numero esatto di campioni biologici del dataset di riferimento OSD-734 (su 960 totali).
-CAMPIONI_BIOLOGICI_OSD734 = 803
+#: Numero esatto di campioni biologici del dataset di riferimento OSD-734 (su 960
+#: totali), dopo la riclassificazione dei 33 tamponi mai aperti in controlli negativi.
+CAMPIONI_BIOLOGICI_OSD734 = 770
 
 
 def _viola(dati_esempio: dict, modifica) -> ErroreGate:
@@ -960,18 +961,18 @@ def test_min_samples_non_e_noto_prima_dei_metadati(dati_esempio):
 def test_min_samples_calcolato_quando_il_dato_diventa_disponibile(dati_esempio):
     r"""
     **Obiettivo**: Verificare che fornendo il conteggio dei campioni biologici di
-    OSD-734 (``803``) a ``con_campioni_biologici(803)``, ``prev_min_samples``
-    diventi ``9`` (``ceil(0.01 * 803)``) e ``completa`` passi a ``True``.
+    OSD-734 (``770``) a ``con_campioni_biologici(770)``, ``prev_min_samples``
+    diventi ``8`` (``ceil(0.01 * 770)``) e ``completa`` passi a ``True``.
 
     **Razionale scientifico e sistemistico**: Certifica il valore esatto della
     soglia di prevalenza applicata in S13 sul dataset reale OSD-734: una variante
-    ASV deve comparire in almeno 9 campioni biologici su 803 ($\ge 1\%$) per
+    ASV deve comparire in almeno 8 campioni biologici su 770 ($\ge 1\%$) per
     superare il filtro di prevalenza.
     """
     completa = esegui_g15(dati_esempio).con_campioni_biologici(
         CAMPIONI_BIOLOGICI_OSD734
     )
-    assert completa.derivati.prev_min_samples == 9
+    assert completa.derivati.prev_min_samples == 8
     assert completa.completa
 
 
@@ -1171,7 +1172,7 @@ def test_resolved_viene_scritto_con_il_digest(dati_esempio, tmp_path):
 def test_resolved_contiene_i_parametri_derivati(dati_esempio, tmp_path):
     """
     **Obiettivo**: Verificare che ``00_config/resolved.yaml`` contenga sia i
-    valori calcolati dei 4 parametri derivati (``137``, ``137``, ``137``, ``9``)
+    valori calcolati dei 4 parametri derivati (``137``, ``137``, ``137``, ``8``)
     dentro ``parametri``, sia la mappa separata ``derivati``.
 
     **Razionale scientifico e sistemistico**: Consente a chi ispeziona
@@ -1189,7 +1190,7 @@ def test_resolved_contiene_i_parametri_derivati(dati_esempio, tmp_path):
     assert parametri["filter"]["minLen"] == 137
     assert parametri["asv"]["len_min"] == 137
     assert parametri["asv"]["len_max"] == 137
-    assert parametri["prev"]["min_samples"] == 9
+    assert parametri["prev"]["min_samples"] == 8
     assert set(documento["derivati"]) == set(PARAMETRI_DERIVATI)
 
 

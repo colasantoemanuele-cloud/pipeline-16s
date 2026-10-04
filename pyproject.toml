@@ -34,7 +34,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest==9.1.1"]
+# pytest-xdist esegue la suite su quattro processi (addopts qui sotto); execnet
+# e' la sua dipendenza, bloccata anch'essa.
+dev = ["pytest==9.1.1", "pytest-xdist==3.8.0", "execnet==2.1.2"]
 
 [project.scripts]
 amplicon16s = "amplicon16s.cli:main"
@@ -54,7 +56,11 @@ amplicon16s = ["steps/registro_sorgente.json"]
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-addopts = "-ra"
+# Quattro processi, come i processori del runner della CI, con i test distribuiti
+# uno per uno (load): i moduli lunghi non restano su un solo processo. Le catene
+# condivise del sottoinsieme di prova si calcolano una volta sola per tutti i
+# processi (tests/conftest.py). Con -n 0 la suite gira in sequenza.
+addopts = "-ra -n 4 --dist load"
 markers = [
     "dati_reali: richiede il dataset di riferimento sul filesystem; si salta quando non c'e'",
 ]

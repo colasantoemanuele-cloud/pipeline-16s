@@ -178,6 +178,15 @@ ctrl:
     - Positive Control
   biological_values:                         # [OSD-734]
     - Surface swab
+  # Campioni trattati come controlli negativi qualunque sia il materiale
+  # dichiarato, riconosciuti dal valore di una colonna della tabella campioni di
+  # studio. Il materiale resta quello originale nei metadati. In OSD-734 i
+  # tamponi mai aperti sono dichiarati "Surface swab" ma non hanno campionato
+  # alcuna superficie: bassa biomassa, composizione da reagente. Elenco vuoto:
+  # nessuna riclassificazione.
+  blank_override_column: "Factor Value[Sample Location]"   # [OSD-734]
+  blank_override_values:                                  # [OSD-734]
+    - Unopened 3DMM Swab Tube
   # Validazione della corsa dai controlli positivi (S11). Un controllo e'
   # conforme se la sua fedelta' e la sua profondita' non si discostano da
   # quelle degli altri controlli dello stesso livello di concentrazione.
@@ -206,10 +215,25 @@ katharoseq:
 # decontam: rimozione dei contaminanti a partire dai controlli negativi       #
 # --------------------------------------------------------------------------- #
 decontam:
+  # Per prevalenza nei controlli negativi: il metodo per frequenza richiede una
+  # misura di concentrazione del DNA che i metadati non hanno.
   method: prevalence                # vocabolario di decontam::isContaminant
+  # 0.5 e non 0.1: in bassa biomassa la contaminazione da reagente puo' essere
+  # una quota rilevante del segnale, e la soglia e' orientata alla sensibilita'.
   threshold: 0.5
+  # Negativi minimi perche' una piastra abbia un confronto proprio; con meno, i
+  # suoi campioni si confrontano con i negativi di tutte le piastre.
   min_blanks: 5
   batch_column: extraction_plate_num  # [OSD-734] colonna della piastra di estrazione
+  # Combinazione delle probabilita' delle piastre (batch.combine di decontam;
+  # il predefinito di decontam 1.28.0 e' minimum).
+  batch_combine: minimum
+  # Modalita' della decontaminazione: aggregate (tutti i biologici contro tutti
+  # i negativi) o batch (per piastra, combinata con batch_combine). [OSD-734]
+  # aggregate: le piastre hanno 5-8 negativi, e il minimo di dieci probabilita'
+  # stimate ciascuna su cosi' pochi negativi e' permissivo per costruzione. La
+  # modalita' non dichiarata si calcola comunque, come diagnostica.
+  mode: aggregate
 
 # --------------------------------------------------------------------------- #
 # prev: filtro di prevalenza sulle varianti                                   #
@@ -231,6 +255,9 @@ qc:
   # katharoseq_if_available: la soglia di S11 se la curva e' attendibile,
   # altrimenti min_reads_raw con E-S11-02; fixed: sempre min_reads_raw.
   min_reads_mode: katharoseq_if_available
+  # Frazione massima delle letture dei campioni biologici che la decontaminazione
+  # puo' rimuovere: oltre, la modalita' non e' plausibile (S12, E-S12-02).
+  max_frac_contaminant: 0.40
   min_reads_filtered: 500
   min_reads_final: 1000
   max_asv_count: 300000

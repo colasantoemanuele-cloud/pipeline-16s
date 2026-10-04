@@ -251,7 +251,7 @@ def test_una_fase_senza_dichiarazione_valida_non_si_registra(tmp_path, parametri
 
 def test_ogni_fase_realizzata_dichiara_i_propri_parametri(tmp_path):
     """
-    **Obiettivo**: Verificare che le fasi realizzate, da S0 a S8, S10 e S11,
+    **Obiettivo**: Verificare che le fasi realizzate, da S0 a S8 e da S10 a S12,
     dichiarino i propri parametri e che la registrazione le accetti.
 
     **Razionale scientifico e sistemistico**: E' la condizione perche' la loro
@@ -260,7 +260,7 @@ def test_ogni_fase_realizzata_dichiara_i_propri_parametri(tmp_path):
     passi = passi_realizzati()
     assert set(passi) == {
         Passo.S0, Passo.S1, Passo.S2, Passo.S3, Passo.S4, Passo.S5, Passo.S6, Passo.S7,
-        Passo.S8, Passo.S10, Passo.S11,
+        Passo.S8, Passo.S10, Passo.S11, Passo.S12,
     }
     assert all(f.parametri for f in passi.values())
     ProjectRun(config_ridotta(tmp_path))
@@ -371,7 +371,7 @@ def test_run_batch_size_non_invalida_nessuna_fase(tmp_path):
         ("qc", {"warn_frac_chimeric": 0.3}, {Passo.S6}),
         ("qc", {"stop_frac_chimeric": 0.6}, {Passo.S6}),
         ("asv", {"len_tol": 2}, {Passo.S7}),
-        ("decontam", {"threshold": 0.4}, set()),
+        ("decontam", {"threshold": 0.4}, {Passo.S12}),
         ("retry", {"whitelist": ["E-S2-03"]}, set()),
         ("qc", {"min_motif_frac": 0.1}, {Passo.S0}),
     ],
@@ -387,8 +387,9 @@ def test_i_parametri_invalidano_solo_le_fasi_che_li_usano(tmp_path, sezione, var
     configurazione delle sole fasi che lo usano per produrre risultati. Un
     parametro che S0 legge solo per G15 (``asv.len_tol``,
     ``decontam.threshold``, ``retry.whitelist``, le soglie chimeriche) non
-    entra nella sua impronta; uno che legge un gate di S0 (``qc.min_motif_frac``
-    per G10) si'.
+    entra nella sua impronta, ma in quella della fase che lo usa
+    (``decontam.threshold`` in S12); uno che legge un gate di S0
+    (``qc.min_motif_frac`` per G10) si'.
 
     **Razionale scientifico e sistemistico**: Una soglia sulle chimere non deve
     far rifare S0 e con lei la catena intera, S4 compresa (25 minuti sul

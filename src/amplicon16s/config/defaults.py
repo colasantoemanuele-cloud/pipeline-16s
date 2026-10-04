@@ -85,6 +85,11 @@ PHYLO_MAX_SEQS: Final = 5000
 DECONTAM_METHOD: Final = "prevalence"
 DECONTAM_THRESHOLD: Final = 0.5
 DECONTAM_MIN_BLANKS: Final = 5
+# Come si combinano le probabilita' delle piastre nella decontaminazione per
+# piastra: e' il batch.combine di decontam::isContaminant, il cui predefinito
+# (decontam 1.28.0) e' "minimum". Dichiararlo evita di dipendere da un
+# predefinito che una versione nuova potrebbe cambiare.
+DECONTAM_BATCH_COMBINE: Final = "minimum"
 
 # prev: filtro di prevalenza
 PREV_MIN_FRACTION: Final = 0.01
@@ -93,6 +98,9 @@ PREV_APPLY: Final = True
 
 # qc: soglie dei controlli di qualità
 QC_MIN_READS_RAW: Final = 1000
+# Frazione massima delle letture dei campioni biologici che la decontaminazione
+# puo' rimuovere (S12, E-S12-02).
+QC_MAX_FRAC_CONTAMINANT: Final = 0.40
 # Da dove viene la profondita' minima dei campioni: la soglia derivata dai
 # controlli positivi (S11) quando la curva e' attendibile, altrimenti
 # qc.min_reads_raw sulle letture grezze; "fixed" usa sempre il ripiego.
@@ -202,11 +210,25 @@ ERR_BATCH_COLUMN: Final = "run_prefix"
 # Colonna dei metadati che identifica la piastra di estrazione.
 DECONTAM_BATCH_COLUMN: Final = "extraction_plate_num"
 
+# Modalita' della decontaminazione (S12). Aggregata: le piastre di OSD-734 hanno
+# da 5 a 8 controlli negativi, e il minimo di dieci probabilita' stimate
+# ciascuna su cosi' pochi negativi, con la soglia 0,5, e' permissivo per
+# costruzione (misurato: per piastra si toglierebbe la meta' delle letture dei
+# biologici). La modalita' per piastra resta calcolata come diagnostica.
+DECONTAM_MODE: Final = "aggregate"
+
 # Colonna e etichette che distinguono controlli e campioni biologici.
 CTRL_COLUMN: Final = "Characteristics[Material Type]"
 CTRL_BLANK_VALUES: Final = ("blank control",)
 CTRL_POSITIVE_VALUES: Final = ("Positive Control",)
 CTRL_BIOLOGICAL_VALUES: Final = ("Surface swab",)
+# Campioni da trattare come controlli negativi qualunque sia il materiale
+# dichiarato, riconosciuti dal valore di una colonna della tabella campioni di
+# studio. In OSD-734 i tamponi mai aperti ("Unopened 3DMM Swab Tube") sono
+# dichiarati "Surface swab" ma non hanno campionato alcuna superficie: per
+# funzione sono controlli di campo (bassa biomassa, composizione da reagente).
+CTRL_BLANK_OVERRIDE_COLUMN: Final = "Factor Value[Sample Location]"
+CTRL_BLANK_OVERRIDE_VALUES: Final = ("Unopened 3DMM Swab Tube",)
 
 # Riferimento tassonomico impiegato nello studio. Questi due parametri sono
 # obbligatori nello schema e non hanno valore predefinito: i valori qui sotto
@@ -266,6 +288,9 @@ DERIVATI_DAL_DATASET: Final[tuple[str, ...]] = (
     "ctrl.blank_values",
     "ctrl.positive_values",
     "ctrl.biological_values",
+    "ctrl.blank_override_column",
+    "ctrl.blank_override_values",
+    "decontam.mode",
     "tax.ref_name",
     "tax.ref_version",
     "katharoseq.target_taxon",

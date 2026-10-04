@@ -310,6 +310,15 @@ class Ctrl(_Gruppo):
     biological_values: ElencoNonVuoto = Field(
         default_factory=lambda: list(d.CTRL_BIOLOGICAL_VALUES)
     )
+    # Riclassificazione in controllo negativo, indipendente dal materiale
+    # dichiarato: i campioni il cui valore nella colonna indicata (della tabella
+    # campioni di studio) e' fra quelli elencati. Il materiale resta quello
+    # originale nell'inventario, cosi' la riclassificazione resta tracciabile.
+    # Con l'elenco vuoto non si riclassifica nulla.
+    blank_override_column: StringaNonVuota | None = d.CTRL_BLANK_OVERRIDE_COLUMN
+    blank_override_values: list[StringaNonVuota] = Field(
+        default_factory=lambda: list(d.CTRL_BLANK_OVERRIDE_VALUES)
+    )
     # Validazione della corsa dai controlli positivi (S11).
     min_positives: InteroPositivo = d.CTRL_MIN_POSITIVES
     min_positive_pass_frac: Frazione = d.CTRL_MIN_POSITIVE_PASS_FRAC
@@ -334,6 +343,11 @@ class Ctrl(_Gruppo):
                             sorted(comuni), primo, secondo
                         )
                     )
+        if self.blank_override_values and self.blank_override_column is None:
+            raise ValueError(
+                "blank_override_values e' indicato ma blank_override_column e' nullo: "
+                "senza colonna la regola non riconosce alcun campione"
+            )
         return self
 
 
@@ -367,6 +381,12 @@ class Decontam(_Gruppo):
     ] = d.DECONTAM_METHOD
     threshold: Frazione = d.DECONTAM_THRESHOLD
     min_blanks: InteroPositivo = d.DECONTAM_MIN_BLANKS
+    # batch.combine di decontam::isContaminant, per la decontaminazione per piastra.
+    batch_combine: Literal["minimum", "product", "fisher"] = d.DECONTAM_BATCH_COMBINE
+    # Modalita' che decide i contaminanti rimossi: aggregate (tutti i biologici
+    # contro tutti i negativi) o batch (per piastra, con batch_combine). L'altra
+    # si calcola come diagnostica.
+    mode: Literal["aggregate", "batch"] = d.DECONTAM_MODE
     # Derivato dal dataset di riferimento.
     batch_column: StringaNonVuota = d.DECONTAM_BATCH_COLUMN
 
@@ -384,6 +404,8 @@ class Qc(_Gruppo):
 
     min_reads_raw: InteroNonNegativo = d.QC_MIN_READS_RAW
     min_reads_mode: Literal["fixed", "katharoseq_if_available"] = d.QC_MIN_READS_MODE
+    # Frazione massima delle letture dei biologici rimossa come contaminante (S12).
+    max_frac_contaminant: Frazione = d.QC_MAX_FRAC_CONTAMINANT
     min_reads_filtered: InteroNonNegativo = d.QC_MIN_READS_FILTERED
     min_reads_final: InteroNonNegativo = d.QC_MIN_READS_FINAL
     max_asv_count: InteroPositivo = d.QC_MAX_ASV_COUNT
