@@ -2,7 +2,7 @@ r"""Suite di test della settimana 20: decontaminazione dai controlli negativi, f
 
 1. Inquadramento nel Piano Operativo
 ------------------------------------
-Settimana 20 (W20), Fase F4 (decontaminazione per prevalenza S12 in
+Settimana 20 (W20), Fase F5 (decontaminazione per prevalenza S12 in
 ``11_controls/``, accanto a S11, con il confronto fra modalita' per piastra e
 aggregata).
 

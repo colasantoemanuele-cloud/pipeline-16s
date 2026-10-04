@@ -375,8 +375,11 @@ run:
   # L'immagine va indicata per digest e non per tag: un tag può essere
   # riassegnato a un'immagine diversa, un digest no. Lo schema rifiuta un
   # riferimento privo di digest.
-  # [SOSTITUIRE] con il digest reale dell'immagine costruita:
-  #   docker image inspect amplicon16s:dev --format '{{index .RepoDigests 0}}'
+  # [SOSTITUIRE] con il digest reale dell'immagine costruita (<immagine> e' il
+  # nome con cui la si e' costruita). Per un'immagine pubblicata in un registro:
+  #   docker image inspect <immagine> --format '{{index .RepoDigests 0}}'
+  # per un'immagine solo locale, che non ha un digest di registro:
+  #   echo "amplicon16s@$(docker image inspect <immagine> --format '{{.Id}}')"
   container: "registro.esempio/amplicon16s@sha256:0000000000000000000000000000000000000000000000000000000000000000"
   # File di blocco delle versioni dei pacchetti R, relativo alla radice del
   # repository. E' gia' usato dal Dockerfile e dagli script R; dichiararlo qui

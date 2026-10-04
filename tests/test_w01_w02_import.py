@@ -2,7 +2,7 @@ r"""Smoke test di installazione dei pacchetti, assenza di import circolari e int
 
 1. Inquadramento nel Piano Operativo
 ------------------------------------
-Settimane 1 e 2 (W1/W2), Fase F1 (inizializzazione del repository, namespace
+Settimane 1 e 2 (W1/W2), Fase F0 (inizializzazione del repository, namespace
 dei pacchetti, smoke test di integrazione continua e interfaccia CLI di base).
 
 2. Moduli sorgente coperti

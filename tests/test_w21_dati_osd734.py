@@ -2,8 +2,9 @@ r"""Suite di test per i dati di OSD-734 recuperabili dal repository (``dati/osd7
 
 1. Inquadramento nel Piano Operativo
 ------------------------------------
-Settimana 22 (W22), Fase F9 (riproducibilita' e consegna, anticipata: i dati del
-dataset di riferimento recuperabili da un clone del repository).
+Settimana 21 (W21), Fase F5. Anticipa attivita' della fase F9 sulla
+riproducibilita': i dati del dataset di riferimento recuperabili da un clone del
+repository.
 
 2. Moduli sorgente coperti
 --------------------------
@@ -32,7 +33,7 @@ dataset di riferimento recuperabili da un clone del repository).
     e' indicata in ``test.txt``, sezione 1.3.
 
     1. Modalità locale standard:
-       pytest tests/test_w22_dati_osd734.py -v
+       pytest tests/test_w21_dati_osd734.py -v
 
     2. Modalità container Docker standard (con il repository montato, che porta
        la cartella ``dati/``: l'immagine non la contiene):
@@ -42,7 +43,7 @@ dataset di riferimento recuperabili da un clone del repository).
          -v "$(pwd)":/app \
          -w /app \
          <immagine> \
-         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w22_dati_osd734.py -v
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w21_dati_osd734.py -v
 
     3. Modalità container Docker completa (con i dati reali OSD-734; nessun test
        del modulo li usa: i dati si verificano scaricandoli nella prima
@@ -57,7 +58,7 @@ dataset di riferimento recuperabili da un clone del repository).
          -v "$HOME/ASI":"$HOME/ASI" \
          -w /app \
          <immagine> \
-         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w22_dati_osd734.py -v
+         pytest -o cache_dir=/tmp/.pytest_cache tests/test_w21_dati_osd734.py -v
 
 5. Risultato atteso
 -------------------

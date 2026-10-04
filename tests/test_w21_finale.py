@@ -2,7 +2,7 @@ r"""Suite di test della settimana 21: filtri finali e serializzazione, fasi S13 
 
 1. Inquadramento nel Piano Operativo
 ------------------------------------
-Settimana 21 (W21), Fase F4 (filtri per profondita', tassonomici e di
+Settimana 21 (W21), Fase F5 (filtri per profondita', tassonomici e di
 prevalenza S13; serializzazione, export e validazione S14; ``12_final/``).
 
 2. Moduli sorgente coperti

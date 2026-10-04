@@ -2,7 +2,7 @@ r"""Suite di test della settimana 17: codice nell'impronta, G12 come precondizio
 
 1. Inquadramento nel Piano Operativo
 ------------------------------------
-Settimana 17 (W17), Fase F4 (assegnazione tassonomica S8 in ``08_taxonomy/``,
+Settimana 17 (W17), Fase F5 (assegnazione tassonomica S8 in ``08_taxonomy/``,
 preceduta dalla versione del calcolo nell'impronta di fase con il registro del
 sorgente, e da G12 spostato fra le precondizioni).
 

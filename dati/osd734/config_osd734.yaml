@@ -1,8 +1,9 @@
 # Configurazione per OSD-734 con i dati recuperati in dati/osd734/.
 #
 # I percorsi sono relativi alla radice del repository: la pipeline va lanciata
-# da li' (amplicon16s run --config dati/osd734/config_osd734.yaml). I file da
-# scaricare si ottengono con gli script della cartella (vedi il suo README):
+# da li', nel container con il repository montato (comando completo nel README
+# della cartella). I file da scaricare si ottengono con gli script della
+# cartella:
 #   letture       dati/osd734/fastq/        scarica_letture.py
 #   riferimento   dati/osd734/riferimento/  scarica_riferimento.py
 #   lotto         dati/osd734/lotto/        ricostruisci_lotto.py
@@ -22,6 +23,15 @@ tax:
   ref_version: "138"
   ref_bad_taxa: dati/osd734/riferimento/silva_138_v2_bad-taxa.csv
 run:
-  # L'immagine va indicata per digest (vedi il README, "Identificare l'immagine
-  # per digest"): sostituire il segnaposto con quello dell'immagine costruita.
+  # Primo valore da adattare: run.threads non e' impostato e vale 16. Su una
+  # macchina con meno processori utilizzabili i controlli di avvio fermano
+  # l'esecuzione (E-S0-14): indicare il numero di processori (nproc) o meno.
+  # Non cambia i risultati. Per esempio, su 12 processori:
+  # threads: 12
+  #
+  # L'immagine con cui si esegue, ancorata per digest; e' registrata nella
+  # configurazione salvata e nella provenienza di ogni fase, non sceglie
+  # l'immagine da eseguire. Per un'immagine costruita in locale:
+  #   echo "amplicon16s@$(docker image inspect <immagine> --format '{{.Id}}')"
+  # Sostituire il segnaposto con il valore ottenuto.
   container: "registro.esempio/amplicon16s@sha256:0000000000000000000000000000000000000000000000000000000000000000"

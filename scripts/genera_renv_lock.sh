@@ -4,11 +4,21 @@
 # Va eseguito dopo ogni modifica a container/Dockerfile che tocchi i pacchetti
 # R: il file di lock deve sempre riflettere l'immagine, non precederla.
 #
-#   scripts/genera_renv_lock.sh [tag]
+#   scripts/genera_renv_lock.sh <immagine>
+#
+# <immagine> e' l'immagine appena costruita da cui leggere le versioni: e'
+# obbligatoria, perche' un valore predefinito potrebbe indicare un'immagine
+# vecchia e produrre un lock che non corrisponde a quella nuova.
 
 set -euo pipefail
 
-IMMAGINE="${1:-amplicon16s:dev}"
+if [ "$#" -ne 1 ] || [ -z "$1" ]; then
+  echo "uso: scripts/genera_renv_lock.sh <immagine>" >&2
+  echo "  <immagine>: il nome dell'immagine costruita da container/Dockerfile, per" >&2
+  echo "  esempio quella indicata in test.txt (sezione 1.3)" >&2
+  exit 2
+fi
+IMMAGINE="$1"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "Immagine: ${IMMAGINE}"

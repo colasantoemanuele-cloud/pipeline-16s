@@ -72,9 +72,14 @@ L'immagine contiene sia Python sia R con tutte le librerie della pipeline, ed è
 previsto per eseguire la pipeline in modo riproducibile:
 
 ```bash
-docker build -f container/Dockerfile -t amplicon16s:dev .
-docker run --rm amplicon16s:dev
+docker build -f container/Dockerfile -t <immagine> .
+docker run --rm <immagine>
 ```
+
+`<immagine>` è il nome scelto per l'immagine costruita, come nei comandi dei test;
+l'immagine corrente del progetto è indicata in `test.txt` (sezione 1.3). Il comando
+completo per eseguire la pipeline nel container, con il repository montato, è in
+`dati/osd734/README.md`.
 
 Le versioni sono bloccate su entrambi i fronti: le dipendenze Python in
 `pyproject.toml` (e nei file `requirements.txt` / `requirements-dev.txt`), quelle R in
@@ -86,7 +91,7 @@ una copia del repository senza `renv.lock`, che salta la verifica, si rigenera i
 da quell'immagine e si ricostruisce con la verifica attiva:
 
 ```bash
-scripts/genera_renv_lock.sh amplicon16s:dev
+scripts/genera_renv_lock.sh <immagine>
 ```
 
 Le immagini di partenza sono ancorate per digest e non per tag, perché un tag può essere
@@ -130,11 +135,14 @@ le letture, il riferimento tassonomico e il file del lotto si ottengono con tre 
 dalla radice del repository e con la sola libreria standard di Python:
 
 ```bash
-python3 dati/osd734/scarica_letture.py        # 960 file FASTQ da ENA, circa 2,4 GB
+python3 dati/osd734/scarica_letture.py        # 960 file FASTQ da ENA, 2,52 GB
 python3 dati/osd734/scarica_riferimento.py    # SILVA 138 per dada2 da Zenodo
 python3 dati/osd734/ricostruisci_lotto.py     # piastre, pozzetti e corse dalla fonte degli autori
-amplicon16s run --config dati/osd734/config_osd734.yaml
 ```
+
+La pipeline si esegue poi nel container, con il repository montato: il README della
+cartella riporta i comandi completi, i valori da adattare (`run.threads` per primo, e
+`run.container`) e i requisiti misurati di spazio e durata.
 
 Gli script verificano ogni file contro il checksum della sua fonte, riprendono uno scarico
 interrotto e non scaricano ciò che è già presente e integro. Il file del lotto non è nel
@@ -145,16 +153,16 @@ scaricati sono esclusi da git.
 
 ### Identificare l'immagine per digest
 
-Un tag locale come `amplicon16s:dev` identifica l'immagine solo su quella macchina e può
+Un tag locale identifica l'immagine solo su quella macchina e può
 essere riassegnato. Per riferirsi senza ambiguità a un'immagine costruita, si usa il suo
 digest:
 
 ```bash
 # Digest dell'immagine costruita in locale
-docker image inspect amplicon16s:dev --format '{{.Id}}'
+docker image inspect <immagine> --format '{{.Id}}'
 
 # Digest con cui l'immagine è pubblicata in un registry, disponibile dopo il push
-docker image inspect amplicon16s:dev --format '{{index .RepoDigests 0}}'
+docker image inspect <immagine> --format '{{index .RepoDigests 0}}'
 ```
 
 Il primo comando restituisce l'identificatore del contenuto locale; il secondo il
@@ -466,7 +474,10 @@ Sono realizzati:
   riferimento già presente riconosciuto integro, l'elenco identico al filereport di
   ENA, il file del lotto ricostruito identico byte per byte a quello usato finora, e
   l'inventario della configurazione di esempio identico a quello della configurazione
-  usata per il riferimento; lo scarico e la ripresa provati su tre letture;
+  usata per il riferimento; lo scarico e la ripresa provati su tre letture. Il README
+  della cartella riporta il comando per eseguire la pipeline nel container e i
+  requisiti misurati; quel comando, con `validate` e `run.threads: 12`, conclude S0 con
+  artefatti identici a quelli del riferimento;
 - **il sottoinsieme di prova** (`tests/fixtures/osd734/`, `scripts/build_test_subset.py`).
   Ventotto campioni del dataset di riferimento, scelti per le fasi successive: due
   piastre, una per corsa, con i cinque controlli negativi che `decontam.min_blanks`

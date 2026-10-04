@@ -2,7 +2,7 @@ r"""Suite di test della settimana 19: validazione della corsa dai controlli posi
 
 1. Inquadramento nel Piano Operativo
 ------------------------------------
-Settimana 19 (W19), Fase F4 (validazione della corsa dai controlli positivi
+Settimana 19 (W19), Fase F5 (validazione della corsa dai controlli positivi
 S11 in ``11_controls/``: curva KatharoSeq, soglia di profondita' e conformita'
 dei controlli).
 

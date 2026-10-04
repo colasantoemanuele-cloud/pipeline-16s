@@ -2,7 +2,7 @@ r"""Suite di test della settimana 18: fino_a sulle dipendenze del grafo, fase S1
 
 1. Inquadramento nel Piano Operativo
 ------------------------------------
-Settimana 18 (W18), Fase F4 (assemblaggio dell'oggetto integrato S10 in
+Settimana 18 (W18), Fase F5 (assemblaggio dell'oggetto integrato S10 in
 ``10_phyloseq/``), preceduta dalla correzione dell'esecutore: con ``fino_a``
 si eseguono la fase richiesta e i suoi antenati nel grafo, non tutte le fasi
 che la precedono.
