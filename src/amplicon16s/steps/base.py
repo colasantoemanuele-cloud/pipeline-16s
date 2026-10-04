@@ -440,6 +440,7 @@ class PipelineStep(ABC):
             logging.INFO if produzione.superata else logging.WARNING,
             f"{self.passo} {esito.value}",
             extra={
+                "evento": "fase",
                 "passo": str(self.passo),
                 "esito": esito.value,
                 "secondi": secondi,

@@ -180,7 +180,7 @@ ESCLUSI: Final[Mapping[str, str]] = {
     ),
     "amplicon16s.runner.provenienza": "il registro e la provenienza, nei manifesti",
     "amplicon16s.runner.tracciamento": (
-        "ricompone il tracciamento per il resoconto; nessuna fase ne legge il risultato"
+        "ricompone il tracciamento per il report; nessuna fase ne legge il risultato"
     ),
     "amplicon16s.steps.base": (
         "lo scheletro delle fasi: prerequisiti, vista dei parametri, manifesto di "

@@ -73,6 +73,7 @@ __all__ = [
     "Situazione",
     "StatoPasso",
     "Valutazione",
+    "avviso_di_provenienza",
     "passi_realizzati",
 ]
 
@@ -144,7 +145,7 @@ def _differenze(registrata: Mapping[str, Any], attesa: Mapping[str, Any]) -> str
     return "; ".join(motivi) or "calcolata su ingressi diversi"
 
 
-def _avviso_di_provenienza(
+def avviso_di_provenienza(
     registrata: Mapping[str, Any], attuale: Mapping[str, Any]
 ) -> str | None:
     """In che cosa la provenienza registrata differisce da quella di adesso.
@@ -381,7 +382,7 @@ class ProjectRun:
         )
         return Situazione(
             passo, StatoPasso.COMPLETATA, motivo, manifesto.impronta,
-            _avviso_di_provenienza(manifesto.provenienza, provenienza(fase, self.config)),
+            avviso_di_provenienza(manifesto.provenienza, provenienza(fase, self.config)),
         )
 
     # ----------------------------------------------------------------- #

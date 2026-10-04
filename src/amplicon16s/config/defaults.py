@@ -16,13 +16,16 @@ Sono divisi in due categorie, e la distinzione è sostanziale:
   codice resta generale: è la configurazione a cambiare.
 
 L'elenco delle chiavi della seconda categoria è esposto in
-:data:`DERIVATI_DAL_DATASET`, così può essere stampato in un report o
-controllato da un test invece di restare una convenzione a voce.
+:data:`DERIVATI_DAL_DATASET`, e :data:`FATTI_OSD734` porta per ciascuna il
+valore di OSD-734 e il fatto accertato che lo giustifica: il report li riporta
+e un test li controlla, invece di restare una convenzione a voce.
 """
 
 from __future__ import annotations
 
-from typing import Final
+from collections.abc import Mapping
+from types import MappingProxyType
+from typing import Any, Final, NamedTuple
 
 # --------------------------------------------------------------------------- #
 # Predefiniti generici                                                         #
@@ -173,7 +176,7 @@ RUN_KEEP_FILTERED_FASTQ: Final = True
 # --------------------------------------------------------------------------- #
 # Attenzione: questi valori descrivono OSD-734, non la pipeline. Su un altro
 # dataset vanno rivisti tutti. Ogni aggiunta qui va riportata anche in
-# DERIVATI_DAL_DATASET, più in basso.
+# FATTI_OSD734, più in basso, con il fatto che la giustifica.
 
 # Lunghezza di troncamento: la lettura piu' corta del dataset completo, 137
 # basi su letture di 137-151 (S1). Troncare oltre scarterebbe quelle letture.
@@ -308,37 +311,171 @@ OUT_BATCH_COLUMNS: Final = (
 )
 
 
+class RiferimentoDataset(NamedTuple):
+    """Il valore di un parametro scelto su OSD-734 e il fatto che lo giustifica."""
+
+    #: Il valore adottato per il dataset di riferimento.
+    valore: Any
+    #: Il fatto accertato su OSD-734 da cui quel valore discende.
+    fatto: str
+
+
+#: I parametri il cui valore descrive il dataset di riferimento e non la
+#: pipeline, ciascuno con il valore di OSD-734 e il fatto accertato che lo
+#: giustifica. E' l'unica fonte della motivazione: il report la riporta accanto
+#: a ogni parametro che in un'esecuzione coincide con il valore di OSD-734, e un
+#: test la tiene allineata ai marcatori [OSD-734] di config.example.yaml. Un
+#: valore ereditato in silenzio su un altro dataset e' il rischio che questo
+#: elenco serve a rendere visibile.
+FATTI_OSD734: Final[Mapping[str, RiferimentoDataset]] = MappingProxyType({
+    "filter.truncLen": RiferimentoDataset(
+        FILTER_TRUNCLEN,
+        "le letture del dataset completo sono lunghe 137-151 basi (S1): 137 è la "
+        "più corta, e un troncamento maggiore la scarterebbe",
+    ),
+    "filter.trimLeft": RiferimentoDataset(
+        FILTER_TRIMLEFT,
+        "le letture non contengono il primer: iniziano nella regione conservata a "
+        "valle del 515F (G10)",
+    ),
+    "tax.min_boot": RiferimentoDataset(
+        TAX_MIN_BOOT,
+        "le letture coprono 137 delle circa 253 basi dell'amplicone V4: su "
+        "sequenze corte il bootstrap è più basso a parità di correttezza",
+    ),
+    "tax.assign_species": RiferimentoDataset(
+        TAX_ASSIGN_SPECIES,
+        "137 basi su circa 253 dell'amplicone V4 non bastano a un'assegnazione "
+        "attendibile al livello di specie",
+    ),
+    "meta.module_regex": RiferimentoDataset(
+        META_MODULE_REGEX,
+        "i nomi delle posizioni iniziano con il modulo della stazione, tre lettere "
+        "e una cifra (LAB1, NOD2, JLP1)",
+    ),
+    "decontam.method": RiferimentoDataset(
+        DECONTAM_METHOD,
+        "i metadati non riportano una concentrazione del DNA per campione, che il "
+        "metodo per frequenza richiede",
+    ),
+    "decontam.threshold": RiferimentoDataset(
+        DECONTAM_THRESHOLD,
+        "campioni a bassa biomassa: i controlli negativi hanno profondità "
+        "paragonabili ai biologici, e la contaminazione da reagente può essere una "
+        "quota rilevante del segnale",
+    ),
+    "qc.min_motif_frac": RiferimentoDataset(
+        QC_MIN_MOTIF_FRAC,
+        "sei campioni biologici legittimi hanno il motivo conservato sotto il 25% "
+        "delle letture, uno al 5,8%: la soglia si valuta sulla mediana",
+    ),
+    "prev.min_fraction": RiferimentoDataset(
+        PREV_MIN_FRACTION,
+        "i campioni vengono da oltre cento posizioni distinte della stazione: una "
+        "variante propria di poche posizioni è segnale, non rumore",
+    ),
+    "err.batch_column": RiferimentoDataset(
+        ERR_BATCH_COLUMN,
+        "nel file del lotto la corsa di sequenziamento sta nella colonna "
+        "run_prefix (due corse)",
+    ),
+    "decontam.batch_column": RiferimentoDataset(
+        DECONTAM_BATCH_COLUMN,
+        "nel file del lotto la piastra di estrazione sta nella colonna "
+        "extraction_plate_num (dieci piastre da 96)",
+    ),
+    "meta.module_column": RiferimentoDataset(
+        META_MODULE_COLUMN,
+        "la posizione di campionamento è dichiarata nella colonna Factor "
+        "Value[Sample Location] della tabella campioni di studio",
+    ),
+    "meta.non_surface_positions": RiferimentoDataset(
+        META_NON_SURFACE_POSITIONS,
+        "i campioni d'aria e i tamponi mai aperti riportano una posizione che non "
+        "è una superficie, e non appartengono a un modulo",
+    ),
+    "meta.batch_key_column": RiferimentoDataset(
+        META_BATCH_KEY_COLUMN,
+        "il file del lotto identifica i campioni per accession, nella colonna "
+        "experiment_accession: i due campioni risequenziati vi si distinguono solo "
+        "così",
+    ),
+    "meta.batch_module_column": RiferimentoDataset(
+        META_BATCH_MODULE_COLUMN,
+        "il file del lotto dichiara il modulo nella colonna module",
+    ),
+    "ctrl.column": RiferimentoDataset(
+        CTRL_COLUMN,
+        "la classe del campione è dichiarata nella colonna Characteristics[Material "
+        "Type] della tabella campioni di studio",
+    ),
+    "ctrl.blank_values": RiferimentoDataset(
+        CTRL_BLANK_VALUES,
+        "i controlli negativi sono dichiarati con il materiale blank control",
+    ),
+    "ctrl.positive_values": RiferimentoDataset(
+        CTRL_POSITIVE_VALUES,
+        "i controlli positivi sono dichiarati con il materiale Positive Control",
+    ),
+    "ctrl.biological_values": RiferimentoDataset(
+        CTRL_BIOLOGICAL_VALUES,
+        "i campioni biologici sono dichiarati con il materiale Surface swab",
+    ),
+    "ctrl.blank_override_column": RiferimentoDataset(
+        CTRL_BLANK_OVERRIDE_COLUMN,
+        "i tamponi mai aperti si riconoscono dalla posizione dichiarata, nella "
+        "colonna Factor Value[Sample Location]",
+    ),
+    "ctrl.blank_override_values": RiferimentoDataset(
+        CTRL_BLANK_OVERRIDE_VALUES,
+        "33 tamponi dichiarati Surface swab hanno posizione Unopened 3DMM Swab Tube: "
+        "non hanno campionato alcuna superficie, e per funzione sono controlli "
+        "negativi",
+    ),
+    "decontam.mode": RiferimentoDataset(
+        DECONTAM_MODE,
+        "le piastre hanno da 5 a 8 controlli negativi dichiarati: per piastra, con "
+        "la soglia 0,5, si toglierebbe circa la metà delle letture dei biologici "
+        "(misurato)",
+    ),
+    "tax.ref_name": RiferimentoDataset(
+        TAX_REF_NAME,
+        "il riferimento tassonomico adottato per lo studio è SILVA",
+    ),
+    "tax.ref_version": RiferimentoDataset(
+        TAX_REF_VERSION,
+        "la versione del riferimento adottata per lo studio è la 138",
+    ),
+    "katharoseq.target_taxon": RiferimentoDataset(
+        KATHAROSEQ_TARGET_TAXON,
+        "i controlli positivi contengono un solo ceppo, Variovorax sp. OAS795",
+    ),
+    "katharoseq.cell_count_column": RiferimentoDataset(
+        KATHAROSEQ_CELL_COUNT_COLUMN,
+        "il file del lotto riporta le cellule seminate in ciascun controllo "
+        "positivo nella colonna katharoseq_cell_count",
+    ),
+    "qc.primer_sequence": RiferimentoDataset(
+        QC_PRIMER_SEQUENCE,
+        "la regione V4 è stata amplificata con il primer 515F",
+    ),
+    "qc.conserved_motif": RiferimentoDataset(
+        QC_CONSERVED_MOTIF,
+        "le letture iniziano con il motivo conservato a valle del 515F",
+    ),
+    "out.study_columns": RiferimentoDataset(
+        OUT_STUDY_COLUMNS,
+        "la tabella campioni di studio riporta se il campione è stato in volo e "
+        "come è stato conservato",
+    ),
+    "out.batch_columns": RiferimentoDataset(
+        OUT_BATCH_COLUMNS,
+        "il file del lotto riporta piastra, pozzetto, date di estrazione e di "
+        "sequenziamento, piastra dei primer e cellule seminate nei controlli "
+        "positivi",
+    ),
+})
+
 #: Chiavi il cui valore predefinito descrive il dataset di riferimento e non la
 #: pipeline. Passando a un altro dataset vanno rivalutate una per una.
-DERIVATI_DAL_DATASET: Final[tuple[str, ...]] = (
-    "filter.truncLen",
-    "filter.trimLeft",
-    "tax.min_boot",
-    "tax.assign_species",
-    "meta.module_regex",
-    "decontam.method",
-    "decontam.threshold",
-    "qc.min_motif_frac",
-    "prev.min_fraction",
-    "err.batch_column",
-    "decontam.batch_column",
-    "meta.module_column",
-    "meta.non_surface_positions",
-    "meta.batch_key_column",
-    "meta.batch_module_column",
-    "ctrl.column",
-    "ctrl.blank_values",
-    "ctrl.positive_values",
-    "ctrl.biological_values",
-    "ctrl.blank_override_column",
-    "ctrl.blank_override_values",
-    "decontam.mode",
-    "tax.ref_name",
-    "tax.ref_version",
-    "katharoseq.target_taxon",
-    "katharoseq.cell_count_column",
-    "qc.primer_sequence",
-    "qc.conserved_motif",
-    "out.study_columns",
-    "out.batch_columns",
-)
+DERIVATI_DAL_DATASET: Final[tuple[str, ...]] = tuple(FATTI_OSD734)

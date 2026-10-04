@@ -177,7 +177,7 @@ Ogni sottocomando richiede il file di configurazione, che non viene mai modifica
 amplicon16s validate --config config.yaml   # esegue solo S0
 amplicon16s run      --config config.yaml   # esegue dall'inizio, in una cartella nuova
 amplicon16s resume   --config config.yaml   # riprende dagli artefatti esistenti
-amplicon16s report   --config config.yaml   # resoconto provvisorio dello stato
+amplicon16s report   --config config.yaml   # genera il report dell'esecuzione
 ```
 
 `run` non sovrascrive mai un'esecuzione: ogni esecuzione deve restare ispezionabile. Se
@@ -202,7 +202,27 @@ versione registrata non viene mai sovrascritta:
   S0 è già conclusa.
 
 Il log in `99_logs` registra a ogni avvio con quale versione si esegue. Un arresto ai
-controlli di avvio non registra nulla, perché nessuna fase è partita.
+controlli di avvio non registra alcuna configurazione, perché nessuna fase è partita;
+l'esito dei controlli resta comunque nel log.
+
+**Il registro degli avvii.** Gli eventi che descrivono un'esecuzione (controlli di
+avvio, configurazione in uso, fasi eseguite, conclusione) sono scritti, oltre che nel
+log, in `99_logs/avvii.jsonl`, nella stessa forma. Il log ruota (16 MB, cinque
+rotazioni) e a lungo andare perde gli avvii più vecchi; il registro è solo in aggiunta
+e non ruota, poche righe per avvio, e conserva la storia intera di un'esecuzione
+ripresa molte volte.
+
+**Il report di esecuzione.** `report` scrive in `report/`, sotto `io.out_root`, il
+documento `report.html` e, in `report/tabelle/`, ogni sua tabella come file TSV. Lo
+ricava da ciò che l'esecuzione ha lasciato su disco (manifesti di fase, artefatti,
+configurazioni registrate, registro degli avvii): non riesegue alcun calcolo, non usa R e
+non legge i dati grezzi, quindi si genera anche su un'esecuzione conclusa in
+precedenza e su una macchina che ha la sola cartella di output. Della configurazione
+indicata usa soltanto `io.out_root`. Il documento è autoconsistente (stili e grafici
+incorporati, nessuna risorsa esterna), non riporta la data in cui è generato e non
+scrive nel log: due generazioni dalla stessa cartella danno gli stessi byte, e la
+valutazione dello stato dà lo stesso esito prima e dopo. Senza un'esecuzione in
+`io.out_root` il comando esce con il codice 3.
 
 Codici di uscita, per chi lancia la pipeline da uno script o da uno scheduler:
 
@@ -228,7 +248,8 @@ Sono realizzati:
   `config/config.example.yaml` ne è un'istanza completa;
 - il gate G15, che verifica la coerenza fra parametri (le combinazioni singolarmente
   valide ma insensate messe insieme) e risolve i parametri che discendono da altri.
-  La configurazione effettivamente usata viene registrata in `00_config/resolved.yaml`
+  La configurazione effettivamente usata viene registrata in `00_config/resolved.yaml`,
+  con l'elenco dei parametri impostati nel file di ingresso e
   con un digest che ne identifica la combinazione, all'avvio di ogni esecuzione e
   senza mai sovrascrivere le versioni precedenti, come descritto nella sezione sull'uso
   della riga di comando. Tutto questo avviene prima che venga
@@ -414,7 +435,7 @@ Sono realizzati:
   i moduli importati e gli script R della cartella che il ponte esegue
   (`AMPLICON16S_R_DIR`), non le copie del repository, così un'immagine che esegue
   script diversi risulta tale nel manifesto. A parità di versione una provenienza
-  diversa produce un avviso nel log e nel resoconto, non un ricalcolo;
+  diversa produce un avviso nel log e nel report, non un ricalcolo;
 - **l'esecutore e la politica dei tentativi** (`runner/executor.py`,
   `runner/retry.py`). A ogni avvio, con `run` come con `resume`, l'esecutore ripete
   la verifica di coerenza della configurazione (G15), quella delle risorse della
@@ -763,10 +784,63 @@ Sono realizzati:
   filtro di lunghezza (S7), quelle dopo la rimozione dei contaminanti (S12) e quelle
   nell'oggetto finale (S13, zero per i controlli e per i campioni esclusi);
 - i quattro sottocomandi della riga di comando, descritti sopra, con i codici di
-  uscita documentati. `report` produce oggi un **resoconto provvisorio** dello stato,
-  ricavato dai manifesti delle fasi: fasi concluse, disattivate e da eseguire,
-  aggiustamenti applicati, degradazioni registrate. Non è il report definitivo, che
-  non è ancora realizzato.
+  uscita documentati;
+- **il report di esecuzione** (`report/builder.py`, con i modelli del documento in
+  `report/templates/`). Non è
+  una fase: non entra nel grafo e non ha un manifesto. Si apre con le segnalazioni e
+  prosegue con otto sezioni:
+  - *segnalazioni in apertura*: i parametri che hanno il valore di OSD-734, gli avvisi
+    di provenienza, l'integrità di ciò che è stato letto, il numero di tentativi
+    ripetuti e di degradazioni;
+  - *stato della catena*: per ogni fase, se è conclusa secondo il suo manifesto, se
+    è stata calcolata sugli artefatti a monte oggi su disco, e con quale versione
+    della configurazione ha girato l'ultima volta; il punto di ripresa, se dichiarato;
+  - *gate e controlli di avvio*: l'esito dei quindici gate come li ha visti S0
+    (`gates.json`) e, per ogni avvio, l'esito di G15, G14 e G12, che l'esecutore
+    ripete a ogni avvio e ripresa e registra come evento strutturato
+    (`controlli_di_avvio`), superati o no, nel log e nel registro degli avvii;
+  - *configurazione*: gli avvii del registro, tutte le versioni della
+    configurazione registrata con le differenze e le fasi eseguite con ciascuna, e i
+    parametri in uso con l'origine di ogni valore;
+  - *provenienza*: versione, impronta del sorgente, commit e immagine dichiarata di
+    ogni fase, con l'avviso dove il sorgente registrato differisce da quello della
+    pipeline che genera il documento, e la versione di dada2 con la correzione;
+  - *decisioni prese automaticamente*, lette dagli artefatti che le registrano:
+    tentativi ripetuti con l'aggiustamento applicato e degradazioni (manifesti), soglia
+    di profondità per piastra con i ripieghi (`soglia.json`), modalità di
+    decontaminazione (`decontam_riepilogo.json`), campioni riclassificati dalla regola
+    `ctrl.blank_override_*` (`crosswalk.tsv`), campioni e varianti esclusi dai filtri
+    finali con il motivo (`esclusioni.tsv`, `varianti_rimosse.tsv`);
+  - *tracciamento delle letture*, per campione e riassunto per classe;
+  - *risultato finale*: dimensioni dell'oggetto, letture per classe lungo la catena,
+    impronte dei file consegnati, grafici del modello d'errore di S3.
+
+  **L'origine dei valori.** La configurazione registrata in `00_config` elenca in
+  `dichiarati` i parametri impostati nel file di ingresso, come li riconosce lo schema
+  al caricamento; il report dice così, per ogni parametro, se il valore è dichiarato,
+  preso dal predefinito, derivato da altri parametri, o aggiustato da un tentativo
+  ripetuto. Dichiarato non significa scelto: `config.example.yaml` e
+  `dati/osd734/config_osd734.yaml` sono istanze complete, e chi le copia dichiara anche
+  i valori di OSD-734. Per i 30 parametri di `DERIVATI_DAL_DATASET` il report segnala
+  quindi in apertura, comunque siano stati impostati, quelli che coincidono con il
+  valore di OSD-734, con il fatto accertato che lo giustificava
+  (`FATTI_OSD734` in `config/defaults.py`, unica fonte, tenuta allineata ai marcatori
+  `[OSD-734]` dell'esempio da un test) e l'invito a verificarlo sul dataset in uso.
+
+  **Che cosa legge e che cosa no.** Lo stato riportato è quello dei manifesti: se una
+  fase è ancora valida per la configurazione e i dati di adesso lo giudica `resume`.
+  Ogni artefatto letto è verificato contro il checksum del manifesto della sua fase:
+  uno alterato è segnalato in apertura e non riportato. L'unico confronto con qualcosa
+  fuori dalla cartella è l'avviso di provenienza, che per definizione confronta il
+  sorgente registrato con quello della pipeline in uso. La versione di dada2 è quella
+  dichiarata dal file di blocco `run.lockfile`, registrata all'avvio se il file
+  è raggiungibile (dalla cartella di lavoro o dalla radice del repository): non è una
+  misura della libreria caricata da R. Gli avvii si leggono dal solo registro
+  `99_logs/avvii.jsonl`, mai dal log, che ruotando ne darebbe una storia incompleta
+  senza poterlo dire. Un'esecuzione prodotta prima di queste registrazioni non ha il
+  registro degli avvii, e quindi né i controlli di avvio né il file di blocco, e non ha
+  l'elenco dei parametri dichiarati: il report lo dichiara, senza ricostruirli. Sul
+  dataset di riferimento il report si genera in meno di un secondo.
 
 Delle fasi di analisi sono realizzate tutte tranne S9, la filogenesi opzionale: con
 `phylo.enabled` falso, il predefinito, la catena arriva a `ps_final.rds`.

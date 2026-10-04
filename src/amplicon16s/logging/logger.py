@@ -14,6 +14,14 @@ Le due uscite servono a due lettori diversi e hanno perciò forme diverse.
 Il file ruota: un'esecuzione su centinaia di campioni produce molte righe, e un log che
 cresce senza limite finisce per essere il motivo per cui il disco si riempie.
 
+Accanto al log sta il **registro degli avvii** (``avvii.jsonl``): gli eventi che
+descrivono un'esecuzione, cioè quelli che portano il campo ``evento`` (controlli
+di avvio, configurazione in uso, fasi eseguite, conclusione), vi sono scritti
+anche, nella stessa forma. È solo in aggiunta e non ruota: sono poche righe per
+avvio, e la storia degli avvii di un'esecuzione ripresa molte volte deve restare
+intera anche quando il log, ruotando, ne ha perso la parte più vecchia. Il
+report legge da lì.
+
 I campi passati in ``extra`` finiscono nel JSON accanto ai campi standard,
 quindi un evento si arricchisce senza cambiare formato::
 
@@ -31,6 +39,7 @@ from typing import Any, Final
 from amplicon16s.io_layer.artifacts import AlberoOutput, Fase
 
 __all__ = [
+    "NOME_FILE_AVVII",
     "NOME_FILE_LOG",
     "FormattatoreJsonl",
     "chiudi",
@@ -44,6 +53,9 @@ NOME_RADICE: Final = "amplicon16s"
 
 #: Nome del file di log strutturato sotto 99_logs.
 NOME_FILE_LOG: Final = "pipeline.jsonl"
+
+#: Nome del registro degli avvii sotto 99_logs: solo in aggiunta, senza rotazione.
+NOME_FILE_AVVII: Final = "avvii.jsonl"
 
 #: Dimensione oltre la quale il file ruota, e quante rotazioni conservare.
 MAX_BYTE: Final = 16 * 1024 * 1024
@@ -110,7 +122,8 @@ def configura(
     max_byte: int = MAX_BYTE,
     rotazioni: int = ROTAZIONI,
 ) -> Path | None:
-    """Predispone le due uscite e restituisce il percorso del file di log.
+    """Predispone le due uscite, e con ``out_root`` il registro degli avvii, e
+    restituisce il percorso del file di log.
 
     Senza ``out_root`` resta la sola console: è il caso dei comandi che non
     producono artefatti, per i quali non esiste una cartella dove scrivere.
@@ -147,6 +160,14 @@ def configura(
     file.setLevel(livello_file)
     file.setFormatter(FormattatoreJsonl())
     logger.addHandler(file)
+
+    # Il registro degli avvii: i soli eventi che portano il campo evento, in
+    # aggiunta e senza rotazione, qualunque sia il livello del log.
+    avvii = logging.FileHandler(percorso.parent / NOME_FILE_AVVII, mode="a", encoding="utf-8")
+    avvii.setLevel(logging.DEBUG)
+    avvii.addFilter(lambda record: hasattr(record, "evento"))
+    avvii.setFormatter(FormattatoreJsonl())
+    logger.addHandler(avvii)
 
     return percorso
 

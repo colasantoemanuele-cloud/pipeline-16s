@@ -33,7 +33,7 @@ aggiustamenti correttivi, punto di ripresa e CLI ``run``, ``resume``,
   obbligatorio se sollevate, rifiuto di degradare con un codice che ferma;
 - CLI: ``run`` non sovrascrive una cartella di output non vuota; ``resume``
   riparte dalla prima fase non conclusa; ``validate`` esegue solo S0;
-  ``report`` produce un resoconto provvisorio; codici di uscita per arresto,
+  ``report`` genera il report dalla cartella di output; codici di uscita per arresto,
   errore di configurazione e fase non realizzata;
 - registrazione della configurazione risolta: ``resolved.yaml`` alla prima
   esecuzione, nessuna scrittura a digest invariato, versioni successive
@@ -914,15 +914,17 @@ def test_cli_validate_esegue_solo_s0(file_config, scenario, con_doppioni, regist
     assert codice == 0 and "gia' conclusa" in uscita
 
 
-def test_cli_report_e_un_resoconto_provvisorio(file_config, con_doppioni, capsys):
+def test_cli_report_riporta_aggiustamenti_e_degradazioni(file_config, scenario, con_doppioni, capsys):
     """
-    **Obiettivo**: Verificare che ``amplicon16s report`` stampi lo stato di
-    tutte le fasi (inclusa ``S9 disattivata``), gli aggiustamenti applicati
-    (``[E-S4-02]: run.batch_size 24 -> 12``) e le degradazioni (``[E-S6-02]``).
+    **Obiettivo**: Verificare che ``amplicon16s report`` scriva il report nella
+    cartella ``report`` sotto ``io.out_root`` e che le sue tabelle riportino
+    ``S9`` disattivata, l'aggiustamento applicato (``E-S4-02``,
+    ``run.batch_size`` da 24 a 12) e la degradazione (``E-S6-02``), senza
+    lasciare il resoconto provvisorio che il report sostituisce.
 
-    **Razionale scientifico e sistemistico**: Fornisce un cruscotto immediato da
-    riga di comando per ispezionare lo stato di avanzamento e le decisioni
-    automatiche prese dalla pipeline.
+    **Razionale scientifico e sistemistico**: Le decisioni automatiche prese
+    durante l'esecuzione devono restare leggibili a esecuzione conclusa, da
+    cio' che i manifesti registrano.
     """
     con_doppioni["S4"] = FRAGILE_S4
     con_doppioni["S6"] = {"degradazione": "degrada"}
@@ -930,11 +932,15 @@ def test_cli_report_e_un_resoconto_provvisorio(file_config, con_doppioni, capsys
 
     codice, uscita = _cli("report", "--config", str(file_config), capsys=capsys)
     assert codice == 0
-    assert "RESOCONTO PROVVISORIO" in uscita
-    assert "S9   disattivata" in uscita
-    assert "aggiustamento [E-S4-02]: run.batch_size 24 -> 12" in uscita
-    assert "degradazione [E-S6-02]" in uscita
-    assert "Esecuzione completa." in uscita
+    radice = Path(scenario.config.io.out_root)
+    assert f"Report scritto in {radice / 'report' / 'report.html'}" in uscita
+    tabelle = radice / "report" / "tabelle"
+    assert "S9\tfilogenesi\t09_phylogeny\tdisattivata" in (tabelle / "fasi.tsv").read_text()
+    tentativi = (tabelle / "tentativi_ripetuti.tsv").read_text().splitlines()
+    assert tentativi[1].split("\t")[:7] == ["S4", "E-S4-02", "1", "run.batch_size", "24", "24", "12"]
+    assert "S6\tE-S6-02" in (tabelle / "degradazioni.tsv").read_text()
+    assert not (radice / Fase.LOGS.value / "resoconto_stato.json").exists()
+    assert not hasattr(cli, "resoconto")
 
 
 def test_cli_report_senza_esecuzione(file_config, capsys):

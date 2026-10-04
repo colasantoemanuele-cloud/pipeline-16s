@@ -1,0 +1,39 @@
+body { font-family: Georgia, "Times New Roman", serif; color: #1c1c1c; background: #ffffff;
+       margin: 0 auto; max-width: 78rem; padding: 0 1.5rem 3rem; line-height: 1.45; }
+header { border-bottom: 3px solid #1f3a5f; padding: 1.5rem 0 1rem; }
+h1 { font-size: 1.7rem; margin: 0 0 0.6rem; color: #1f3a5f; }
+h2 { font-size: 1.3rem; color: #1f3a5f; border-bottom: 1px solid #b8c4d4;
+     padding-bottom: 0.2rem; margin-top: 2.4rem; }
+h3 { font-size: 1.05rem; margin-top: 1.6rem; }
+nav { background: #f2f5f9; padding: 0.6rem 1rem; margin: 1rem 0; }
+nav p { margin: 0; font-weight: bold; }
+nav ol { margin: 0.3rem 0 0; padding-left: 1.4rem; columns: 2; }
+a { color: #1f3a5f; }
+table { border-collapse: collapse; margin: 0.6rem 0 0.4rem; font-size: 0.88rem;
+        font-family: "Helvetica Neue", Arial, sans-serif; }
+caption { text-align: left; font-weight: bold; padding: 0.3rem 0; }
+th, td { border: 1px solid #c9d1dc; padding: 0.25rem 0.5rem; text-align: left;
+         vertical-align: top; }
+th { background: #e6ecf3; }
+tr:nth-child(even) td { background: #f8fafc; }
+.scorre { overflow-x: auto; }
+.nota { font-size: 0.88rem; color: #444444; margin: 0.2rem 0 0.8rem; }
+.sorgente { font-size: 0.8rem; color: #555555; }
+.evidenza { border-left: 5px solid #b35c00; background: #fff6e8; padding: 0.6rem 1rem;
+            margin: 1rem 0; }
+.regolare { border-left: 5px solid #2f6f4f; background: #eef7f1; padding: 0.6rem 1rem;
+            margin: 1rem 0; }
+dl.sintesi { display: grid; grid-template-columns: max-content auto; gap: 0.2rem 1rem;
+             margin: 0.4rem 0; }
+dl.sintesi dt { font-weight: bold; }
+dl.sintesi dd { margin: 0; overflow-wrap: anywhere; }
+details { margin: 0.6rem 0; }
+summary { cursor: pointer; font-weight: bold; }
+code { font-family: "DejaVu Sans Mono", Consolas, monospace; font-size: 0.85em;
+       overflow-wrap: anywhere; }
+figure { margin: 1rem 0; }
+figure img { max-width: 100%; border: 1px solid #c9d1dc; }
+figcaption { font-size: 0.88rem; color: #444444; }
+footer { border-top: 1px solid #b8c4d4; margin-top: 3rem; padding-top: 0.6rem;
+         font-size: 0.85rem; color: #444444; }
+@media print { nav { display: none; } body { max-width: none; } }

@@ -1,14 +1,14 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W21 (Fasi F0-F5, con l'anticipazione di attivita'
+Piano Operativo: Settimane W1 - W22 (Fasi F0-F6, con l'anticipazione di attivita'
 della fase F9 sulla riproducibilita')
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W21 del Piano Operativo.
+W1 - W22 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -42,16 +42,20 @@ sequenza:
 
     pytest tests/ -n 0
 
-Totale complessivo della suite: 957 test su 25 moduli:
-  * 837 passed e 120 skipped in ambiente locale standard (R base + jsonlite, senza
-    Bioconductor e senza dati reali), in circa 45 secondi;
+Totale complessivo della suite: 976 test su 26 moduli:
+  * 853 passed e 123 skipped in ambiente locale standard (R base + jsonlite, senza
+    Bioconductor e senza dati reali), in circa un minuto;
   * nel container CI standard (senza dati reali OSD-734), su quattro processi:
-    conteggio da aggiornare con l'esito della CI dopo la pubblicazione. L'ultima
-    misura, 914 passed e 34 skipped in circa 9 minuti (CI run 37231615718), e'
-    della suite di 948 test, prima di 'tests/test_w21_dati_osd734.py'; i salti
-    erano i 32 test sui dati reali OSD-734, 1 test sull'allocazione R legata
-    alla lingua e 1 test che richiede il repository .git;
-  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 32 test che li
+    932 passed e 36 skipped in circa 7 minuti, misurati nell'immagine costruita
+    e lanciata in locale come fa la CI; il conteggio della CI e' da aggiornare
+    con il suo esito dopo la pubblicazione (l'ultimo, 914 passed e 35 skipped,
+    CI run 37239975721, e' della suite di 957 test). I salti sono i 33 test sui
+    dati reali OSD-734, 1 test sull'allocazione R legata alla lingua, 1 test
+    che richiede il repository .git e il modulo
+    'tests/test_w21_dati_osd734.py', che nell'immagine si salta per intero e
+    conta come un solo salto al posto dei suoi 9 test (la cartella dati/ non vi
+    e' copiata): per questo i test contati sono 968;
+  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 33 test che li
     richiedono, tutti sullo stesso processo: conteggio da rimisurare con la
     suite attuale. L'ultima misura, 945 passed e 2 skipped in circa 85 minuti
     con picco di memoria del container di 16 GB, e' della suite di 947 test; i
@@ -70,11 +74,11 @@ l'immagine del container della pipeline, costruita da 'container/Dockerfile'.
 Questo e' l'unico punto in cui e' indicata l'immagine corrente, da aggiornare a
 ogni ricostruzione:
 
-    immagine corrente: amplicon16s:w21
+    immagine corrente: amplicon16s:w22
 
 Si costruisce dalla radice del repository con:
 
-    docker build -f container/Dockerfile -t amplicon16s:w21 .
+    docker build -f container/Dockerfile -t amplicon16s:w22 .
 
 Con il repository montato su /app servono sempre '-e PYTHONPATH=/app/src' e
 '-e AMPLICON16S_R_DIR=/app/R': senza la seconda l'immagine esegue gli script R
@@ -1334,8 +1338,7 @@ SETTIMANA 21 (W21) : DATI DI OSD-734 RECUPERABILI DAL REPOSITORY (dati/osd734/)
     container con il repository montato, dove git rifiuta la cartella di un
     altro proprietario e il test su '.gitignore' si salta. Nell'immagine senza
     il repository montato, come nella CI, la cartella dati/ manca e il modulo
-    si salta per intero: conteggio da aggiornare con l'esito della CI dopo la
-    pubblicazione)
+    si salta per intero, contando come 1 skipped: CI run 37239975721)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Chi clona il repository deve poter riprodurre i risultati su OSD-734:
@@ -1343,6 +1346,69 @@ SETTIMANA 21 (W21) : DATI DI OSD-734 RECUPERABILI DAL REPOSITORY (dati/osd734/)
     2. Un file scaricato vale solo se coincide con il checksum della sua fonte.
     3. ENA, Zenodo e GitHub non sono sotto il controllo della suite: le prove
        dello scarico usano un server locale.
+
+
+--------------------------------------------------------------------------------
+SETTIMANA 22 (W22) : REPORT DI ESECUZIONE
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W22, Fase F6 (modulo del report: 'src/amplicon16s/report/', il
+    sottocomando 'report', e cio' che l'esecuzione registra perche' il report
+    possa leggerlo: parametri dichiarati in '00_config', controlli di avvio nel
+    log e nel registro degli avvii).
+
+  * FILE DI TEST:
+    tests/test_w22_report.py
+
+  * COSA VALUTA:
+    Che la configurazione registrata elenchi in 'dichiarati' i parametri
+    impostati nel file di ingresso, anche con un valore uguale al predefinito,
+    senza che il digest ne dipenda; che l'esecutore scriva nel log a ogni avvio
+    e ripresa l'evento 'controlli_di_avvio' con l'esito di G15, G14 e G12, e che
+    un G12 non superato dopo S0 resti nel log e nel report accanto al punto di
+    ripresa; che dopo dodici riprese, con il log ruotato e privo dei primi
+    avvii, il registro '99_logs/avvii.jsonl' li conservi tutti e il report li
+    mostri tutti, e che senza il registro il report lo dichiari invece di
+    ricostruire dal log; che il file di blocco dichiari dada2 con la correzione e il report
+    lo riporti, o dica che non e' determinabile; che dopo la sola validazione il
+    report abbia le otto sezioni, i quindici gate nell'ordine di esecuzione, lo
+    stato delle fasi e il campione riclassificato; che la tabella dei parametri
+    distingua dichiarati, predefiniti, derivati e aggiustati, e che la
+    segnalazione in apertura elenchi i parametri di 'DERIVATI_DAL_DATASET' con
+    il valore di OSD-734 e il fatto accertato, comunque siano stati impostati;
+    che tentativi ripetuti e degradazioni vengano dai manifesti; che una
+    ripresa con configurazione cambiata mostri entrambe le versioni, la
+    differenza e le fasi eseguite con ciascuna; che gli avvisi di provenienza
+    compaiano in apertura; che due generazioni diano gli stessi byte, che nulla
+    cambi fuori dalla cartella del report e che la valutazione dello stato
+    resti la stessa; che il report si generi senza avviare processi e senza i
+    dati grezzi; che un artefatto alterato e un manifesto non valido siano
+    segnalati e non riportati; che le tabelle superate vengano rimosse e i file
+    TSV portino i conteggi senza separatore; che il documento non richiami
+    risorse esterne e che ne' il documento ne' le tabelle contengano trattini
+    lunghi, medi o doppi trattini; che il
+    resoconto provvisorio non esista piu'; sul sottoinsieme di prova, dopo la
+    catena completa, che tracciamento, soglie, decontaminazione, filtri finali,
+    dimensioni dell'oggetto e grafico del modello d'errore coincidano con gli
+    artefatti; sul dataset completo, che il report riporti i 960 campioni e i
+    33 tamponi riclassificati.
+
+  * COMANDO BASH:
+    pytest tests/test_w22_report.py -v
+
+  * RISULTATO ATTESO:
+    19 test (16 passed, 3 skipped in ambiente locale privo di Bioconductor;
+    18 passed, 1 skipped nel container CI; 19 passed nel container con dati
+    reali OSD-734)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. Il report e' il primo oggetto che il committente apre: cio' che afferma
+       viene dagli artefatti, non da un ricalcolo che potrebbe divergerne.
+    2. Un predefinito indistinguibile da una scelta, o un valore di OSD-734
+       ereditato in silenzio su un altro dataset, da' un risultato formalmente
+       valido e scientificamente infondato: va reso visibile.
+    3. Un documento che cambia a ogni generazione, o che altera la cartella da
+       cui e' ricavato, non puo' accompagnare un'esecuzione riproducibile.
 
 
 --------------------------------------------------------------------------------
@@ -1434,7 +1500,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W20       | tests/test_w20_decontam.py            |   14 | pytest tests/test_w20_decontam.py -v
   W21       | tests/test_w21_finale.py              |   16 | pytest tests/test_w21_finale.py -v
   W21       | tests/test_w21_dati_osd734.py         |    9 | pytest tests/test_w21_dati_osd734.py -v
+  W22       | tests/test_w22_report.py              |   19 | pytest tests/test_w22_report.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (25 moduli)              |  957 | pytest tests/ -v
+  TOTALE    | Intera suite (26 moduli)              |  976 | pytest tests/ -v
 ================================================================================

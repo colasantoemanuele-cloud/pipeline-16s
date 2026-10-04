@@ -156,19 +156,32 @@ def test_senza_radice_resta_la_sola_console(tmp_path):
 def test_le_uscite_sono_due(tmp_path):
     """
     **Obiettivo**: Verificare che dopo ``configura(tmp_path)`` il logger radice
-    di ``amplicon16s`` possieda esattamente 2 handler (console + file JSONL).
+    di ``amplicon16s`` possieda le due uscite, console e file JSONL, piu' il
+    registro degli avvii, che riceve i soli eventi con il campo ``evento`` e
+    non ruota.
 
     **Razionale scientifico e sistemistico**: Accerta l'attivazione simultanea del
-    canale leggibile dall'uomo e del canale strutturato per le macchine.
+    canale leggibile dall'uomo e del canale strutturato per le macchine; il
+    registro degli avvii conserva la storia delle riprese oltre la rotazione
+    del log.
     """
     configura(tmp_path)
-    assert len(ottieni().handlers) == 2
+    tipi = [type(h) for h in ottieni().handlers]
+    assert tipi == [logging.StreamHandler, logging.handlers.RotatingFileHandler, logging.FileHandler]
+
+    ottieni().info("riga qualunque")
+    ottieni().info("avvio", extra={"evento": "controlli_di_avvio"})
+    chiudi()
+    registro = (tmp_path / "99_logs" / "avvii.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(r)["messaggio"] for r in registro] == ["avvio"]
+    assert len((tmp_path / "99_logs" / "pipeline.jsonl").read_text(encoding="utf-8").splitlines()) == 2
 
 
 def test_configurare_piu_volte_non_accumula_uscite(tmp_path):
     """
     **Obiettivo**: Verificare che chiamate ripetute a ``configura(tmp_path)``
-    chiudano gli handler precedenti mantenendo il conteggio fisso a 2.
+    chiudano gli handler precedenti mantenendo il conteggio fisso a 3
+    (console, file JSONL, registro degli avvii).
 
     **Razionale scientifico e sistemistico**: Previene il classico bug di
     duplicazione dei messaggi nel modulo ``logging`` di Python e la perdita di
@@ -177,7 +190,7 @@ def test_configurare_piu_volte_non_accumula_uscite(tmp_path):
     configura(tmp_path)
     configura(tmp_path)
     configura(tmp_path)
-    assert len(ottieni().handlers) == 2
+    assert len(ottieni().handlers) == 3
 
 
 def test_il_file_ruota(tmp_path):

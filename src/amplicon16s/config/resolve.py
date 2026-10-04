@@ -23,6 +23,13 @@ gli stessi risultati.
 
 **Il digest** identifica la combinazione di parametri impiegata ed è calcolato
 sulla configurazione dichiarata più i derivati.
+
+**L'origine dei valori resta agli atti.** La configurazione registrata elenca
+in ``dichiarati`` i parametri impostati nel file di ingresso
+(:func:`parametri_dichiarati`): gli altri valgono il predefinito. Senza, a
+esecuzione conclusa un valore predefinito sarebbe indistinguibile da una scelta
+deliberata. L'elenco non entra nel digest, che identifica i valori e non il
+modo in cui sono stati dati.
 """
 
 from __future__ import annotations
@@ -47,6 +54,7 @@ __all__ = [
     "Registrazione",
     "PARAMETRI_DERIVATI",
     "PARAMETRI_SENZA_EFFETTO",
+    "parametri_dichiarati",
     "registra_risolta",
     "risolvi",
     "scrivi_risolta",
@@ -179,6 +187,27 @@ class ConfigRisolta:
         return mappa
 
 
+def parametri_dichiarati(config: Config) -> tuple[str, ...]:
+    """I parametri impostati nel file di configurazione, come ``gruppo.parametro``.
+
+    Lo dice lo schema, che tiene traccia dei campi ricevuti in ingresso
+    (``model_fields_set``): confrontare i valori con i predefiniti non
+    distinguerebbe un predefinito ereditato dallo stesso valore scritto di
+    proposito. Un gruppo assente dal file non ha parametri dichiarati.
+    """
+    dichiarati = []
+    for gruppo in Config.model_fields:
+        if gruppo not in config.model_fields_set:
+            continue
+        modello = getattr(config, gruppo)
+        dichiarati += [
+            f"{gruppo}.{chiave}"
+            for chiave in type(modello).model_fields
+            if chiave in modello.model_fields_set
+        ]
+    return tuple(dichiarati)
+
+
 def risolvi(config: Config) -> ConfigRisolta:
     """Risolve i parametri derivati della configurazione."""
     return ConfigRisolta(config=config, derivati=_deriva_statici(config))
@@ -190,7 +219,9 @@ _INTESTAZIONE = """\
 # =========================================================================== #
 #
 # Registra i parametri con cui l'esecuzione e' stata avviata, compresi quelli
-# calcolati dalla pipeline e non dichiarati nel file di ingresso.
+# calcolati dalla pipeline e non dichiarati nel file di ingresso. L'elenco
+# "dichiarati" dice quali parametri il file di ingresso ha impostato: gli altri
+# valgono il predefinito della pipeline.
 #
 # Il digest identifica la combinazione di parametri: due esecuzioni con lo
 # stesso digest hanno usato la stessa configurazione. E' calcolato sulla
@@ -210,6 +241,8 @@ def _testo_risolta(risolta: ConfigRisolta, aggiunte: dict[str, Any] | None = Non
         "digest": risolta.digest,
         **(aggiunte or {}),
         "derivati": list(risolta.derivati.come_chiavi()),
+        # Quali valori vengono dal file di ingresso: gli altri sono predefiniti.
+        "dichiarati": list(parametri_dichiarati(risolta.config)),
         "parametri": risolta.come_mappa(),
     }
     corpo = yaml.safe_dump(
@@ -286,6 +319,9 @@ def registra_risolta(risolta: ConfigRisolta, out_root: Path | str) -> Registrazi
     Il confronto è con l'ultima e non con una qualunque: tornare a una
     configurazione gia' usata e' a sua volta un cambiamento, e ricostruire
     con quale configurazione ha girato ciascuna ripresa richiede di vederlo.
+    Una versione si distingue dalla precedente per i valori, cioe' per il
+    digest: togliere dal file un parametro che vale il predefinito non cambia
+    alcun valore e non registra una nuova versione.
     """
     versioni = versioni_registrate(out_root)
     if not versioni:

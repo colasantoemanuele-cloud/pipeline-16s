@@ -12,6 +12,13 @@ A ogni avvio, prima di qualunque fase:
    o un volume piu' piccolo non verrebbero controllati. Qui G14 gira da solo,
    senza rieseguire S0.
 
+L'esito dei tre controlli di avvio (G15, G14 e G12, il riferimento tassonomico
+contro ``tax.ref_md5``) va nel log a ogni avvio come evento strutturato, con
+cio' che il file di blocco dei pacchetti R dichiara su dada2. Questo evento,
+quello della configurazione in uso, quelli delle fasi eseguite e quello della
+conclusione finiscono anche nel registro degli avvii, ``99_logs/avvii.jsonl``,
+che a differenza del log non ruota.
+
 Superati i controlli, **registra la configurazione** in ``00_config`` senza
 mai sovrascrivere (:func:`~amplicon16s.config.resolve.registra_risolta`): la
 prima esecuzione scrive ``resolved.yaml``; una ripresa con lo stesso digest
@@ -44,6 +51,7 @@ piu' nulla.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -66,6 +74,7 @@ from amplicon16s.io_layer.artifacts import Fase, scrivi_atomico
 from amplicon16s.logging.logger import registra_errore
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import ProjectRun, StatoPasso, Valutazione
+from amplicon16s.runner.provenienza import RADICE_REPOSITORY
 from amplicon16s.runner.retry import (
     RITENTARE_INUTILE,
     Motivo,
@@ -77,6 +86,10 @@ from amplicon16s.runner.retry import (
 from amplicon16s.steps.base import StepResult
 
 __all__ = [
+    "EVENTO_CONCLUSIONE",
+    "EVENTO_CONFIGURAZIONE",
+    "EVENTO_CONTROLLI",
+    "EVENTO_FASE",
     "NOME_PUNTO_DI_RIPRESA",
     "Esecutore",
     "EsitoEsecuzione",
@@ -86,6 +99,39 @@ __all__ = [
 
 #: Nome dei file del punto di ripresa sotto 99_logs, senza estensione.
 NOME_PUNTO_DI_RIPRESA: Final = "punto_di_ripresa"
+
+#: Il campo ``evento`` degli eventi che descrivono un'esecuzione. Chi porta
+#: questo campo finisce, oltre che nel log, nel registro degli avvii
+#: (:data:`~amplicon16s.logging.logger.NOME_FILE_AVVII`), che non ruota: il
+#: report legge da lì, e riconosce gli eventi da qui, non dal testo del messaggio.
+EVENTO_CONTROLLI: Final = "controlli_di_avvio"
+EVENTO_CONFIGURAZIONE: Final = "configurazione"
+EVENTO_FASE: Final = "fase"
+EVENTO_CONCLUSIONE: Final = "conclusione"
+
+
+def _blocco_r(lockfile: str) -> dict[str, Any] | None:
+    """Che cosa dichiara il file di blocco dei pacchetti R su dada2, se si trova.
+
+    ``run.lockfile`` e' cercato com'e' (dalla cartella di lavoro, come
+    nell'immagine) e poi nella radice del repository. Si registrano la sua
+    impronta e la voce di dada2, con la correzione dei pareggi di
+    assignTaxonomy se dichiarata: e' cio' che il file dichiara, come l'immagine
+    in ``run.container``, non una misura della libreria caricata da R. ``None``
+    se il file non si trova o non si legge.
+    """
+    for percorso in (Path(lockfile), RADICE_REPOSITORY / lockfile):
+        try:
+            dati = percorso.read_bytes()
+            dada2 = json.loads(dati)["Packages"]["dada2"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        return {
+            "file": percorso.name,
+            "sha256": hashlib.sha256(dati).hexdigest(),
+            "dada2": {"versione": dada2.get("Version"), "correzione": dada2.get("Patch")},
+        }
+    return None
 
 
 class Conclusione(StrEnum):
@@ -227,24 +273,47 @@ class Esecutore:
         punto di ripresa: rimossa la causa, si riprende. G12 verifica il
         riferimento tassonomico contro tax.ref_md5 a ogni avvio, anche con S0
         conclusa: un file alterato dopo S0 non arriva a S8.
-        """
-        violazioni = _controlla_coerenza(risolvi(self.config))
-        if violazioni:
-            raise ErroreGate("G15", violazioni)
 
-        completa = Contesto(self.config)
-        for controllo, motivo in (
-            (_g14_risorse_disponibili,
+        L'esito di ciascun controllo va nel log e nel registro degli avvii come
+        evento strutturato (:data:`EVENTO_CONTROLLI`), superato o no:
+        ``gates.json`` riporta i gate come li ha visti S0, e una ripresa con S0
+        gia' conclusa non lo riscrive. Il report legge dal registro i
+        controlli di ogni avvio.
+        """
+        esiti: list[dict[str, Any]] = []
+
+        def registra(gate: str, violazioni: list[Any]) -> None:
+            esiti.append({
+                "gate": gate,
+                "eseguito": True,
+                "superato": not violazioni,
+                "violazioni": [
+                    {"codice": v.codice, "dettaglio": v.dettaglio} for v in violazioni
+                ],
+            })
+
+        coerenza = _controlla_coerenza(risolvi(self.config))
+        registra("G15", coerenza)
+        arresto: _Arresto | None = None
+        completa = None if coerenza else Contesto(self.config)
+        for gate, controllo, motivo in (
+            ("G14", _g14_risorse_disponibili,
              "Le risorse della macchina si verificano a ogni avvio, anche con S0 gia' conclusa."),
-            (_g12_riferimento_verificato,
+            ("G12", _g12_riferimento_verificato,
              "Il riferimento tassonomico si verifica contro tax.ref_md5 a ogni avvio, "
              "anche con S0 gia' conclusa."),
         ):
+            # Dopo il primo controllo fallito gli altri non si eseguono, e
+            # figurano come non eseguiti, non come superati.
+            if coerenza or arresto is not None:
+                esiti.append({"gate": gate, "eseguito": False, "superato": False, "violazioni": []})
+                continue
             violazioni, _ = controllo(completa)
+            registra(gate, violazioni)
             if violazioni:
                 prima = violazioni[0]
                 v = voce(prima.codice)
-                raise _Arresto(PuntoDiRipresa(
+                arresto = _Arresto(PuntoDiRipresa(
                     passo=valutazione.prossima(),
                     codice=prima.codice,
                     categoria=v.categoria.value,
@@ -257,6 +326,22 @@ class Esecutore:
                     comando=self.comando_ripresa,
                     origine="controlli di avvio",
                 ))
+
+        superati = all(e["superato"] for e in esiti)
+        self.log.log(
+            logging.INFO if superati else logging.ERROR,
+            "controlli di avvio " + ("superati" if superati else "non superati"),
+            extra={
+                "evento": EVENTO_CONTROLLI,
+                "esiti": esiti,
+                "fino_a": str(self.fino_a) if self.fino_a else None,
+                "blocco_r": _blocco_r(self.config.run.lockfile),
+            },
+        )
+        if coerenza:
+            raise ErroreGate("G15", coerenza)
+        if arresto is not None:
+            raise arresto
 
     # ----------------------------------------------------------------- #
     # Esecuzione                                                         #
@@ -271,7 +356,7 @@ class Esecutore:
             self.controlli_di_avvio(valutazione)
             configurazione = self._registra_configurazione(valutazione)
             # Una provenienza diversa a parita' di versione non rifa' la fase:
-            # si segnala una volta per esecuzione, e resta nel resoconto.
+            # si segnala una volta per esecuzione, e il report la rileva di nuovo.
             for passo, situazione in valutazione.situazioni.items():
                 if situazione.avviso is not None:
                     self.log.warning(
@@ -287,7 +372,14 @@ class Esecutore:
                     if self.fino_a is None:
                         self._rimuovi_temporanei(valutazione)
                         valutazione = self.run.valuta()
-                    self.log.info("esecuzione completata", extra={"eseguite": len(eseguite)})
+                    self.log.info(
+                        "esecuzione completata",
+                        extra={
+                            "evento": EVENTO_CONCLUSIONE,
+                            "conclusione": Conclusione.COMPLETATA.value,
+                            "eseguite": len(eseguite),
+                        },
+                    )
                     return EsitoEsecuzione(
                         Conclusione.COMPLETATA,
                         tuple(eseguite),
@@ -298,7 +390,11 @@ class Esecutore:
                     self._rimuovi_punto()
                     self.log.warning(
                         f"{passo} non e' ancora realizzata: l'esecuzione si ferma qui",
-                        extra={"passo": str(passo)},
+                        extra={
+                            "evento": EVENTO_CONCLUSIONE,
+                            "conclusione": Conclusione.FASE_NON_REALIZZATA.value,
+                            "passo": str(passo),
+                        },
                     )
                     return EsitoEsecuzione(
                         Conclusione.FASE_NON_REALIZZATA,
@@ -362,6 +458,7 @@ class Esecutore:
         """
         registrazione = registra_risolta(valutazione.risolta, self.config.io.out_root)
         extra = {
+            "evento": EVENTO_CONFIGURAZIONE,
             "file": registrazione.percorso.name,
             "digest": registrazione.digest,
             "registrata_ora": registrazione.nuova,
@@ -510,7 +607,14 @@ class Esecutore:
             documento, json.dumps(punto.come_documento(), indent=2, ensure_ascii=False) + "\n"
         )
         scrivi_atomico(testo, punto.testo() + "\n")
-        self.log.error("punto di ripresa dichiarato", extra=punto.come_documento())
+        self.log.error(
+            "punto di ripresa dichiarato",
+            extra={
+                "evento": EVENTO_CONCLUSIONE,
+                "conclusione": Conclusione.ARRESTATA.value,
+                **punto.come_documento(),
+            },
+        )
 
     def _rimuovi_punto(self) -> None:
         """Rimuove il punto di ripresa di un'esecuzione precedente, se presente."""

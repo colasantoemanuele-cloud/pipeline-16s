@@ -14,8 +14,10 @@ tentativi ripetuti cambiano una copia in memoria.
   sovrascrivere: contraddirebbe proprio quella decisione.
 * ``resume`` riprende dagli artefatti esistenti: esegue le sole fasi che la
   valutazione dello stato dà da eseguire.
-* ``report`` scrive un resoconto provvisorio dello stato, ricavato dai
-  manifesti delle fasi; il report completo non è ancora realizzato.
+* ``report`` genera il report dell'esecuzione: un documento HTML e le sue
+  tabelle, nella cartella ``report`` sotto ``io.out_root``, ricavati da ciò che
+  l'esecuzione ha lasciato su disco, senza rieseguire nulla
+  (:mod:`amplicon16s.report.builder`).
 
 **Codici di uscita**, per chi lancia la pipeline da uno script o da uno
 scheduler:
@@ -30,28 +32,28 @@ scheduler:
 * ``4``: arresto con punto di ripresa dichiarato, stampato e scritto in
   ``99_logs/punto_di_ripresa.json`` e ``.txt``;
 * ``5``: tutte le fasi realizzate sono concluse, ma la prossima non esiste
-  ancora come codice. È uno stato dello sviluppo: pipeline realizzata fino a S8.
+  ancora come codice. Oggi soltanto con ``phylo.enabled`` vero, perché S9 non è
+  realizzata: senza filogenesi la catena completa termina con ``0``.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import shlex
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, Final
+from typing import Final
 
 from amplicon16s import __version__
 from amplicon16s.config.schema import Config, ErroreConfigurazione, carica
 from amplicon16s.gates.g01_g15 import ErroreGate
-from amplicon16s.io_layer.artifacts import Fase, scrivi_atomico
 from amplicon16s.logging.logger import chiudi, configura, ottieni
 from amplicon16s.runner.executor import Conclusione, Esecutore, EsitoEsecuzione
 from amplicon16s.runner.graph import Passo
-from amplicon16s.runner.project import ProjectRun, StatoPasso, passi_realizzati
+from amplicon16s.report.builder import CARTELLA_TABELLE, costruisci, scrivi
+from amplicon16s.runner.project import ProjectRun, passi_realizzati
 from amplicon16s.steps.base import PipelineStep
 
 __all__ = [
@@ -70,10 +72,6 @@ USCITA_ERRORE_IMPREVISTO: Final = 1
 USCITA_CONFIGURAZIONE: Final = 3
 USCITA_ARRESTO: Final = 4
 USCITA_FASE_NON_REALIZZATA: Final = 5
-
-#: Resoconto provvisorio dello stato, sotto 99_logs.
-NOME_RESOCONTO: Final = "resoconto_stato.json"
-
 
 def _passi() -> dict[Passo, PipelineStep]:
     """Le fasi realizzate. Un punto solo, cosi' i test possono sostituirle."""
@@ -174,82 +172,23 @@ def _cmd_resume(config: Config, percorso: Path, args: argparse.Namespace) -> int
     return _uscita(_esegui(config, percorso))
 
 
-def resoconto(run: ProjectRun) -> dict[str, Any]:
-    """Il resoconto provvisorio dello stato, dai manifesti delle fasi."""
-    valutazione = run.valuta()
-    fasi = []
-    for passo, situazione in valutazione.situazioni.items():
-        voce: dict[str, Any] = {
-            "passo": str(passo),
-            "descrizione": run.grafo.nodo(passo).descrizione,
-            "stato": situazione.stato.value,
-            "motivo": situazione.motivo,
-        }
-        if situazione.avviso is not None:
-            voce["avviso"] = situazione.avviso
-        if situazione.stato is StatoPasso.COMPLETATA:
-            manifesto = run.albero.manifesto_passo(passo, run.grafo.nodo(passo).cartella)
-            assert manifesto is not None
-            voce["conclusa"] = manifesto.conclusa
-            voce["artefatti"] = list(manifesto.nomi)
-            voce["aggiustamenti"] = list(manifesto.aggiustamenti)
-            voce["degradazioni"] = [
-                {"codice": d["codice"], "dettaglio": d.get("dettaglio")}
-                for d in manifesto.degradazioni
-            ]
-        fasi.append(voce)
-    return {
-        "provvisorio": True,
-        "completa": valutazione.completa,
-        "prossima": str(valutazione.prossima()) if valutazione.prossima() else None,
-        "fasi": fasi,
-    }
-
-
-def _testo_resoconto(documento: dict[str, Any]) -> str:
-    """Il resoconto dello stato in forma leggibile, una riga per fase."""
-    righe = [
-        "RESOCONTO PROVVISORIO DELLO STATO (non e' il report definitivo)",
-        "",
-    ]
-    for fase in documento["fasi"]:
-        righe.append(f"  {fase['passo']:<4} {fase['stato']:<15} {fase['descrizione']}")
-        for a in fase.get("aggiustamenti", []):
-            if a["parametro"] is None:
-                righe.append(f"         aggiustamento [{a['codice']}]: {a['azione']}")
-            else:
-                righe.append(
-                    f"         aggiustamento [{a['codice']}]: {a['parametro']} "
-                    f"{a['dichiarato']} -> {a['usato']}"
-                )
-        for d in fase.get("degradazioni", []):
-            righe.append(f"         degradazione [{d['codice']}]: {d['dettaglio']}")
-        if "avviso" in fase:
-            righe.append(f"         provenienza: {fase['avviso']}")
-    righe += [
-        "",
-        "Esecuzione completa." if documento["completa"]
-        else f"Esecuzione non completa: prossima fase {documento['prossima']}.",
-    ]
-    return "\n".join(righe)
-
-
 def _cmd_report(config: Config, percorso: Path, args: argparse.Namespace) -> int:
-    """Comando ``report``: scrive in ``99_logs`` il resoconto provvisorio dello stato e
-    lo stampa.
+    """Comando ``report``: genera il report dell'esecuzione in ``io.out_root``.
+
+    Della configurazione usa solo ``io.out_root``: il report si ricava da ciò
+    che l'esecuzione ha lasciato nella cartella, e non scrive nel log.
     """
     radice = Path(config.io.out_root)
     if not _cartella_usata(radice):
         _stampa(f"Nessuna esecuzione in {radice}: non c'e' nulla da riportare.")
         return USCITA_CONFIGURAZIONE
-    run = ProjectRun(config, passi=_passi())
-    documento = resoconto(run)
-    destinazione = run.albero.prepara(Fase.LOGS) / NOME_RESOCONTO
-    scrivi_atomico(
-        destinazione, json.dumps(documento, indent=2, ensure_ascii=False, default=str) + "\n"
-    )
-    _stampa(_testo_resoconto(documento))
-    _stampa(f"\nResoconto scritto in {destinazione}")
+    report = costruisci(radice, _passi())
+    destinazione = scrivi(report, radice)
+    _stampa(f"Report scritto in {destinazione}")
+    _stampa(f"Tabelle: {len(report.tabelle)} file in {destinazione.parent / CARTELLA_TABELLE}")
+    _stampa("Segnalazioni in apertura:" if report.segnalazioni else "Nessuna segnalazione in apertura.")
+    for segnalazione in report.segnalazioni:
+        _stampa(f"  - {segnalazione}")
     return USCITA_SUCCESSO
 
 
@@ -274,7 +213,7 @@ def build_parser() -> argparse.ArgumentParser:
         ("run", "esegue la pipeline dall'inizio, in una cartella di output nuova", _cmd_run),
         ("resume", "riprende un'esecuzione dagli artefatti gia' prodotti", _cmd_resume),
         ("validate", "esegue solo la fase di validazione degli input (S0)", _cmd_validate),
-        ("report", "resoconto provvisorio dello stato dell'esecuzione", _cmd_report),
+        ("report", "genera il report HTML di un'esecuzione, dalla sua cartella di output", _cmd_report),
     ]
     for nome, aiuto, funzione in comandi:
         sotto = subparsers.add_parser(nome, help=aiuto)

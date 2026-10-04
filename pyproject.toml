@@ -49,9 +49,10 @@ where = ["src"]
 include = ["amplicon16s*", "amplicon16s_eco*"]
 
 # Il registro delle versioni e del sorgente delle fasi, letto dai test e da
-# scripts/registro_sorgente.py anche con il pacchetto installato.
+# scripts/registro_sorgente.py anche con il pacchetto installato, e i modelli
+# del documento del report.
 [tool.setuptools.package-data]
-amplicon16s = ["steps/registro_sorgente.json"]
+amplicon16s = ["steps/registro_sorgente.json", "report/templates/*"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

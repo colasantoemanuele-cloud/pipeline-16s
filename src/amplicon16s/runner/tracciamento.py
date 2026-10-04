@@ -15,12 +15,15 @@ calcolo interrotto o superato.
 from __future__ import annotations
 
 import csv
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Final
 
+from amplicon16s.io_layer.artifacts import AlberoOutput
 from amplicon16s.runner.project import ProjectRun, StatoPasso, Valutazione
+from amplicon16s.steps.base import PipelineStep
 
-__all__ = ["PREFISSO", "Tracciamento", "ricomponi"]
+__all__ = ["PREFISSO", "Tracciamento", "componi", "ricomponi"]
 
 #: I file di tracciamento si riconoscono dal nome.
 PREFISSO: Final = "letture_"
@@ -45,32 +48,43 @@ class Tracciamento:
 
 
 def ricomponi(run: ProjectRun, valutazione: Valutazione | None = None) -> Tracciamento:
-    """La tabella completa, dai file delle fasi concluse. Non scrive nulla.
+    """La tabella completa, dai file delle fasi concluse. Non scrive nulla."""
+    valutazione = valutazione or run.valuta()
+    concluse = [
+        run.passi[fase]
+        for fase, situazione in valutazione.situazioni.items()
+        if situazione.stato is StatoPasso.COMPLETATA and fase in run.passi
+    ]
+    return componi(run.albero, concluse)
+
+
+def componi(albero: AlberoOutput, concluse: Iterable[PipelineStep]) -> Tracciamento:
+    """La tabella completa dalle fasi indicate, concluse e nell'ordine del grafo.
 
     Si leggono solo i passi che ciascuna fase dichiara in
     ``passi_tracciamento``, nell'ordine dichiarato: il nome di un file non
     basta a dire che e' un tracciamento, ne' in che ordine vengono i passi.
+    Chi decide quali fasi sono concluse e' il chiamante: la valutazione dello
+    stato per :func:`ricomponi`, i manifesti su disco per il report.
     """
-    valutazione = valutazione or run.valuta()
     passi: list[str] = []
     origine: dict[str, str] = {}
     letture: dict[str, dict[str, int]] = {}
 
-    for fase, situazione in valutazione.situazioni.items():
-        if situazione.stato is not StatoPasso.COMPLETATA or fase not in run.passi:
-            continue
-        cartella = run.grafo.nodo(fase).cartella
-        manifesto = run.albero.manifesto_passo(fase, cartella)
+    for fase in concluse:
+        manifesto = albero.manifesto_passo(fase.passo, fase.cartella)
         assert manifesto is not None
-        for passo in run.passi[fase].passi_tracciamento:
+        for passo in fase.passi_tracciamento:
             nome = f"{PREFISSO}{passo}.tsv"
             if nome not in manifesto.nomi:
-                raise ValueError(f"{fase} dichiara il passo {passo} ma non ha {nome}")
+                raise ValueError(f"{fase.passo} dichiara il passo {passo} ma non ha {nome}")
             if passo in origine:
-                raise ValueError(f"il passo {passo} e' registrato sia da {origine[passo]} sia da {fase}")
+                raise ValueError(
+                    f"il passo {passo} e' registrato sia da {origine[passo]} sia da {fase.passo}"
+                )
             passi.append(passo)
-            origine[passo] = str(fase)
-            with open(run.albero.cartella(cartella) / nome, encoding="utf-8", newline="") as file:
+            origine[passo] = str(fase.passo)
+            with open(albero.cartella(fase.cartella) / nome, encoding="utf-8", newline="") as file:
                 for riga in csv.DictReader(file, delimiter="\t"):
                     if riga["passo"] != passo:
                         raise ValueError(f"{nome} contiene il passo {riga['passo']}")

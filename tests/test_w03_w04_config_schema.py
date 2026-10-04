@@ -671,7 +671,9 @@ def test_i_marcatori_dell_esempio_coincidono_con_i_derivati_dal_dataset():
     """
     **Obiettivo**: Verificare che i parametri marcati ``[OSD-734]`` sulla loro
     riga in ``config/config.example.yaml`` siano esattamente quelli di
-    ``defaults.DERIVATI_DAL_DATASET``.
+    ``defaults.DERIVATI_DAL_DATASET``, e che per ciascuno
+    ``defaults.FATTI_OSD734`` porti il fatto accertato e lo stesso valore
+    dell'esempio.
 
     **Razionale scientifico e sistemistico**: Il criterio e' uno solo: un
     parametro e' marcato, e sta nell'elenco, se il suo valore e' stato scelto
@@ -689,6 +691,18 @@ def test_i_marcatori_dell_esempio_coincidono_con_i_derivati_dal_dataset():
         elif (trovato := re.match(r"^  ([A-Za-z_]+):", riga)) and "[OSD-734]" in riga:
             marcati.add(f"{gruppo}.{trovato.group(1)}")
     assert marcati == set(defaults.DERIVATI_DAL_DATASET)
+
+    # La motivazione sta accanto all'elenco, in FATTI_OSD734, e non nei
+    # commenti dell'esempio: ogni parametro marcato ha il suo fatto accertato, e
+    # il valore di OSD-734 e' quello che l'esempio, istanza completa per quel
+    # dataset, riporta.
+    assert tuple(defaults.FATTI_OSD734) == defaults.DERIVATI_DAL_DATASET
+    esempio = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
+    for chiave, riferimento in defaults.FATTI_OSD734.items():
+        gruppo, nome = chiave.split(".")
+        assert len(riferimento.fatto) > 20, chiave
+        atteso = list(riferimento.valore) if isinstance(riferimento.valore, tuple) else riferimento.valore
+        assert esempio[gruppo][nome] == atteso, chiave
 
 
 def test_esempio_usa_i_valori_del_dataset_di_riferimento(dati_esempio):
