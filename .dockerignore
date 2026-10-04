@@ -30,6 +30,10 @@ htmlcov/
 !tests/fixtures/**/*.fastq.gz
 *.rds
 *.RDS
+# I dati di OSD-734 recuperati in dati/osd734/: l'immagine non li contiene.
+dati/osd734/fastq/
+dati/osd734/riferimento/
+dati/osd734/lotto/
 results/
 output/
 outputs/

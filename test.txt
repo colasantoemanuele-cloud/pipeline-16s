@@ -1,13 +1,13 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W21 (Fasi F1, F2, F3, F4)
+Piano Operativo: Settimane W1 - W22 (Fasi F1, F2, F3, F4, F9)
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W21 del Piano Operativo.
+W1 - W22 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -41,13 +41,14 @@ sequenza:
 
     pytest tests/ -n 0
 
-Totale complessivo della suite: 948 test su 24 moduli:
-  * 828 passed e 120 skipped in ambiente locale standard (R base + jsonlite, senza
+Totale complessivo della suite: 957 test su 25 moduli:
+  * 837 passed e 120 skipped in ambiente locale standard (R base + jsonlite, senza
     Bioconductor e senza dati reali), in circa 45 secondi;
-  * 914 passed e 34 skipped nel container CI standard (senza dati reali
+  * 914 passed e 43 skipped nel container CI standard (senza dati reali
     OSD-734), in circa 9 minuti su quattro processi: 32 test sui dati reali
-    OSD-734, 1 test sull'allocazione R legata alla lingua e 1 test che richiede
-    il repository .git;
+    OSD-734, 1 test sull'allocazione R legata alla lingua, 1 test che richiede
+    il repository .git e i 9 test di dati/osd734/, cartella che l'immagine non
+    contiene;
   * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 32 test che li
     richiedono, tutti sullo stesso processo: 946 passed e 2 skipped attesi
     (misurati 945 e 2 in circa 85 minuti con la suite di 947 test, picco di
@@ -169,7 +170,7 @@ predisporre i seguenti 5 blocchi funzionali di file:
 
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W21)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W22)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -1281,6 +1282,44 @@ SETTIMANA 21 (W21) : FASI S13 E S14 (FILTRI FINALI E SERIALIZZAZIONE)
 
 
 --------------------------------------------------------------------------------
+SETTIMANA 22 (W22) : DATI DI OSD-734 RECUPERABILI DAL REPOSITORY (dati/osd734/)
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W22, Fase F9 (riproducibilita' e consegna, anticipata): metadati,
+    elenchi con i checksum e script di scarico in 'dati/osd734/'.
+
+  * FILE DI TEST:
+    tests/test_w22_dati_osd734.py
+
+  * COSA VALUTA:
+    Che 'letture_ena.tsv' copra esattamente i 960 campioni della tabella di
+    assay, con MD5 e dimensione per file e un solo accession nel nome; che i
+    file del repository corrispondano ai checksum di 'FONTI.tsv'; su un server
+    HTTP locale, che uno scarico interrotto riprenda dal byte a cui era
+    arrivato, che un contenuto con l'MD5 sbagliato non diventi il file atteso e
+    resti da parte, e che i file gia' integri non si scarichino; che la
+    ricostruzione del file del lotto mappi classi, piastre e ordine e risolva
+    l'accession di un campione sequenziato due volte, e respinga una fonte
+    diversa da quella fissata; che la configurazione di esempio sia valida con
+    i percorsi in 'dati/osd734/'; che i file scaricati siano esclusi da git.
+    Nessun test usa la rete.
+
+  * COMANDO BASH:
+    pytest tests/test_w22_dati_osd734.py -v
+
+  * RISULTATO ATTESO:
+    9 test (9 passed in ~1s in ambiente locale; 9 skipped nel container CI,
+    perche' l'immagine non contiene la cartella dati/)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. Chi clona il repository deve poter riprodurre i risultati su OSD-734:
+       senza il file del lotto la pipeline degrada in silenzio.
+    2. Un file scaricato vale solo se coincide con il checksum della sua fonte.
+    3. ENA, Zenodo e GitHub non sono sotto il controllo della suite: le prove
+       dello scarico usano un server locale.
+
+
+--------------------------------------------------------------------------------
 MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
 --------------------------------------------------------------------------------
   * SETTIMANA E FASE:
@@ -1368,7 +1407,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W19       | tests/test_w19_controlli.py           |   25 | pytest tests/test_w19_controlli.py -v
   W20       | tests/test_w20_decontam.py            |   14 | pytest tests/test_w20_decontam.py -v
   W21       | tests/test_w21_finale.py              |   16 | pytest tests/test_w21_finale.py -v
+  W22       | tests/test_w22_dati_osd734.py         |    9 | pytest tests/test_w22_dati_osd734.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (24 moduli)              |  948 | pytest tests/ -v
+  TOTALE    | Intera suite (25 moduli)              |  957 | pytest tests/ -v
 ================================================================================

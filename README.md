@@ -33,6 +33,7 @@ src/amplicon16s_eco/  Pacchetto Python separato per le analisi ecologiche a vall
 R/                    Script R dei calcoli scientifici; R/lib/ per le funzioni condivise
 config/               File di configurazione (config.example.yaml)
 tests/                Suite di test
+dati/osd734/          Dati del dataset di riferimento: metadati, elenchi con i checksum, script di scarico
 docs/                 Riservata alla documentazione; oggi vuota (la documentazione è questo README e test.txt)
 scripts/              Script di utilità
 container/            Definizione dell'ambiente riproducibile (Dockerfile e script R)
@@ -118,6 +119,29 @@ su 1.204.500).
 Con la correzione, tre esecuzioni a 12, 12 e 4 thread danno gli stessi byte. Confrontata
 con dieci esecuzioni ufficiali, differisce solo sulle 160 varianti che la versione
 ufficiale stessa fa variare, tutte con pareggi, e su nessuna senza pareggi.
+
+### Dati del dataset di riferimento
+
+I dati con cui la pipeline si esegue su OSD-734 si recuperano da `dati/osd734/` (vedi il
+suo README): nel repository ci sono le tabelle ISA usate dalla pipeline, l'elenco delle
+960 corse con l'MD5 e la dimensione dichiarati da ENA, la provenienza e la licenza di
+ogni file (`FONTI.tsv`) e una configurazione con i percorsi relativi a quella cartella;
+le letture, il riferimento tassonomico e il file del lotto si ottengono con tre script,
+dalla radice del repository e con la sola libreria standard di Python:
+
+```bash
+python3 dati/osd734/scarica_letture.py        # 960 file FASTQ da ENA, circa 2,4 GB
+python3 dati/osd734/scarica_riferimento.py    # SILVA 138 per dada2 da Zenodo
+python3 dati/osd734/ricostruisci_lotto.py     # piastre, pozzetti e corse dalla fonte degli autori
+amplicon16s run --config dati/osd734/config_osd734.yaml
+```
+
+Gli script verificano ogni file contro il checksum della sua fonte, riprendono uno scarico
+interrotto e non scaricano ciò che è già presente e integro. Il file del lotto non è nel
+repository perché il repository degli autori da cui deriva non dichiara una licenza: lo
+script lo ricostruisce da quella fonte, fissata a un commit. Senza quel file la pipeline
+procede con un solo modello d'errore e senza soglie di profondità per piastra. I file
+scaricati sono esclusi da git.
 
 ### Identificare l'immagine per digest
 
@@ -431,6 +455,18 @@ Sono realizzati:
   container, verificate contro `renv.lock` durante la costruzione; costa alcuni minuti
   per push. In entrambi l'assenza di R, e nel secondo quella di Bioconductor, fa
   fallire i test che li richiedono invece di saltarli;
+- **i dati di OSD-734 recuperabili dal repository** (`dati/osd734/`): le tabelle ISA
+  usate dalla pipeline, l'elenco delle 960 corse con i checksum di ENA, fonte e licenza
+  di ogni file, una configurazione con i percorsi relativi e tre script, con la sola
+  libreria standard: `scarica_letture.py` (ENA) e `scarica_riferimento.py` (SILVA 138
+  da Zenodo e l'elenco dei suoi taxa difettosi) scaricano verificando l'MD5 e
+  riprendendo uno scarico interrotto; `ricostruisci_lotto.py` ricostruisce il file del
+  lotto dai metadati Qiita pubblicati dagli autori, fissati a un commit. Verificati
+  senza scaricare il dataset: sulle 960 letture già presenti nessuno scarico, il
+  riferimento già presente riconosciuto integro, l'elenco identico al filereport di
+  ENA, il file del lotto ricostruito identico byte per byte a quello usato finora, e
+  l'inventario della configurazione di esempio identico a quello della configurazione
+  usata per il riferimento; lo scarico e la ripresa provati su tre letture;
 - **il sottoinsieme di prova** (`tests/fixtures/osd734/`, `scripts/build_test_subset.py`).
   Ventotto campioni del dataset di riferimento, scelti per le fasi successive: due
   piastre, una per corsa, con i cinque controlli negativi che `decontam.min_blanks`

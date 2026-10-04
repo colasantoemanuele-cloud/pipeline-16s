@@ -1,0 +1,27 @@
+# Configurazione per OSD-734 con i dati recuperati in dati/osd734/.
+#
+# I percorsi sono relativi alla radice del repository: la pipeline va lanciata
+# da li' (amplicon16s run --config dati/osd734/config_osd734.yaml). I file da
+# scaricare si ottengono con gli script della cartella (vedi il suo README):
+#   letture       dati/osd734/fastq/        scarica_letture.py
+#   riferimento   dati/osd734/riferimento/  scarica_riferimento.py
+#   lotto         dati/osd734/lotto/        ricostruisci_lotto.py
+# I parametri non indicati hanno il valore predefinito, che per OSD-734 e'
+# quello giusto: i valori scelti su fatti accertati di questo dataset sono
+# marcati [OSD-734] in config/config.example.yaml.
+io:
+  fastq_dir: dati/osd734/fastq
+  assay_table: "dati/osd734/metadati/a_OSD-734_amplicon-sequencing_16s_Illumina MiSeq.txt"
+  study_table: dati/osd734/metadati/s_OSD-734.txt
+  out_root: output/osd734
+  batch_table: dati/osd734/lotto/plate_well_map_960.tsv
+tax:
+  ref_fasta: dati/osd734/riferimento/silva_nr99_v138_train_set.fa.gz
+  ref_md5: "56821dd6f365f64c8518a21e049c3232"
+  ref_name: SILVA
+  ref_version: "138"
+  ref_bad_taxa: dati/osd734/riferimento/silva_138_v2_bad-taxa.csv
+run:
+  # L'immagine va indicata per digest (vedi il README, "Identificare l'immagine
+  # per digest"): sostituire il segnaposto con quello dell'immagine costruita.
+  container: "registro.esempio/amplicon16s@sha256:0000000000000000000000000000000000000000000000000000000000000000"
