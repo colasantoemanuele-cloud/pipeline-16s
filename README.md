@@ -33,7 +33,7 @@ src/amplicon16s_eco/  Pacchetto Python separato per le analisi ecologiche a vall
 R/                    Script R dei calcoli scientifici; R/lib/ per le funzioni condivise
 config/               File di configurazione (config.example.yaml)
 tests/                Suite di test
-docs/                 Documentazione
+docs/                 Riservata alla documentazione; oggi vuota (la documentazione è questo README e test.txt)
 scripts/              Script di utilità
 container/            Definizione dell'ambiente riproducibile (Dockerfile e script R)
 ```
@@ -54,7 +54,12 @@ registrare il pacchetto in modalità modificabile). L'installazione rende dispon
 comando `amplicon16s`. La suite di test si esegue
 con `pytest`, su quattro processi con pytest-xdist (`addopts` in `pyproject.toml`), in
 locale come nella CI; `pytest -n 0` la esegue in sequenza. Le esecuzioni condivise
-del sottoinsieme di prova si calcolano una volta sola per tutti i processi. I calcoli scientifici girano nell'immagine descritta qui sotto, che porta
+del sottoinsieme di prova si calcolano una volta sola per tutti i processi. I test sui
+dati reali (marcatore `dati_reali`, attivi con `AMPLICON16S_CONFIG_DATI_REALI`)
+girano tutti sullo stesso processo, uno dopo l'altro, mentre gli altri restano
+distribuiti sui quattro: `--dist loadgroup` e il gruppo `dati_reali`, assegnato in
+`tests/conftest.py`. Sul dataset completo ciascuno lancia catene con decine di
+processi R, e in parallelo saturavano la memoria. I calcoli scientifici girano nell'immagine descritta qui sotto, che porta
 con sé il proprio R. I test del ponte verso R lanciano invece script R veri, e chiedono
 solo `Rscript` nel PATH (o indicato con `AMPLICON16S_RSCRIPT`) e il pacchetto `jsonlite`;
 i test delle fasi di calcolo chiedono anche i pacchetti Bioconductor, e girano
@@ -176,7 +181,7 @@ Codici di uscita, per chi lancia la pipeline da uno script o da uno scheduler:
 | 2 | riga di comando non valida (argomenti mancanti o sconosciuti) |
 | 3 | errore di configurazione: il file non è valido, G15 lo respinge, oppure `run` trova la cartella di output già usata; nessuna fase è partita |
 | 4 | arresto con punto di ripresa dichiarato, stampato e scritto in `99_logs/punto_di_ripresa.json` e `.txt` |
-| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: uno stato transitorio dello sviluppo, oggi dopo S12 |
+| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: oggi soltanto con `phylo.enabled` vero, perché S9 non è realizzata |
 
 ## Stato dell'implementazione
 
@@ -196,9 +201,10 @@ Sono realizzati:
   senza mai sovrascrivere le versioni precedenti, come descritto nella sezione sull'uso
   della riga di comando. Tutto questo avviene prima che venga
   allocato qualunque calcolo: è il gate che apre la sequenza di S0, perché un errore
-  di configurazione va scoperto prima di aprire un solo file. Un parametro derivato,
-  `prev.min_samples`, dipende dal numero di campioni biologici e viene calcolato
-  quando i metadati sono stati letti, non prima;
+  di configurazione va scoperto prima di aprire un solo file. I parametri derivati
+  (`filter.minLen`, `asv.len_min`, `asv.len_max`) discendono dalla sola
+  configurazione; il numero minimo di campioni del filtro di prevalenza lo calcola
+  S13 sui biologici che tiene;
 - l'inventario dei campioni: il crosswalk fra i file di letture, la tabella di assay
   dell'amplicone e la tabella campioni di studio, con la classe di ciascun campione.
   La chiave del join è l'accession estratto dal nome del file, non il nome del
@@ -245,7 +251,7 @@ Sono realizzati:
   manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
   in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
   lo stesso checksum fra due esecuzioni sugli stessi ingressi;
-- il catalogo degli errori (53 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (54 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -279,13 +285,15 @@ Sono realizzati:
   la traduce nel codice che la fase indica; gli script caricano i pacchetti con
   `richiedi_pacchetti`, che conserva il messaggio originale invece di ridurlo a
   «pacchetto non disponibile»; per rendere il riconoscimento indipendente dalla lingua
-  della macchina, impone a R i messaggi in inglese. Può limitare la memoria virtuale
+  della macchina, impone a R i messaggi in inglese (`LANGUAGE=en`), e impone
+  `LC_ALL=C.UTF-8`, così che ordinamenti e codifica non dipendano dalla macchina;
+  gli script ordinano le stringhe con `method = "radix"`. Può limitare la memoria virtuale
   del processo figlio, riducendo allora a uno i thread dell'algebra lineare: con
   OpenBLAS multithread, come nell'immagine, R sotto quel limite resta bloccato in
   uscita. Accetta un tempo massimo, allo scadere del quale uccide il processo e il suo
   gruppo: un figlio bloccato non blocca l'orchestratore;
 - le funzioni R condivise in `R/lib/`: `io_json.R` per leggere e scrivere il JSON in
-  modo atomico, `errors.R` con il punto d'ingresso degli script di fase e la
+  modo atomico e per scrivere ogni file `.rds` con `salva_rds`, `errors.R` con il punto d'ingresso degli script di fase e la
   dichiarazione degli errori con un codice del catalogo, `letture.R` per registrare
   per ogni passo quante letture restano a ciascun campione, `risorse.R` per riportare
   nel log la memoria di picco del processo. Le usano gli script delle fasi e gli
@@ -293,14 +301,19 @@ Sono realizzati:
 - la gestione degli artefatti: l'albero delle quattordici cartelle di output sotto
   `io.out_root` e, in ciascuna, un manifesto che registra ogni file scritto con il suo
   checksum; gli artefatti scritti dai processi R vi si registrano allo stesso modo di
-  quelli scritti da Python. Il completamento di una fase non si legge da quel
+  quelli scritti da Python. Ogni scrittura, da Python come da R, passa per un file
+  temporaneo nella stessa cartella (`.scrittura-*`) poi rinominato: un'interruzione
+  a metà non lascia mai un file troncato con il nome definitivo. Il completamento di una fase non si legge da quel
   manifesto, che è per cartella, ma da quello proprio della fase, descritto qui sotto;
 - **la classe base delle fasi, il grafo e lo stato di un'esecuzione**
   (`steps/base.py`, `runner/graph.py`, `runner/project.py`). Ogni fase eredita da
   `PipelineStep` lo stesso scheletro: verifica dei prerequisiti, calcolo, validazione
   degli artefatti, registrazione dell'esito; S0 è realizzata su questa base, con il
   comportamento di prima. Il grafo dichiara le quindici fasi da S0 a S14 in ordine,
-  con la cartella in cui ciascuna scrive e le fasi di cui consuma gli artefatti; S9, la
+  con la cartella in cui ciascuna scrive e le fasi di cui consuma gli artefatti, e
+  solo quelle: S0 per ogni fase che legge l'inventario dei campioni, S2 per S5, S6 e
+  S7, che ne leggono le letture filtrate; S12 dipende dalla sola S10, così cambiare
+  i parametri di S11 non rifà la decontaminazione. S9, la
   filogenesi, è attiva solo con `phylo.enabled`, e S12 precede obbligatoriamente S13.
   Ogni fase conclusa scrive nella propria cartella un manifesto suo, `manifest_S<n>.json`,
   così due fasi che condividono una cartella si concludono separatamente. Il manifesto
@@ -338,16 +351,29 @@ Sono realizzati:
   fasi sono concluse, quali disattivate, quali da eseguire e quale è la prossima;
   dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
   una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
-  gigabyte, costa secondi (4,6 sul dataset di riferimento con S0-S8 e S10-S12
-  concluse); delle quindici fasi oggi esistono come codice dodici, da S0 a S8 e
-  da S10 a S12, e le altre risultano non realizzate (S9, la filogenesi, è disattivata
-  per difetto);
+  gigabyte, costa secondi (7,0 sul dataset di riferimento con
+  S0-S8 e S10-S14 concluse); delle quindici fasi oggi esistono come codice quattordici, tutte tranne
+  S9, la filogenesi, che è disattivata per difetto e, se attivata, risulta non
+  realizzata;
 - **la versione del calcolo e la provenienza** (`runner/provenienza.py`). Ogni fase
   dichiara una versione, che entra nell'impronta: si incrementa quando cambia ciò che
   la fase calcola, e la ripresa rifà allora quella fase e le successive. Il registro
   `src/amplicon16s/steps/registro_sorgente.json` riporta per ogni fase la versione e
   l'impronta del suo sorgente (il modulo, i moduli in cui vive il calcolo, lo script R e
-  i file di `R/lib` che carica); un test fallisce se non corrisponde al codice, e
+  i file di `R/lib` che carica). I moduli del calcolo si ricavano dagli import del
+  modulo della fase, direttamente o attraverso altri moduli, esclusi i moduli delle
+  altre fasi, da cui si importano solo nomi di artefatti (un test lo verifica), e i
+  moduli dell'infrastruttura elencati uno per uno, con la ragione, in
+  `runner/provenienza.py` (`ESCLUSI`). Il criterio è chi può cambiare ciò che una
+  fase calcola: restano nel sorgente la scrittura degli artefatti e i checksum, il
+  ponte verso R (richiesta e ambiente del processo) e il calcolo dei valori corretti
+  di un nuovo tentativo; una funzione condivisa fra fasi, come il lettore del
+  tracciamento, sta in un modulo comune ed entra nel sorgente di ciascuna. Entra
+  anche ciò che il contesto passa alle fasi senza import (`DAL_CONTESTO`): il
+  lettore dell'inventario (`metadata/lettura_inventario.py`), nel sorgente di ogni
+  fase che dipende da S0; e, per S0 soltanto, il catalogo degli errori, la cui
+  sintesi compare nel dettaglio di una violazione di G15 scritto in `gates.json`
+  (`ECCEZIONI_PER_FASE`); un test fallisce se non corrisponde al codice, e
   `scripts/registro_sorgente.py --aggiorna` lo aggiorna solo se, per ogni fase
   modificata a parità di versione, si dichiara la modifica senza effetto con
   `--senza-effetto`. Il manifesto di ogni fase registra la provenienza: versione,
@@ -380,7 +406,12 @@ Sono realizzati:
   aggiustamento: è il caso di E-S2-03, errore di lettura;
   la fase resta giudicata sulla configurazione dichiarata, quindi una ripresa non la
   rifà. Le degradazioni non fermano l'esecuzione: la fase le registra e proseguono nel
-  log e nel manifesto; S0 vi registra E-S0-15, emessa da G08, e S1 vi registra E-S1-01.
+  log e nel manifesto. Sono sei, la categoria «degradazione automatica» del catalogo:
+  E-S0-15 (G08, una piastra con pochi controlli negativi), E-S1-01 (scarto del
+  troncamento sotto la lettura più corta), E-S6-02 (frazione chimerica oltre
+  l'avviso), E-S11-02 (soglia di profondità sul ripiego), E-S11-04 (controlli
+  positivi conformi sotto il minimo, con `ctrl.positive_gate` falso), E-S13-03
+  (campioni svuotati dal filtro tassonomico).
   Quando l'esecuzione si ferma, l'esecutore dichiara il punto di ripresa: fase,
   codice, messaggio del catalogo, tentativi fatti e comando per ripartire. Delle fasi
   con codici ripetibili esistono oggi S2, il cui E-S2-03 è provato su un archivio
@@ -625,20 +656,72 @@ Sono realizzati:
   Il contaminante cloroplastico dei negativi delle piastre 1 e 2 è identificato
   nell'aggregata e, per piastra, nelle piastre 1 e 2; ASV1, un Pseudomonas con 4,1
   milioni di letture nei biologici, non è un contaminante (probabilità 1);
+- **la fase S13, i filtri finali** (`steps/s13_filtri.py`, `R/13_filtri.R`), in
+  `12_final/`, con i propri file del ponte e il proprio manifesto. Dall'oggetto
+  decontaminato ricava l'oggetto dei soli campioni biologici: un controllo
+  nell'oggetto finale sarebbe trattato come un campione ambientale. I controlli
+  positivi e negativi restano, dall'oggetto integrato di S10, in `ps_controlli.rds`.
+  I filtri, in quest'ordine: (1) **profondità**, sui campioni: ogni biologico si
+  confronta con la soglia della sua piastra in `soglia.json` di S11, allo stadio che
+  la soglia dichiara, con le letture del tracciamento (senza chimere da S7, o grezze
+  da S2 per il ripiego), non con la profondità dell'oggetto decontaminato, che non è
+  la grandezza su cui la soglia è stata stimata; (2) **tassonomico**, sulle varianti:
+  senza phylum (`filt.remove_na_phylum`) e i taxa di `filt.exclude_taxa` cercati in
+  ogni rango; (3) **prevalenza**, sulle varianti: resta una variante con almeno
+  `prev.min_count` letture in almeno `ceil(prev.min_fraction × n)` campioni, dove
+  `n` sono i biologici tenuti dopo i filtri 1 e 2, perché numeratore e denominatore
+  si riferiscono allo stesso insieme e un campione sotto soglia di profondità ha una
+  composizione non attendibile; (4) **letture finali**, sui campioni: sotto
+  `qc.min_reads_final` il campione esce, senza fermare l'esecuzione. I due filtri
+  sulle varianti commutano. Un campione svuotato dal filtro tassonomico non ha
+  segnale batterico ed esce con la degradazione `E-S13-03`; uno svuotato dal filtro
+  di prevalenza ferma la fase con `E-S13-02`, a revisione umana, perché aveva letture
+  batteriche e toglierlo dipende dalle soglie. Gli identificativi delle varianti non
+  si rinumerano. I campioni esclusi, con il filtro e il motivo, sono in
+  `esclusioni.tsv`; le varianti rimosse in `varianti_rimosse.tsv`; l'ordine, il
+  denominatore e ciò che ciascun filtro ha tolto, per classe, in
+  `filtri_riepilogo.json`;
+- **la fase S14, la serializzazione** (`steps/s14_finale.py`, `R/14_finale.R`,
+  `R/lib/export.R`), in `12_final/` accanto a S13: `ps_final.rds`
+  (`out.serialization`) e, con `out.export_flat`, gli export piatti `conteggi.tsv`,
+  `tassonomia.tsv`, `metadati.tsv` e `sequenze.fasta`, scritti senza numeri decimali,
+  in UTF-8, con valori mancanti come campo vuoto; `checksum.sha256` riporta
+  l'impronta di ogni file consegnato, nella forma di `sha256sum`. La validazione,
+  `E-S14-01`: componenti allineati, solo biologici, nessun campione e nessuna variante
+  senza letture, l'oggetto riletto e quello ricostruito dai soli export identici a
+  quello serializzato, `ps_filtrato.rds` di S13 integro rispetto al suo manifesto, la
+  frazione delle letture trattenute dall'insieme dei campioni finali (letture finali
+  su letture senza chimere) non sotto `qc.min_frac_reads_retained` (0,40). Le due
+  soglie del piano agiscono a livelli diversi: `qc.min_reads_final` per campione, in
+  S13, `qc.min_frac_reads_retained` sull'insieme, in S14. Gli artefatti di S13 e S14
+  sono identici byte per byte fra due esecuzioni e con impostazioni locali diverse
+  (`LC_ALL=C` e `en_US.UTF-8`): l'intestazione del formato RDS registra la codifica
+  della sessione, e ogni fase scrive i suoi file `.rds` con `salva_rds`
+  (`R/lib/io_json.R`), sempre con una codifica UTF-8. Sul
+  dataset di riferimento S13 impiega 9 secondi e S14 7: il filtro per profondità
+  esclude 278 biologici su 770 (277 nelle piastre 3-10, sulle letture senza chimere;
+  uno nella piastra 1, sul ripiego delle letture grezze), gli altri nessuno; il
+  tassonomico toglie 624 varianti su 11.286 (il 3,4% delle letture dei biologici,
+  l'1,1% di quelle dei negativi), la prevalenza, con denominatore 492 e quindi almeno 5 campioni, 8.909
+  varianti (l'1,0%). L'oggetto finale ha 492 campioni e 1.753 varianti, con 21,2
+  milioni di letture, il 92,2% delle loro letture senza chimere; il campione più
+  povero ne ha 1.085;
 - il tracciamento delle letture (`runner/tracciamento.py`): ogni fase registra i propri
   passi in file suoi, `letture_<passo>.tsv`, e la tabella completa si ricompone
   leggendo quelli delle fasi concluse nell'ordine del grafo, senza che una fase
-  modifichi mai un file di un'altra. Oggi i passi sono uno per fase: le letture
+  modifichi mai un file di un'altra. I passi sono uno per fase, salvo S2, che ne
+  registra due: le letture
   grezze (S1), quelle in ingresso e in uscita dal filtro (S2), quelle attribuite a una
   variante (S4), quelle nella tabella (S5), quelle senza chimere (S6), quelle dopo il
-  filtro di lunghezza (S7) e quelle dopo la rimozione dei contaminanti (S12);
+  filtro di lunghezza (S7), quelle dopo la rimozione dei contaminanti (S12) e quelle
+  nell'oggetto finale (S13, zero per i controlli e per i campioni esclusi);
 - i quattro sottocomandi della riga di comando, descritti sopra, con i codici di
   uscita documentati. `report` produce oggi un **resoconto provvisorio** dello stato,
   ricavato dai manifesti delle fasi: fasi concluse, disattivate e da eseguire,
   aggiustamenti applicati, degradazioni registrate. Non è il report definitivo, che
   non è ancora realizzato.
 
-Delle fasi di analisi sono realizzate quelle da S1 a S8 e da S10 a S12; le altre, S9,
-S13 e S14, non sono ancora realizzate.
+Delle fasi di analisi sono realizzate tutte tranne S9, la filogenesi opzionale: con
+`phylo.enabled` falso, il predefinito, la catena arriva a `ps_final.rds`.
 
 Questa sezione viene aggiornata a ogni avanzamento del lavoro.

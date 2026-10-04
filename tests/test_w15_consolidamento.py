@@ -47,7 +47,7 @@ funzionalita' nuova, si chiude il lavoro aperto sulle fasi gia' realizzate.
 
     3. Modalita container Docker completa (con dati reali OSD-734): come la
        precedente, con ``-e AMPLICON16S_CONFIG_DATI_REALI=...`` e
-       ``-v /home/nemo/ASI:/home/nemo/ASI``. Nessun test del modulo legge i
+       ``-v $HOME/ASI:$HOME/ASI``. Nessun test del modulo legge i
        dati reali: il risultato e' lo stesso, 16 passed.
 
 5. Risultato atteso
@@ -80,7 +80,7 @@ from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.logging.logger import chiudi
 from amplicon16s.runner.executor import Conclusione, Esecutore
 from amplicon16s.runner.graph import Passo
-from amplicon16s.runner.project import StatoPasso
+from amplicon16s.runner.project import StatoPasso, passi_realizzati
 from amplicon16s.steps.s00_validate import esegui_s0
 
 
@@ -384,9 +384,10 @@ def test_s2_ferma_su_un_biologico_azzerato_e_non_su_un_negativo(tmp_path):
 # Copertura dei codici del catalogo                                            #
 # --------------------------------------------------------------------------- #
 
-#: Le fasi del catalogo realizzate come codice, con l'esecutore, il ponte e il
-#: grafo. I codici delle fasi da S9 in poi restano fuori finche' non esistono.
-_REALIZZATE = frozenset({"G15", "S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "GRAFO", "R"})
+#: Le fasi del catalogo realizzate come codice, ricavate dalle fasi registrate
+#: nell'esecuzione (non scritte a mano: una fase nuova entra da sola), con G15,
+#: il grafo e il ponte. I codici di una fase non ancora realizzata restano fuori.
+_REALIZZATE = frozenset({str(p) for p in passi_realizzati()} | {"G15", "GRAFO", "R"})
 
 #: Per ogni codice sollevabile dal codice realizzato, il test che lo provoca
 #: attraverso quel codice (non costruendo l'errore a mano) e ne verifica la
@@ -437,6 +438,16 @@ COPERTURA: dict[str, str] = {
     "E-S6-02": "test_w15_consolidamento.py::test_s6_oltre_l_avviso_registra_la_degradazione_e_prosegue",
     "E-S7-01": "test_w16_recupero.py::test_s7_senza_varianti_si_ferma_con_e_s7_01",
     "E-S8-02": "test_w17_tassonomia.py::test_e_s8_02_ferma_con_una_copertura_insufficiente",
+    "E-S10-01": "test_w18_oggetto.py::test_s10_intercetta_una_tabella_di_s7_quadrata_trasposta",
+    "E-S10-02": "test_w18_oggetto.py::test_una_colonna_ambigua_ferma_con_e_s10_02",
+    "E-S11-02": "test_w19_controlli.py::test_il_ripiego_e_registrato_con_il_motivo",
+    "E-S11-03": "test_w19_controlli.py::test_controlli_non_conformi_fanno_scattare_e_s11_03_o_l_avviso",
+    "E-S11-04": "test_w19_controlli.py::test_controlli_non_conformi_fanno_scattare_e_s11_03_o_l_avviso",
+    "E-S12-02": "test_w20_decontam.py::test_oltre_la_frazione_massima_la_modalita_dichiarata_si_ferma",
+    "E-S13-01": "test_w20_decontam.py::test_il_filtro_prima_della_decontaminazione_fallisce_con_e_s13_01",
+    "E-S13-02": "test_w21_finale.py::test_un_campione_svuotato_dal_filtro_di_prevalenza_ferma_con_e_s13_02",
+    "E-S13-03": "test_w21_finale.py::test_un_campione_svuotato_dal_filtro_tassonomico_esce_con_e_s13_03",
+    "E-S14-01": "test_w21_finale.py::test_una_frazione_trattenuta_sotto_la_soglia_ferma_con_e_s14_01",
 }
 
 _RADICE = Path(__file__).resolve().parents[1]

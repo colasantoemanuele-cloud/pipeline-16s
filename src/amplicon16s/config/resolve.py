@@ -5,20 +5,12 @@ l'unico modo di garantire che restino coerenti. Scriverli nella configurazione
 significherebbe poterli mettere in contraddizione con i parametri da cui
 dipendono, ed è per questo che tentarlo è un errore.
 
-**La risoluzione avviene in due momenti**, perché i derivati non dipendono
-tutti dalle stesse informazioni:
-
-1. :func:`risolvi`: risoluzione *statica*. Calcola tutto ciò che discende
-   dalla sola configurazione: ``filter.minLen``, ``asv.len_min``,
-   ``asv.len_max``. Può essere eseguita prima di toccare qualunque dato, ed è
-   quello che serve al gate G15.
-2. :meth:`ConfigRisolta.con_campioni_biologici`: risoluzione *dipendente dai
-   dati*. Calcola ``prev.min_samples``, che richiede il numero di campioni
-   biologici: un dato che non esiste finché i metadati non sono stati letti.
-
-La separazione non è una comodità: senza di essa il gate G15 non potrebbe
-girare prima della lettura dei metadati, e l'intero scopo di un controllo che
-precede qualunque calcolo verrebbe meno.
+:func:`risolvi` calcola ``filter.minLen``, ``asv.len_min`` e
+``asv.len_max``, che discendono dalla sola configurazione: la risoluzione può
+avvenire prima di toccare qualunque dato, ed è quello che serve al gate G15.
+Il numero minimo di campioni del filtro di prevalenza non è un derivato: S13 lo
+calcola sui campioni biologici che tiene, un dato che esiste solo dentro la
+fase (``R/13_filtri.R``).
 
 **Digest e impronta dei risultati sono due cose diverse.** Il digest
 identifica la configurazione ed è calcolato su tutta, compresi i parametri che
@@ -30,19 +22,14 @@ spostare la cartella di output, farebbe rifare ore di calcolo che darebbero
 gli stessi risultati.
 
 **Il digest** identifica la combinazione di parametri impiegata ed è calcolato
-sulla configurazione dichiarata più i derivati statici. ``prev.min_samples``
-ne è deliberatamente escluso: dipende da quanti campioni biologici contiene il
-dataset, cioè descrive i dati e non la configurazione. Includerlo farebbe
-cambiare il digest fra la prima e la seconda fase della risoluzione, e due
-esecuzioni sulla stessa configurazione non risulterebbero più confrontabili.
+sulla configurazione dichiarata più i derivati.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
@@ -104,22 +91,11 @@ PARAMETRI_SENZA_EFFETTO: Final[tuple[str, ...]] = (
 
 @dataclass(frozen=True)
 class Derivati:
-    """Parametri calcolati, non letti dalla configurazione.
-
-    ``prev_min_samples`` vale ``None`` finché il numero di campioni biologici
-    non è noto: è l'unico derivato che dipende dai dati e non dalla sola
-    configurazione.
-    """
+    """Parametri calcolati dalla configurazione, non letti da essa."""
 
     filter_minLen: int
     asv_len_min: int
     asv_len_max: int
-    prev_min_samples: int | None = None
-
-    @property
-    def completi(self) -> bool:
-        """Vero quando anche i derivati dipendenti dai dati sono stati calcolati."""
-        return self.prev_min_samples is not None
 
     def come_chiavi(self) -> dict[str, Any]:
         """I derivati nella forma ``gruppo.parametro``, per confronti e report."""
@@ -127,7 +103,6 @@ class Derivati:
             "filter.minLen": self.filter_minLen,
             "asv.len_min": self.asv_len_min,
             "asv.len_max": self.asv_len_max,
-            "prev.min_samples": self.prev_min_samples,
         }
 
 
@@ -156,16 +131,13 @@ def _digest(
     se scritte con ordine o formattazione diversi. ``escludi`` toglie i
     parametri indicati nella forma ``gruppo.parametro``.
     """
-    statici = derivati.come_chiavi()
-    statici.pop("prev.min_samples")  # dipende dai dati, non dalla configurazione
-
     parametri = config.model_dump(mode="json")
     for chiave in escludi:
         gruppo, nome = chiave.split(".")
         del parametri[gruppo][nome]
 
     canonico = json.dumps(
-        {"config": parametri, "derivati": statici},
+        {"config": parametri, "derivati": derivati.come_chiavi()},
         sort_keys=True,
         ensure_ascii=False,
         separators=(",", ":"),
@@ -194,26 +166,6 @@ class ConfigRisolta:
         """
         return _digest(self.config, self.derivati, PARAMETRI_SENZA_EFFETTO)
 
-    @property
-    def completa(self) -> bool:
-        """Vero quando anche i derivati dipendenti dai dati sono stati calcolati."""
-        return self.derivati.completi
-
-    def con_campioni_biologici(self, quanti: int) -> ConfigRisolta:
-        """Seconda fase: calcola i derivati che dipendono dai dati.
-
-        ``prev.min_samples`` è il numero minimo di campioni in cui una variante
-        deve comparire, arrotondato per eccesso perché una soglia frazionaria
-        non ha significato: i campioni si contano interi.
-        """
-        if quanti < 0:
-            raise ValueError(
-                f"il numero di campioni biologici non puo' essere negativo: {quanti}"
-            )
-
-        min_samples = math.ceil(self.config.prev.min_fraction * quanti)
-        return replace(self, derivati=replace(self.derivati, prev_min_samples=min_samples))
-
     def come_mappa(self) -> dict[str, Any]:
         """Configurazione e derivati in una sola mappa, pronta per il file.
 
@@ -228,7 +180,7 @@ class ConfigRisolta:
 
 
 def risolvi(config: Config) -> ConfigRisolta:
-    """Prima fase: risolve i derivati che non dipendono dai dati."""
+    """Risolve i parametri derivati della configurazione."""
     return ConfigRisolta(config=config, derivati=_deriva_statici(config))
 
 
@@ -242,12 +194,8 @@ _INTESTAZIONE = """\
 #
 # Il digest identifica la combinazione di parametri: due esecuzioni con lo
 # stesso digest hanno usato la stessa configurazione. E' calcolato sulla
-# configurazione dichiarata piu' i derivati statici, in forma canonica
-# (chiavi ordinate, separatori fissi).
-#
-# prev.min_samples e' escluso dal digest: dipende da quanti campioni biologici
-# contiene il dataset, quindi descrive i dati e non la configurazione. Vale
-# null finche' i metadati non sono stati letti.
+# configurazione dichiarata piu' i derivati, in forma canonica (chiavi
+# ordinate, separatori fissi).
 #
 # Questo file non e' riutilizzabile come configurazione di ingresso: i
 # parametri derivati non sono ammessi in ingresso proprio perche' calcolati.
@@ -353,9 +301,7 @@ def registra_risolta(risolta: ConfigRisolta, out_root: Path | str) -> Registrazi
     differenze = tuple(
         f"{chiave}: {prima.get(chiave)!r} -> {ora.get(chiave)!r}"
         for chiave in sorted(set(prima) | set(ora))
-        # prev.min_samples descrive i dati, non la configurazione: fuori dal
-        # digest, fuori anche dal confronto.
-        if chiave != "prev.min_samples" and prima.get(chiave) != ora.get(chiave)
+        if prima.get(chiave) != ora.get(chiave)
     )
     nome = f"resolved_{len(versioni) + 1}.yaml"
     testo = _testo_risolta(

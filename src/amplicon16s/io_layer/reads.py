@@ -11,9 +11,8 @@ decomprimere lo stesso file tre volte triplicherebbe il costo senza aggiungere
 nulla.
 
 La scansione è **sequenziale**. Distribuirla su più processi è stato provato e
-scartato: sull'intero dataset di riferimento, 960 file, la passata sequenziale
-costa una ventina di secondi, e il vincolo da rispettare è che la validazione
-duri minuti e non ore. Il parallelismo faceva risparmiare pochi secondi in
+scartato: la passata sequenziale su un dataset di centinaia di file costa
+secondi, e il vincolo da rispettare è che la validazione duri minuti e non ore. Il parallelismo faceva risparmiare pochi secondi in
 cambio di una fragilità vera: con ``fork`` il pool può bloccarsi quando il
 processo genitore ha sostituito i flussi standard, e con ``spawn`` ogni
 chiamante sarebbe costretto a proteggere il proprio modulo principale con

@@ -24,16 +24,15 @@ l'esecuzione e con quale codice.
 
 from __future__ import annotations
 
-import csv
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from amplicon16s.config.schema import Config
 from amplicon16s.metadata.controls_map import MappaControlli
-from amplicon16s.metadata.models import Campione, ClasseCampione, Inventario
+from amplicon16s.metadata.models import Campione, Inventario
+from amplicon16s.metadata.tabelle import leggi_tsv
 
 __all__ = ["Analisi", "analizza", "estrai_accession"]
 
@@ -63,20 +62,6 @@ def estrai_accession(testo: str, espressione: re.Pattern[str]) -> str:
             "accession ambiguo, trovati {}: {}".format(len(trovati), ", ".join(trovati))
         )
     return trovati[0]
-
-
-def _pulisci(valore: str | None) -> str:
-    """Toglie spazi e virgolette: le tabelle ISA le usano in modo incostante."""
-    return (valore or "").strip().strip('"').strip()
-
-
-def _leggi_tsv(percorso: Path) -> list[dict[str, str]]:
-    """Le righe di una tabella separata da tabulazioni, con i valori ripuliti."""
-    with open(percorso, encoding="utf-8", newline="") as file:
-        return [
-            {chiave: _pulisci(valore) for chiave, valore in riga.items() if chiave}
-            for riga in csv.DictReader(file, delimiter="\t")
-        ]
 
 
 @dataclass(frozen=True)
@@ -162,7 +147,7 @@ def _righe_assay(config: Config, analisi: Analisi) -> dict[str, RigaAssay]:
     espressione = re.compile(config.io.accession_regex)
     per_accession: dict[str, list[RigaAssay]] = defaultdict(list)
 
-    for riga in _leggi_tsv(Path(config.io.assay_table)):
+    for riga in leggi_tsv(Path(config.io.assay_table)):
         nome = riga.get(config.meta.sample_id_column, "")
         riferimento = riga.get(config.meta.accession_column, "")
         try:
@@ -185,7 +170,7 @@ def _righe_assay(config: Config, analisi: Analisi) -> dict[str, RigaAssay]:
 def _righe_studio(config: Config) -> dict[str, list[dict[str, str]]]:
     """Le righe della tabella di studio raggruppate per nome del campione."""
     per_nome: dict[str, list[dict[str, str]]] = defaultdict(list)
-    for riga in _leggi_tsv(Path(config.io.study_table)):
+    for riga in leggi_tsv(Path(config.io.study_table)):
         per_nome[riga.get(config.meta.sample_id_column, "")].append(riga)
     return per_nome
 
@@ -231,7 +216,7 @@ def _righe_arricchimento(
         return per_accession
 
     espressione = re.compile(config.io.accession_regex)
-    righe = _leggi_tsv(Path(percorso))
+    righe = leggi_tsv(Path(percorso))
 
     if righe and config.meta.batch_key_column not in righe[0]:
         analisi.arricchimento_senza_colonna = config.meta.batch_key_column

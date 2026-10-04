@@ -6,7 +6,7 @@ eccezione:
 
 * **G15 apre la sequenza.** Verifica la coerenza interna della configurazione,
   e un errore lì va scoperto prima di aprire un solo file: sarebbe assurdo
-  ispezionare 960 archivi per poi fermarsi su una soglia incoerente.
+  ispezionare centinaia di archivi per poi fermarsi su una soglia incoerente.
 * gli altri seguono l'ordine numerico, che è anche l'ordine delle dipendenze:
   senza ingressi leggibili non si aprono le tabelle, senza tabelle non si
   estraggono gli accession, senza accession non si confrontano gli insiemi.
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Final
 
 from amplicon16s.gates.g01_g15 import (

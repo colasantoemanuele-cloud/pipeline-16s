@@ -13,8 +13,18 @@ decide la validità: una provenienza diversa a parità di versione produce un
 avviso alla ripresa, non un ricalcolo (:mod:`amplicon16s.runner.project`).
 
 **Il sorgente di una fase** è il suo modulo Python, i moduli in cui vive il suo
-calcolo (:attr:`~amplicon16s.steps.base.PipelineStep.moduli_sorgente`), il suo
-script R e i file di ``R/lib`` che lo script carica. L'impronta si calcola sui
+calcolo (:func:`moduli_del_calcolo`), il suo script R e i file di ``R/lib`` che
+lo script carica. I moduli del calcolo si ricavano dagli import, non da un
+elenco scritto a mano che potrebbe restare indietro: sono i moduli del pacchetto
+che il modulo della fase importa, direttamente o attraverso altri, esclusi
+l'infrastruttura elencata con la sua ragione in :data:`ESCLUSI` e i moduli
+delle altre fasi. Da questi ultimi una fase importa solo nomi di artefatti, e
+un test lo verifica: una funzione condivisa fra fasi sta in un modulo comune,
+e cosi' entra nel sorgente di ciascuna. Il criterio e' chi puo' cambiare cio'
+che una fase calcola: per questo entrano anche i moduli che producono un dato
+che il contesto passa alle fasi senza import (:data:`DAL_CONTESTO`, il lettore
+dell'inventario per le fasi che dipendono da S0), e per una fase sola un modulo
+altrimenti escluso (:data:`ECCEZIONI_PER_FASE`). L'impronta si calcola sui
 file **effettivamente usati**: i moduli importati e gli script nella cartella
 che il ponte esegue (:func:`~amplicon16s.rbridge.runner.cartella_r`), non le
 copie del repository. Un'immagine che esegue script R diversi da quelli del
@@ -31,6 +41,7 @@ incrementare la versione e dichiarare la modifica senza effetto.
 
 from __future__ import annotations
 
+import ast
 import functools
 import hashlib
 import importlib
@@ -52,8 +63,13 @@ __all__ = [
     "RegistroNonAggiornabile",
     "aggiorna_registro",
     "differenze_registro",
+    "DAL_CONTESTO",
+    "ECCEZIONI_PER_FASE",
+    "ESCLUSI",
     "file_del_sorgente",
     "impronta_sorgente",
+    "moduli_del_calcolo",
+    "moduli_della_fase",
     "leggi_registro",
     "provenienza",
     "scrivi_registro",
@@ -109,6 +125,147 @@ def _librerie_caricate(script: Path) -> list[str]:
     return [n for ciclo in cicli for n in _NOME_R.findall(ciclo)]
 
 
+#: I moduli del pacchetto esclusi dal sorgente delle fasi, ciascuno con la
+#: ragione. Il criterio: un modulo resta fuori solo se non puo' cambiare cio'
+#: che una fase calcola, o se cio' che determina del risultato entra
+#: nell'impronta per un'altra via (i valori dei parametri, le fasi a monte).
+#: Restano invece fra i moduli del calcolo di chi li importa
+#: ``io_layer.artifacts`` (scrive gli artefatti di Python e ne codifica il testo;
+#: calcola i checksum che S6 riporta in un artefatto), ``io_layer.checksums``
+#: (la forma di quei checksum), ``rbridge.payload`` (serializza i parametri su
+#: cui calcola R), ``rbridge.runner`` (l'ambiente di R: lingua, ``LC_ALL``,
+#: librerie, che cambiano per esempio l'intestazione degli .rds e gli
+#: ordinamenti) e ``runner.retry`` (calcola i valori corretti di un nuovo
+#: tentativo). L'elenco e' esplicito: un modulo nuovo dell'infrastruttura entra
+#: nel sorgente finche' non vi si aggiunge con la sua ragione.
+ESCLUSI: Final[Mapping[str, str]] = {
+    "amplicon16s.config": "pacchetto, vuoto",
+    "amplicon16s.config.schema": (
+        "valida e normalizza i parametri: i valori, cosi' come risultano, entrano "
+        "nell'impronta dei parametri della fase"
+    ),
+    "amplicon16s.config.defaults": (
+        "i valori predefiniti entrano nell'impronta come valori dei parametri"
+    ),
+    "amplicon16s.config.resolve": (
+        "calcola i parametri derivati, che il contesto passa alle fasi: entrano "
+        "nell'impronta come valori dei gruppi dichiarati; resolved.yaml non e' un "
+        "artefatto di fase"
+    ),
+    "amplicon16s.config.vista": (
+        "restituisce i valori della configurazione senza trasformarli; un accesso "
+        "non dichiarato solleva un errore, non cambia un valore"
+    ),
+    "amplicon16s.errors": "pacchetto, vuoto",
+    "amplicon16s.errors.catalog": (
+        "la categoria di un codice decide se una fase si ferma, non che cosa "
+        "calcola (nessuna fase dichiara un ripiego); i messaggi vanno nel log e nei "
+        "manifesti. Fa eccezione S0, in ECCEZIONI_PER_FASE"
+    ),
+    "amplicon16s.errors.exceptions": (
+        "costruisce le eccezioni dai codici del catalogo, senza cambiare un valore"
+    ),
+    "amplicon16s.logging": "pacchetto, vuoto",
+    "amplicon16s.logging.logger": "il log in 99_logs, che non e' un artefatto di fase",
+    "amplicon16s.rbridge": "pacchetto, vuoto",
+    "amplicon16s.runner": "pacchetto, vuoto",
+    "amplicon16s.runner.executor": (
+        "ordine di esecuzione, tentativi e punto di ripresa in 99_logs; i valori "
+        "corretti di un tentativo li calcola runner.retry, che resta nel sorgente"
+    ),
+    "amplicon16s.runner.graph": "le dipendenze: entrano nell'impronta come fasi a monte",
+    "amplicon16s.runner.project": (
+        "costruisce il contesto delle fasi: la configurazione risolta, i cui valori "
+        "entrano nell'impronta, e l'inventario, letto da un modulo in DAL_CONTESTO"
+    ),
+    "amplicon16s.runner.provenienza": "il registro e la provenienza, nei manifesti",
+    "amplicon16s.runner.tracciamento": (
+        "ricompone il tracciamento per il resoconto; nessuna fase ne legge il risultato"
+    ),
+    "amplicon16s.steps.base": (
+        "lo scheletro delle fasi: prerequisiti, vista dei parametri, manifesto di "
+        "fase; il calcolo e' della fase"
+    ),
+}
+
+#: I moduli che producono dati che il contesto passa alle fasi senza che le
+#: fasi li importino, con la fase che produce il dato e la ragione: entrano nel
+#: sorgente di ogni fase che dipende da quella nel grafo.
+DAL_CONTESTO: Final[Mapping[str, tuple[str, str]]] = {
+    "amplicon16s.metadata.lettura_inventario": (
+        "S0",
+        "rilegge l'inventario di S0 e decide su quali campioni, con quali classi, "
+        "piastre e corse, le fasi calcolano",
+    ),
+}
+
+#: Moduli esclusi che per una fase determinano comunque il contenuto di un suo
+#: artefatto, con la ragione.
+ECCEZIONI_PER_FASE: Final[Mapping[str, Mapping[str, str]]] = {
+    "S0": {
+        "amplicon16s.errors.catalog": (
+            "il dettaglio di una violazione di G15 riporta la sintesi del catalogo, e "
+            "S0 lo scrive in gates.json"
+        ),
+    },
+}
+
+#: I moduli delle fasi: ``amplicon16s.steps.s00_validate`` e cosi' via.
+MODULO_DI_FASE: Final = re.compile(r"^amplicon16s\.steps\.s\d{2}_")
+
+
+def _importati(modulo: str) -> set[str]:
+    """I moduli del pacchetto che ``modulo`` importa, dal suo sorgente."""
+    percorso = importlib.import_module(modulo).__file__
+    assert percorso is not None, modulo
+    importati = set()
+    for nodo in ast.walk(ast.parse(Path(percorso).read_text(encoding="utf-8"))):
+        if isinstance(nodo, ast.ImportFrom) and nodo.module and nodo.level == 0:
+            importati.add(nodo.module)
+        elif isinstance(nodo, ast.Import):
+            importati.update(alias.name for alias in nodo.names)
+    return {m for m in importati if m == "amplicon16s" or m.startswith("amplicon16s.")}
+
+
+def moduli_del_calcolo(modulo: str) -> tuple[str, ...]:
+    """I moduli in cui vive il calcolo della fase di ``modulo``, in ordine.
+
+    Quelli che il modulo importa, direttamente o attraverso altri, esclusi
+    quelli di :data:`ESCLUSI` e i moduli delle altre fasi.
+    """
+    trovati: set[str] = set()
+    da_visitare = [modulo]
+    while da_visitare:
+        for importato in _importati(da_visitare.pop()):
+            if (
+                importato in trovati
+                or importato == modulo
+                or importato in ESCLUSI
+                or MODULO_DI_FASE.match(importato)
+            ):
+                continue
+            trovati.add(importato)
+            da_visitare.append(importato)
+    return tuple(sorted(trovati))
+
+
+def moduli_della_fase(fase: PipelineStep) -> tuple[str, ...]:
+    """I moduli del calcolo di una fase: quelli ricavati dagli import
+    (:func:`moduli_del_calcolo`), quelli di :data:`DAL_CONTESTO` se la fase
+    dipende dalla fase che produce il dato, con i loro import, e quelli di
+    :data:`ECCEZIONI_PER_FASE`.
+    """
+    modulo_fase = type(fase).__module__
+    moduli = set(moduli_del_calcolo(modulo_fase))
+    dipendenze = {str(d) for d in fase.nodo.dipendenze}
+    for modulo, (produttore, _) in DAL_CONTESTO.items():
+        if produttore in dipendenze:
+            moduli |= {modulo, *moduli_del_calcolo(modulo)}
+    moduli |= set(ECCEZIONI_PER_FASE.get(str(fase.passo), {}))
+    moduli.discard(modulo_fase)
+    return tuple(sorted(moduli))
+
+
 def file_del_sorgente(fase: PipelineStep, cartella_r: Path) -> dict[str, Path]:
     """I file del sorgente di una fase, per nome logico.
 
@@ -117,7 +274,7 @@ def file_del_sorgente(fase: PipelineStep, cartella_r: Path) -> dict[str, Path]:
     stessa impronta.
     """
     file: dict[str, Path] = {}
-    for modulo in (type(fase).__module__, *fase.moduli_sorgente):
+    for modulo in (type(fase).__module__, *moduli_della_fase(fase)):
         percorso = importlib.import_module(modulo).__file__
         assert percorso is not None, modulo
         file[f"python/{modulo}"] = Path(percorso)

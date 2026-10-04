@@ -50,7 +50,7 @@ esegui_fase(function(parametri, cartella) {
   boot <- esito$boot
   ranghi <- colnames(tax)
   stopifnot(identical(rownames(tax), varianti), identical(colnames(boot), ranghi))
-  saveRDS(list(tax = tax, boot = boot), file.path(cartella, "tassonomia.rds"))
+  salva_rds(list(tax = tax, boot = boot), file.path(cartella, "tassonomia.rds"))
 
   letture <- colSums(tabella)
   vuoto <- function(x) ifelse(is.na(x), "", x)
@@ -70,7 +70,7 @@ esegui_fase(function(parametri, cartella) {
   # le letture del gruppo, con e senza il phylum assegnato.
   con_phylum <- !is.na(tax[, "Phylum"])
   gruppi <- unlist(parametri$gruppi)[rownames(tabella)]
-  righe <- vapply(sort(unique(gruppi)), function(g) {
+  righe <- vapply(sort(unique(gruppi), method = "radix"), function(g) {
     parziale <- colSums(tabella[gruppi == g, , drop = FALSE])
     presenti <- parziale > 0
     sprintf("%s\t%d\t%d\t%.0f\t%.0f", g, sum(presenti), sum(presenti & con_phylum),

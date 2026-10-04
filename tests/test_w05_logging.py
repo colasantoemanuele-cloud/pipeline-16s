@@ -366,7 +366,7 @@ def test_esecuzione_fittizia_produce_albero_configurazione_e_log(tmp_path):
     """
     **Obiettivo**: Verificare l'integrazione end-to-end dei tre servizi della
     Fase F1: creazione delle 14 cartelle di ``AlberoOutput``, scrittura e firma
-    di ``00_config/resolved.yaml`` con 803 campioni biologici, e registrazione
+    di ``00_config/resolved.yaml``, e registrazione
     degli eventi in ``99_logs/pipeline.jsonl``.
 
     **Razionale scientifico e sistemistico**: Simula il ciclo di vita completo
@@ -382,7 +382,7 @@ def test_esecuzione_fittizia_produce_albero_configurazione_e_log(tmp_path):
     log = ottieni("runner")
 
     dati = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
-    risolta = esegui_g15(dati).con_campioni_biologici(803)
+    risolta = esegui_g15(dati)
     scrivi_risolta(risolta, radice)
 
     log.info(

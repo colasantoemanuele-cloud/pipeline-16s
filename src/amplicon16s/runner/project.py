@@ -48,11 +48,12 @@ from amplicon16s.config.schema import Config
 from amplicon16s.io_layer.artifacts import AlberoOutput, ManifestoPassoNonValido
 from amplicon16s.io_layer.checksums import checksum_file
 from amplicon16s.logging.logger import ottieni
+from amplicon16s.metadata.lettura_inventario import leggi_inventario
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.runner.graph import GRAFO, Grafo, Passo
 from amplicon16s.runner.provenienza import provenienza
 from amplicon16s.steps.base import PipelineStep, StepContext, impronta_parametri
-from amplicon16s.steps.s00_validate import ValidazioneIngressi, leggi_inventario
+from amplicon16s.steps.s00_validate import ValidazioneIngressi
 from amplicon16s.steps.s01_profile import ProfiloLetture
 from amplicon16s.steps.s02_filter import FiltroLetture
 from amplicon16s.steps.s03_learn_errors import ModelloErrore
@@ -64,6 +65,8 @@ from amplicon16s.steps.s08_taxonomy import AssegnazioneTassonomica
 from amplicon16s.steps.s10_phyloseq import AssemblaggioOggetto
 from amplicon16s.steps.s11_controls import ValidazioneControlli
 from amplicon16s.steps.s12_decontam import Decontaminazione
+from amplicon16s.steps.s13_filtri import FiltriFinali
+from amplicon16s.steps.s14_finale import Serializzazione
 
 __all__ = [
     "ProjectRun",
@@ -89,6 +92,8 @@ def passi_realizzati() -> dict[Passo, PipelineStep]:
         Passo.S10: AssemblaggioOggetto(),
         Passo.S11: ValidazioneControlli(),
         Passo.S12: Decontaminazione(),
+        Passo.S13: FiltriFinali(),
+        Passo.S14: Serializzazione(),
     }
 
 
@@ -252,17 +257,6 @@ class ProjectRun:
                 )
             impronta_parametri(risolta, fase.parametri)
 
-    def _risolta(
-        self, inventario: Inventario | None, config: Config | None = None
-    ) -> ConfigRisolta:
-        """La configurazione risolta, con i derivati dipendenti dai dati se l'inventario
-        è noto.
-        """
-        risolta = risolvi(config or self.config)
-        if inventario is not None:
-            risolta = risolta.con_campioni_biologici(inventario.denominatore_prevalenza())
-        return risolta
-
     # ----------------------------------------------------------------- #
     # Valutazione                                                        #
     # ----------------------------------------------------------------- #
@@ -341,10 +335,9 @@ class ProjectRun:
                 situazioni[passo] = self._valuta_passo(fase, risolta, a_monte, checksum)
             impronte[passo] = situazioni[passo].impronta
 
-            # Le fasi dopo S0 si calcolano con i derivati dai dati.
+            # Le fasi dopo S0 leggono l'inventario che S0 ha scritto.
             if passo is Passo.S0 and situazioni[passo].stato is StatoPasso.COMPLETATA:
                 inventario = leggi_inventario(self.config)
-                risolta = self._risolta(inventario)
 
         return Valutazione(situazioni, inventario, risolta)
 
@@ -461,9 +454,7 @@ class ProjectRun:
             for d in self.grafo.dipendenze_attive(passo, self.config)
         }
         effettiva = (
-            self._risolta(valutazione.inventario, config_effettiva)
-            if config_effettiva is not None
-            else valutazione.risolta
+            risolvi(config_effettiva) if config_effettiva is not None else valutazione.risolta
         )
         return StepContext(
             risolta=effettiva,

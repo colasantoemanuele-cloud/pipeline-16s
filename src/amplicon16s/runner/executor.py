@@ -62,7 +62,7 @@ from amplicon16s.gates.g01_g15 import (
     _g12_riferimento_verificato,
     _g14_risorse_disponibili,
 )
-from amplicon16s.io_layer.artifacts import Fase
+from amplicon16s.io_layer.artifacts import Fase, scrivi_atomico
 from amplicon16s.logging.logger import registra_errore
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import ProjectRun, StatoPasso, Valutazione
@@ -506,11 +506,10 @@ class Esecutore:
         """Scrive il punto di ripresa nei due formati e lo registra nel log."""
         self.run.albero.prepara(Fase.LOGS)
         documento, testo = self._percorsi_punto()
-        documento.write_text(
-            json.dumps(punto.come_documento(), indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
+        scrivi_atomico(
+            documento, json.dumps(punto.come_documento(), indent=2, ensure_ascii=False) + "\n"
         )
-        testo.write_text(punto.testo() + "\n", encoding="utf-8")
+        scrivi_atomico(testo, punto.testo() + "\n")
         self.log.error("punto di ripresa dichiarato", extra=punto.come_documento())
 
     def _rimuovi_punto(self) -> None:

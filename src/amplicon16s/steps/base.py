@@ -266,9 +266,6 @@ class PipelineStep(ABC):
     versione: ClassVar[int] = 1
     #: Lo script R della fase, nella cartella degli script, se ne ha uno.
     script_r: ClassVar[str | None] = None
-    #: Moduli Python, oltre a quello della fase, in cui vive il suo calcolo: il
-    #: loro sorgente entra nell'impronta del sorgente.
-    moduli_sorgente: ClassVar[tuple[str, ...]] = ()
 
     @property
     def nodo(self) -> Nodo:

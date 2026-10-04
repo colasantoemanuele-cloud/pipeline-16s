@@ -7,15 +7,15 @@ tassonomica, il bootstrap di ciascun rango (servira' ai filtri di S13 e
 all'interpretazione) e la copertura del phylum per classe di campioni.
 
 **Il classificatore.** ``tax.classifier`` vale ``naive_bayes``: il training set
-di SILVA per IdTaxa non e' distribuito da alcuna fonte. ``tax.min_boot`` e' 50
-e non 80, e ``tax.assign_species`` e' falso: le letture coprono 137 delle circa
-253 basi dell'amplicone V4, e su sequenze piu' corte il bootstrap e'
-sistematicamente piu' basso a parita' di correttezza.
+di SILVA per IdTaxa non e' distribuito da alcuna fonte. ``tax.min_boot`` e
+``tax.assign_species`` dipendono dalla parte dell'amplicone che le letture
+coprono: su sequenze corte il bootstrap e' sistematicamente piu' basso a parita'
+di correttezza (la scelta per OSD-734 e' motivata in ``config/defaults.py``).
 
 **Riproducibilita'.** Il seme viene da ``run.seed``. ``run.threads`` resta fuori
 dall'impronta: il bootstrap estrae i k-meri con ``runif`` di R prima del calcolo
 parallelo, e il numero di thread non cambia i byte degli artefatti (verificato
-sul dataset completo e nei test).
+nei test).
 
 **Il difetto noto del riferimento.** Se ``tax.ref_bad_taxa`` indica l'elenco dei
 taxa con un difetto noto (per SILVA 138 versione 2, un rango mancante nel
@@ -26,7 +26,8 @@ riepilogo riporta quante varianti e quante letture ne sono interessate.
 
 **La copertura, E-S8-02.** La frazione di varianti con il phylum assegnato si
 misura per classe di campioni, sulle varianti presenti nei campioni della
-classe; ``qc.min_frac_phylum`` si applica alle classi di :data:`CLASSI_CONTROLLATE`.
+classe; ``qc.min_frac_phylum`` si applica alle classi di
+:data:`~amplicon16s.metadata.models.CLASSI_CONTROLLATE`.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ from typing import Any, ClassVar, Final
 from amplicon16s.config.schema import Config, Qc
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
-from amplicon16s.metadata.models import ClasseCampione
+from amplicon16s.metadata.models import CLASSI_CONTROLLATE
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
@@ -49,7 +50,6 @@ from amplicon16s.steps.s07_asv_length import NOME_TABELLA_ASV
 
 __all__ = [
     "AssegnazioneTassonomica",
-    "CLASSI_CONTROLLATE",
     "NOME_TASSONOMIA",
     "controlla_copertura",
     "leggi_taxa_difettosi",
@@ -62,8 +62,6 @@ NOME_TASSONOMIA: Final = "tassonomia.tsv"
 NOME_COPERTURA: Final = "copertura_per_gruppo.tsv"
 NOME_DIFETTI: Final = "difetto_riferimento.tsv"
 NOME_RIEPILOGO: Final = "riepilogo.json"
-#: Le classi a cui si applica qc.min_frac_phylum (E-S8-02).
-CLASSI_CONTROLLATE: Final = (ClasseCampione.BIOLOGICO, ClasseCampione.CONTROLLO_POSITIVO)
 
 
 def leggi_taxa_difettosi(percorso: Path) -> dict[str, str]:

@@ -80,7 +80,7 @@ sorgente, e da G12 spostato fra le precondizioni).
 - 20 passed, 1 skipped nel container Docker standard sul sottoinsieme ridotto
   (~41s): resta saltato il test sui dati reali;
 - 21 passed nel container Docker con i dati reali OSD-734 (~39s oltre la catena
-  S0-S12 condivisa ``catena_reale``, calcolata una volta per sessione).
+  S0-S14 condivisa ``catena_reale``, calcolata una volta per sessione).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -106,6 +106,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import ClassVar
 
@@ -220,6 +221,97 @@ def test_il_registro_corrisponde_al_codice_e_ogni_fase_dichiara_la_versione():
     for nome, fase in _fasi().items():
         assert "versione" in type(fase).__dict__, nome
         assert leggi_registro()[nome]["versione"] == fase.versione
+
+
+def test_da_un_altra_fase_si_importano_solo_nomi_e_i_moduli_comuni_entrano_nel_sorgente():
+    """
+    **Obiettivo**: Verificare che nessun modulo di fase importi da un'altra fase
+    qualcosa che non sia una costante (un nome in maiuscolo, come il nome di un
+    artefatto), e che i moduli del calcolo ricavati dagli import comprendano
+    quelli condivisi: il lettore del tracciamento per S3-S7 e S13, i gate e il
+    crosswalk per S0, il lettore delle tabelle dei metadati per S0 e S10.
+
+    **Razionale scientifico e sistemistico**: Il sorgente di una fase comprende
+    i moduli che importa, esclusi quelli delle altre fasi, da cui importa solo
+    nomi di artefatti. Una funzione presa da un'altra fase sarebbe calcolo fuori
+    dall'impronta: modificarla non cambierebbe il sorgente registrato della fase
+    che la usa. Prima ``leggi_conteggi`` stava nel modulo di S2 e partecipava al
+    calcolo di S5, S6 e S13 senza entrarne nel sorgente.
+    """
+    import ast
+
+    from amplicon16s.runner.provenienza import MODULO_DI_FASE, moduli_del_calcolo
+
+    for nome, fase in _fasi().items():
+        modulo = type(fase).__module__
+        sorgente = Path(sys.modules[modulo].__file__).read_text(encoding="utf-8")
+        for nodo in ast.walk(ast.parse(sorgente)):
+            if isinstance(nodo, ast.ImportFrom) and nodo.module and MODULO_DI_FASE.match(nodo.module):
+                if nodo.module != modulo:
+                    assert all(a.name.isupper() for a in nodo.names), (nome, nodo.module)
+    conteggi = "amplicon16s.io_layer.conteggi"
+    for passo in ("S3", "S4", "S5", "S6", "S7", "S13"):
+        assert conteggi in moduli_del_calcolo(type(_fasi()[passo]).__module__), passo
+    assert {"amplicon16s.gates.g01_g15", "amplicon16s.metadata.crosswalk",
+            "amplicon16s.metadata.tabelle"} <= set(moduli_del_calcolo("amplicon16s.steps.s00_validate"))
+    assert "amplicon16s.metadata.tabelle" in moduli_del_calcolo("amplicon16s.steps.s10_phyloseq")
+
+
+def test_le_esclusioni_dal_sorgente_sono_esplicite_e_non_toccano_gli_artefatti():
+    """
+    **Obiettivo**: Verificare che ogni modulo escluso dal sorgente delle fasi
+    sia un modulo esistente con la sua ragione scritta; che il lettore
+    dell'inventario, che il contesto passa alle fasi senza import, entri nel
+    sorgente di ogni fase che dipende da S0 (e di S0, che ne importa il nome
+    del file) e solo di quelle; che il catalogo, escluso, entri soltanto in S0,
+    che ne scrive la sintesi in gates.json; e che i moduli che
+    scrivono, formattano o serializzano il contenuto di un artefatto non siano
+    esclusi: per ogni fase con uno script R entrano nel sorgente il ponte
+    (richiesta e ambiente di R), la scrittura degli artefatti e i checksum, e
+    per S2-S5 il calcolo dei valori corretti di un nuovo tentativo.
+
+    **Razionale scientifico e sistemistico**: Un modulo escluso puo' cambiare
+    senza che cambi l'impronta del sorgente di alcuna fase: se cambiasse i byte
+    di un artefatto, il registro non lo vedrebbe. L'elenco esplicito obbliga a
+    dichiarare la ragione di ogni esclusione.
+    """
+    import importlib
+
+    from amplicon16s.runner.provenienza import (
+        DAL_CONTESTO,
+        ECCEZIONI_PER_FASE,
+        ESCLUSI,
+        moduli_del_calcolo,
+        moduli_della_fase,
+    )
+
+    for modulo, ragione in ESCLUSI.items():
+        importlib.import_module(modulo)
+        assert ragione.strip(), modulo
+    for modulo, (produttore, ragione) in DAL_CONTESTO.items():
+        importlib.import_module(modulo)
+        assert ragione.strip() and modulo not in ESCLUSI, modulo
+        for nome, fase in _fasi().items():
+            dipende = produttore in {str(d) for d in fase.nodo.dipendenze}
+            assert (modulo in moduli_della_fase(fase)) is (dipende or nome == produttore), (nome, modulo)
+    for nome, eccezioni in ECCEZIONI_PER_FASE.items():
+        for modulo, ragione in eccezioni.items():
+            assert ragione.strip() and modulo in ESCLUSI
+            assert modulo in moduli_della_fase(_fasi()[nome])
+    # Il catalogo, escluso, entra solo in S0 (gates.json).
+    for nome, fase in _fasi().items():
+        assert ("amplicon16s.errors.catalog" in moduli_della_fase(fase)) is (nome == "S0"), nome
+    calcolo = {"amplicon16s.io_layer.artifacts", "amplicon16s.io_layer.checksums",
+               "amplicon16s.rbridge.payload", "amplicon16s.rbridge.runner",
+               "amplicon16s.runner.retry"}
+    assert not calcolo & set(ESCLUSI)
+    for nome, fase in _fasi().items():
+        moduli = set(moduli_del_calcolo(type(fase).__module__))
+        assert {"amplicon16s.io_layer.artifacts", "amplicon16s.io_layer.checksums"} <= moduli, nome
+        if fase.script_r is not None:
+            assert {"amplicon16s.rbridge.payload", "amplicon16s.rbridge.runner"} <= moduli, nome
+    for nome in ("S2", "S3", "S4", "S5"):
+        assert "amplicon16s.runner.retry" in moduli_del_calcolo(type(_fasi()[nome]).__module__)
 
 
 def test_una_modifica_al_sorgente_non_registrata_fa_fallire_il_controllo(tmp_path):
@@ -355,7 +447,13 @@ def test_una_provenienza_diversa_avvisa_e_una_versione_nuova_rifa(tmp_path, monk
     assert Esecutore(run, fino_a=Passo.S1).esegui().conclusione is Conclusione.COMPLETATA
     manifesto = run.albero.manifesto_passo(Passo.S1, Fase.QC_PROFILES)
     assert manifesto.calcolata_su["versione"] == 1
-    assert set(manifesto.provenienza["file"]) == {"R/doppione.R", f"python/{__name__}"}
+    # Il sorgente della fase doppione: il suo script, il suo modulo (questo) e i
+    # moduli del calcolo, dagli import e, poiche' e' S1 e dipende da S0, dal
+    # lettore dell'inventario.
+    from amplicon16s.runner.provenienza import moduli_della_fase
+
+    assert set(manifesto.provenienza["file"]) == {"R/doppione.R", f"python/{__name__}"} | {
+        f"python/{m}" for m in moduli_della_fase(_ConScript())}
 
     (cartella / "doppione.R").write_text("# versione 1, modificata\n", encoding="utf-8")
     situazione = run.valuta().situazioni[Passo.S1]
@@ -376,10 +474,10 @@ def test_una_provenienza_diversa_avvisa_e_una_versione_nuova_rifa(tmp_path, monk
     assert "versione del calcolo cambiata: 1 -> 2" in situazione.motivo
 
 
-def test_i_manifesti_della_catena_registrano_il_sorgente_del_registro(dada2, decontam_calcolata):
+def test_i_manifesti_della_catena_registrano_il_sorgente_del_registro(dada2, finale_calcolata):
     """
     **Obiettivo**: Verificare che nei manifesti di ogni fase realizzata della
-    versione ridotta, S0-S8 e S10-S12, la provenienza riporti la versione e
+    versione ridotta, S0-S8 e S10-S14, la provenienza riporti la versione e
     l'impronta del sorgente del registro.
 
     **Razionale scientifico e sistemistico**: Nel job del container, con
@@ -387,7 +485,7 @@ def test_i_manifesti_della_catena_registrano_il_sorgente_del_registro(dada2, dec
     repository; con un'immagine che esegue script diversi questo test fallisce,
     ed e' il modo in cui la differenza si vede.
     """
-    run, esito = decontam_calcolata
+    run, esito = finale_calcolata
     assert esito.conclusione is Conclusione.COMPLETATA
     registro = leggi_registro()
     for passo, fase in passi_realizzati().items():

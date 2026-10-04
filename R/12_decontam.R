@@ -182,7 +182,7 @@ esegui_fase(function(parametri, cartella) {
       !identical(phyloseq::sample_names(pulito), phyloseq::sample_names(ps))) {
     stop("la rimozione dei contaminanti ha alterato campioni o identificativi")
   }
-  saveRDS(pulito, file.path(cartella, "ps_decontaminato.rds"))
+  salva_rds(pulito, file.path(cartella, "ps_decontaminato.rds"))
   tabella_pulita <- methods::as(phyloseq::otu_table(pulito), "matrix")
   rimaste <- if (phyloseq::taxa_are_rows(pulito)) colSums(tabella_pulita) else rowSums(tabella_pulita)
   rimaste <- rimaste[sort(names(rimaste), method = "radix")]

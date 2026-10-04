@@ -1132,16 +1132,23 @@ def test_s13_senza_s11_ne_s12_porta_il_codice_della_precedenza(eseguita):
     assert info.value.codice == "E-S13-01"
 
 
-def test_s12_senza_s11_porta_il_codice_generico(eseguita):
+def test_s12_senza_s10_porta_il_codice_generico(eseguita):
     """
-    **Obiettivo**: Verificare che tentare di eseguire ``S12`` in assenza di
-    ``S11`` sollevi ``ErroreRevisioneUmana`` con il codice generico ``E-GRAFO-01``.
+    **Obiettivo**: Verificare che ``S12`` non richieda ``S11`` (senza il suo
+    manifesto i prerequisiti di S12 sono soddisfatti), e che tentare di
+    eseguirla in assenza di ``S10`` sollevi ``ErroreRevisioneUmana`` con il
+    codice generico ``E-GRAFO-01``.
 
-    **Razionale scientifico e sistemistico**: Conferma che ``E-S13-01`` è
-    riservato esclusivamente alla coppia ``(S12, S13)``, mentre tutte le altre
-    violazioni di dipendenza nel DAG ricadono sotto ``E-GRAFO-01``.
+    **Razionale scientifico e sistemistico**: Le dipendenze sono di dato. S12
+    legge solo l'oggetto integrato di S10: prima dipendeva anche da S11, di cui
+    non legge alcun artefatto, e un cambio dei parametri ``katharoseq`` rifaceva
+    la decontaminazione senza motivo. ``E-S13-01`` resta riservato alla coppia
+    ``(S12, S13)``: le altre violazioni di dipendenza ricadono sotto
+    ``E-GRAFO-01``.
     """
     eseguita.albero.rimuovi_manifesto_passo(Passo.S11, Fase.CONTROLS)
+    eseguita.fase(Passo.S12).verifica_prerequisiti(eseguita.contesto(Passo.S12))
+    eseguita.albero.rimuovi_manifesto_passo(Passo.S10, Fase.PHYLOSEQ)
     with pytest.raises(ErroreRevisioneUmana) as info:
         eseguita.fase(Passo.S12).esegui(eseguita.contesto(Passo.S12))
     assert info.value.codice == "E-GRAFO-01"
@@ -1231,33 +1238,32 @@ def test_il_risultato_porta_artefatti_con_checksum_e_metriche(scenario):
 def test_l_inventario_e_riletto_dall_artefatto_di_s0(scenario):
     r"""
     **Obiettivo**: Verificare che dopo l'esecuzione di ``S0``, ``run.inventario``
-    venga ricostruito automaticamente da ``01_input_validation/inventario.json``
-    valorizzando ``run.risolta.derivati.prev_min_samples``.
+    venga ricostruito automaticamente da ``01_input_validation/inventario.json``.
 
-    **Razionale scientifico e sistemistico**: Il parametro derivato dinamico
-    ``prev_min_samples`` ($\lceil \text{prev.min\_fraction} \times N_{\text{bio}} \rceil$)
-    dipende dal conteggio dei campioni biologici scoperto in ``S0``; rileggerlo
-    da ``inventario.json`` permette alle fasi successive (e alle riprese su
-    nuovi processi) di conoscere il denominatore di prevalenza senza rieseguire ``S0``.
+    **Razionale scientifico e sistemistico**: Le fasi successive (e le riprese su
+    nuovi processi) leggono classi, piastre e corse dei campioni senza
+    rieseguire ``S0``. Prima il test verificava anche il derivato
+    ``prev.min_samples``, calcolato sull'inventario: e' stato rimosso perche'
+    S13 calcola il minimo della prevalenza sui biologici che tiene.
     """
     run = ProjectRun(scenario.config)
     assert run.inventario is None
     esegui_s0(scenario.config)
 
     assert run.inventario == Contesto(scenario.config).inventario
-    assert run.risolta.derivati.prev_min_samples is not None
 
 
-def test_oggi_esistono_le_fasi_da_s0_a_s8_e_da_s10_a_s12(scenario):
+def test_oggi_esistono_tutte_le_fasi_tranne_s9(scenario):
     """
-    **Obiettivo**: Verificare che allo stato della Settimana 20 ``passi_realizzati()``
-    contenga le fasi da ``Passo.S0`` a ``Passo.S8`` e da ``Passo.S10`` a
-    ``Passo.S12``: dopo S0, ``Passo.S1`` e ``Passo.S2`` sono da eseguire (S2
-    dipende da S0, non da S1), ``Passo.S3`` attende S2, ``Passo.S8`` attende S7,
-    ``Passo.S10`` attende S7 e S8 (S9 e' disattivata per difetto), ``Passo.S11``
-    attende S2 e S10, ``Passo.S12`` attende S10 e S11, mentre ``Passo.S13`` e'
-    marcata ``StatoPasso.NON_REALIZZATA`` e solleva ``LookupError`` se
-    richiesta a ``run.fase(Passo.S13)``.
+    **Obiettivo**: Verificare che allo stato della Settimana 21 ``passi_realizzati()``
+    contenga tutte le fasi tranne ``Passo.S9``, la filogenesi: dopo S0,
+    ``Passo.S1`` e ``Passo.S2`` sono da eseguire (S2 dipende da S0, non da S1),
+    ``Passo.S3`` attende S2, ``Passo.S8`` attende S7, ``Passo.S10`` attende S7 e
+    S8 (S9 e' disattivata per difetto), ``Passo.S11`` attende S2 e S10,
+    ``Passo.S12`` attende S10 (non S11, di cui non legge artefatti),
+    ``Passo.S13`` le fasi di cui legge gli
+    artefatti e ``Passo.S14`` attende S13; ``Passo.S9`` non e' realizzata e
+    solleva ``LookupError`` se richiesta a ``run.fase(Passo.S9)``.
 
     **Razionale scientifico e sistemistico**: Separa in modo trasparente le fasi
     già implementate nel codice di produzione dalle fasi successive
@@ -1266,7 +1272,7 @@ def test_oggi_esistono_le_fasi_da_s0_a_s8_e_da_s10_a_s12(scenario):
     run = ProjectRun(scenario.config)
     assert set(passi_realizzati()) == {
         Passo.S0, Passo.S1, Passo.S2, Passo.S3, Passo.S4, Passo.S5, Passo.S6, Passo.S7,
-        Passo.S8, Passo.S10, Passo.S11, Passo.S12,
+        Passo.S8, Passo.S10, Passo.S11, Passo.S12, Passo.S13, Passo.S14,
     }
     esegui_s0(scenario.config)
 
@@ -1279,12 +1285,14 @@ def test_oggi_esistono_le_fasi_da_s0_a_s8_e_da_s10_a_s12(scenario):
     assert situazione[Passo.S8].motivo == "a monte da eseguire: S7"
     assert situazione[Passo.S10].motivo == "a monte da eseguire: S7, S8"
     assert situazione[Passo.S11].motivo == "a monte da eseguire: S2, S10"
-    assert situazione[Passo.S12].motivo == "a monte da eseguire: S10, S11"
-    assert situazione[Passo.S13].stato is StatoPasso.NON_REALIZZATA
+    assert situazione[Passo.S12].motivo == "a monte da eseguire: S10"
+    assert situazione[Passo.S13].motivo == "a monte da eseguire: S2, S7, S10, S11, S12"
+    assert situazione[Passo.S14].motivo == "a monte da eseguire: S13"
+    assert situazione[Passo.S9].stato is StatoPasso.DISATTIVATA
     assert run.prossima() is Passo.S1
     assert not run.completa
-    with pytest.raises(LookupError, match="S13"):
-        run.fase(Passo.S13)
+    with pytest.raises(LookupError, match="S9"):
+        run.fase(Passo.S9)
 
 
 def test_l_albero_e_quello_della_configurazione(scenario):

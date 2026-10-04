@@ -42,12 +42,13 @@ from typing import Any, ClassVar, Final
 from amplicon16s.config.schema import Config
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
+from amplicon16s.io_layer.conteggi import leggi_conteggi
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.retry import RITENTARE_INUTILE, Aggiustamento, raddoppia
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s02_filter import NOME_FILTRATE, SUFFISSO_FILTRATI, leggi_conteggi
+from amplicon16s.steps.s02_filter import NOME_FILTRATE, SUFFISSO_FILTRATI
 
 __all__ = [
     "MODELLO_UNICO",

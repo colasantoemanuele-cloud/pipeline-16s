@@ -50,9 +50,9 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
        docker run --rm \
          -e PYTHONPATH=/app/src \
          -e AMPLICON16S_R_DIR=/app/R \
-         -e AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml \
+         -e AMPLICON16S_CONFIG_DATI_REALI=$HOME/ASI/config_osd734.yaml \
          -v "$(pwd)":/app \
-         -v /home/nemo/ASI:/home/nemo/ASI \
+         -v $HOME/ASI:$HOME/ASI \
          -w /app \
          amplicon16s:dev \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w13_s03_batch.py -v
@@ -63,7 +63,7 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
     - Impostare '-e AMPLICON16S_R_DIR=/app/R': l'immagine punta agli script R copiati
       al momento della costruzione, e senza la variabile non userebbe quelli montati.
     - Usare '-o cache_dir=/tmp/.pytest_cache' per proteggere i permessi della cartella locale.
-    - Montare '-v /home/nemo/ASI:/home/nemo/ASI' per rendere accessibili i 2.4 GB di dati reali.
+    - Montare '-v $HOME/ASI:$HOME/ASI' per rendere accessibili i 2.4 GB di dati reali.
 
 5. Risultato atteso
 -------------------

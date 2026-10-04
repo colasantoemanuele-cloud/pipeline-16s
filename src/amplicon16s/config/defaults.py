@@ -36,12 +36,9 @@ IO_ACCESSION_REGEX: Final = r"(E|S|D)RX[0-9]{4,}"
 META_SAMPLE_ID_COLUMN: Final = "Sample Name"
 META_ACCESSION_COLUMN: Final = "Raw Data File"
 META_DERIVE_MODULE: Final = True
-META_MODULE_REGEX: Final = r"^([A-Z]{3}[0-9])"
 
 # filter: filtraggio e troncamento delle letture
-FILTER_TRUNCLEN: Final = 137
 FILTER_TRUNCLEN_SHORTFALL_WARN: Final = 10
-FILTER_TRIMLEFT: Final = 0
 FILTER_MAXEE: Final = 2.0
 FILTER_TRUNCQ: Final = 2
 FILTER_MAXN: Final = 0
@@ -68,9 +65,7 @@ ASV_LEN_TOL: Final = 0
 
 # tax: assegnazione tassonomica
 TAX_CLASSIFIER: Final = "naive_bayes"
-TAX_MIN_BOOT: Final = 50
 TAX_TRY_RC: Final = True
-TAX_ASSIGN_SPECIES: Final = False
 TAX_REF_BAD_TAXA: Final = None
 
 # filt: filtraggio tassonomico
@@ -82,8 +77,6 @@ PHYLO_ENABLED: Final = False
 PHYLO_MAX_SEQS: Final = 5000
 
 # decontam: rimozione dei contaminanti
-DECONTAM_METHOD: Final = "prevalence"
-DECONTAM_THRESHOLD: Final = 0.5
 DECONTAM_MIN_BLANKS: Final = 5
 # Come si combinano le probabilita' delle piastre nella decontaminazione per
 # piastra: e' il batch.combine di decontam::isContaminant, il cui predefinito
@@ -92,7 +85,6 @@ DECONTAM_MIN_BLANKS: Final = 5
 DECONTAM_BATCH_COMBINE: Final = "minimum"
 
 # prev: filtro di prevalenza
-PREV_MIN_FRACTION: Final = 0.01
 PREV_MIN_COUNT: Final = 2
 PREV_APPLY: Final = True
 
@@ -105,8 +97,13 @@ QC_MAX_FRAC_CONTAMINANT: Final = 0.40
 # controlli positivi (S11) quando la curva e' attendibile, altrimenti
 # qc.min_reads_raw sulle letture grezze; "fixed" usa sempre il ripiego.
 QC_MIN_READS_MODE: Final = "katharoseq_if_available"
-QC_MIN_READS_FILTERED: Final = 500
+# Letture minime di un campione nell'oggetto finale, dopo tutti i filtri di S13:
+# per campione; sotto, il campione esce dall'oggetto finale con il motivo.
 QC_MIN_READS_FINAL: Final = 1000
+# Frazione minima delle letture trattenute dall'insieme dei campioni finali, dalle
+# letture senza chimere (S7) a quelle dell'oggetto finale (S14, E-S14-01): misura
+# l'insieme, non il singolo campione.
+QC_MIN_FRAC_READS_RETAINED: Final = 0.40
 QC_MAX_ASV_COUNT: Final = 300000
 QC_MAX_ZEROED_SAMPLES: Final = 0
 QC_MAX_FRAC_LOST_FILTER: Final = 0.30
@@ -119,9 +116,6 @@ QC_MAX_PRIMER_HIT_FRAC: Final = 0.05
 # Letture ispezionate per file dai gate che leggono le sequenze. La
 # validazione deve costare minuti, non ore: nessun gate legge un file intero.
 QC_HEAD_READS: Final = 10000
-# Frazione minima di letture che devono presentare il motivo conservato,
-# valutata sulla mediana dei soli campioni attesi portatori di segnale.
-QC_MIN_MOTIF_FRAC: Final = 0.25
 
 # retry: nuovi tentativi sulle fasi fallite
 RETRY_ENABLED: Final = True
@@ -180,6 +174,45 @@ RUN_KEEP_FILTERED_FASTQ: Final = True
 # Attenzione: questi valori descrivono OSD-734, non la pipeline. Su un altro
 # dataset vanno rivisti tutti. Ogni aggiunta qui va riportata anche in
 # DERIVATI_DAL_DATASET, più in basso.
+
+# Lunghezza di troncamento: la lettura piu' corta del dataset completo, 137
+# basi su letture di 137-151 (S1). Troncare oltre scarterebbe quelle letture.
+FILTER_TRUNCLEN: Final = 137
+
+# Basi tolte in testa: nessuna, perche' le letture non contengono il primer e
+# iniziano nella regione conservata a valle del 515F (G10).
+FILTER_TRIMLEFT: Final = 0
+
+# Bootstrap minimo per assegnare un rango, e niente specie: le letture coprono
+# 137 delle circa 253 basi dell'amplicone V4, e su sequenze corte il bootstrap
+# e' piu' basso a parita' di correttezza.
+TAX_MIN_BOOT: Final = 50
+TAX_ASSIGN_SPECIES: Final = False
+
+# Prefisso della posizione da cui si deriva il modulo quando manca il file di
+# arricchimento: tre lettere e una cifra, come i moduli della stazione nei nomi
+# delle posizioni di OSD-734 (LAB1, NOD2, JLP1).
+META_MODULE_REGEX: Final = r"^([A-Z]{3}[0-9])"
+
+# Decontaminazione per prevalenza: il metodo per frequenza richiede una
+# concentrazione del DNA per campione, che i metadati di OSD-734 non hanno.
+DECONTAM_METHOD: Final = "prevalence"
+# Soglia 0,5 e non 0,1 (il predefinito di decontam): i campioni sono a bassa
+# biomassa (i controlli negativi hanno profondita' paragonabili ai biologici),
+# e la contaminazione da reagente puo' essere una quota rilevante del segnale.
+DECONTAM_THRESHOLD: Final = 0.5
+
+# Frazione minima di letture con il motivo conservato, valutata sulla mediana
+# dei soli campioni attesi portatori di segnale: su OSD-734 sei biologici
+# legittimi stanno sotto il 25%, uno al 5,8%, e un controllo file per file li
+# farebbe fallire.
+QC_MIN_MOTIF_FRAC: Final = 0.25
+
+# Frazione minima di campioni in cui una variante deve comparire (S13): 1% e non
+# il 5% abituale, perche' i campioni vengono da oltre cento posizioni distinte
+# della stazione, e una variante propria di poche posizioni e' segnale, non
+# rumore.
+PREV_MIN_FRACTION: Final = 0.01
 
 # Valori della colonna della posizione che denotano una posizione che non e'
 # una superficie. I campioni che li riportano non appartengono a un modulo, e
@@ -278,6 +311,15 @@ OUT_BATCH_COLUMNS: Final = (
 #: Chiavi il cui valore predefinito descrive il dataset di riferimento e non la
 #: pipeline. Passando a un altro dataset vanno rivalutate una per una.
 DERIVATI_DAL_DATASET: Final[tuple[str, ...]] = (
+    "filter.truncLen",
+    "filter.trimLeft",
+    "tax.min_boot",
+    "tax.assign_species",
+    "meta.module_regex",
+    "decontam.method",
+    "decontam.threshold",
+    "qc.min_motif_frac",
+    "prev.min_fraction",
     "err.batch_column",
     "decontam.batch_column",
     "meta.module_column",

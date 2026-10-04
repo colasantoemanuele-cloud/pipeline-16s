@@ -16,9 +16,10 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Final
 from pathlib import Path
 
-__all__ = ["Campione", "ClasseCampione", "Inventario"]
+__all__ = ["CLASSI_CONTROLLATE", "Campione", "ClasseCampione", "Inventario"]
 
 
 class ClasseCampione(StrEnum):
@@ -32,6 +33,19 @@ class ClasseCampione(StrEnum):
     def e_controllo(self) -> bool:
         """Vero per i controlli positivi e negativi."""
         return self is not ClasseCampione.BIOLOGICO
+
+
+#: Le classi su cui si applicano i controlli di qualita' sul segnale: G10 (il
+#: motivo conservato), S2 (campioni azzerati e letture perse), S6 (frazione
+#: chimerica), S8 (copertura del phylum). Sono quelle da cui ci si attende il
+#: segnale del bersaglio. I controlli negativi ne sono esclusi per principio, non
+#: per misura: un bianco non contiene il materiale studiato, e un bianco
+#: azzerato dal filtro o con poco segnale e' un bianco pulito, non un difetto dei
+#: parametri. Definite una volta sola: e' una decisione di metodo.
+CLASSI_CONTROLLATE: Final[tuple[ClasseCampione, ...]] = (
+    ClasseCampione.BIOLOGICO,
+    ClasseCampione.CONTROLLO_POSITIVO,
+)
 
 
 @dataclass(frozen=True)

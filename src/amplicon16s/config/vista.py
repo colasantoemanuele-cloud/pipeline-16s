@@ -104,7 +104,6 @@ _DERIVATI = {
     "filter_minLen": "filter.minLen",
     "asv_len_min": "asv.len_min",
     "asv_len_max": "asv.len_max",
-    "prev_min_samples": "prev.min_samples",
 }
 
 

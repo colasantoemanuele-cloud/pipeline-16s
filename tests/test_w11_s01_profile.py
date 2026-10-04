@@ -39,7 +39,7 @@ Comandi Bash e scenari di esecuzione:
        ShortRead/Biostrings, 1 test attende i dati completi).
 
     2. Modalita locale con dati reali (senza Bioconductor R):
-       AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml pytest tests/test_w11_s01_profile.py -v
+       AMPLICON16S_CONFIG_DATI_REALI=$HOME/ASI/config_osd734.yaml pytest tests/test_w11_s01_profile.py -v
        Risultato atteso: 8 passed, 7 skipped in ~25s (test_lo_script... passa a verde).
 
     3. Modalita container Docker standard (subset ridotto con Bioconductor):
@@ -57,9 +57,9 @@ Comandi Bash e scenari di esecuzione:
        docker run --rm \
          -e PYTHONPATH=/app/src \
          -e AMPLICON16S_R_DIR=/app/R \
-         -e AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml \
+         -e AMPLICON16S_CONFIG_DATI_REALI=$HOME/ASI/config_osd734.yaml \
          -v "$(pwd)":/app \
-         -v /home/nemo/ASI:/home/nemo/ASI \
+         -v $HOME/ASI:$HOME/ASI \
          -w /app \
          amplicon16s:dev \
          bash -c "git config --global --add safe.directory /app && pytest -o cache_dir=/tmp/.pytest_cache tests/test_w11_s01_profile.py -v"
@@ -69,7 +69,7 @@ Comandi Bash e scenari di esecuzione:
     - Impostare '-e PYTHONPATH=/app/src' per caricare la versione corrente di amplicon16s.
     - Impostare '-e AMPLICON16S_R_DIR=/app/R': l'immagine punta agli script R copiati
       al momento della costruzione, e senza la variabile non userebbe quelli montati.
-    - Montare sia il repository ('-v $(pwd):/app') sia i dati reali ('-v /home/nemo/ASI:/home/nemo/ASI').
+    - Montare sia il repository ('-v $(pwd):/app') sia i dati reali ('-v $HOME/ASI:$HOME/ASI').
     - Usare '-o cache_dir=/tmp/.pytest_cache' per proteggere i permessi della cartella locale.
     - Aggiungere 'safe.directory /app' in Git per abilitare il collaudo di test_i_fastq_di_prova_non_sono_ignorati_da_git.
 

@@ -65,7 +65,8 @@ from typing import Any, ClassVar, Final
 
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Artefatto, Fase
-from amplicon16s.metadata.crosswalk import _leggi_tsv, estrai_accession
+from amplicon16s.metadata.crosswalk import estrai_accession
+from amplicon16s.metadata.tabelle import leggi_tsv
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
@@ -221,12 +222,12 @@ def _valori_metadati(
     """
     io, meta = config.io, config.meta
     studio: dict[str, dict[str, str]] = {}
-    for riga in _leggi_tsv(Path(io.study_table)):
+    for riga in leggi_tsv(Path(io.study_table)):
         studio.setdefault(riga.get(meta.sample_id_column, ""), riga)
     lotto: dict[str, dict[str, str]] = {}
     if io.batch_table is not None:
         espressione = re.compile(io.accession_regex)
-        for riga in _leggi_tsv(Path(io.batch_table)):
+        for riga in leggi_tsv(Path(io.batch_table)):
             try:
                 accession = estrai_accession(riga.get(meta.batch_key_column, ""), espressione)
             except ValueError:
@@ -272,14 +273,14 @@ class AssemblaggioOggetto(PipelineStep):
     passo: ClassVar[Passo] = Passo.S10
     versione: ClassVar[int] = 1
     script_r: ClassVar[str | None] = NOME_SCRIPT
-    #: Il crosswalk, per leggere le colonne aggiuntive come le legge S0.
-    moduli_sorgente: ClassVar[tuple[str, ...]] = ("amplicon16s.metadata.crosswalk",)
-    #: La forma dell'oggetto (out); le tabelle e le colonne da cui vengono i
-    #: metadati, e i nomi delle colonne d'origine registrati nella
+    #: La forma dell'oggetto (orientamento, identificativi, colonne portate;
+    #: serializzazione ed export sono di S14); le tabelle e le colonne da cui
+    #: vengono i metadati, e i nomi delle colonne d'origine registrati nella
     #: corrispondenza; se la filogenesi e' attiva, perche' l'albero sarebbe un
     #: componente.
     parametri: ClassVar[tuple[str, ...]] = (
-        "out", "phylo.enabled", "meta", "ctrl.column",
+        "out.taxa_are_rows", "out.asv_id_scheme", "out.sample_id_source",
+        "out.study_columns", "out.batch_columns", "phylo.enabled", "meta", "ctrl.column",
         "io.study_table", "io.batch_table", "io.accession_regex",
         "decontam.batch_column", "err.batch_column",
     )

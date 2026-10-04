@@ -7,7 +7,7 @@ campione usa il modello d'errore della propria corsa, letto da
 
 **Il pseudo-pooling e' realizzato a lotti, in due passate esplicite.**
 ``dada(pool = "pseudo")`` in una chiamata sola tiene in memoria i risultati di
-tutti i campioni, e su 960 campioni non e' praticabile. Lo script fa le due
+tutti i campioni, e su centinaia di campioni non e' praticabile. Lo script fa le due
 passate di dada, entrambe sui campioni a lotti di ``run.batch_size``: la prima
 elabora ogni campione da solo e ne conserva soltanto, per ogni sequenza, in
 quanti campioni compare e quante letture ha, e per ciascun modello la somma
@@ -58,11 +58,12 @@ from typing import ClassVar, Final
 
 from amplicon16s.errors.exceptions import ErrorePipeline, errore
 from amplicon16s.io_layer.artifacts import Fase
+from amplicon16s.io_layer.conteggi import leggi_conteggi
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.retry import RITENTARE_INUTILE, Aggiustamento, dimezza
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s02_filter import NOME_FILTRATE, SUFFISSO_FILTRATI, leggi_conteggi
+from amplicon16s.steps.s02_filter import NOME_FILTRATE, SUFFISSO_FILTRATI
 from amplicon16s.steps.s03_learn_errors import NOME_CORRISPONDENZA
 
 __all__ = ["InferenzaVarianti", "NOME_VARIANTI", "leggi_corrispondenza"]

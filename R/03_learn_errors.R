@@ -42,7 +42,7 @@ esegui_fase(function(parametri, cartella) {
 
   esiti <- list()
   artefatti <- character()
-  for (nome in sort(names(parametri$modelli))) {
+  for (nome in sort(names(parametri$modelli), method = "radix")) {
     file <- unlist(parametri$modelli[[nome]])
     set.seed(as.integer(parametri$seme))
     # Razionale biologico e sistemistico: l'ordine dei campioni e' gia' stato
@@ -60,7 +60,7 @@ esegui_fase(function(parametri, cartella) {
     )
 
     rds <- sprintf("modello_%s.rds", nome)
-    saveRDS(modello, file.path(cartella, rds))
+    salva_rds(modello, file.path(cartella, rds))
 
     # Razionale sistemistico: l'uso esplicito del backend grafico "cairo" per
     # l'esportazione PNG omette metadati variabili (come i timestamp di creazione

@@ -257,6 +257,25 @@ def crea_scenario(
 
 import pytest  # noqa: E402
 
+#: Il gruppo pytest-xdist dei test sui dati reali.
+GRUPPO_DATI_REALI = "dati_reali"
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config, items):
+    """Mette tutti i test ``dati_reali`` in un solo gruppo di pytest-xdist.
+
+    Con ``--dist loadgroup`` (addopts in ``pyproject.toml``) i test di un gruppo
+    girano tutti sullo stesso processo, uno dopo l'altro, e gli altri restano
+    distribuiti uno per uno sui quattro processi, come con ``load``. Sul
+    dataset completo i test reali lanciano catene con decine di processi R:
+    distribuiti, giravano in parallelo fra loro e saturavano la memoria. Il
+    gruppo si aggiunge prima che pytest-xdist legga i gruppi (tryfirst).
+    """
+    for item in items:
+        if item.get_closest_marker("dati_reali") is not None:
+            item.add_marker(pytest.mark.xdist_group(GRUPPO_DATI_REALI))
+
 
 def _condivisa(tmp_path_factory, nome, calcola):
     """La coppia (esecuzione, esito) di una catena condivisa, calcolata una volta
@@ -434,12 +453,24 @@ def decontam_calcolata(controlli_calcolati, tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
+def finale_calcolata(decontam_calcolata, tmp_path_factory):
+    """S13 e S14 sulla versione ridotta, sopra S0-S12: la catena intera.
+
+    In sola lettura, come ``decontam_calcolata``; ``None`` dove mancano R e
+    Bioconductor.
+    """
+    from amplicon16s.runner.graph import Passo
+
+    return _sopra(decontam_calcolata, tmp_path_factory, "finale", Passo.S14)
+
+
+@pytest.fixture(scope="session")
 def catena_reale(tmp_path_factory):
-    """S0-S12 sul dataset completo, una volta sola per la sessione.
+    """S0-S14 sul dataset completo, una volta sola per la sessione.
 
     Serve ai test sui dati reali delle fasi da S4 in poi: ciascuna catena
     completa costa tre quarti d'ora, e condividerla fra i moduli e fra i
-    processi evita di ripeterla. Con fino_a si eseguono solo gli antenati di S12: S1 no.
+    processi evita di ripeterla. Con fino_a si eseguono solo gli antenati di S14: S1 no.
     Salta senza ``AMPLICON16S_CONFIG_DATI_REALI``; in sola lettura.
     """
     import logging
@@ -459,6 +490,6 @@ def catena_reale(tmp_path_factory):
         dati = carica(Path(percorso).expanduser()).model_dump(mode="python")
         dati["io"]["out_root"] = str(cartella / "out")
         run = ProjectRun(valida(dati))
-        return run, Esecutore(run, fino_a=Passo.S12).esegui()
+        return run, Esecutore(run, fino_a=Passo.S14).esegui()
 
     return _condivisa(tmp_path_factory, "reale", calcola)

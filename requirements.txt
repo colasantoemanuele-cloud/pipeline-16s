@@ -25,7 +25,9 @@ pydantic==2.13.5
 # ------------------------------------------------------------------------------
 # I seguenti pacchetti sono gestiti tramite il motore R / renv.lock:
 #
-# dada2==1.36.0            Filtro qualita, stima tassi d'errore, inferenza ASV, rimozione chimere
+# dada2==1.36.0.1          Filtro qualita, stima tassi d'errore, inferenza ASV, rimozione chimere:
+#                          1.36.0 ufficiale con la correzione dei pareggi di assignTaxonomy
+#                          (container/dada2/dada2-1.36.0-pareggi.patch, blocco Patch in renv.lock)
 # phyloseq==1.52.0         Integrazione matrici di abbondanza, tassonomia e metadati ISA-Tab
 # DECIPHER==3.4.0          Allineamento multiplo delle sequenze e filogenesi (Fase S9)
 # decontam==1.28.0         Identificazione statistica contaminanti tramite controlli negativi

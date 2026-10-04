@@ -61,9 +61,9 @@ S06 Rimozione delle chimere e S07 Filtro di lunghezza ASV in ``07_chimera/``).
        docker run --rm \
          -e PYTHONPATH=/app/src \
          -e AMPLICON16S_R_DIR=/app/R \
-         -e AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml \
+         -e AMPLICON16S_CONFIG_DATI_REALI=$HOME/ASI/config_osd734.yaml \
          -v "$(pwd)":/app \
-         -v /home/nemo/ASI:/home/nemo/ASI \
+         -v $HOME/ASI:$HOME/ASI \
          -w /app \
          amplicon16s:dev \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w14_s04_s07_denoising.py -v
@@ -599,7 +599,7 @@ def test_s4_s7_sul_dataset_completo(dada2, catena_reale):
 
     **Razionale scientifico e sistemistico**: Le misure sul dataset completo
     decidono se i controlli sono tarati sulle classi giuste. La catena e'
-    quella condivisa ``catena_reale`` (S0-S12), calcolata una volta per sessione.
+    quella condivisa ``catena_reale`` (S0-S14), calcolata una volta per sessione.
     """
     run, esito = catena_reale
     assert esito.conclusione is Conclusione.COMPLETATA

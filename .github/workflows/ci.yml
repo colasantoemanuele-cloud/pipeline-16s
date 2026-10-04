@@ -57,14 +57,18 @@ jobs:
             cat("R", as.character(getRversion()), "- jsonlite", trovata, "\n")
           '
 
+      # pip fissato come le altre dipendenze: l'ultima versione cambierebbe
+      # nel tempo il modo in cui le dipendenze vengono risolte.
       - name: Install package
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install pip==25.2
           pip install -e ".[dev]"
 
       # Con questa variabile i test che richiedono R falliscono invece di
       # saltarsi se R manca: un ambiente che lo ha perso non passa per verde.
-      # La suite gira su quattro processi (pytest-xdist, addopts in pyproject.toml).
+      # La suite gira su quattro processi (pytest-xdist, addopts in pyproject.toml);
+      # i test sui dati reali, che qui si saltano, formano un gruppo che gira su
+      # un solo processo (--dist loadgroup, gruppo dati_reali in tests/conftest.py).
       - name: Run test suite
         env:
           AMPLICON16S_RICHIEDI_R: "1"
@@ -89,7 +93,8 @@ jobs:
 
       # Dentro l'immagine R e Bioconductor sono richiesti: se mancassero, i
       # test che li usano fallirebbero invece di saltarsi. Quattro processi
-      # (pytest-xdist), come i processori del runner.
+      # (pytest-xdist), come i processori del runner; i test sui dati reali, che
+      # qui si saltano, girerebbero tutti su uno solo (gruppo dati_reali).
       - name: Run test suite in the image
         run: >
           docker run --rm

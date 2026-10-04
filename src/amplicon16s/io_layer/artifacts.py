@@ -22,6 +22,12 @@ scrivono i propri file da sé. Per questo :meth:`AlberoOutput.registra` esiste
 accanto ai metodi di scrittura: un file prodotto altrove entra nel manifesto
 allo stesso modo di uno scritto da Python, e la verifica di completezza non
 distingue i due casi.
+
+**Ogni scrittura e' atomica** (:func:`scrivi_atomico`): il contenuto va in un
+file temporaneo nella stessa cartella, ``.scrittura-*``, che poi si rinomina con
+il nome definitivo. Un processo interrotto a meta' lascia il temporaneo, mai un
+file troncato con il nome definitivo. Il lato R fa lo stesso
+(``R/lib/io_json.R``).
 """
 
 from __future__ import annotations
@@ -49,10 +55,26 @@ __all__ = [
     "NOME_MANIFESTO",
     "nome_manifesto_passo",
     "nome_registro_rimozioni",
+    "scrivi_atomico",
 ]
 
 #: Nome del manifesto dentro ogni cartella di fase.
 NOME_MANIFESTO: Final = "manifest.json"
+
+
+def scrivi_atomico(percorso: Path, contenuto: str | bytes) -> None:
+    """Scrive ``contenuto`` in ``percorso`` attraverso un file temporaneo della
+    stessa cartella, rinominato alla fine; il testo in UTF-8.
+    """
+    dati = contenuto.encode("utf-8") if isinstance(contenuto, str) else contenuto
+    descrittore, temporaneo = tempfile.mkstemp(prefix=".scrittura-", dir=percorso.parent)
+    try:
+        with os.fdopen(descrittore, "wb") as file:
+            file.write(dati)
+        os.replace(temporaneo, percorso)
+    except BaseException:
+        Path(temporaneo).unlink(missing_ok=True)
+        raise
 
 
 def nome_manifesto_passo(passo: str) -> str:
@@ -218,14 +240,12 @@ class AlberoOutput:
 
     def scrivi_testo(self, fase: Fase, nome: str, contenuto: str) -> Artefatto:
         """Scrive un artefatto di testo e lo registra nel manifesto."""
-        percorso = self.prepara(fase) / nome
-        percorso.write_text(contenuto, encoding="utf-8")
+        scrivi_atomico(self.prepara(fase) / nome, contenuto)
         return self.registra(fase, nome)
 
     def scrivi_bytes(self, fase: Fase, nome: str, contenuto: bytes) -> Artefatto:
         """Scrive un artefatto binario e lo registra nel manifesto."""
-        percorso = self.prepara(fase) / nome
-        percorso.write_bytes(contenuto)
+        scrivi_atomico(self.prepara(fase) / nome, contenuto)
         return self.registra(fase, nome)
 
     def registra(self, fase: Fase, nome: str) -> Artefatto:
@@ -279,9 +299,9 @@ class AlberoOutput:
             # cambiato l'ordine di scrittura.
             "artefatti": [voci[n] for n in sorted(voci)],
         }
-        self.percorso_manifesto(artefatto.fase).write_text(
+        scrivi_atomico(
+            self.percorso_manifesto(artefatto.fase),
             json.dumps(documento, indent=2, ensure_ascii=False, sort_keys=False) + "\n",
-            encoding="utf-8",
         )
 
     # ----------------------------------------------------------------- #
@@ -368,9 +388,7 @@ class AlberoOutput:
         }
         # Prima il registro, poi i file: un'interruzione a meta' lascia file
         # registrati come rimossi ma ancora presenti, mai il contrario.
-        registro.write_text(
-            json.dumps(documento, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-        )
+        scrivi_atomico(registro, json.dumps(documento, indent=2, ensure_ascii=False) + "\n")
         for nome in nomi:
             (self.cartella(manifesto.fase) / nome).unlink(missing_ok=True)
         return tuple(sorted(nomi))
@@ -441,20 +459,10 @@ class AlberoOutput:
         )
 
         self.prepara(fase)
-        percorso = self.percorso_manifesto_passo(passo, fase)
-        descrittore, temporaneo = tempfile.mkstemp(
-            prefix=".scrittura-", suffix=".json", dir=percorso.parent
+        scrivi_atomico(
+            self.percorso_manifesto_passo(passo, fase),
+            json.dumps(manifesto.come_documento(), indent=2, ensure_ascii=False) + "\n",
         )
-        try:
-            with os.fdopen(descrittore, "w", encoding="utf-8") as file:
-                json.dump(
-                    manifesto.come_documento(), file, indent=2, ensure_ascii=False
-                )
-                file.write("\n")
-            os.replace(temporaneo, percorso)
-        except BaseException:
-            Path(temporaneo).unlink(missing_ok=True)
-            raise
         return manifesto
 
     def manifesto_passo(self, passo: str, fase: Fase) -> ManifestoPasso | None:

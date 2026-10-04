@@ -47,7 +47,7 @@ esegui_fase(function(parametri, cartella) {
   }
 
   tabella <- dada2::makeSequenceTable(varianti, orderBy = "abundance")
-  saveRDS(tabella, file.path(cartella, "tabella.rds"))
+  salva_rds(tabella, file.path(cartella, "tabella.rds"))
 
   letture <- c(rowSums(tabella),
                stats::setNames(numeric(length(senza_letture)), senza_letture))

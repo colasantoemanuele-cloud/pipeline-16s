@@ -211,9 +211,9 @@ def test_conteggi_delle_classi(inventario):
     (77 dichiarati e 33 tamponi mai aperti, riclassificati da ctrl.blank_override_*).
 
     **Razionale scientifico e sistemistico**: Fissa come invariante di regressione
-    il censimento esatto delle classi di OSD-734 da cui dipendono il calcolo di
-    ``prev.min_samples`` (su 770 biologici), la calibrazione `KatharoSeq` (sui
-    controlli positivi) e la decontaminazione `decontam` (sui controlli negativi).
+    il censimento esatto delle classi di OSD-734 da cui dipendono il filtro di
+    prevalenza (sui biologici), la calibrazione `KatharoSeq` (sui controlli
+    positivi) e la decontaminazione `decontam` (sui controlli negativi).
     """
     assert inventario.conteggi() == {
         ClasseCampione.BIOLOGICO: BIOLOGICI_ATTESI,

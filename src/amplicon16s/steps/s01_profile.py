@@ -18,10 +18,6 @@ minimo osservato di più di ``filter.truncLen_shortfall_warn``, ogni lettura
 cede basi che si potrebbero conservare: è una degradazione, che non ferma e
 finisce nel manifesto di S1. La registra S1 e non S0 perché la condizione si
 valuta sul minimo vero misurato qui, non sulla stima dalle prime letture.
-
-Sul dataset di riferimento il profilo di qualità è piatto (la qualità
-mediana non scende sotto 25 in nessuna posizione), e il vincolo sul
-troncamento non è la qualità ma l'eterogeneità delle lunghezze.
 """
 
 from __future__ import annotations

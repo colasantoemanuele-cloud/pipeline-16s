@@ -25,10 +25,10 @@ il cui predefinito e' ``minimum``; aggregata, tutti i biologici contro tutti i
 negativi. Una piastra con meno di ``decontam.min_blanks`` negativi confronta i
 propri biologici con i negativi di tutte le piastre. Quale delle due decide i
 contaminanti lo dichiara ``decontam.mode``, non l'esito: l'altra resta una
-diagnostica, con il confronto numerico in ``decontam_riepilogo.json``. Per
-OSD-734 e' l'aggregata: le piastre hanno da 5 a 8 negativi, e il minimo di
-dieci probabilita' stimate ciascuna su cosi' pochi negativi e' permissivo per
-costruzione. Se la modalita' dichiarata rimuove dai biologici una frazione
+diagnostica, con il confronto numerico in ``decontam_riepilogo.json``. Con
+pochi negativi per piastra la modalita' per piastra e' permissiva per
+costruzione: il minimo di molte probabilita', ciascuna stimata su pochi
+negativi. Se la modalita' dichiarata rimuove dai biologici una frazione
 delle letture oltre ``qc.max_frac_contaminant``, la fase si ferma con
 ``E-S12-02``.
 

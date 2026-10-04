@@ -94,7 +94,7 @@ esegui_fase(function(parametri, cartella) {
   # Per gruppo di campioni (la classe, per la fase): le varianti si contano
   # distinte, una variante presente in piu' campioni del gruppo conta una volta.
   gruppi <- unlist(parametri$gruppi)[rownames(tabella)]
-  righe <- vapply(sort(unique(gruppi)), function(g) {
+  righe <- vapply(sort(unique(gruppi), method = "radix"), function(g) {
     r <- rownames(tabella)[gruppi == g]
     sprintf("%s\t%d\t%.0f\t%.0f\t%d\t%d", g, length(r), sum(prima[r]),
             sum(prima[r] - dopo[r]),
@@ -111,7 +111,7 @@ esegui_fase(function(parametri, cartella) {
   tracciate <- c(dopo, stats::setNames(numeric(length(senza_letture)), senza_letture))
   tracciate <- tracciate[sort(names(tracciate), method = "radix")]
 
-  saveRDS(senza, file.path(cartella, "tabella_senza_chimere.rds"))
+  salva_rds(senza, file.path(cartella, "tabella_senza_chimere.rds"))
   c("tabella_senza_chimere.rds", "chimere.tsv", "chimere_per_campione.tsv",
     "chimere_per_gruppo.tsv",
     traccia_letture(tracciate, "senza_chimere", cartella))

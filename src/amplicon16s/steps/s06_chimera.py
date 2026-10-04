@@ -27,20 +27,17 @@ La frazione e' quella complessiva delle letture delle classi controllate,
 come la misura ``sum(senza chimere) / sum(tabella)`` del flusso di dada2:
 ogni lettura pesa uguale, e un campione con cento letture non sposta la
 misura quanto uno con centomila. Come per G10 e per S2, il controllo si
-applica alle classi per cui ha senso (:data:`CLASSI_CONTROLLATE`): la domanda
+applica alle classi per cui ha senso
+(:data:`~amplicon16s.metadata.models.CLASSI_CONTROLLATE`): la domanda
 e' se la PCR dei campioni analizzati ha prodotto troppe chimere. I biologici
 sono i campioni analizzati; i positivi, una comunita' nota, misurano la
 formazione di chimere nella stessa PCR. I negativi ne restano fuori: hanno
 poca biomassa, spesso poche letture, e la loro frazione dice poco sulla PCR
 dei campioni.
 
-L'esclusione e' di principio, non una misura. Sul dataset di riferimento,
-con i parametri decisi (metodo consensus), le chimere sono poche in ogni
-classe: frazione delle letture 0,0044 nei biologici (803; media per campione
-0,0019, massimo 0,044), 0,0002 nei positivi (80), 0,0003 nei negativi (77);
-nessun campione oltre 0,05. Sulle varianti la frazione e' venti volte
-maggiore, 0,087 nei biologici: le chimere sono tante varianti rare, ed e' il
-motivo per cui la misura che conta e' sulle letture.
+L'esclusione e' di principio, non una misura. Sulle varianti la frazione
+chimerica e' di norma molto maggiore che sulle letture: le chimere sono tante
+varianti rare, ed e' il motivo per cui la misura che conta e' sulle letture.
 """
 
 from __future__ import annotations
@@ -53,15 +50,15 @@ from typing import Any, ClassVar, Final
 from amplicon16s.config.schema import Qc
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
-from amplicon16s.metadata.models import ClasseCampione
+from amplicon16s.io_layer.conteggi import leggi_conteggi
+from amplicon16s.metadata.models import CLASSI_CONTROLLATE
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s02_filter import NOME_FILTRATE, leggi_conteggi
+from amplicon16s.steps.s02_filter import NOME_FILTRATE
 from amplicon16s.steps.s05_seqtab import NOME_TABELLA
 
 __all__ = [
-    "CLASSI_CONTROLLATE",
     "NOME_SENZA_CHIMERE",
     "RimozioneChimere",
     "controlla_chimere",
@@ -74,8 +71,6 @@ NOME_SENZA_CHIMERE: Final = "tabella_senza_chimere.rds"
 NOME_PER_GRUPPO: Final = "chimere_per_gruppo.tsv"
 NOME_RIEPILOGO: Final = "chimere.json"
 
-#: Le classi a cui si applicano E-S6-01 ed E-S6-02.
-CLASSI_CONTROLLATE: Final = (ClasseCampione.BIOLOGICO, ClasseCampione.CONTROLLO_POSITIVO)
 
 
 def leggi_per_gruppo(percorso: Path) -> dict[str, dict[str, int]]:

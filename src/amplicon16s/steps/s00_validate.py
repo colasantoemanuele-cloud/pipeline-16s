@@ -37,11 +37,12 @@ from typing import Any, ClassVar, Final
 from amplicon16s.config.resolve import risolvi
 from amplicon16s.config.schema import Config
 from amplicon16s.errors.catalog import Categoria, voce
-from amplicon16s.gates.g01_g15 import Contesto, ErroreGate, Violazione
+from amplicon16s.gates.g01_g15 import Contesto, ErroreGate
 from amplicon16s.gates.registry import EsitoGate, esegui_gate, esegui_tutti
 from amplicon16s.io_layer.artifacts import AlberoOutput, Fase
 from amplicon16s.logging.logger import ottieni
-from amplicon16s.metadata.models import Campione, ClasseCampione, Inventario
+from amplicon16s.metadata.lettura_inventario import NOME_CROSSWALK
+from amplicon16s.metadata.models import Inventario
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext, StepResult
 
@@ -50,11 +51,9 @@ __all__ = [
     "ValidazioneIngressi",
     "esegui_s0",
     "impronta_dati_grezzi",
-    "leggi_inventario",
 ]
 
 NOME_ESITI: Final = "gates.json"
-NOME_CROSSWALK: Final = "crosswalk.tsv"
 NOME_INVENTARIO: Final = "inventario.json"
 NOME_LETTURE: Final = "letture_ispezionate.tsv"
 
@@ -163,38 +162,11 @@ def _esiti_json(esiti: tuple[EsitoGate, ...]) -> str:
     return json.dumps(documento, indent=2, ensure_ascii=False) + "\n"
 
 
-def leggi_inventario(config: Config) -> Inventario:
-    """Rilegge l'inventario dal crosswalk scritto da S0.
-
-    È l'inventario su cui le fasi a valle sono state calcolate: rileggerlo
-    dall'artefatto, invece di ricostruirlo dai metadati, fa sì che una ripresa
-    usi esattamente quello.
-    """
-    percorso = AlberoOutput(config.io.out_root).cartella(Fase.INPUT_VALIDATION) / NOME_CROSSWALK
-    campioni = []
-    with open(percorso, encoding="utf-8", newline="") as file:
-        for riga in csv.DictReader(file, delimiter="\t"):
-            campioni.append(
-                Campione(
-                    accession=riga["accession"],
-                    nome=riga["sample_name"],
-                    classe=ClasseCampione(riga["classe"]),
-                    materiale=riga["materiale"],
-                    file=Path(config.io.fastq_dir) / riga["file"] if riga["file"] else None,
-                    posizione=riga["posizione"] or None,
-                    modulo=riga["modulo"] or None,
-                    piastra=riga["piastra"] or None,
-                    corsa=riga["corsa"] or None,
-                )
-            )
-    return Inventario(tuple(campioni))
-
-
 def impronta_dati_grezzi(config: Config) -> str:
     """Impronta dei dati letti da S0: letture e tabelle.
 
     Si basa su nome, dimensione e istante di modifica di ogni file, non sul
-    contenuto: rileggere 2,5 GB a ogni ripresa costerebbe piu' della
+    contenuto: rileggere gigabyte di letture a ogni ripresa costerebbe piu' della
     validazione stessa. Un file sostituito sotto lo stesso nome cambia quasi
     sempre dimensione o istante di modifica.
 
@@ -231,15 +203,6 @@ class ValidazioneIngressi(PipelineStep):
 
     passo: ClassVar[Passo] = Passo.S0
     versione: ClassVar[int] = 2
-    #: I gate, il crosswalk e la lettura delle statistiche, dove vive il calcolo di S0.
-    moduli_sorgente: ClassVar[tuple[str, ...]] = (
-        "amplicon16s.gates.g01_g15",
-        "amplicon16s.gates.registry",
-        "amplicon16s.metadata.crosswalk",
-        "amplicon16s.metadata.controls_map",
-        "amplicon16s.metadata.models",
-        "amplicon16s.io_layer.reads",
-    )
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre

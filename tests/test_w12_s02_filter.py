@@ -51,9 +51,9 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S2:
        docker run --rm \
          -e PYTHONPATH=/app/src \
          -e AMPLICON16S_R_DIR=/app/R \
-         -e AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml \
+         -e AMPLICON16S_CONFIG_DATI_REALI=$HOME/ASI/config_osd734.yaml \
          -v "$(pwd)":/app \
-         -v /home/nemo/ASI:/home/nemo/ASI \
+         -v $HOME/ASI:$HOME/ASI \
          -w /app \
          amplicon16s:dev \
          pytest -o cache_dir=/tmp/.pytest_cache tests/test_w12_s02_filter.py -v
@@ -64,7 +64,7 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S2:
     - Impostare '-e AMPLICON16S_R_DIR=/app/R': l'immagine punta agli script R copiati
       al momento della costruzione, e senza la variabile non userebbe quelli montati.
     - Usare '-o cache_dir=/tmp/.pytest_cache' per proteggere i permessi della cartella locale.
-    - Montare '-v /home/nemo/ASI:/home/nemo/ASI' per rendere accessibili i 2.4 GB di dati reali.
+    - Montare '-v $HOME/ASI:$HOME/ASI' per rendere accessibili i 2.4 GB di dati reali.
 
 5. Risultato atteso e metodologia di test
 -----------------------------------------
@@ -115,11 +115,8 @@ from amplicon16s.runner.retry import Aggiustamento, Motivo, PoliticaRetry, senza
 from amplicon16s.runner.tracciamento import ricomponi
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 from amplicon16s.steps.s00_validate import ValidazioneIngressi
-from amplicon16s.steps.s02_filter import (
-    CLASSI_CONTROLLATE,
-    archivio_incompleto,
-    controlla_filtro,
-)
+from amplicon16s.metadata.models import CLASSI_CONTROLLATE
+from amplicon16s.steps.s02_filter import archivio_incompleto, controlla_filtro
 
 ESEMPIO = Path(__file__).resolve().parents[1] / "config" / "config.example.yaml"
 TUTTE = tuple(Passo)

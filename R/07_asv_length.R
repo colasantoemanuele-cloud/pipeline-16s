@@ -53,7 +53,7 @@ esegui_fase(function(parametri, cartella) {
                  stats::setNames(numeric(length(senza_letture)), senza_letture))
   tracciate <- tracciate[sort(names(tracciate), method = "radix")]
 
-  saveRDS(filtrata, file.path(cartella, "tabella_asv.rds"))
+  salva_rds(filtrata, file.path(cartella, "tabella_asv.rds"))
   c("tabella_asv.rds", "lunghezze.tsv",
     traccia_letture(tracciate, "lunghezza", cartella))
 })

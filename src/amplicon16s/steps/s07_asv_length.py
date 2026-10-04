@@ -30,10 +30,11 @@ from typing import ClassVar, Final
 
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
+from amplicon16s.io_layer.conteggi import leggi_conteggi
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s02_filter import NOME_FILTRATE, leggi_conteggi
+from amplicon16s.steps.s02_filter import NOME_FILTRATE
 from amplicon16s.steps.s06_chimera import NOME_SENZA_CHIMERE
 
 __all__ = ["FiltroLunghezza", "NOME_TABELLA_ASV"]

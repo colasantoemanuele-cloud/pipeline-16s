@@ -114,7 +114,6 @@ PARAMETRI_DERIVATI: Final[tuple[str, ...]] = (
     "filter.minLen",
     "asv.len_min",
     "asv.len_max",
-    "prev.min_samples",
 )
 
 
@@ -294,10 +293,12 @@ class Phylo(_Gruppo):
 
 
 class Ctrl(_Gruppo):
-    """Riconoscimento di controlli negativi, positivi e campioni biologici.
+    """Riconoscimento di controlli negativi, positivi e campioni biologici, e
+    validazione della corsa dai controlli positivi.
 
-    Tutti i valori sono derivati dal dataset di riferimento: sono le etichette
-    usate in quello studio, non una proprietà della pipeline.
+    La colonna, le etichette e la regola di riclassificazione sono derivate dal
+    dataset di riferimento: sono quelle usate in quello studio, non una
+    proprietà della pipeline.
     """
 
     column: StringaNonVuota = d.CTRL_COLUMN
@@ -406,8 +407,12 @@ class Qc(_Gruppo):
     min_reads_mode: Literal["fixed", "katharoseq_if_available"] = d.QC_MIN_READS_MODE
     # Frazione massima delle letture dei biologici rimossa come contaminante (S12).
     max_frac_contaminant: Frazione = d.QC_MAX_FRAC_CONTAMINANT
-    min_reads_filtered: InteroNonNegativo = d.QC_MIN_READS_FILTERED
+    # Per campione, sulle letture dell'oggetto finale (S13): sotto, il campione
+    # esce dall'oggetto finale.
     min_reads_final: InteroNonNegativo = d.QC_MIN_READS_FINAL
+    # Per l'insieme dei campioni finali: letture finali su letture senza chimere
+    # (S14, E-S14-01).
+    min_frac_reads_retained: Frazione = d.QC_MIN_FRAC_READS_RETAINED
     max_asv_count: InteroPositivo = d.QC_MAX_ASV_COUNT
     # Controlli sul risultato del filtro (S2), applicati ai campioni biologici
     # e ai controlli positivi, non ai negativi: vedi steps/s02_filter.py.

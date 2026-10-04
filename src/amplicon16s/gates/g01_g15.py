@@ -36,7 +36,6 @@ from __future__ import annotations
 import csv
 import hashlib
 import os
-import re
 import shutil
 import statistics
 from collections.abc import Mapping, Sequence
@@ -54,7 +53,7 @@ from amplicon16s.errors.catalog import CATALOGO, Categoria, VoceCatalogo, voce
 from amplicon16s.errors.exceptions import ErrorePipeline
 from amplicon16s.io_layer.reads import StatisticheFile, espandi_iupac, scansiona
 from amplicon16s.metadata.crosswalk import Analisi, analizza
-from amplicon16s.metadata.models import ClasseCampione, Inventario
+from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione, Inventario
 
 __all__ = [
     "Avviso",
@@ -140,7 +139,7 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
     ),
     Controllo(
         "E-G15-08",
-        ("filter.minLen", "asv.len_min", "asv.len_max", "prev.min_samples"),
+        ("filter.minLen", "asv.len_min", "asv.len_max"),
         "schema",
     ),
     Controllo(
@@ -962,20 +961,6 @@ def _g09_troncamento_compatibile(contesto: Contesto) -> tuple[list[Violazione], 
     return [], []
 
 
-#: Classi di campione da cui ci si puo' attendere il segnale del bersaglio.
-#: I controlli negativi ne sono esclusi per principio e non per misura: un
-#: bianco non contiene il materiale che si sta studiando, quindi pretendere da
-#: lui il segnale sarebbe chiedergli cio' che per definizione non ha. Sul
-#: dataset di riferimento i bianchi il motivo ce l'hanno - fra il 79% e il 95%
-#: delle letture - ma per via dei contaminanti che amplificano, non del
-#: bersaglio: e' la conferma che il motivo misura la presenza della regione
-#: amplificata e non la qualita' del campione.
-_CLASSI_CON_SEGNALE: Final[tuple[ClasseCampione, ...]] = (
-    ClasseCampione.BIOLOGICO,
-    ClasseCampione.CONTROLLO_POSITIVO,
-)
-
-
 def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
     """Il primer non dev'essere in testa alle letture, e il segnale dev'esserci.
 
@@ -985,22 +970,23 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
 
     **Che cosa misura il controllo positivo.** Misura che le letture
     contengano la regione amplificata dichiarata, non che il campione sia
-    buono. Sul dataset di riferimento il motivo compare nei controlli negativi
-    fra il 79% e il 95% delle letture, quanto nei biologici: i bianchi
-    amplificano contaminanti, e i contaminanti sono batteri con lo stesso 16S.
+    buono. Il motivo compare anche nei controlli negativi, quanto nei
+    biologici: i bianchi amplificano contaminanti, e i contaminanti sono
+    batteri con lo stesso 16S.
     Il motivo non distingue quindi il segnale dalla contaminazione, e chi lo
     usasse per quello leggerebbe una risposta a una domanda diversa.
 
     **Come e' costruito.** Su due scelte, ciascuna con la propria ragione:
 
     * riguarda le sole classi da cui ci si puo' attendere il segnale del
-      bersaglio, quindi esclude i controlli negativi. E' un principio, non una
+      bersaglio (:data:`~amplicon16s.metadata.models.CLASSI_CONTROLLATE`),
+      quindi esclude i controlli negativi. E' un principio, non una
       constatazione: da un bianco non ci si aspetta il materiale in studio,
       anche dove di fatto il motivo ce l'ha per via dei contaminanti;
-    * guarda la **mediana** fra quei campioni e non ciascuno di essi. Sul
-      dataset di riferimento sei campioni biologici stanno sotto la soglia,
-      uno al 5,8%, e una verifica file per file li avrebbe fatti fallire pur
-      essendo campioni legittimi e profondi.
+    * guarda la **mediana** fra quei campioni e non ciascuno di essi: un
+      campione biologico legittimo e profondo puo' stare sotto la soglia (per
+      esempio se e' dominato da 16S mitocondriale, che non porta il motivo), e
+      una verifica file per file lo farebbe fallire.
 
     Cosi' costruito, il controllo fallisce solo se il segnale manca nel
     complesso - file sbagliati, regione diversa da quella dichiarata - che e'
@@ -1036,7 +1022,7 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
     con_segnale = [
         contesto.scansione[c.accession].frazione_motivo
         for c in inventario
-        if c.classe in _CLASSI_CON_SEGNALE
+        if c.classe in CLASSI_CONTROLLATE
         and c.accession in contesto.scansione
         and contesto.scansione[c.accession].valido
     ]

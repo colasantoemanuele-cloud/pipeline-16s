@@ -8,9 +8,7 @@ e S6 la legge senza ricopiarla.
 **Il retry di E-S5-01 non serve, e la fase lo dichiara.** La tabella e' una
 matrice densa di interi, campioni x varianti, che ``makeSequenceTable``
 costruisce e poi riordina con una copia: la memoria che chiede dipende dal
-numero di campioni e di varianti, non da ``run.batch_size`` (sul dataset di
-riferimento, 960 campioni per 13.130 varianti, la matrice occupa 53 MB e il
-picco ne aggiunge 157 alla lettura delle varianti), e costruirla a
+numero di campioni e di varianti, non da ``run.batch_size``, e costruirla a
 lotti non la ridurrebbe, perche' la tabella finale e' comunque una. Il
 numero di varianti distinte si controlla prima di allocarla, contro
 ``qc.max_asv_count``; sia la soglia superata sia la memoria esaurita durante
@@ -26,11 +24,12 @@ from typing import ClassVar, Final
 
 from amplicon16s.errors.exceptions import ErrorePipeline, errore
 from amplicon16s.io_layer.artifacts import Fase
+from amplicon16s.io_layer.conteggi import leggi_conteggi
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.retry import RITENTARE_INUTILE
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s02_filter import NOME_FILTRATE, leggi_conteggi
+from amplicon16s.steps.s02_filter import NOME_FILTRATE
 from amplicon16s.steps.s04_dada import NOME_VARIANTI
 
 __all__ = ["NOME_TABELLA", "TabellaSequenze"]

@@ -47,6 +47,11 @@ allocare un vettore di dimensione…». In R 4.5 il messaggio è cambiato in
 ne hanno alcuna versione, in nessuna lingua: con la 4.5.2 di riferimento
 esce in inglese comunque. La forzatura protegge chi esegue la pipeline con
 versioni precedenti.
+
+Il ponte impone anche ``LC_ALL=C.UTF-8``: ordinamenti e confronti di stringhe
+negli script R non dipendono cosi' dalla macchina, e la codifica nativa e'
+sempre UTF-8. Gli script ordinano comunque con ``method = "radix"``, che non
+dipende dalla lingua, e serializzano con ``salva_rds`` (``R/lib/io_json.R``).
 """
 
 from __future__ import annotations
@@ -408,7 +413,7 @@ def esegui_script(
     cartella = albero.prepara(fase)
     richiesta, percorso_esito = scrivi_richiesta(cartella, invocazione, parametri, str(passo))
 
-    ambiente = {**os.environ, "LANGUAGE": "en", VARIABILE_LIB_R: str(lib)}
+    ambiente = {**os.environ, "LANGUAGE": "en", "LC_ALL": "C.UTF-8", VARIABILE_LIB_R: str(lib)}
     if limite_memoria_byte is not None:
         ambiente.update(_UN_THREAD_ALGEBRA)
     comando = [str(interprete), "--vanilla", str(script.resolve()), str(richiesta)]

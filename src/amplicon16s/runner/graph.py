@@ -31,9 +31,8 @@ conclusa ricalcola il checksum di ogni suo artefatto, perché solo il
 checksum garantisce che un artefatto alterato faccia rieseguire la fase: una
 scorciatoia su dimensione e data di modifica non vedrebbe un file alterato
 che le conserva. Dentro una valutazione ogni checksum è calcolato una volta
-sola, ma una valutazione completa li calcola tutti. Misurato sul dataset di
-riferimento, con S0-S7 concluse e le letture filtrate conservate (996
-artefatti, 2,1 GB, container): 5,6 secondi.
+sola, ma una valutazione completa li calcola tutti: con gli artefatti di S2 e
+S4, da gigabyte, costa secondi (la misura e' nel README).
 """
 
 from __future__ import annotations
@@ -205,29 +204,33 @@ def _filogenesi_attiva(config: Config) -> bool:
 
 
 # S7 non ha una cartella propria: filtra per lunghezza la tabella senza
-# chimere di S6 e scrive accanto a S6 in 07_chimera. Dipende anche da S2, S4
-# e S5, di cui legge il conteggio delle letture filtrate (i campioni senza
-# letture, zero nel suo passo di tracciamento) e gli artefatti a monte della
-# tabella che filtra.
+# chimere di S6 e scrive accanto a S6 in 07_chimera.
 GRAFO: Final = Grafo(
     [
         Nodo(Passo.S0, "validazione degli ingressi", Fase.INPUT_VALIDATION),
+        # S0 e' fra le dipendenze di ogni fase che legge l'inventario dei
+        # campioni (01_input_validation/inventario.json).
         Nodo(Passo.S1, "profilo di qualita'", Fase.QC_PROFILES, (Passo.S0,)),
         Nodo(Passo.S2, "filtro e troncamento", Fase.FILTERED, (Passo.S0,)),
-        Nodo(Passo.S3, "modello d'errore", Fase.ERROR_MODELS, (Passo.S2,)),
+        Nodo(Passo.S3, "modello d'errore", Fase.ERROR_MODELS, (Passo.S0, Passo.S2)),
         Nodo(
             Passo.S4, "inferenza delle varianti", Fase.ASV_INFERENCE,
-            (Passo.S2, Passo.S3),
+            (Passo.S0, Passo.S2, Passo.S3),
         ),
-        Nodo(Passo.S5, "tabella delle sequenze", Fase.SEQTAB, (Passo.S4,)),
-        Nodo(Passo.S6, "rimozione delle chimere", Fase.CHIMERA, (Passo.S5,)),
+        # S5, S6 e S7 leggono da S2 le letture filtrate di ogni campione, per
+        # riconoscere i campioni rimasti senza letture.
         Nodo(
-            Passo.S7, "filtro di lunghezza e tracciamento delle letture",
-            Fase.CHIMERA,
-            # Il tracciamento raccoglie i conteggi di ogni passo precedente.
-            (Passo.S2, Passo.S4, Passo.S5, Passo.S6),
+            Passo.S5, "tabella delle sequenze", Fase.SEQTAB, (Passo.S0, Passo.S2, Passo.S4),
         ),
-        Nodo(Passo.S8, "assegnazione tassonomica", Fase.TAXONOMY, (Passo.S7,)),
+        Nodo(
+            Passo.S6, "rimozione delle chimere", Fase.CHIMERA, (Passo.S0, Passo.S2, Passo.S5),
+        ),
+        Nodo(
+            Passo.S7, "filtro di lunghezza", Fase.CHIMERA, (Passo.S0, Passo.S2, Passo.S6),
+        ),
+        Nodo(
+            Passo.S8, "assegnazione tassonomica", Fase.TAXONOMY, (Passo.S0, Passo.S7),
+        ),
         Nodo(
             Passo.S9, "filogenesi", Fase.PHYLOGENY, (Passo.S7,),
             attiva_se=_filogenesi_attiva,
@@ -235,7 +238,7 @@ GRAFO: Final = Grafo(
         ),
         Nodo(
             Passo.S10, "assemblaggio dell'oggetto integrato", Fase.PHYLOSEQ,
-            # S0 per i metadati dei campioni, S9 solo se attiva.
+            # S9 solo se attiva.
             (Passo.S0, Passo.S7, Passo.S8, Passo.S9),
         ),
         Nodo(
@@ -244,12 +247,15 @@ GRAFO: Final = Grafo(
             (Passo.S2, Passo.S10),
         ),
         Nodo(
-            Passo.S12, "decontaminazione", Fase.CONTROLS,
-            (Passo.S10, Passo.S11),
+            # Solo l'oggetto integrato: la soglia di S11 si applica in S13.
+            Passo.S12, "decontaminazione", Fase.CONTROLS, (Passo.S10,),
         ),
         Nodo(
-            Passo.S13, "filtri tassonomici e di prevalenza", Fase.FINAL,
-            (Passo.S12,),
+            Passo.S13, "filtri per profondita', tassonomici e di prevalenza", Fase.FINAL,
+            # S2 e S7 per le letture grezze e senza chimere del tracciamento, a
+            # cui si applicano le soglie di S11; S10 per i controlli, che
+            # S13 conserva a parte; S12 per l'oggetto decontaminato.
+            (Passo.S0, Passo.S2, Passo.S7, Passo.S10, Passo.S11, Passo.S12),
         ),
         Nodo(
             Passo.S14, "serializzazione e validazione finale", Fase.FINAL,

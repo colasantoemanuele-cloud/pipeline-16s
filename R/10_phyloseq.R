@@ -136,7 +136,7 @@ esegui_fase(function(parametri, cartella) {
       sum(phyloseq::otu_table(ps)), sum(tabella)
     ))
   }
-  saveRDS(ps, file.path(cartella, "ps_integrato.rds"))
+  salva_rds(ps, file.path(cartella, "ps_integrato.rds"))
 
   # ---- Le varianti e le informazioni accessorie, per identificativo --------
   scrivi_atomico(

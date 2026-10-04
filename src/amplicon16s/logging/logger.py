@@ -11,13 +11,13 @@ Le due uscite servono a due lettori diversi e hanno perciò forme diverse.
   Con righe di testo libero ognuna di quelle domande diventa un'espressione
   regolare da indovinare; con JSON Lines è un filtro.
 
-Il file ruota: un'esecuzione su 960 campioni produce molte righe, e un log che
+Il file ruota: un'esecuzione su centinaia di campioni produce molte righe, e un log che
 cresce senza limite finisce per essere il motivo per cui il disco si riempie.
 
 I campi passati in ``extra`` finiscono nel JSON accanto ai campi standard,
 quindi un evento si arricchisce senza cambiare formato::
 
-    log.info("fase conclusa", extra={"fase": "S2", "campioni": 803})
+    log.info("fase conclusa", extra={"fase": "S2", "campioni": 12})
 """
 
 from __future__ import annotations

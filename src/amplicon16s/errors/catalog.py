@@ -564,15 +564,28 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "Il filtro di prevalenza lascia alcuni campioni senza varianti.",
         "Abbassa prev.min_fraction o prev.min_count, oppure escludi quei "
         "campioni consapevolmente: un campione vuoto non e' un campione a "
-        "prevalenza bassa.",
+        "prevalenza bassa. I campioni sono in 12_final/esclusioni.tsv.",
         _UMANA,
+    ),
+    _v(
+        "E-S13-03", "S13",
+        "Il filtro tassonomico lascia alcuni campioni senza letture.",
+        "Si prosegue: i campioni contenevano solo letture senza phylum o dei taxa "
+        "di filt.exclude_taxa (organelli, eucarioti), cioe' nessun segnale "
+        "batterico, ed escono dall'oggetto finale con il motivo in "
+        "12_final/esclusioni.tsv. Se sono molti, verifica il campionamento e "
+        "filt.exclude_taxa.",
+        _DEGRADA,
     ),
     # ---------------------------------------------------------------- S14 ---
     _v(
         "E-S14-01", "S14",
         "La validazione finale dell'oggetto non e' superata.",
         "Non usare ps_final.rds: conserva 12_final e il log in 99_logs, che "
-        "insieme indicano quale controllo non e' stato superato.",
+        "insieme indicano quale controllo non e' stato superato (componenti non "
+        "allineati, un campione o una variante vuoti, export che non ricostruiscono "
+        "l'oggetto, checksum, frazione delle letture trattenute sotto "
+        "qc.min_frac_reads_retained).",
         _UMANA,
     ),
     # -------------------------------------------------------------- GRAFO ---

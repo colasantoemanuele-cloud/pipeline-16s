@@ -1,13 +1,13 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W17 (Fasi F1, F2, F3, F4)
+Piano Operativo: Settimane W1 - W21 (Fasi F1, F2, F3, F4)
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W17 del Piano Operativo.
+W1 - W21 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -31,22 +31,30 @@ integrazione del progetto con output dettagliato (un test per riga), lanciare:
     pytest tests/ -v
 
 La suite gira su quattro processi con pytest-xdist (addopts in pyproject.toml,
-distribuzione dei singoli test, '--dist load'); le esecuzioni condivise del
-sottoinsieme di prova si calcolano una volta sola per tutti i processi. Per
-eseguirla in sequenza:
+distribuzione dei singoli test, '--dist loadgroup'); le esecuzioni condivise del
+sottoinsieme di prova si calcolano una volta sola per tutti i processi. I test sui
+dati reali (marcatore 'dati_reali') formano il gruppo xdist 'dati_reali',
+assegnato in tests/conftest.py: girano tutti sullo stesso processo, uno dopo
+l'altro, perche' in parallelo le catene sul dataset completo saturano la
+memoria; gli altri restano distribuiti sui quattro processi. Per eseguirla in
+sequenza:
 
     pytest tests/ -n 0
 
-Totale complessivo della suite: 929 test su 23 moduli:
-  * 822 passed e 107 skipped in ambiente locale standard (R base + jsonlite, senza
-    Bioconductor e senza dati reali), in circa 40 secondi;
-  * 896 passed e 33 skipped nel container CI standard (senza dati reali
-    OSD-734), in circa 8 minuti su quattro processi (15 in sequenza): 31 test
-    sui dati reali OSD-734, 1 test
-    sull'allocazione R legata alla lingua e 1 test che richiede il repository .git;
-  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 31 test che li
-    richiedono; i 2 salti strutturali, sulla lingua di R e sul repository .git,
-    restano anche in questo scenario.
+Totale complessivo della suite: 948 test su 24 moduli:
+  * 828 passed e 120 skipped in ambiente locale standard (R base + jsonlite, senza
+    Bioconductor e senza dati reali), in circa 45 secondi;
+  * 914 passed e 34 skipped nel container CI standard (senza dati reali
+    OSD-734), in circa 9 minuti su quattro processi: 32 test sui dati reali
+    OSD-734, 1 test sull'allocazione R legata alla lingua e 1 test che richiede
+    il repository .git;
+  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 32 test che li
+    richiedono, tutti sullo stesso processo: 946 passed e 2 skipped attesi
+    (misurati 945 e 2 in circa 85 minuti con la suite di 947 test, picco di
+    memoria del container 16 GB; il test aggiunto dopo non usa i dati reali);
+    i 2 salti
+    strutturali, sulla lingua di R e sul repository .git, restano anche in
+    questo scenario.
 
 Per includere anche i test end-to-end sui 960 file FASTQ reali di OSD-734,
 impostare la variabile d'ambiente che punta al file di configurazione reale:
@@ -115,16 +123,16 @@ predisporre i seguenti 5 blocchi funzionali di file:
 
   1. File di configurazione master:
      - Nome: puntato dalla variabile d'ambiente 'AMPLICON16S_CONFIG_DATI_REALI'
-       (es. '/home/nemo/ASI/config_osd734.yaml').
+       (es. '$HOME/ASI/config_osd734.yaml').
      - Contenuto: parametri Pydantic validati secondo lo schema di studio, con
        percorsi assoluti ai file del dataset OSD-734, parametri di qualita e
        soglie biologiche (inclusa la cartella di uscita 'io.out_root', es.
-       '/home/nemo/ASI/OSD-734/output_pipeline').
+       '$HOME/ASI/OSD-734/output_pipeline').
 
   2. Sequenze grezze FASTQ (cartella 'io.raw_dir' / 'io.fastq_dir'):
      - Nome e volume: 960 file compressi '.fastq.gz' a lettura singola
        (single-end, regione V4 16S rRNA con primer 515F/806R), per un totale di
-       circa 2.4 GB (es. '/home/nemo/ASI/OSD-734/fastq_full').
+       circa 2.4 GB (es. '$HOME/ASI/OSD-734/fastq_full').
      - Contenuto: sequenze con qualita Phred per ciascun campione, suddivise
        nelle due corse Illumina MiSeq:
        * 480 campioni della corsa '3DMM_Plates_1-5_S1_L001';
@@ -132,20 +140,20 @@ predisporre i seguenti 5 blocchi funzionali di file:
 
   3. Metadati ISA-Tab ufficiali NASA GeneLab:
      - Tabella di studio ('io.study_table'): file 's_OSD-734.txt' (es.
-       '/home/nemo/ASI/OSD-734/OSD-734_metadata_OSD-734-ISA/s_OSD-734.txt')
+       '$HOME/ASI/OSD-734/OSD-734_metadata_OSD-734-ISA/s_OSD-734.txt')
        contenente i metadati generali e le caratteristiche di 1.056 campioni
        complessivi dello studio (inclusi saggi multi-omici e controlli di
        solvente).
      - Tabella di saggio 16S ('io.assay_table'): file
        'a_OSD-734_amplicon-sequencing_16S-rRNA.txt' (o la variante nominale
        dell'archivio ISA-Tab 'a_OSD-734_amplicon-sequencing_16s_Illumina MiSeq.txt'
-       in '/home/nemo/ASI/OSD-734/OSD-734_metadata_OSD-734-ISA/') contenente i
+       in '$HOME/ASI/OSD-734/OSD-734_metadata_OSD-734-ISA/') contenente i
        960 campioni effettivi del sequenziamento amplicone 16S, con mappatura
        biunivoca verso i rispettivi file FASTQ e piastre di estrazione.
 
   4. Tabella di associazione del lotto/corsa ('io.batch_table'):
      - Nome: file TSV indicato in configurazione (es.
-       '/home/nemo/ASI/OSD-734/plate_well_map_960.tsv').
+       '$HOME/ASI/OSD-734/plate_well_map_960.tsv').
      - Contenuto: corrispondenza tra ciascun identificatore di campione
        (accession) e il nome della rispettiva corsa di sequenziamento (colonna
        'run_prefix'), utilizzato in Fase S0 e S3 per partizionare i campioni
@@ -154,14 +162,14 @@ predisporre i seguenti 5 blocchi funzionali di file:
   5. Riferimento tassonomico per il Gate G12 ('tax.ref_fasta' e 'tax.ref_md5'):
      - File FASTA compresso: archivio di addestramento SILVA 138.1
        ('silva_nr99_v138_1_train_set.fa.gz', o percorso configurato in
-       '/home/nemo/ASI/reference/silva_nr99_v138_train_set.fa.gz').
+       '$HOME/ASI/reference/silva_nr99_v138_train_set.fa.gz').
      - File checksum: file MD5 ufficiale e impronta esadecimale in 'tax.ref_md5'
        ('56821dd6f365f64c8518a21e049c3232') per la verifica preventiva di
        integrita crittografica prima dell'avvio della pipeline.
 
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W20)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W21)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -228,8 +236,8 @@ SETTIMANA 3 (W3) : SCHEMA DI CONFIGURAZIONE PYDANTIC
     pytest tests/test_w03_w04_config_schema.py -k "not g15 and not derivati" -v
 
   * RISULTATO ATTESO:
-    46 passed in ~0.25s (Totale complessivo di tests/test_w03_w04_config_schema.py:
-    88 passed in ~0.45s)
+    70 passed in ~0.25s (Totale complessivo di tests/test_w03_w04_config_schema.py:
+    84 passed in ~0.45s)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Protezione dai refusi di battitura ('extra="forbid"'): nelle pipeline
@@ -258,17 +266,19 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
     Verifica tutti i 9 controlli incrociati del Gate G15 (codici da 'E-G15-01'
     a 'E-G15-09'), il calcolo deterministico dei parametri derivati statici
     ('filter.minLen', 'asv.len_min' e 'asv.len_max', derivati da 'asv.len_tol'
-    e 'filter.truncLen' e pari a 137 bp su OSD-734) e del parametro derivato
-    dinamico ('prev.min_samples' tramite arrotondamento per eccesso 'math.ceil'),
-    oltre alla generazione del digest canonico SHA-256 e alla scrittura
+    e 'filter.truncLen' e pari a 137 bp su OSD-734), il rifiuto dei parametri
+    rimossi ('prev.min_samples', che contraddiceva il minimo calcolato da S13
+    sui biologici tenuti, e 'qc.min_reads_filtered', che nessuna fase leggeva),
+    la coincidenza fra i marcatori [OSD-734] dell'esempio e
+    DERIVATI_DAL_DATASET, oltre alla generazione del digest canonico SHA-256 e alla scrittura
     immutabile di '00_config/resolved.yaml'.
 
   * COMANDO BASH:
     pytest tests/test_w03_w04_config_schema.py -k "g15 or derivati or digest or resolved" -v
 
   * RISULTATO ATTESO:
-    42 passed in ~0.25s (Totale complessivo di tests/test_w03_w04_config_schema.py:
-    88 passed in ~0.45s)
+    23 passed in ~0.25s (Totale complessivo di tests/test_w03_w04_config_schema.py:
+    84 passed in ~0.45s)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Coerenza tra parametri (Gate G15): due parametri possono essere validi
@@ -289,7 +299,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
 --------------------------------------------------------------------------------
 
-5.1 Catalogo centralizzato degli errori (53 codici catalogati)
+5.1 Catalogo centralizzato degli errori (54 codici catalogati)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   * SETTIMANA E FASE:
     Settimana W5 (esteso in W11 e W13), Fase F1/F4 (Tassonomia formale degli
@@ -299,8 +309,9 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     tests/test_w05_errors_catalog.py
 
   * COSA VALUTA:
-    Ispeziona sistematicamente tutti i 53 codici del catalogo ('CATALOGO': 38
-    codici di fase S0-S14 inclusi 'E-S1-02', 'E-S3-02', 'E-S10-02' ed 'E-S11-04', 10 codici di
+    Ispeziona sistematicamente tutti i 54 codici del catalogo ('CATALOGO': 39
+    codici di fase S0-S14 inclusi 'E-S1-02', 'E-S3-02', 'E-S10-02', 'E-S11-04' ed
+    'E-S13-03', 10 codici di
     configurazione G15, 4 codici del ponte verso R 'E-R-01..04' e 1 codice del
     grafo 'E-GRAFO-01'). Verifica che ogni codice appartenga a una delle 4
     categorie formali ('revisione_umana', 'retry', 'retry_poi_revisione',
@@ -309,13 +320,13 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     sottoclasse corretta di 'ErrorePipeline'. Verifica inoltre che la whitelist
     dei codici ripetibili ('AMMESSI_AL_RETRY') sia chiusa ermeticamente ai soli
     4 codici tecnici 'E-S2-03', 'E-S3-01', 'E-S4-02', 'E-S5-01' e che i restanti
-    49 codici non ammettano mai il retry.
+    50 codici non ammettano mai il retry.
 
   * COMANDO BASH:
     pytest tests/test_w05_errors_catalog.py -v
 
   * RISULTATO ATTESO:
-    297 passed in ~0.35s
+    302 passed in ~0.35s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
@@ -501,8 +512,8 @@ SETTIMANA 7 (W7) : I 15 GATE DI INGRESSO, FASE S0 E DATI REALI OSD-734
     SILVA (G12), integrità strutturale gzip/FASTQ a 4 righe (G13) e risorse
     hardware CPU/RAM/disco (G14). Verifica infine la generazione dei 4 artefatti
     di S0 in '01_input_validation/' ('gates.json', 'crosswalk.tsv',
-    'inventario.json', 'letture_ispezionate.tsv') e il ricalcolo di
-    'prev.min_samples' sui soli campioni biologici.
+    'inventario.json', 'letture_ispezionate.tsv') e il conteggio dei soli
+    campioni biologici registrato nell'inventario.
 
   * COMANDO BASH:
     pytest tests/test_w07_gates.py -v
@@ -542,13 +553,13 @@ SETTIMANA 7 (W7) : I 15 GATE DI INGRESSO, FASE S0 E DATI REALI OSD-734
     distribuiti su 10 piastre da 96 pozzetti (10 x 96 = 960 librerie) e 2 corse
     di sequenziamento Illumina MiSeq. Verifica inoltre la differenza di
     copertura dei moduli ISS con e senza file supplementare (9 moduli con
-    Airlock 'A/L1' contro 8 moduli via regex), il denominatore del filtro di
-    prevalenza fissato a 770 (`prev.min_samples = ceil(0.01 * 770) = 8`) e il
+    Airlock 'A/L1' contro 8 moduli via regex), i 770 biologici registrati
+    nell'inventario e il
     tempo complessivo di esecuzione di S0 inferiore a 30 secondi grazie al
     campionamento 'head_reads'.
 
   * COMANDO BASH:
-    AMPLICON16S_CONFIG_DATI_REALI=/home/nemo/ASI/config_osd734.yaml pytest tests/test_w07_dati_reali.py -v
+    AMPLICON16S_CONFIG_DATI_REALI=$HOME/ASI/config_osd734.yaml pytest tests/test_w07_dati_reali.py -v
     (Se lanciato senza variabile d'ambiente: 'pytest tests/test_w07_dati_reali.py -v'
     termina in 0.05s riportando 22 SKIPPED).
 
@@ -1035,7 +1046,11 @@ SETTIMANA 17 (W17) : CODICE NELL'IMPRONTA, G12 PRECONDIZIONE, FASE S8 (TASSONOMI
     quella versione; che S8, con il riferimento sintetico di
     'tests/fixtures/riferimento_sintetico/', produca tabella tassonomica e
     bootstrap per rango, marchi i taxa difettosi, si fermi con 'E-S8-02' e dia
-    gli stessi byte fra due esecuzioni e con un numero di thread diverso; sul
+    gli stessi byte fra due esecuzioni e con un numero di thread diverso; che
+    da un'altra fase si importino solo costanti, e che i moduli del calcolo
+    ricavati dagli import comprendano quelli condivisi; che le esclusioni dal
+    sorgente siano esplicite, con la ragione, e non comprendano i moduli che
+    scrivono, formattano o serializzano il contenuto di un artefatto; sul
     dataset completo, che la variante dominante dei controlli positivi ai due
     livelli di diluizione piu' alti sia Variovorax in ogni piastra.
 
@@ -1043,8 +1058,8 @@ SETTIMANA 17 (W17) : CODICE NELL'IMPRONTA, G12 PRECONDIZIONE, FASE S8 (TASSONOMI
     pytest tests/test_w17_tassonomia.py -v
 
   * RISULTATO ATTESO:
-    21 test (12 passed, 9 skipped in ~0.40s in ambiente locale privo di
-    Bioconductor; 20 passed, 1 skipped nel container CI in ~41s; 21 passed nel
+    23 test (14 passed, 9 skipped in ~0.40s in ambiente locale privo di
+    Bioconductor; 22 passed, 1 skipped nel container CI in ~41s; 23 passed nel
     container con dati reali OSD-734)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
@@ -1215,6 +1230,57 @@ SETTIMANA 20 (W20) : FASE S12 (DECONTAMINAZIONE DAI CONTROLLI NEGATIVI)
 
 
 --------------------------------------------------------------------------------
+SETTIMANA 21 (W21) : FASI S13 E S14 (FILTRI FINALI E SERIALIZZAZIONE)
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W21, Fase F4 (filtri per profondita', tassonomici e di
+    prevalenza, S13; serializzazione, export e validazione, S14; entrambe in
+    '12_final/').
+
+  * FILE DI TEST:
+    tests/test_w21_finale.py
+
+  * COSA VALUTA:
+    Che il filtro per profondita' confronti ogni campione con la soglia della
+    sua piastra allo stadio dichiarato in 'soglia.json' (senza chimere o
+    grezze), con il motivo dell'esclusione; che i filtri cambino l'impronta di
+    S13 e non quella delle fasi a monte, e gli export e
+    'qc.min_frac_reads_retained' solo quella di S14; sul sottoinsieme di
+    prova, che l'oggetto finale contenga i soli biologici non esclusi, i
+    controlli stiano tutti in 'ps_controlli.rds' e gli identificativi delle
+    varianti non siano rinumerati; che gli esclusi per profondita' siano quelli
+    che il tracciamento mette sotto soglia; che il denominatore della
+    prevalenza siano i biologici tenuti e ogni variante finale sia presente in
+    almeno ceil(0,01 x denominatore) campioni; che gli export, letti da codice
+    indipendente da quello di S14, ricostruiscano l'oggetto identico; che il
+    manifesto dei checksum sia completo; che S13 e S14 diano gli stessi byte in
+    due esecuzioni e con LC_ALL=C o en_US.UTF-8; che un campione svuotato dal
+    filtro tassonomico esca con 'E-S13-03' e uno svuotato dalla prevalenza
+    fermi con 'E-S13-02'; che i campioni sotto 'qc.min_reads_final' escano
+    senza fermare la catena; che 'E-S14-01' fermi S14 con una frazione
+    trattenuta sotto la soglia e con un 'ps_filtrato.rds' alterato; che con le
+    opzioni predefinite i test sui dati reali girino tutti sullo stesso processo
+    di pytest-xdist (gruppo 'dati_reali'); sul dataset completo, che la catena
+    arrivi alla fine.
+
+  * COMANDO BASH:
+    pytest tests/test_w21_finale.py -v
+
+  * RISULTATO ATTESO:
+    16 test (3 passed, 13 skipped in ambiente locale privo di Bioconductor;
+    15 passed, 1 skipped nel container CI; 16 passed nel container con dati
+    reali OSD-734)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. La soglia di profondita' vale sulla grandezza con cui S11 l'ha stimata:
+       le letture dell'oggetto decontaminato sono un'altra cosa.
+    2. L'oggetto finale e' destinato alle analisi ecologiche: un controllo al
+       suo interno sarebbe trattato come un campione ambientale.
+    3. Gli export servono a chi non usa lo stesso ambiente di calcolo: devono
+       bastare a ricostruire l'oggetto e non dipendere dalla macchina.
+
+
+--------------------------------------------------------------------------------
 MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
 --------------------------------------------------------------------------------
   * SETTIMANA E FASE:
@@ -1223,7 +1289,7 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
     'src/amplicon16s/steps/base.py' e 'R/lib/errors.R'). Come 'conftest.py' e
     'sottoinsieme.py', non porta il prefisso di una singola settimana perché
     presidia il contratto di scoping dei parametri dell'intero grafo S0 - S14
-    (fasi realizzate da S0 a S8 e da S10 a S12).
+    (fasi realizzate: tutte tranne S9, la filogenesi opzionale).
 
   * FILE DI TEST:
     tests/test_dipendenze_parametri.py
@@ -1280,8 +1346,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   Settimana | File di test                          | Test | Comando di verifica rapida
   ----------+---------------------------------------+------+-------------------------------------------------
   W1 - W2   | tests/test_w01_w02_import.py          |   10 | pytest tests/test_w01_w02_import.py -v
-  W3 - W4   | tests/test_w03_w04_config_schema.py   |   88 | pytest tests/test_w03_w04_config_schema.py -v
-  W5        | tests/test_w05_errors_catalog.py      |  297 | pytest tests/test_w05_errors_catalog.py -v
+  W3 - W4   | tests/test_w03_w04_config_schema.py   |   84 | pytest tests/test_w03_w04_config_schema.py -v
+  W5        | tests/test_w05_errors_catalog.py      |  302 | pytest tests/test_w05_errors_catalog.py -v
   W5        | tests/test_w05_artifacts.py           |   25 | pytest tests/test_w05_artifacts.py -v
   W5        | tests/test_w05_logging.py             |   14 | pytest tests/test_w05_logging.py -v
   W6        | tests/test_w06_crosswalk.py           |   43 | pytest tests/test_w06_crosswalk.py -v
@@ -1297,11 +1363,12 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W14       | tests/test_w14_s04_s07_denoising.py   |   16 | pytest tests/test_w14_s04_s07_denoising.py -v
   W15       | tests/test_w15_consolidamento.py      |   15 | pytest tests/test_w15_consolidamento.py -v
   W16       | tests/test_w16_recupero.py            |    9 | pytest tests/test_w16_recupero.py -v
-  W17       | tests/test_w17_tassonomia.py          |   21 | pytest tests/test_w17_tassonomia.py -v
+  W17       | tests/test_w17_tassonomia.py          |   23 | pytest tests/test_w17_tassonomia.py -v
   W18       | tests/test_w18_oggetto.py             |   30 | pytest tests/test_w18_oggetto.py -v
   W19       | tests/test_w19_controlli.py           |   25 | pytest tests/test_w19_controlli.py -v
   W20       | tests/test_w20_decontam.py            |   14 | pytest tests/test_w20_decontam.py -v
+  W21       | tests/test_w21_finale.py              |   16 | pytest tests/test_w21_finale.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (23 moduli)              |  929 | pytest tests/ -v
+  TOTALE    | Intera suite (24 moduli)              |  948 | pytest tests/ -v
 ================================================================================

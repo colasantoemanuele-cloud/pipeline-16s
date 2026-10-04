@@ -7,9 +7,8 @@ successive lavorano sulle sue uscite, in ``03_filtered/``
 
 **Gli archivi si verificano per intero prima del filtro.** Un archivio gzip
 troncato non fa fallire ``filterAndTrim``: viene letto fino a dove arriva, e
-le letture perse spariscono senza traccia. Misurato su un file della versione
-ridotta tagliato al 70%: 3204 letture lette su 4569, nessun errore. S2 quindi
-decomprime ogni file per intero, in parallelo, e un archivio incompleto e'
+le letture perse spariscono senza traccia (verificato su un file della
+versione ridotta tagliato a meta'). S2 quindi decomprime ogni file per intero, in parallelo, e un archivio incompleto e'
 E-S2-03, errore di lettura: se era transitorio la rilettura riesce, se il file
 e' davvero corrotto la fase si ferma dopo i tentativi ammessi.
 
@@ -25,18 +24,14 @@ G10, un controllo si applica alle classi per cui ha senso:
   bianco non risponde a quella domanda: i bianchi hanno poca biomassa, e la
   loro qualita' puo' essere peggiore senza che i parametri siano sbagliati.
 
-L'esclusione dei negativi e' di principio, non una misura. Sul dataset di
-riferimento, con i parametri decisi, i negativi conservano quanto i biologici:
-frazione media conservata 0,987 nei biologici (803), 0,986 nei positivi (80),
-0,987 nei negativi (77); minimo 0,773 nei biologici (il campione da 44
-letture), 0,952 nei positivi, 0,975 nei negativi; nessun campione azzerato.
-La media e' per campione, come la chiede il controllo: un campione povero
+L'esclusione dei negativi e' di principio, non una misura: vale anche quando i
+negativi conservano quanto i biologici. Le classi sono in
+:data:`~amplicon16s.metadata.models.CLASSI_CONTROLLATE`. La media e' per campione, come la chiede il controllo: un campione povero
 pesa quanto uno profondo.
 """
 
 from __future__ import annotations
 
-import csv
 import gzip
 import zlib
 from concurrent.futures import ThreadPoolExecutor
@@ -46,26 +41,22 @@ from typing import Any, ClassVar, Final
 from amplicon16s.config.schema import Config, Qc
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import ManifestoPasso
-from amplicon16s.metadata.models import ClasseCampione
+from amplicon16s.io_layer.conteggi import leggi_conteggi
+from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.retry import Aggiustamento, senza_modifiche
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 
 __all__ = [
-    "CLASSI_CONTROLLATE",
     "FiltroLetture",
     "archivio_incompleto",
     "controlla_filtro",
-    "leggi_conteggi",
+    
 ]
 
 NOME_SCRIPT: Final = "02_filter.R"
 
-#: Le classi a cui si applicano E-S2-01 ed E-S2-02. I controlli negativi ne
-#: sono esclusi: un bianco azzerato, o che perde letture, non dice nulla
-#: sull'adeguatezza dei parametri per i campioni analizzati.
-CLASSI_CONTROLLATE: Final = (ClasseCampione.BIOLOGICO, ClasseCampione.CONTROLLO_POSITIVO)
 NOME_PREFILTRO: Final = "letture_prefiltro.tsv"
 NOME_FILTRATE: Final = "letture_filtrate.tsv"
 #: Le letture filtrate di un campione: ``<accession>_filt.fastq.gz``.
@@ -81,12 +72,6 @@ def archivio_incompleto(percorso: Path) -> str | None:
     except (OSError, EOFError, zlib.error) as e:
         return f"{type(e).__name__}: {e}"
     return None
-
-
-def leggi_conteggi(percorso: Path) -> dict[str, int]:
-    """Una tabella del tracciamento: campione -> letture."""
-    with open(percorso, encoding="utf-8", newline="") as file:
-        return {r["campione"]: int(float(r["letture"])) for r in csv.DictReader(file, delimiter="\t")}
 
 
 def controlla_filtro(

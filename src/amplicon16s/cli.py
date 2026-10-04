@@ -47,7 +47,7 @@ from typing import Any, Final
 from amplicon16s import __version__
 from amplicon16s.config.schema import Config, ErroreConfigurazione, carica
 from amplicon16s.gates.g01_g15 import ErroreGate
-from amplicon16s.io_layer.artifacts import Fase
+from amplicon16s.io_layer.artifacts import Fase, scrivi_atomico
 from amplicon16s.logging.logger import chiudi, configura, ottieni
 from amplicon16s.runner.executor import Conclusione, Esecutore, EsitoEsecuzione
 from amplicon16s.runner.graph import Passo
@@ -245,9 +245,8 @@ def _cmd_report(config: Config, percorso: Path, args: argparse.Namespace) -> int
     run = ProjectRun(config, passi=_passi())
     documento = resoconto(run)
     destinazione = run.albero.prepara(Fase.LOGS) / NOME_RESOCONTO
-    destinazione.write_text(
-        json.dumps(documento, indent=2, ensure_ascii=False, default=str) + "\n",
-        encoding="utf-8",
+    scrivi_atomico(
+        destinazione, json.dumps(documento, indent=2, ensure_ascii=False, default=str) + "\n"
     )
     _stampa(_testo_resoconto(documento))
     _stampa(f"\nResoconto scritto in {destinazione}")

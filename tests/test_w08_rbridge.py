@@ -994,11 +994,13 @@ def test_il_figlio_riceve_sempre_language_en(
     """
     **Obiettivo**: Verificare tramite uno script POSIX spia che, qualunque sia
     la combinazione di ``LANGUAGE``, ``LC_ALL``, ``LC_MESSAGES`` e ``LANG`` nel
-    chiamante, il sottoprocesso figlio riceva sempre ``LANGUAGE=en``.
+    chiamante, il sottoprocesso figlio riceva sempre ``LANGUAGE=en`` e
+    ``LC_ALL=C.UTF-8``.
 
     **Razionale scientifico e sistemistico**: Prova l'invariante di normalizzazione
     della lingua in modo deterministico e indipendente dalla versione di R
-    installata sulla macchina di test.
+    installata sulla macchina di test. ``LC_ALL`` fissa ordinamenti e codifica:
+    gli stessi dati danno gli stessi artefatti su qualunque macchina.
     """
     for nome, valore in ambiente_chiamante.items():
         if valore is None:
@@ -1018,6 +1020,7 @@ def test_il_figlio_riceve_sempre_language_en(
         riga.split("=", 1) for riga in registro.read_text().splitlines() if "=" in riga
     )
     assert ambiente["LANGUAGE"] == "en"
+    assert ambiente["LC_ALL"] == "C.UTF-8"
 
 
 # --------------------------------------------------------------------------- #

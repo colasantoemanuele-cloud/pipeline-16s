@@ -94,7 +94,7 @@ esegui_fase(function(parametri, cartella) {
          paste(names(campioni)[is.na(modelli)], collapse = ", "))
   }
 
-  errori <- lapply(stats::setNames(nm = sort(unique(modelli))), readRDS)
+  errori <- lapply(stats::setNames(nm = sort(unique(modelli), method = "radix")), readRDS)
   pseudo <- identical(pool, "pseudo") && length(campioni) > 1L
   riunito <- isTRUE(pool)
 
@@ -156,7 +156,7 @@ esegui_fase(function(parametri, cartella) {
     pool = if (is.character(pool)) pool else isTRUE(pool),
     omega_a = omega_a,
     campioni = length(campioni),
-    campioni_senza_letture = as.list(sort(senza_letture))
+    campioni_senza_letture = as.list(sort(senza_letture, method = "radix"))
   )
 
   # --- seconda passata --------------------------------------------------------
@@ -191,7 +191,7 @@ esegui_fase(function(parametri, cartella) {
       }
       seconda[[file_modello]] <- stimato
       nome <- sprintf("errori_seconda_passata_%s.rds", nome_modello(file_modello))
-      saveRDS(stimato, file.path(cartella, nome))
+      salva_rds(stimato, file.path(cartella, nome))
       artefatti <- c(artefatti, nome)
     }
     rm(transizioni)
@@ -214,7 +214,7 @@ esegui_fase(function(parametri, cartella) {
   }
 
   varianti <- varianti[sort(names(varianti), method = "radix")]
-  saveRDS(varianti, file.path(cartella, "varianti_per_campione.rds"))
+  salva_rds(varianti, file.path(cartella, "varianti_per_campione.rds"))
 
   letture <- vapply(varianti, function(v) sum(as.numeric(v)), numeric(1))
   zeri <- stats::setNames(numeric(length(senza_letture)), senza_letture)
@@ -231,7 +231,9 @@ esegui_fase(function(parametri, cartella) {
     file.path(cartella, "varianti.tsv")
   )
 
-  per_modello <- lapply(split(a, basename(modelli[a])), function(g) {
+  # I livelli espliciti: split() ordinerebbe i modelli secondo la lingua.
+  nomi_modelli <- basename(modelli[a])
+  per_modello <- lapply(split(a, factor(nomi_modelli, levels = sort(unique(nomi_modelli), method = "radix"))), function(g) {
     list(
       campioni = length(g),
       letture = sum(letture[g]),

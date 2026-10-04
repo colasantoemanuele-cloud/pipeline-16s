@@ -28,11 +28,12 @@ Settimane 3 e 4 (W3/W4), Fase F1: schema di validazione della configurazione
 - Gate G15 (codici ``E-G15-01`` .. ``E-G15-09``): accettazione del file di
   esempio, coerenza del registro dei controlli, rifiuto delle combinazioni
   incoerenti con raccolta di tutte le violazioni;
-- parametri derivati (``filter.minLen``, ``asv.len_min``, ``asv.len_max``,
-  ``prev.min_samples`` con arrotondamento per eccesso): valori attesi,
-  dipendenza dai parametri di origine, rifiuto di un derivato impostato a mano;
+- parametri derivati (``filter.minLen``, ``asv.len_min``, ``asv.len_max``):
+  valori attesi, dipendenza dai parametri di origine, rifiuto di un derivato
+  impostato a mano; i parametri rimossi (``prev.min_samples``,
+  ``qc.min_reads_filtered``) sono respinti come chiavi sconosciute;
 - digest SHA-256 canonico della configurazione e scrittura deterministica di
-  ``00_config/resolved.yaml`` con i derivati, anche quelli non ancora noti.
+  ``00_config/resolved.yaml`` con i derivati.
 
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
@@ -653,12 +654,36 @@ def test_chiavi_derivate_dal_dataset_esistono_nello_schema():
     ``defaults.DERIVATI_DAL_DATASET`` corrispondano a campi reali dello schema.
 
     **Razionale scientifico e sistemistico**: ``DERIVATI_DAL_DATASET`` censisce i
-    19 parametri i cui valori di default sono calibrati specificamente sulla
-    chimica 515F/806R e sul disegno sperimentale di **OSD-734**: questo test
-    impedisce che rinomine nello schema rendano orfano quel registro.
+    parametri il cui valore e' stato scelto sulla base di un fatto accertato su
+    **OSD-734**: questo test impedisce che rinomine nello schema rendano orfano
+    quel registro.
     """
     ignote = set(defaults.DERIVATI_DAL_DATASET) - chiavi_schema()
     assert not ignote, f"chiavi inesistenti nello schema: {sorted(ignote)}"
+
+
+def test_i_marcatori_dell_esempio_coincidono_con_i_derivati_dal_dataset():
+    """
+    **Obiettivo**: Verificare che i parametri marcati ``[OSD-734]`` sulla loro
+    riga in ``config/config.example.yaml`` siano esattamente quelli di
+    ``defaults.DERIVATI_DAL_DATASET``.
+
+    **Razionale scientifico e sistemistico**: Il criterio e' uno solo: un
+    parametro e' marcato, e sta nell'elenco, se il suo valore e' stato scelto
+    sulla base di un fatto accertato sul dataset di riferimento, e va quindi
+    rivisto su un altro. Due elenchi tenuti a mano divergono: chi adatta
+    l'esempio a un altro dataset guarda i marcatori, chi scrive un report
+    l'elenco.
+    """
+    import re
+
+    marcati, gruppo = set(), None
+    for riga in ESEMPIO.read_text(encoding="utf-8").splitlines():
+        if trovato := re.match(r"^([a-z]+):", riga):
+            gruppo = trovato.group(1)
+        elif (trovato := re.match(r"^  ([A-Za-z_]+):", riga)) and "[OSD-734]" in riga:
+            marcati.add(f"{gruppo}.{trovato.group(1)}")
+    assert marcati == set(defaults.DERIVATI_DAL_DATASET)
 
 
 def test_esempio_usa_i_valori_del_dataset_di_riferimento(dati_esempio):
@@ -729,11 +754,6 @@ def test_la_configurazione_non_si_modifica_dopo_il_caricamento():
 # =========================================================================== #
 # Gate G15 : coerenza interna della configurazione (W4)                        #
 # =========================================================================== #
-
-#: Numero esatto di campioni biologici del dataset di riferimento OSD-734 (su 960
-#: totali), dopo la riclassificazione dei 33 tamponi mai aperti in controlli negativi.
-CAMPIONI_BIOLOGICI_OSD734 = 770
-
 
 def _viola(dati_esempio: dict, modifica) -> ErroreGate:
     """Applica una mutazione incoerente al dizionario YAML ed esegue ``esegui_g15`` catturando ``ErroreGate``."""
@@ -928,98 +948,53 @@ def test_derivati_seguono_i_parametri_da_cui_discendono(dati_esempio):
     assert derivati.asv_len_max == 142
 
 
-def test_la_prima_fase_e_utilizzabile_senza_il_gate(dati_esempio):
+def test_la_risoluzione_e_utilizzabile_senza_il_gate(dati_esempio):
     """
     **Obiettivo**: Verificare che ``risolvi(valida(dati))`` calcoli i derivati
-    statici lasciando ``prev_min_samples = None`` anche se invocata
-    direttamente senza passare da ``esegui_g15``.
+    anche se invocata direttamente senza passare da ``esegui_g15``.
 
     **Razionale scientifico e sistemistico**: Mantiene disaccoppiato il motore di
     risoluzione algebrica (`resolve.py`) dal registro dei gate (`g01_g15.py`).
     """
     risolta = risolvi(valida(dati_esempio))
     assert risolta.derivati.filter_minLen == 137
-    assert risolta.derivati.prev_min_samples is None
 
 
-def test_min_samples_non_e_noto_prima_dei_metadati(dati_esempio):
+@pytest.mark.parametrize("chiave", ["prev.min_samples", "qc.min_reads_filtered"])
+def test_i_parametri_rimossi_sono_respinti(chiave, dati_esempio):
     """
-    **Obiettivo**: Verificare che all'uscita del Gate G15 (prima della lettura
-    delle tabelle ISA-Tab in S0) ``prev_min_samples`` valga ``None`` e
-    ``risolta.completa`` sia ``False``.
+    **Obiettivo**: Verificare che ``prev.min_samples`` e ``qc.min_reads_filtered``,
+    rimossi dallo schema, siano respinti come chiavi sconosciute, e che fra i
+    derivati non compaia piu' ``prev.min_samples``.
 
-    **Razionale scientifico e sistemistico**: Il numero di campioni biologici
-    autentici non può essere indovinato dalla sola configurazione YAML ma deve
-    emergere dal crosswalk validato in S0 (escludendo i 92 controlli negativi
-    e i 65 controlli positivi di OSD-734).
+    **Razionale scientifico e sistemistico**: ``prev.min_samples`` era un
+    derivato calcolato sull'intero inventario (770 biologici, minimo 8) che
+    nessuna fase leggeva: S13 calcola il minimo del filtro di prevalenza sui
+    biologici che tiene dopo i filtri per profondita' e tassonomico (sul
+    riferimento 492, minimo 5), e il derivato lo contraddiceva. L'arrotondamento
+    per eccesso del minimo e' verificato su S13 in ``test_w21_finale.py``.
+    ``qc.min_reads_filtered`` non era letto da alcuna fase: chi lo cambiava non
+    otteneva alcun effetto. Uno schema a chiave chiusa li respinge, invece di
+    ignorarli in silenzio.
     """
-    risolta = esegui_g15(dati_esempio)
-    assert risolta.derivati.prev_min_samples is None
-    assert not risolta.completa
-
-
-def test_min_samples_calcolato_quando_il_dato_diventa_disponibile(dati_esempio):
-    r"""
-    **Obiettivo**: Verificare che fornendo il conteggio dei campioni biologici di
-    OSD-734 (``770``) a ``con_campioni_biologici(770)``, ``prev_min_samples``
-    diventi ``8`` (``ceil(0.01 * 770)``) e ``completa`` passi a ``True``.
-
-    **Razionale scientifico e sistemistico**: Certifica il valore esatto della
-    soglia di prevalenza applicata in S13 sul dataset reale OSD-734: una variante
-    ASV deve comparire in almeno 8 campioni biologici su 770 ($\ge 1\%$) per
-    superare il filtro di prevalenza.
-    """
-    completa = esegui_g15(dati_esempio).con_campioni_biologici(
-        CAMPIONI_BIOLOGICI_OSD734
-    )
-    assert completa.derivati.prev_min_samples == 8
-    assert completa.completa
-
-
-def test_min_samples_arrotonda_per_eccesso(dati_esempio):
-    r"""
-    **Obiettivo**: Verificare che ``prev_min_samples`` venga calcolato tramite
-    arrotondamento all'intero superiore (``math.ceil``): con ``min_fraction = 0.01``,
-    100 campioni danno ``1`` mentre 101 campioni danno ``2``.
-
-    **Razionale scientifico e sistemistico**: Arrotondare per difetto (``int()`` o
-    ``round()``) su 101 campioni darebbe $101 \times 0.01 = 1.01 \to 1$ campione
-    ($0.99\% < 1\%$), ammettendo nel dataset finale batteri e singleton presenti
-    in una frazione di campioni inferiore alla soglia biologica minima stabilita
-    dal protocollo e inquinando il filtraggio di prevalenza in S13.
-    """
-    risolta = esegui_g15(dati_esempio)
-    assert risolta.con_campioni_biologici(100).derivati.prev_min_samples == 1
-    assert risolta.con_campioni_biologici(101).derivati.prev_min_samples == 2
-    assert risolta.con_campioni_biologici(0).derivati.prev_min_samples == 0
-
-
-def test_numero_di_campioni_negativo_viene_respinto(dati_esempio):
-    """
-    **Obiettivo**: Verificare che ``con_campioni_biologici(-1)`` sollevi
-    immediatamente ``ValueError``.
-
-    **Razionale scientifico e sistemistico**: Impedisce che un contatore errato
-    produca una soglia di prevalenza negativa che disabiliterebbe silenziosamente
-    il filtro in S13.
-    """
-    with pytest.raises(ValueError, match="negativo"):
-        esegui_g15(dati_esempio).con_campioni_biologici(-1)
+    gruppo, campo = chiave.split(".")
+    dati_esempio[gruppo][campo] = 1
+    with pytest.raises(ErroreConfigurazione, match="parametro sconosciuto"):
+        valida(dati_esempio)
+    assert chiave not in PARAMETRI_DERIVATI
 
 
 @pytest.mark.parametrize("chiave", PARAMETRI_DERIVATI)
 def test_derivato_impostato_a_mano_e_un_errore(chiave, dati_esempio):
     """
     **Obiettivo**: Verificare che la valorizzazione manuale nel file YAML di uno
-    qualsiasi dei 4 parametri derivati (``filter.minLen``, ``asv.len_min``,
-    ``asv.len_max``, ``prev.min_samples``) venga bloccata da G15 con codice
-    ``E-G15-08``.
+    qualsiasi dei 3 parametri derivati (``filter.minLen``, ``asv.len_min``,
+    ``asv.len_max``) venga bloccata da G15 con codice ``E-G15-08``.
 
-    **Razionale scientifico e sistemistico**: I 4 parametri derivati sono
+    **Razionale scientifico e sistemistico**: I 3 parametri derivati sono
     determinati univocamente dalle formule della pipeline; permettere all'utente
     di sovrascriverli a mano creerebbe contraddizioni interne tra il filtro
-    ``filterAndTrim`` (S2), il filtro di lunghezza ASV (S7) e la soglia di
-    prevalenza (S13).
+    ``filterAndTrim`` (S2) e il filtro di lunghezza ASV (S7).
     """
     gruppo, campo = chiave.split(".")
     dati_esempio[gruppo][campo] = 1
@@ -1110,22 +1085,6 @@ def test_il_digest_cambia_se_cambia_un_derivato(dati_esempio):
     assert esegui_g15(dati_esempio).digest != originale
 
 
-def test_il_digest_non_cambia_fra_le_due_fasi(dati_esempio):
-    """
-    **Obiettivo**: Verificare che l'arricchimento di ``ConfigRisolta`` con il
-    numero di campioni biologici (``con_campioni_biologici(803)``) mantenga
-    invariato ``risolta.digest``.
-
-    **Razionale scientifico e sistemistico**: Il digest identifica univocamente la
-    configurazione scelta dall'utente (che contiene già ``prev.min_fraction = 0.01``),
-    evitando che il passaggio dalla fase pre-S0 alla fase post-S0 alteri
-    l'identificativo della corsa registrato nei log iniziali.
-    """
-    risolta = esegui_g15(dati_esempio)
-    completa = risolta.con_campioni_biologici(CAMPIONI_BIOLOGICI_OSD734)
-    assert completa.digest == risolta.digest
-
-
 def test_il_digest_ha_la_forma_attesa(dati_esempio):
     """
     **Obiettivo**: Verificare che ``risolta.digest`` rispetti il formato
@@ -1157,9 +1116,7 @@ def test_resolved_viene_scritto_con_il_digest(dati_esempio, tmp_path):
     il contratto completo dell'esecuzione, rendendo il risultato finale in
     ``12_final`` auto-documentato e riproducibile anche a distanza di anni.
     """
-    risolta = esegui_g15(dati_esempio).con_campioni_biologici(
-        CAMPIONI_BIOLOGICI_OSD734
-    )
+    risolta = esegui_g15(dati_esempio)
     percorso = scrivi_risolta(risolta, tmp_path)
 
     assert percorso == tmp_path / Fase.CONFIG.value / NOME_FILE_RISOLTO
@@ -1172,16 +1129,14 @@ def test_resolved_viene_scritto_con_il_digest(dati_esempio, tmp_path):
 def test_resolved_contiene_i_parametri_derivati(dati_esempio, tmp_path):
     """
     **Obiettivo**: Verificare che ``00_config/resolved.yaml`` contenga sia i
-    valori calcolati dei 4 parametri derivati (``137``, ``137``, ``137``, ``8``)
+    valori calcolati dei 3 parametri derivati (``137``, ``137``, ``137``)
     dentro ``parametri``, sia la mappa separata ``derivati``.
 
     **Razionale scientifico e sistemistico**: Consente a chi ispeziona
     ``resolved.yaml`` (e al report finale in ``12_final``) di leggere
     direttamente i valori numerici risolti senza doverli ricalcolare a mente.
     """
-    risolta = esegui_g15(dati_esempio).con_campioni_biologici(
-        CAMPIONI_BIOLOGICI_OSD734
-    )
+    risolta = esegui_g15(dati_esempio)
     documento = yaml.safe_load(
         scrivi_risolta(risolta, tmp_path).read_text(encoding="utf-8")
     )
@@ -1190,24 +1145,7 @@ def test_resolved_contiene_i_parametri_derivati(dati_esempio, tmp_path):
     assert parametri["filter"]["minLen"] == 137
     assert parametri["asv"]["len_min"] == 137
     assert parametri["asv"]["len_max"] == 137
-    assert parametri["prev"]["min_samples"] == 8
     assert set(documento["derivati"]) == set(PARAMETRI_DERIVATI)
-
-
-def test_resolved_registra_il_derivato_non_ancora_noto(dati_esempio, tmp_path):
-    """
-    **Obiettivo**: Verificare che se ``scrivi_risolta`` viene chiamata prima del
-    completamento di S0, ``parametri.prev.min_samples`` venga serializzato
-    esplicitamente come ``null`` (``None``).
-
-    **Razionale scientifico e sistemistico**: Documenta trasparentemente su disco
-    che la risoluzione statica è avvenuta ma che il denominatore biologico non
-    è stato ancora estratto dai metadati.
-    """
-    documento = yaml.safe_load(
-        scrivi_risolta(esegui_g15(dati_esempio), tmp_path).read_text(encoding="utf-8")
-    )
-    assert documento["parametri"]["prev"]["min_samples"] is None
 
 
 def test_resolved_registra_tutti_i_parametri_dichiarati(dati_esempio, tmp_path):
