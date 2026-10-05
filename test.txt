@@ -1,14 +1,14 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W23 (Fasi F0-F6, con l'anticipazione di attivita'
+Piano Operativo: Settimane W1 - W24 (Fasi F0-F7, con l'anticipazione di attivita'
 della fase F9 sulla riproducibilita')
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W23 del Piano Operativo.
+W1 - W24 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -42,26 +42,29 @@ sequenza:
 
     pytest tests/ -n 0
 
-Totale complessivo della suite: 995 test su 27 moduli:
-  * 865 passed e 130 skipped in ambiente locale standard (R base + jsonlite, senza
+Totale complessivo della suite: 1002 test su 28 moduli:
+  * 870 passed e 132 skipped in ambiente locale standard (R base + jsonlite, senza
     Bioconductor e senza dati reali), in circa un minuto;
   * nel container CI standard (senza dati reali OSD-734), su quattro processi:
-    950 passed e 37 skipped in circa 10 minuti, misurati nell'immagine
+    952 passed e 42 skipped in circa 9 minuti, misurati nell'immagine
     costruita e lanciata in locale come fa la CI; il conteggio della CI e' da
-    aggiornare con il suo esito dopo la pubblicazione (l'ultimo, 932 passed e
-    36 skipped in circa 10 minuti, CI run 37283281591, e' della suite di 976
-    test). I salti sono i 34 test sui
-    dati reali OSD-734, 1 test sull'allocazione R legata alla lingua, 1 test
-    che richiede il repository .git e il modulo
-    'tests/test_w21_dati_osd734.py', che nell'immagine si salta per intero e
-    conta come un solo salto al posto dei suoi 9 test (la cartella dati/ non vi
-    e' copiata): per questo i test contati sono 987;
-  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 34 test che li
-    richiedono, tutti sullo stesso processo: conteggio da rimisurare con la
-    suite attuale. L'ultima misura, 945 passed e 2 skipped in circa 85 minuti
-    con picco di memoria del container di 16 GB, e' della suite di 947 test; i
-    2 salti strutturali, sulla lingua di R e sul repository .git, restano anche
-    in questo scenario.
+    aggiornare con il suo esito dopo la pubblicazione (l'ultimo, 950 passed e
+    37 skipped in circa 11 minuti, CI run 37304854192, e' della suite di 995
+    test). I salti sono 34 test sui dati reali OSD-734, 1 test
+    sull'allocazione R legata alla lingua, 1 test che richiede il repository
+    .git, i 5 test di 'tests/test_w24_riproduzione.py' che usano i checksum
+    pubblicati in dati/ (uno dei quali e' il trentacinquesimo sui dati reali)
+    e il modulo 'tests/test_w21_dati_osd734.py',
+    che nell'immagine si salta per intero e conta come un solo salto al posto
+    dei suoi 9 test (la cartella dati/ non vi e' copiata): per questo i test
+    contati sono 994;
+  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 35 test che li
+    richiedono, tutti sullo stesso processo: 999 passed e 3 skipped in 86
+    minuti, con picco di memoria del container di 16,9 GB (limite a 24 GB),
+    misurati il 5 ottobre 2026 con la suite attuale e il repository montato. I
+    3 salti restano anche in questo scenario: la lingua di R, e due test che
+    richiedono che git riconosca il repository, cosa che nel container con il
+    repository montato di un altro proprietario non avviene.
 
 Per includere anche i test end-to-end sui 960 file FASTQ reali di OSD-734,
 impostare la variabile d'ambiente che punta al file di configurazione reale:
@@ -75,11 +78,11 @@ l'immagine del container della pipeline, costruita da 'container/Dockerfile'.
 Questo e' l'unico punto in cui e' indicata l'immagine corrente, da aggiornare a
 ogni ricostruzione:
 
-    immagine corrente: amplicon16s:w23
+    immagine corrente: amplicon16s:w24
 
 Si costruisce dalla radice del repository con:
 
-    docker build -f container/Dockerfile -t amplicon16s:w23 .
+    docker build -f container/Dockerfile -t amplicon16s:w24 .
 
 Con il repository montato su /app servono sempre '-e PYTHONPATH=/app/src' e
 '-e AMPLICON16S_R_DIR=/app/R': senza la seconda l'immagine esegue gli script R
@@ -1470,6 +1473,54 @@ SETTIMANA 23 (W23) : FILOGENESI OPZIONALE, FASE S9
 
 
 --------------------------------------------------------------------------------
+SETTIMANA 24 (W24) : RIPRODUZIONE DEI RISULTATI SU OSD-734 (MILESTONE M7)
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W24, Fase F7, milestone M7 (riproduzione da zero dei risultati
+    dal repository pubblicato e dalle fonti pubbliche): checksum attesi
+    pubblicati in 'dati/osd734/' e loro confronto. Anticipa attivita' della
+    fase F9 sulla riproducibilita'.
+
+  * FILE DI TEST:
+    tests/test_w24_riproduzione.py
+
+  * COSA VALUTA:
+    Che una configurazione con soli percorsi relativi, lanciata dalla cartella
+    a cui si riferiscono, concluda S0, registri i percorsi assoluti dei file
+    letti e gli stessi parametri dichiarati; che sul sottoinsieme di prova, con
+    percorsi relativi, si concluda anche S1, la prima fase con un calcolo in R
+    (il caso che ha fermato la prima riproduzione dal clone); che l'ordine
+    delle fasi di 'confronta_risultati.py' sia quello del grafo; che
+    '--aggiorna' scriva i due file dei checksum attesi e che un'esecuzione con
+    gli stessi artefatti, ma manifesti, log e configurazione diversi, risulti
+    identica con esito 0; che un artefatto alterato, uno mancante e uno non
+    atteso diano esito 1 indicando la prima fase divergente nell'ordine di
+    esecuzione; che i checksum pubblicati siano coerenti fra loro (i file
+    consegnati sono quelli di S14, ogni fase tranne S9 e' presente) e che il
+    README della cartella riporti il comando; sul dataset completo, che la
+    catena della suite dia gli artefatti attesi pubblicati (tranne S1, che la
+    catena condivisa non esegue).
+
+  * COMANDO BASH:
+    pytest tests/test_w24_riproduzione.py -v
+
+  * RISULTATO ATTESO:
+    7 test (5 passed, 2 skipped in ambiente locale privo di Bioconductor;
+    6 passed, 1 skipped nel container con il repository montato; 7 passed nel
+    container con dati reali OSD-734. Nell'immagine senza il repository
+    montato, come nella CI, la cartella dati/ manca: 2 passed, i due test sui
+    percorsi relativi, e 5 skipped)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. La riproducibilita' si prova confrontando byte: chi riproduce verifica
+       con un comando di aver ottenuto gli stessi risultati.
+    2. Quando un risultato finale non coincide, la prima fase divergente
+       restringe la ricerca della causa da quindici fasi a una.
+    3. La prima riproduzione da un clone si e' fermata in S1 per i percorsi
+       relativi della configurazione pubblicata: il caso e' ora un test.
+
+
+--------------------------------------------------------------------------------
 MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
 --------------------------------------------------------------------------------
   * SETTIMANA E FASE:
@@ -1560,7 +1611,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W21       | tests/test_w21_dati_osd734.py         |    9 | pytest tests/test_w21_dati_osd734.py -v
   W22       | tests/test_w22_report.py              |   19 | pytest tests/test_w22_report.py -v
   W23       | tests/test_w23_filogenesi.py          |   14 | pytest tests/test_w23_filogenesi.py -v
+  W24       | tests/test_w24_riproduzione.py        |    7 | pytest tests/test_w24_riproduzione.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (27 moduli)              |  995 | pytest tests/ -v
+  TOTALE    | Intera suite (28 moduli)              | 1002 | pytest tests/ -v
 ================================================================================

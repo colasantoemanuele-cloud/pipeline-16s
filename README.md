@@ -130,7 +130,8 @@ ufficiale stessa fa variare, tutte con pareggi, e su nessuna senza pareggi.
 I dati con cui la pipeline si esegue su OSD-734 si recuperano da `dati/osd734/` (vedi il
 suo README): nel repository ci sono le tabelle ISA usate dalla pipeline, l'elenco delle
 960 corse con l'MD5 e la dimensione dichiarati da ENA, la provenienza e la licenza di
-ogni file (`FONTI.tsv`) e una configurazione con i percorsi relativi a quella cartella;
+ogni file (`FONTI.tsv`) e una configurazione con i percorsi relativi alla radice del
+repository;
 le letture, il riferimento tassonomico e il file del lotto si ottengono con tre script,
 dalla radice del repository e con la sola libreria standard di Python:
 
@@ -142,7 +143,13 @@ python3 dati/osd734/ricostruisci_lotto.py     # piastre, pozzetti e corse dalla 
 
 La pipeline si esegue poi nel container, con il repository montato: il README della
 cartella riporta i comandi completi, i valori da adattare (`run.threads` per primo, e
-`run.container`) e i requisiti misurati di spazio e durata.
+`run.container`) e i requisiti misurati di spazio, durata e memoria. A esecuzione
+conclusa i risultati si verificano con un comando contro i checksum attesi pubblicati
+nella stessa cartella:
+
+```bash
+python3 dati/osd734/confronta_risultati.py    # 1.031 artefatti, fase per fase
+```
 
 Gli script verificano ogni file contro il checksum della sua fonte, riprendono uno scarico
 interrotto e non scaricano ciò che è già presente e integro. Il file del lotto non è nel
@@ -171,7 +178,8 @@ si deve riprodurre un'analisi a distanza di tempo.
 
 ## Uso della riga di comando
 
-Ogni sottocomando richiede il file di configurazione, che non viene mai modificato:
+Ogni sottocomando richiede il file di configurazione, che non viene mai modificato; i
+suoi percorsi relativi valgono rispetto alla cartella da cui il comando è lanciato:
 
 ```bash
 amplicon16s validate --config config.yaml   # esegue solo S0
@@ -495,15 +503,26 @@ Sono realizzati:
   libreria standard: `scarica_letture.py` (ENA) e `scarica_riferimento.py` (SILVA 138
   da Zenodo e l'elenco dei suoi taxa difettosi) scaricano verificando l'MD5 e
   riprendendo uno scarico interrotto; `ricostruisci_lotto.py` ricostruisce il file del
-  lotto dai metadati Qiita pubblicati dagli autori, fissati a un commit. Verificati
-  senza scaricare il dataset: sulle 960 letture già presenti nessuno scarico, il
-  riferimento già presente riconosciuto integro, l'elenco identico al filereport di
-  ENA, il file del lotto ricostruito identico byte per byte a quello usato finora, e
-  l'inventario della configurazione di esempio identico a quello della configurazione
-  usata per il riferimento; lo scarico e la ripresa provati su tre letture. Il README
+  lotto dai metadati Qiita pubblicati dagli autori, fissati a un commit. Il README
   della cartella riporta il comando per eseguire la pipeline nel container e i
-  requisiti misurati; quel comando, con `validate` e `run.threads: 12`, conclude S0 con
-  artefatti identici a quelli del riferimento;
+  requisiti misurati;
+- **la riproduzione da zero dei risultati su OSD-734**, eseguita il 5 ottobre 2026 come
+  la eseguirebbe un utente esterno: repository clonato da GitHub (commit `59ef39d`),
+  immagine costruita dal suo Dockerfile senza cache, 960 letture scaricate da ENA (2,52
+  GB in 2 ore e 48 minuti), SILVA 138 da Zenodo e file del lotto ricostruito, ogni file
+  verificato contro il checksum della fonte; catena S0-S14 in 53 minuti e 20 secondi,
+  con 12,3 GB di memoria di picco del container. Tutti i 1.031 artefatti dei manifesti
+  di fase sono identici, byte per byte, a quelli dell'esecuzione di riferimento
+  precedente. I checksum attesi sono pubblicati in `dati/osd734/`
+  (`checksum_finali.sha256` per i file consegnati, `checksum_artefatti.tsv` per tutti
+  gli artefatti), e `confronta_risultati.py` li confronta con un'esecuzione indicando,
+  se differiscono, la prima fase in cui la differenza compare. Si riferiscono
+  all'immagine costruita dal Dockerfile: un'immagine pubblicata in un registro non c'è
+  ancora. La prova ha fatto emergere un difetto, corretto: i percorsi relativi della
+  configurazione fermavano S1, perché il processo R di una fase parte nella cartella
+  della fase; ora la riga di comando rende assoluti, rispetto alla cartella di lancio,
+  i percorsi relativi della configurazione (`cli.py`), e la configurazione registrata
+  riporta i percorsi dei file letti;
 - **il sottoinsieme di prova** (`tests/fixtures/osd734/`, `scripts/build_test_subset.py`).
   Ventotto campioni del dataset di riferimento, scelti per le fasi successive: due
   piastre, una per corsa, con i cinque controlli negativi che `decontam.min_blanks`

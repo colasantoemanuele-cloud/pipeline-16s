@@ -715,7 +715,9 @@ def test_la_filogenesi_sul_dataset_completo(bioc, catena_reale, tmp_path):
     dati["io"]["out_root"] = str(tmp_path / "out")
     dati["phylo"]["enabled"] = True
     run = ProjectRun(valida(dati))
-    esito = Esecutore(run).esegui()
+    # Fino a S14, come la catena condivisa: S1 non e' fra i suoi antenati, e la
+    # catena condivisa non la esegue.
+    esito = Esecutore(run, fino_a=Passo.S14).esegui()
     assert esito.conclusione is Conclusione.COMPLETATA
     assert [r.passo for r in esito.eseguite] == [Passo.S9, Passo.S14]
     finali = json.loads((run.albero.cartella(Fase.FINAL) / NOME_RIEPILOGO).read_text())["varianti"]["finali"]

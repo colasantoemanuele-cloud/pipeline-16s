@@ -18,17 +18,26 @@ ogni file sono in `FONTI.tsv`.
 | `scarica_riferimento.py` | si' | scarica il riferimento tassonomico in `riferimento/` |
 | `ricostruisci_lotto.py` | si' | ricostruisce il file del lotto in `lotto/` dalla fonte pubblica |
 | `scaricamento.py` | si' | lo scarico verificato e riprendibile comune ai due script |
+| `confronta_risultati.py` | si' | confronta i risultati di un'esecuzione con i checksum attesi |
+| `checksum_finali.sha256` | si' | i checksum attesi dei file consegnati di `12_final/`, nella forma di `sha256sum` |
+| `checksum_artefatti.tsv` | si' | i checksum attesi di tutti i 1.031 artefatti dei manifesti di fase, con la fase che li produce |
 | `fastq/`, `riferimento/`, `lotto/` | no | i file ottenuti dagli script, esclusi da `.gitignore` |
 
 ## Come recuperare i dati
 
-Dalla radice del repository, con Python 3.11 e la sola libreria standard:
+Dalla radice del repository, con Python 3.11 o successivo e la sola libreria standard:
 
 ```bash
 python3 dati/osd734/scarica_letture.py        # 960 file, 2,52 GB, da ENA
 python3 dati/osd734/scarica_riferimento.py    # SILVA 138 per dada2, circa 138 MB, da Zenodo
 python3 dati/osd734/ricostruisci_lotto.py     # il file del lotto, dalla fonte degli autori
 ```
+
+Lo scarico delle letture e' il passo lungo: i file si scaricano uno alla volta, e la
+durata dipende dal collegamento con ENA. Nella riproduzione del 5 ottobre 2026 ha
+impiegato 2 ore e 48 minuti, senza interruzioni; il riferimento 44 secondi, il file del
+lotto meno di un secondo. Lo si puo' interrompere e rilanciare: riprende dal punto a cui
+era arrivato.
 
 Gli script sono ripetibili: a ogni avvio controllano tutti i file e scaricano solo cio'
 che manca o non corrisponde al checksum; uno scarico interrotto riprende dal punto a cui
@@ -53,7 +62,11 @@ partenza, i pacchetti R dall'istantanea datata di CRAN e i sorgenti di dada2):
 docker build -f container/Dockerfile -t <immagine> .
 ```
 
-**2. Adattare la configurazione** `config_osd734.yaml`, prima dell'esecuzione:
+**2. Adattare la configurazione** `config_osd734.yaml`, prima dell'esecuzione. I suoi
+percorsi sono relativi alla radice del repository, da cui il comando va lanciato: la
+riga di comando li rende assoluti al caricamento, e la configurazione registrata in
+`00_config/` riporta i percorsi dei file letti (nel container, sotto `/app`). Vanno
+adattati due valori:
 
 - `run.threads`, per primo. La configurazione non lo imposta e vale 16: se la macchina
   ha meno processori utilizzabili, i controlli di avvio fermano l'esecuzione con
@@ -107,31 +120,100 @@ Un'esecuzione interrotta si riprende con lo stesso comando e `amplicon16s resume
 posto di `amplicon16s run`; `amplicon16s validate` esegue solo i controlli di avvio e la
 fase S0, in meno di un minuto.
 
-Questo comando, con `amplicon16s validate`, e' stato provato sui file gia' presenti
-sulla macchina di sviluppo: con la configurazione cosi' com'e' si ferma con `E-S0-14`
-(12 processori utilizzabili), con `run.threads: 12` conclude S0 e i suoi artefatti
-sono identici byte per byte a quelli dell'esecuzione di riferimento. L'esecuzione
-completa da dati appena scaricati non e' ancora stata provata.
+**La procedura e' stata eseguita da zero** il 5 ottobre 2026: repository clonato da
+GitHub (commit `59ef39d`), immagine costruita dal suo `container/Dockerfile` senza
+cache (4 minuti e 37 secondi), dati scaricati con i tre script in una cartella vuota,
+catena S0-S14 con il comando qui sopra e `run.threads: 12`. Tutti i 1.031 artefatti
+dei manifesti di fase sono risultati identici, byte per byte, a quelli dell'esecuzione
+di riferimento precedente, prodotta su un'altra copia dei dati e con un'immagine
+costruita in un altro momento. Quell'esecuzione e' ora il riferimento, e i suoi
+checksum sono quelli pubblicati qui.
+
+La prova ha fatto emergere un difetto, corretto: al commit `59ef39d` i percorsi
+relativi di `config_osd734.yaml` superavano S0 ma fermavano S1 con `E-R-02`, perche' il
+processo R di una fase parte nella cartella della fase e non trovava i propri
+ingressi. La riproduzione e' stata completata indicando nella configurazione i
+percorsi assoluti del container (`/app/dati/osd734/...`, `/app/output/osd734`); dalla
+versione successiva la riga di comando rende assoluti i percorsi relativi, che danno
+la stessa configurazione registrata, e il caso e' coperto da un test.
+
+## Come verificare i risultati
+
+Dalla radice del repository, a esecuzione conclusa:
+
+```bash
+python3 dati/osd734/confronta_risultati.py
+```
+
+Lo script ricalcola l'impronta SHA-256 di ogni artefatto elencato nei manifesti di
+fase di `output/osd734/` (un'altra cartella si indica con `--uscita`) e la confronta
+con `checksum_artefatti.tsv`. Riporta l'esito fase per fase, nell'ordine di esecuzione,
+e termina con `RISULTATI IDENTICI` ed esito 0, oppure con `RISULTATI DIVERSI`, la prima
+fase in cui compare una differenza ed esito 1. Impiega pochi secondi. Chi vuole
+verificare solo i file consegnati, senza Python:
+
+```bash
+(cd output/osd734/12_final && sha256sum -c ../../../dati/osd734/checksum_finali.sha256)
+```
+
+Non si confrontano i manifesti, la configurazione registrata in `00_config/`, i log e
+il report: portano date, identificativi dell'esecuzione e percorsi, e differiscono per
+costruzione fra due esecuzioni.
+
+**A quale ambiente si riferiscono i checksum.** All'immagine costruita da
+`container/Dockerfile` (immagine di partenza ancorata per digest, pacchetti R
+dell'istantanea datata e di `renv.lock`, dada2 1.36.0.1), con il codice del repository
+e la configurazione `config_osd734.yaml`, filogenesi disattivata; `run.threads` non
+incide sui risultati. Un'immagine pubblicata in un registro, con il suo digest, non
+c'e' ancora: finche' non c'e', chi riproduce costruisce l'immagine dal Dockerfile, come
+nella prova descritta sopra, in cui due immagini costruite in momenti diversi hanno
+dato gli stessi byte. Fuori dal container, con un'altra versione di R o dei pacchetti,
+i risultati possono differire senza che l'esecuzione sia sbagliata: il confronto prova
+l'identita', non la correttezza.
+
+### Se i risultati non coincidono
+
+1. Guardare la prima fase indicata dallo script: le fasi successive dipendono da
+   quella, quindi le loro differenze sono conseguenze, non cause.
+2. Se la prima fase e' S0, S1 o S2, la differenza e' nei dati di ingresso: rilanciare i
+   tre script di scarico con `--solo-verifica`, che devono terminare con esito 0, e
+   confrontare la configurazione registrata in `output/osd734/00_config/resolved.yaml`
+   con `config_osd734.yaml` (devono differire solo i percorsi, `run.threads` e
+   `run.container`).
+3. Se e' una fase successiva, la differenza e' nell'ambiente di calcolo: controllare
+   di aver eseguito nell'immagine costruita dal Dockerfile del repository, con
+   `AMPLICON16S_R_DIR=/app/R` (senza, l'immagine esegue gli script R copiati alla
+   costruzione), e che `amplicon16s report --config dati/osd734/config_osd734.yaml`
+   non riporti avvisi di provenienza ne' artefatti non integri. Il report indica anche
+   la versione di dada2 dichiarata dal file di blocco: deve essere 1.36.0.1, con la
+   correzione dei pareggi, senza la quale la tassonomia (S8) non e' riproducibile.
+4. Una differenza che resta va segnalata con l'uscita dello script, il report e la
+   configurazione registrata: e' un difetto di riproducibilita' della pipeline, non un
+   errore di chi la esegue.
 
 ## Requisiti misurati
 
 Misure sulla macchina di sviluppo (Intel Xeon W-10855M, 12 processori logici, 30 GB di
-memoria), nel container della settimana 21, con `run.threads: 12`.
+memoria), con `run.threads: 12`. Dove non e' detto altrimenti vengono dalla
+riproduzione da zero del 5 ottobre 2026 (codice del commit `59ef39d`, immagine costruita
+dal suo Dockerfile).
 
 | Che cosa | Misura | Fonte |
 |---|---|---|
-| Letture FASTQ | 2,52 GB (2.515.101.383 byte) | somma delle dimensioni dichiarate da ENA in `letture_ena.tsv` |
+| Letture FASTQ | 2,52 GB (2.515.101.383 byte), 960 file | somma delle dimensioni dichiarate da ENA in `letture_ena.tsv`, uguale ai byte scaricati |
 | Riferimento SILVA 138 | 138 MB (137.973.851 byte) | `scarica_riferimento.py` |
-| Immagine del container | 7,59 GB su disco, strati dell'immagine di partenza di Bioconductor compresi | `docker image ls` (colonna DISK USAGE) e `docker system df -v` (colonna SIZE), immagine della settimana 21 |
-| Uscite dell'esecuzione completa | 2,27 GB, di cui 2,24 GB di letture filtrate (`03_filtered/`) e 32 MB di tutto il resto | esecuzione di riferimento S0-S14, settimana 21 |
-| Durata dell'esecuzione completa | 55,5 e 64 minuti, in due esecuzioni dell'intera catena S0-S14; la fase S4 (denoising) ne occupa 26 e 32 | esecuzioni di riferimento, settimana 21 |
-| Memoria di picco della pipeline | non misurata | |
+| Durata dello scarico | 2 ore e 48 minuti le letture, 44 secondi il riferimento, meno di un secondo il lotto | i tre script, in una cartella vuota; dipende dal collegamento con ENA |
+| Costruzione dell'immagine | 4 minuti e 37 secondi senza cache | `docker build --no-cache`; dipende dalla rete |
+| Immagine del container | 7,59 GB su disco, strati dell'immagine di partenza di Bioconductor compresi | `docker image ls` (colonna DISK USAGE) |
+| Uscite dell'esecuzione completa | 2,27 GB, di cui 2,24 GB di letture filtrate (`03_filtered/`) e 32 MB di tutto il resto | `output/osd734/` a catena conclusa |
+| Durata dell'esecuzione completa | 53 minuti e 20 secondi per la catena S0-S14; la fase S4 (denoising) ne occupa 26, S2 9,5, S8 6, S1 5 | il comando di esecuzione qui sopra; nelle esecuzioni precedenti 55,5 e 64 minuti |
+| Memoria di picco della pipeline | 12,3 GB (11,5 GiB; 12.304.121.856 byte) | `memory.peak` del cgroup del container, letto al termine della catena, con il limite a 24 GB |
 
 Lo spazio dell'immagine e' misurato con Docker 29.1.3, che usa l'archivio di immagini
 di containerd. Dei 7,59 GB, 5,67 sono strati condivisi con altre immagini della
 macchina (quella di Bioconductor da cui l'immagine e' costruita, 6,55 GB da sola, e le
-versioni precedenti della pipeline); la parte propria dell'immagine e' 1,92 GB.
-`docker image inspect --format '{{.Size}}'`, il comando usato in precedenza, riporta
+versioni precedenti della pipeline); la parte propria dell'immagine e' 1,92 GB (misura
+della settimana 21). `docker image inspect --format '{{.Size}}'` riporta
 invece 1,86 GB: con l'archivio di containerd e' la dimensione del contenuto, cioe'
 degli strati compressi che si scaricano da un registro (colonna CONTENT SIZE di
 `docker image ls`), non lo spazio occupato su disco. La cache di
@@ -144,10 +226,11 @@ comunque durante l'esecuzione. I controlli di avvio richiedono, sul volume di
 `io.out_root`, almeno lo spazio occupato dalle letture. La durata con meno processori
 non e' stata misurata.
 
-La memoria di picco della sola pipeline non e' stata misurata. L'unica misura
-disponibile e' quella della suite di test con i dati reali, che sul dataset completo
-esegue la catena S0-S14 e altri test, uno dopo l'altro: 16,3 GiB di picco del container
-(`memory.peak`), con il limite a 24 GB e senza esaurimenti.
+La memoria di picco e' quella dell'intero container durante la sola catena, cache dei
+file compresa: 12,3 GB su una macchina da 30 GB. Il limite di 24 GB del comando lascia
+quindi margine; con meno di 16 GB di memoria l'esecuzione non e' stata provata. La
+suite di test con i dati reali, che esegue la catena e altri test uno dopo l'altro,
+arriva a 16,9 GB.
 
 ## Il file del lotto
 

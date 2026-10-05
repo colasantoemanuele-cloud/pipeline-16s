@@ -2,8 +2,8 @@
 #
 # I percorsi sono relativi alla radice del repository: la pipeline va lanciata
 # da li', nel container con il repository montato (comando completo nel README
-# della cartella). I file da scaricare si ottengono con gli script della
-# cartella:
+# della cartella). La riga di comando li rende assoluti al caricamento. I file
+# da scaricare si ottengono con gli script della cartella:
 #   letture       dati/osd734/fastq/        scarica_letture.py
 #   riferimento   dati/osd734/riferimento/  scarica_riferimento.py
 #   lotto         dati/osd734/lotto/        ricostruisci_lotto.py

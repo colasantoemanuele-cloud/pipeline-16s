@@ -2,7 +2,9 @@
 
 Quattro sottocomandi, tutti con ``--config`` che indica il file di
 configurazione. Il file non viene mai modificato: le azioni correttive dei
-tentativi ripetuti cambiano una copia in memoria.
+tentativi ripetuti cambiano una copia in memoria. I percorsi relativi del file
+valgono rispetto alla cartella da cui il comando e' lanciato, e sono resi
+assoluti al caricamento.
 
 * ``validate`` esegue solo S0. Se S0 è già conclusa e valida per questa
   configurazione non la riesegue: la dichiara conclusa.
@@ -73,6 +75,40 @@ USCITA_ERRORE_IMPREVISTO: Final = 1
 USCITA_CONFIGURAZIONE: Final = 3
 USCITA_ARRESTO: Final = 4
 USCITA_FASE_NON_REALIZZATA: Final = 5
+
+#: I parametri che sono percorsi di file o cartelle, per gruppo.
+_PERCORSI: Final = {
+    "io": ("fastq_dir", "assay_table", "study_table", "out_root", "batch_table"),
+    "tax": ("ref_fasta", "ref_bad_taxa"),
+}
+
+
+def _percorsi_assoluti(config: Config) -> Config:
+    """La configurazione con i percorsi relativi resi assoluti rispetto alla
+    cartella da cui il comando e' lanciato.
+
+    Un file di configurazione puo' indicare percorsi relativi, come quello di
+    ``dati/osd734/``, pensato per essere usato dalla radice del repository. I
+    processi R delle fasi partono pero' nella cartella della propria fase: un
+    percorso relativo vi indicherebbe un altro file, e la prima fase con un
+    calcolo in R si fermerebbe senza trovare i suoi ingressi. Il percorso si
+    fissa quindi qui, una volta, e la configurazione registrata in
+    ``00_config`` riporta quello assoluto, cioe' i file davvero letti. I
+    parametri impostati nel file restano gli stessi: si aggiorna la copia, non
+    si ricostruisce la configurazione.
+    """
+    gruppi = {}
+    for gruppo, chiavi in _PERCORSI.items():
+        modello = getattr(config, gruppo)
+        relativi = {
+            chiave: Path.cwd() / valore
+            for chiave in chiavi
+            if (valore := getattr(modello, chiave)) is not None and not valore.is_absolute()
+        }
+        if relativi:
+            gruppi[gruppo] = modello.model_copy(update=relativi)
+    return config.model_copy(update=gruppi) if gruppi else config
+
 
 def _passi() -> dict[Passo, PipelineStep]:
     """Le fasi realizzate. Un punto solo, cosi' i test possono sostituirle."""
@@ -233,7 +269,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        config = carica(args.config)
+        config = _percorsi_assoluti(carica(args.config))
     except ErroreConfigurazione as e:
         _stampa(str(e))
         return USCITA_CONFIGURAZIONE
