@@ -226,8 +226,8 @@ def test_gli_antenati_seguono_le_dipendenze_attive_del_grafo(tmp_path):
     """
     **Obiettivo**: Verificare che ``Grafo.antenati`` restituisca, in ordine, le
     fasi da cui una fase dipende anche indirettamente: S2 ha il solo S0; S1
-    non e' antenato di S8 ne' di S10; con la filogenesi disattivata S9 non e'
-    antenato di S10, attivata si'.
+    non e' antenato di S8 ne' di S10; S9 non e' mai antenato di S10, ed e'
+    antenato di S14 solo con la filogenesi attivata.
 
     **Razionale scientifico e sistemistico**: Gli antenati sono cio' che
     ``fino_a`` esegue: devono seguire le dipendenze di dato, le stesse con cui
@@ -246,7 +246,9 @@ def test_gli_antenati_seguono_le_dipendenze_attive_del_grafo(tmp_path):
     dati = config.model_dump(mode="python")
     dati["phylo"]["enabled"] = True
     con_albero = type(config).model_validate(dati)
-    assert Passo.S9 in GRAFO.antenati(Passo.S10, con_albero)
+    assert Passo.S9 not in GRAFO.antenati(Passo.S10, con_albero)
+    assert Passo.S9 not in GRAFO.antenati(Passo.S14, config)
+    assert Passo.S9 in GRAFO.antenati(Passo.S14, con_albero)
     assert Passo.S1 not in GRAFO.antenati(Passo.S14, con_albero)
 
 

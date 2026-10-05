@@ -9,8 +9,15 @@ per byte fra due esecuzioni e indipendenti dalle impostazioni locali
 (``R/14_finale.R``). ``checksum.sha256`` elenca l'impronta di ogni file
 consegnato, nella forma di ``sha256sum``.
 
-**La validazione** (``E-S14-01``) e' strutturale: componenti allineati, solo
-campioni biologici, nessun campione e nessuna variante senza letture, l'oggetto
+**L'albero filogenetico.** Con ``phylo.enabled`` vero S14 dipende anche da S9:
+legge ``albero.nwk`` da ``09_phylogeny/``, verificato contro il manifesto di
+S9, lo aggiunge all'oggetto finale e, con ``out.export_flat``, lo esporta in
+``albero.nwk`` accanto agli altri file piatti. Con la filogenesi disattivata
+l'oggetto finale non ha l'albero, e nulla di S14 cambia.
+
+**La validazione** (``E-S14-01``) e' strutturale: componenti allineati, le
+foglie dell'albero, se c'e', esattamente uguali agli identificativi delle
+varianti e l'albero radicato, solo campioni biologici, nessun campione e nessuna variante senza letture, l'oggetto
 riletto identico a quello scritto, l'oggetto ricostruito dai soli export
 identico a quello serializzato, ``ps_filtrato.rds`` di S13 integro rispetto al
 suo manifesto, i checksum dei file consegnati uguali a quelli registrati.
@@ -32,10 +39,12 @@ import json
 from typing import ClassVar, Final
 
 from amplicon16s.errors.exceptions import errore
+from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.io_layer.checksums import checksum_file
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
+from amplicon16s.steps.s09_phylogeny import NOME_ALBERO
 from amplicon16s.steps.s13_filtri import NOME_FILTRATO, NOME_RIEPILOGO
 
 __all__ = ["NOME_CHECKSUM", "NOME_FINALE", "Serializzazione"]
@@ -51,13 +60,16 @@ class Serializzazione(PipelineStep):
     """S14: l'oggetto finale serializzato, gli export e la validazione."""
 
     passo: ClassVar[Passo] = Passo.S14
-    versione: ClassVar[int] = 1
+    #: 2: con la filogenesi attiva aggiunge l'albero di S9 all'oggetto finale,
+    #: ne verifica le foglie e lo esporta.
+    versione: ClassVar[int] = 2
     script_r: ClassVar[str | None] = NOME_SCRIPT
-    #: La serializzazione, l'orientamento verificato, gli export e la frazione
-    #: minima delle letture trattenute dall'insieme dei campioni finali.
+    #: La serializzazione, l'orientamento verificato, gli export, la frazione
+    #: minima delle letture trattenute dall'insieme dei campioni finali, e se
+    #: l'oggetto finale porta l'albero.
     parametri: ClassVar[tuple[str, ...]] = (
         "out.serialization", "out.taxa_are_rows", "out.export_flat",
-        "qc.min_frac_reads_retained",
+        "qc.min_frac_reads_retained", "phylo.enabled",
     )
 
     def calcola(self, contesto: StepContext) -> Produzione:
@@ -76,10 +88,22 @@ class Serializzazione(PipelineStep):
         if voce is None or checksum_file(cartella / NOME_FILTRATO) != voce["checksum"]:
             raise errore("E-S14-01", f"{NOME_FILTRATO} di S13 manca o non corrisponde al suo manifesto")
 
+        # L'albero c'e' solo con la filogenesi attiva, e viene da S9: come per
+        # l'oggetto filtrato, vale se corrisponde al manifesto di chi l'ha scritto.
+        filogenesi = None
+        if config.phylo.enabled:
+            filogenesi = albero.cartella(Fase.PHYLOGENY) / NOME_ALBERO
+            s9 = albero.manifesto_passo(Passo.S9, Fase.PHYLOGENY)
+            voce = None if s9 is None else next(
+                (v for v in s9.artefatti if v["nome"] == NOME_ALBERO), None)
+            if voce is None or checksum_file(filogenesi) != voce["checksum"]:
+                raise errore("E-S14-01", f"{NOME_ALBERO} di S9 manca o non corrisponde al suo manifesto")
+
         esito = esegui_script(
             cartella_r() / NOME_SCRIPT,
             {
                 "filtrato": str(cartella / NOME_FILTRATO),
+                "albero": None if filogenesi is None else str(filogenesi),
                 "taxa_are_rows": config.out.taxa_are_rows,
                 "export": config.out.export_flat,
             },
@@ -117,5 +141,6 @@ class Serializzazione(PipelineStep):
             "frazione_letture_trattenute": round(frazione, 6),
             "campioni": riepilogo["campioni"]["finali"],
             "varianti": riepilogo["varianti"]["finali"],
+            "albero": filogenesi is not None,
         }
         return Produzione(esito.artefatti + (somme,), metriche)

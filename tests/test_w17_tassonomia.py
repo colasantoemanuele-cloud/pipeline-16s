@@ -481,9 +481,10 @@ def test_una_provenienza_diversa_avvisa_e_una_versione_nuova_rifa(tmp_path, monk
 
 def test_i_manifesti_della_catena_registrano_il_sorgente_del_registro(dada2, finale_calcolata):
     """
-    **Obiettivo**: Verificare che nei manifesti di ogni fase realizzata della
-    versione ridotta, S0-S8 e S10-S14, la provenienza riporti la versione e
-    l'impronta del sorgente del registro.
+    **Obiettivo**: Verificare che nei manifesti di ogni fase eseguita sulla
+    versione ridotta, S0-S8 e S10-S14 (S9 e' disattivata per difetto, e la
+    verifica ``tests/test_w23_filogenesi.py``), la provenienza riporti la
+    versione e l'impronta del sorgente del registro.
 
     **Razionale scientifico e sistemistico**: Nel job del container, con
     l'immagine costruita dal repository, gli script eseguiti sono quelli del
@@ -494,6 +495,8 @@ def test_i_manifesti_della_catena_registrano_il_sorgente_del_registro(dada2, fin
     assert esito.conclusione is Conclusione.COMPLETATA
     registro = leggi_registro()
     for passo, fase in passi_realizzati().items():
+        if passo is Passo.S9:
+            continue
         manifesto = run.albero.manifesto_passo(passo, fase.cartella)
         assert manifesto.provenienza["sorgente"] == registro[str(passo)]["sorgente"], passo
         assert manifesto.provenienza["versione"] == registro[str(passo)]["versione"], passo

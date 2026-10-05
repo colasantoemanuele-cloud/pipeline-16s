@@ -481,6 +481,18 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "accettando che le analisi che lo richiedono non saranno disponibili.",
         _UMANA,
     ),
+    _v(
+        "E-S9-02", "S9",
+        "Le varianti finali sono troppo poche per costruire un albero.",
+        "L'esecuzione si ferma prima di avviare il calcolo: un albero radicato ha "
+        "una topologia da stimare solo con almeno quattro sequenze. Il codice si "
+        "presenta solo se phylo.enabled e' true. Controlla in "
+        "12_final/filtri_riepilogo.json e in varianti_rimosse.tsv quali filtri "
+        "hanno tolto le varianti: se cosi' poche varianti finali sono un esito "
+        "inatteso, rivedi le soglie di S13 (filt, prev) e la decontaminazione; se "
+        "sono attese, rinuncia all'albero con phylo.enabled: false.",
+        _UMANA,
+    ),
     # ---------------------------------------------------------------- S10 ---
     _v(
         "E-S10-01", "S10",

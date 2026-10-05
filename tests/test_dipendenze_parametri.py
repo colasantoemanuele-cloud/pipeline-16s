@@ -4,8 +4,8 @@ r"""Suite di test per il contratto trasversale delle dipendenze di parametro (S0
 ------------------------------------
 Modulo trasversale e infrastrutturale del DAG (Settimane W8 - W14, Fasi F3 e F4).
 Presidia il contratto di scoping dei parametri dichiarati da ciascuna fase
-della pipeline (fasi realizzate: da S0 a S14 tranne S9, la filogenesi
-opzionale) e la validita' selettiva dei manifesti di fase.
+della pipeline (le quindici fasi, da S0 a S14) e la validita' selettiva dei
+manifesti di fase.
 
 2. Moduli sorgente coperti
 --------------------------
@@ -273,17 +273,14 @@ def test_una_fase_senza_dichiarazione_valida_non_si_registra(tmp_path, parametri
 
 def test_ogni_fase_realizzata_dichiara_i_propri_parametri(tmp_path):
     """
-    **Obiettivo**: Verificare che le fasi realizzate, da S0 a S8 e da S10 a S14,
+    **Obiettivo**: Verificare che le quindici fasi, da S0 a S14,
     dichiarino i propri parametri e che la registrazione le accetti.
 
     **Razionale scientifico e sistemistico**: E' la condizione perche' la loro
     validita' si giudichi sui parametri da cui dipendono davvero.
     """
     passi = passi_realizzati()
-    assert set(passi) == {
-        Passo.S0, Passo.S1, Passo.S2, Passo.S3, Passo.S4, Passo.S5, Passo.S6, Passo.S7,
-        Passo.S8, Passo.S10, Passo.S11, Passo.S12, Passo.S13, Passo.S14,
-    }
+    assert set(passi) == set(Passo)
     assert all(f.parametri for f in passi.values())
     ProjectRun(config_ridotta(tmp_path))
 

@@ -14,7 +14,7 @@
       "python/amplicon16s.metadata.tabelle",
       "python/amplicon16s.steps.s00_validate"
     ],
-    "sorgente": "sha256:ec4e7152440c9378eb1353eeff9e38f1d4f4d56cd46d3f8992fb414bcd795ed2",
+    "sorgente": "sha256:c3088e1f564d5936972fd85ca9eb5bbdb32d9af476bf771d61722795a4c8f381",
     "versione": 2
   },
   "S1": {
@@ -31,7 +31,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s01_profile"
     ],
-    "sorgente": "sha256:09089898a763f8d357a9266d78652827b810616cf9b290a25b3aa8b058be3217",
+    "sorgente": "sha256:876055ceb993336b14b059ec03b0f95cd3d7674a9221f7e6f2b2bca9d89a0d64",
     "versione": 1
   },
   "S10": {
@@ -51,7 +51,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s10_phyloseq"
     ],
-    "sorgente": "sha256:55c697b539dcbdbf24bc68940d527ab7cb205a8dee8d0b58ee7b1f5288eb29dc",
+    "sorgente": "sha256:2dc720dfef650a684883e98a8b241f5d5f6a9c342dc8d618f7eee0e1dc619c54",
     "versione": 1
   },
   "S11": {
@@ -67,7 +67,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s11_controls"
     ],
-    "sorgente": "sha256:7695ddfa333813e3ec42371a912bc3dfb2ab4b6523d7e024c5b7e5f52f6cfa9d",
+    "sorgente": "sha256:dfa9759568c64b78908b625f877fc279fe57308a34b64d0aa6e816a88b51dcd9",
     "versione": 1
   },
   "S12": {
@@ -83,7 +83,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s12_decontam"
     ],
-    "sorgente": "sha256:1e1d3ca06c459defa85aad7610fa866c8b903da856b6b8ed92bd978fd4c9a09f",
+    "sorgente": "sha256:508cf8e17ff8f80d4a42b99120f729bb05b887add95a04ba118e006bb9b0004a",
     "versione": 2
   },
   "S13": {
@@ -101,12 +101,13 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s13_filtri"
     ],
-    "sorgente": "sha256:ef092b8ce769213b6882899cbd9df66493130c1a8612e36347aee3d9737c57c4",
+    "sorgente": "sha256:5b6629de50b16f32ed96761d78034caa7405340fc3064334c3ecfb715bb90ad3",
     "versione": 1
   },
   "S14": {
     "file": [
       "R/14_finale.R",
+      "R/lib/albero.R",
       "R/lib/errors.R",
       "R/lib/export.R",
       "R/lib/io_json.R",
@@ -116,8 +117,8 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s14_finale"
     ],
-    "sorgente": "sha256:4b8340f68c49a18cbb7850b37b8e47a809321f7563d337507c947923525cf254",
-    "versione": 1
+    "sorgente": "sha256:4a4e402fbfaed9aafc5d96aaa26262744d93e1f68f769a93a38d93cfdb9cfdea",
+    "versione": 2
   },
   "S2": {
     "file": [
@@ -135,7 +136,7 @@
       "python/amplicon16s.runner.retry",
       "python/amplicon16s.steps.s02_filter"
     ],
-    "sorgente": "sha256:b8b23a59f58954023d8bfd2404f4bd408720b477bd348259f7e74e0830550a1c",
+    "sorgente": "sha256:ebd11398623b1c61440b4061105685b8c20ba4b33a6979f102e5a8cfccc342f0",
     "versione": 1
   },
   "S3": {
@@ -154,7 +155,7 @@
       "python/amplicon16s.runner.retry",
       "python/amplicon16s.steps.s03_learn_errors"
     ],
-    "sorgente": "sha256:da6765af94872c3d203f18e319d0d79a7a9625ff9907823f79b280347c570344",
+    "sorgente": "sha256:1ecb481f9013066d3b622b4fd8a90b75aef7521e2a0ca14db6c35cc19e6d6130",
     "versione": 1
   },
   "S4": {
@@ -174,7 +175,7 @@
       "python/amplicon16s.runner.retry",
       "python/amplicon16s.steps.s04_dada"
     ],
-    "sorgente": "sha256:609180c57ab0e1b7e26fa86773c3e3a753b500c4c4a590bf0481b1ffb4a3ac61",
+    "sorgente": "sha256:f8c5d264c26f9d875486cb15e75f48c43443c01eb8aace46677596091163969d",
     "versione": 1
   },
   "S5": {
@@ -194,7 +195,7 @@
       "python/amplicon16s.runner.retry",
       "python/amplicon16s.steps.s05_seqtab"
     ],
-    "sorgente": "sha256:b4204e77ba772788698faaec4602631f43edc28dd76af076da29f439168ab6d3",
+    "sorgente": "sha256:3beb5d3dd5ec1cbf7ef04d6ca706aa015bd2a95c6563ea24f38055d7a3f915c7",
     "versione": 1
   },
   "S6": {
@@ -212,7 +213,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s06_chimera"
     ],
-    "sorgente": "sha256:1e3a159cee38f03ff905035858b2cf8bfa07179d72066351bab14cc395526ba9",
+    "sorgente": "sha256:0d7d53cafa4b6c14ccb8b1b87860741f21c0056d1fef0243f9581cde6673b166",
     "versione": 1
   },
   "S7": {
@@ -230,7 +231,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s07_asv_length"
     ],
-    "sorgente": "sha256:23c1139c996de1bcf5464bd11dd162ec277e6ecad77f6bb3bf675c011af2caeb",
+    "sorgente": "sha256:70c84123aa6f9214229fd8771285ab3b9547d75474c0e184c885cee1281e47e0",
     "versione": 1
   },
   "S8": {
@@ -246,7 +247,22 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s08_taxonomy"
     ],
-    "sorgente": "sha256:d800f42daba783c6a0dd8508837c81cee5f75ca5a46ff8d27ac37759c9c68f42",
+    "sorgente": "sha256:d623c3bea865da6411a4eb4c86379c93928c1237d00cc538e3e04ad48940399f",
+    "versione": 1
+  },
+  "S9": {
+    "file": [
+      "R/09_phylogeny.R",
+      "R/lib/albero.R",
+      "R/lib/errors.R",
+      "R/lib/io_json.R",
+      "python/amplicon16s.io_layer.artifacts",
+      "python/amplicon16s.io_layer.checksums",
+      "python/amplicon16s.rbridge.payload",
+      "python/amplicon16s.rbridge.runner",
+      "python/amplicon16s.steps.s09_phylogeny"
+    ],
+    "sorgente": "sha256:e0e7a9135281a53455cab13e51f35d7d7d3b8d3555f1514569fbf647723a3ceb",
     "versione": 1
   }
 }

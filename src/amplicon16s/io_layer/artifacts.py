@@ -90,8 +90,11 @@ def nome_registro_rimozioni(passo: str) -> str:
 class Fase(StrEnum):
     """Cartelle di output, una per fase.
 
-    Il valore è il nome della cartella: la numerazione fa sì che l'ordine
-    alfabetico sul filesystem sia l'ordine di esecuzione.
+    Il valore è il nome della cartella. La numerazione è quella delle fasi nel
+    piano, e l'ordine alfabetico sul filesystem segue l'ordine di esecuzione con
+    un'eccezione: ``09_phylogeny`` è scritta da S9, che si esegue dopo S13 e
+    prima di S14, sulle varianti finali. L'ordine di esecuzione è quello del
+    grafo (:mod:`amplicon16s.runner.graph`), non quello dei nomi delle cartelle.
     """
 
     CONFIG = "00_config"

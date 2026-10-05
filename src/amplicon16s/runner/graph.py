@@ -1,7 +1,10 @@
 """Il grafo delle fasi: ordine, dipendenze, fasi facoltative.
 
 Le fasi sono quindici, da S0 a S14, e sono dichiarate qui in un solo posto,
-nell'ordine di esecuzione. Il grafo non esegue nulla e non conosce il
+nell'ordine di esecuzione, che non e' quello dei loro numeri: S9, la
+filogenesi, si esegue dopo S13 e prima di S14, perche' l'albero si costruisce
+sulle varianti che restano dopo i filtri finali. Il numero della fase, e
+quello della sua cartella ``09_phylogeny``, restano quelli del piano. Il grafo non esegue nulla e non conosce il
 filesystem: dice quali fasi esistono, in quale cartella scrivono, da quali
 fasi dipendono e quando sono attive. Stabilire quali sono già completate è
 compito di :mod:`amplicon16s.runner.project`, che lo legge dal disco.
@@ -19,7 +22,12 @@ verificate contro gli artefatti che legge davvero.
 
 * S9, la filogenesi, è **facoltativa**: con ``phylo.enabled`` falso è
   disattivata. Una fase disattivata non è una fase incompleta, e chi ne
-  dipende la ignora: S10 senza albero dipende solo dalle altre fasi.
+  dipende la ignora: S14 senza albero dipende dalla sola S13. S9 legge le
+  varianti finali di S13 e S14 aggiunge l'albero all'oggetto finale; S10
+  assembla l'oggetto integrato sempre senza albero, e non ne dipende. Costruire
+  l'albero sulle varianti di S7, prima dei filtri, lo renderebbe inutilizzabile:
+  sul dataset di riferimento sono 12.045 contro le 1.753 consegnate, oltre
+  ``phylo.max_seqs``.
 * S12 **precede obbligatoriamente** S13: la decontaminazione va fatta prima del
   filtro di prevalenza. Il vincolo è una dipendenza diretta che il grafo
   verifica alla costruzione, e non può essere resa facoltativa. Porta un
@@ -56,7 +64,11 @@ __all__ = [
 
 
 class Passo(StrEnum):
-    """Le quindici fasi della pipeline, nell'ordine di esecuzione."""
+    """Le quindici fasi della pipeline, nell'ordine dei loro numeri.
+
+    L'ordine di esecuzione e' quello del grafo (:meth:`Grafo.ordine`), in cui
+    S9 viene dopo S13.
+    """
 
     S0 = "S0"
     S1 = "S1"
@@ -232,14 +244,9 @@ GRAFO: Final = Grafo(
             Passo.S8, "assegnazione tassonomica", Fase.TAXONOMY, (Passo.S0, Passo.S7),
         ),
         Nodo(
-            Passo.S9, "filogenesi", Fase.PHYLOGENY, (Passo.S7,),
-            attiva_se=_filogenesi_attiva,
-            parametro_attivazione="phylo.enabled",
-        ),
-        Nodo(
+            # Senza albero, sempre: quello di S9 lo aggiunge S14.
             Passo.S10, "assemblaggio dell'oggetto integrato", Fase.PHYLOSEQ,
-            # S9 solo se attiva.
-            (Passo.S0, Passo.S7, Passo.S8, Passo.S9),
+            (Passo.S0, Passo.S7, Passo.S8),
         ),
         Nodo(
             Passo.S11, "validazione dai controlli positivi", Fase.CONTROLS,
@@ -258,8 +265,15 @@ GRAFO: Final = Grafo(
             (Passo.S0, Passo.S2, Passo.S7, Passo.S10, Passo.S11, Passo.S12),
         ),
         Nodo(
+            # Dopo S13 e prima di S14: l'albero delle varianti finali.
+            Passo.S9, "filogenesi delle varianti finali", Fase.PHYLOGENY, (Passo.S13,),
+            attiva_se=_filogenesi_attiva,
+            parametro_attivazione="phylo.enabled",
+        ),
+        Nodo(
             Passo.S14, "serializzazione e validazione finale", Fase.FINAL,
-            (Passo.S13,),
+            # S9 solo se attiva: e' S14 ad aggiungere l'albero all'oggetto finale.
+            (Passo.S13, Passo.S9),
         ),
     ]
 )

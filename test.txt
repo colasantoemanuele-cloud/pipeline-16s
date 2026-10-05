@@ -1,14 +1,14 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W22 (Fasi F0-F6, con l'anticipazione di attivita'
+Piano Operativo: Settimane W1 - W23 (Fasi F0-F6, con l'anticipazione di attivita'
 della fase F9 sulla riproducibilita')
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W22 del Piano Operativo.
+W1 - W23 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -42,20 +42,21 @@ sequenza:
 
     pytest tests/ -n 0
 
-Totale complessivo della suite: 976 test su 26 moduli:
-  * 853 passed e 123 skipped in ambiente locale standard (R base + jsonlite, senza
+Totale complessivo della suite: 995 test su 27 moduli:
+  * 865 passed e 130 skipped in ambiente locale standard (R base + jsonlite, senza
     Bioconductor e senza dati reali), in circa un minuto;
   * nel container CI standard (senza dati reali OSD-734), su quattro processi:
-    932 passed e 36 skipped in circa 7 minuti, misurati nell'immagine costruita
-    e lanciata in locale come fa la CI; il conteggio della CI e' da aggiornare
-    con il suo esito dopo la pubblicazione (l'ultimo, 914 passed e 35 skipped,
-    CI run 37239975721, e' della suite di 957 test). I salti sono i 33 test sui
+    950 passed e 37 skipped in circa 10 minuti, misurati nell'immagine
+    costruita e lanciata in locale come fa la CI; il conteggio della CI e' da
+    aggiornare con il suo esito dopo la pubblicazione (l'ultimo, 932 passed e
+    36 skipped in circa 10 minuti, CI run 37283281591, e' della suite di 976
+    test). I salti sono i 34 test sui
     dati reali OSD-734, 1 test sull'allocazione R legata alla lingua, 1 test
     che richiede il repository .git e il modulo
     'tests/test_w21_dati_osd734.py', che nell'immagine si salta per intero e
     conta come un solo salto al posto dei suoi 9 test (la cartella dati/ non vi
-    e' copiata): per questo i test contati sono 968;
-  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 33 test che li
+    e' copiata): per questo i test contati sono 987;
+  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 34 test che li
     richiedono, tutti sullo stesso processo: conteggio da rimisurare con la
     suite attuale. L'ultima misura, 945 passed e 2 skipped in circa 85 minuti
     con picco di memoria del container di 16 GB, e' della suite di 947 test; i
@@ -74,11 +75,11 @@ l'immagine del container della pipeline, costruita da 'container/Dockerfile'.
 Questo e' l'unico punto in cui e' indicata l'immagine corrente, da aggiornare a
 ogni ricostruzione:
 
-    immagine corrente: amplicon16s:w22
+    immagine corrente: amplicon16s:w23
 
 Si costruisce dalla radice del repository con:
 
-    docker build -f container/Dockerfile -t amplicon16s:w22 .
+    docker build -f container/Dockerfile -t amplicon16s:w23 .
 
 Con il repository montato su /app servono sempre '-e PYTHONPATH=/app/src' e
 '-e AMPLICON16S_R_DIR=/app/R': senza la seconda l'immagine esegue gli script R
@@ -324,7 +325,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
 --------------------------------------------------------------------------------
 
-5.1 Catalogo centralizzato degli errori (54 codici catalogati)
+5.1 Catalogo centralizzato degli errori (55 codici catalogati)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   * SETTIMANA E FASE:
     Settimana W5 (esteso in W11 e W13), Fase F1/F4 (Tassonomia formale degli
@@ -334,7 +335,7 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     tests/test_w05_errors_catalog.py
 
   * COSA VALUTA:
-    Ispeziona sistematicamente tutti i 54 codici del catalogo ('CATALOGO': 39
+    Ispeziona sistematicamente tutti i 55 codici del catalogo ('CATALOGO': 40
     codici di fase S0-S14 inclusi 'E-S1-02', 'E-S3-02', 'E-S10-02', 'E-S11-04' ed
     'E-S13-03', 10 codici di
     configurazione G15, 4 codici del ponte verso R 'E-R-01..04' e 1 codice del
@@ -351,7 +352,7 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     pytest tests/test_w05_errors_catalog.py -v
 
   * RISULTATO ATTESO:
-    302 passed in ~0.35s
+    307 passed in ~0.35s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
@@ -648,7 +649,7 @@ SETTIMANE 8 E 9 (W8-W9) : GRAFO DAG, PROPAGAZIONE INVALIDITA' E RIPRESA
     artefatti -> scrittura atomica di 'manifest_S<n>.json'), la struttura del
     grafo a 15 fasi distribuite su 14 cartelle di output, l'obbligatorietà
     metodologica di tutte le fasi tranne la filogenesi S9 (governata da
-    'phylo.enabled'), il vincolo di precedenza 'S12 -> S13' presidiato dal
+    'phylo.enabled' e collocata dopo S13, sulle varianti finali), il vincolo di precedenza 'S12 -> S13' presidiato dal
     codice specifico 'E-S13-01', l'emissione di 'E-GRAFO-01' quando anche una
     sola o tutte le dipendenze dirette di una fase non risultano completate,
     l'isolamento dei manifesti nelle 3 cartelle
@@ -1412,6 +1413,63 @@ SETTIMANA 22 (W22) : REPORT DI ESECUZIONE
 
 
 --------------------------------------------------------------------------------
+SETTIMANA 23 (W23) : FILOGENESI OPZIONALE, FASE S9
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W23, Fase F6 (filogenesi opzionale S9 sulle varianti finali, dopo
+    S13 e prima di S14, in '09_phylogeny/'; albero nell'oggetto finale e negli
+    export di S14).
+
+  * FILE DI TEST:
+    tests/test_w23_filogenesi.py
+
+  * COSA VALUTA:
+    Che nel grafo S9 dipenda dalla sola S13 e si esegua fra S13 e S14, che S10
+    non ne dipenda, che S14 ne dipenda solo con 'phylo.enabled' vero e che la
+    precedenza S12-S13 resti la sola obbligatoria; che con la filogenesi
+    disattivata S9 sia disattivata e non incompleta e la catena completa; che
+    attivarla a catena conclusa rifaccia le sole S9 e S14, e disattivarla la
+    sola S14; che 'phylo.aligner' e 'phylo.model' siano a insieme chiuso, che
+    il gruppo 'phylo' e 'run.seed' cambino l'impronta di S9, 'phylo.enabled'
+    quella di S14 e nessuno quella di S10; che 'E-S9-01', a revisione umana,
+    scatti prima di avviare il processo R quando le varianti finali superano
+    'phylo.max_seqs', e 'E-S9-02' quando sono meno di quattro; sul
+    sottoinsieme di prova, con la filogenesi attiva, che
+    l'albero sia radicato, con le foglie uguali agli identificativi delle
+    varianti finali, che l'oggetto finale lo contenga senza cambiare l'ordine
+    delle varianti ne' gli altri export, e che 'albero.nwk' di S14 sia lo
+    stesso testo di S9 e stia in 'checksum.sha256'; che albero, allineamento,
+    riepilogo e oggetto finale siano identici byte per byte in una seconda
+    esecuzione e con un numero di thread diverso; che 'E-S9-01' fermi la
+    catena senza lasciare richieste di calcolo; che senza filogenesi l'oggetto
+    finale non abbia l'albero; che il testo Newick abbia otto cifre
+    significative con il punto decimale anche con impostazioni locali diverse,
+    che riletto e riscritto resti uguale, e che un albero con foglie diverse
+    dalle varianti o non radicato sia respinto; che un 'albero.nwk' alterato
+    fermi S14 con 'E-S14-01'; sul dataset completo, su una copia per
+    collegamenti fisici, che attivando la filogenesi si eseguano S9 e S14 e la
+    catena condivisa non venga toccata.
+
+  * COMANDO BASH:
+    pytest tests/test_w23_filogenesi.py -v
+
+  * RISULTATO ATTESO:
+    14 test (7 passed, 7 skipped in ambiente locale privo di Bioconductor;
+    13 passed, 1 skipped nel container CI; 14 passed nel container con dati
+    reali OSD-734)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. L'albero utile alle analisi e' quello delle varianti consegnate:
+       costruito prima dei filtri supererebbe il limite di fattibilita' e
+       conterrebbe varianti che l'oggetto finale non ha.
+    2. Le misure di diversita' filogenetica richiedono un albero radicato con
+       le stesse varianti dell'oggetto: la libreria scarterebbe in silenzio
+       cio' che non coincide.
+    3. Una ricerca con componenti casuali darebbe alberi diversi a parita' di
+       dati e configurazione: qui e' deterministica, e i test lo provano.
+
+
+--------------------------------------------------------------------------------
 MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
 --------------------------------------------------------------------------------
   * SETTIMANA E FASE:
@@ -1420,7 +1478,7 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
     'src/amplicon16s/steps/base.py' e 'R/lib/errors.R'). Come 'conftest.py' e
     'sottoinsieme.py', non porta il prefisso di una singola settimana perché
     presidia il contratto di scoping dei parametri dell'intero grafo S0 - S14
-    (fasi realizzate: tutte tranne S9, la filogenesi opzionale).
+    (le quindici fasi, tutte realizzate).
 
   * FILE DI TEST:
     tests/test_dipendenze_parametri.py
@@ -1478,7 +1536,7 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   ----------+---------------------------------------+------+-------------------------------------------------
   W1 - W2   | tests/test_w01_w02_import.py          |   10 | pytest tests/test_w01_w02_import.py -v
   W3 - W4   | tests/test_w03_w04_config_schema.py   |   84 | pytest tests/test_w03_w04_config_schema.py -v
-  W5        | tests/test_w05_errors_catalog.py      |  302 | pytest tests/test_w05_errors_catalog.py -v
+  W5        | tests/test_w05_errors_catalog.py      |  307 | pytest tests/test_w05_errors_catalog.py -v
   W5        | tests/test_w05_artifacts.py           |   25 | pytest tests/test_w05_artifacts.py -v
   W5        | tests/test_w05_logging.py             |   14 | pytest tests/test_w05_logging.py -v
   W6        | tests/test_w06_crosswalk.py           |   43 | pytest tests/test_w06_crosswalk.py -v
@@ -1501,7 +1559,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W21       | tests/test_w21_finale.py              |   16 | pytest tests/test_w21_finale.py -v
   W21       | tests/test_w21_dati_osd734.py         |    9 | pytest tests/test_w21_dati_osd734.py -v
   W22       | tests/test_w22_report.py              |   19 | pytest tests/test_w22_report.py -v
+  W23       | tests/test_w23_filogenesi.py          |   14 | pytest tests/test_w23_filogenesi.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (26 moduli)              |  976 | pytest tests/ -v
+  TOTALE    | Intera suite (27 moduli)              |  995 | pytest tests/ -v
 ================================================================================

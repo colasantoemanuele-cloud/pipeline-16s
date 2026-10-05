@@ -935,7 +935,7 @@ def test_cli_report_riporta_aggiustamenti_e_degradazioni(file_config, scenario, 
     radice = Path(scenario.config.io.out_root)
     assert f"Report scritto in {radice / 'report' / 'report.html'}" in uscita
     tabelle = radice / "report" / "tabelle"
-    assert "S9\tfilogenesi\t09_phylogeny\tdisattivata" in (tabelle / "fasi.tsv").read_text()
+    assert "S9\tfilogenesi delle varianti finali\t09_phylogeny\tdisattivata" in (tabelle / "fasi.tsv").read_text()
     tentativi = (tabelle / "tentativi_ripetuti.tsv").read_text().splitlines()
     assert tentativi[1].split("\t")[:7] == ["S4", "E-S4-02", "1", "run.batch_size", "24", "24", "12"]
     assert "S6\tE-S6-02" in (tabelle / "degradazioni.tsv").read_text()

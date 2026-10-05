@@ -25,7 +25,7 @@ davvero:
   dichiarate o facoltative;
 - precedenza obbligatoria S12 prima di S13 (``E-S13-01``) e codice generico
   per le altre violazioni d'ordine;
-- S9 unica fase facoltativa (``phylo.enabled``): disattivata, S10 non ne
+- S9 unica fase facoltativa (``phylo.enabled``), dopo S13: S10 non ne
   dipende e l'esecuzione risulta completa senza di essa;
 - ripresa: nessun lavoro ripetuto su un'esecuzione completa; un artefatto
   cancellato o alterato fa ripartire da quella fase e dalle sole discendenti;
@@ -126,7 +126,12 @@ from amplicon16s.steps.base import (
 )
 from amplicon16s.steps.s00_validate import ValidazioneIngressi, esegui_s0
 
-TUTTE = tuple(Passo)
+#: Le quindici fasi nell'ordine di esecuzione: S9, la filogenesi delle varianti
+#: finali, viene dopo S13 e prima di S14.
+TUTTE = (
+    Passo.S0, Passo.S1, Passo.S2, Passo.S3, Passo.S4, Passo.S5, Passo.S6, Passo.S7,
+    Passo.S8, Passo.S10, Passo.S11, Passo.S12, Passo.S13, Passo.S9, Passo.S14,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -293,14 +298,14 @@ def _file(run: ProjectRun, passo: Passo):
 def test_il_grafo_ordina_le_quindici_fasi():
     """
     **Obiettivo**: Verificare che ``GRAFO`` contenga tutte le 15 fasi (``S0-S14``)
-    in ordine topologico coerente con ``TUTTE``.
+    nell'ordine di esecuzione di ``TUTTE``, in cui ``S9`` segue ``S13``.
 
     **Razionale scientifico e sistemistico**: Garantisce che la definizione statica
     del DAG di pipeline copra l'intero ciclo di vita bioinformatico dalla
     validazione degli ingressi (``S0``) alla generazione dei report finali (``S14``).
     """
     assert GRAFO.ordine() == TUTTE
-    assert len(GRAFO) == 15
+    assert set(TUTTE) == set(Passo) and len(GRAFO) == 15
 
 
 def test_la_decontaminazione_precede_il_filtro_di_prevalenza():
@@ -430,14 +435,14 @@ def test_il_grafo_rifiuta_una_dipendenza_che_non_precede():
 
 def test_con_la_filogenesi_disattivata_s10_non_ne_dipende(scenario):
     """
-    **Obiettivo**: Verificare che con ``phylo.enabled = False`` le dipendenze
-    attive di ``S10`` siano ``(S0, S7, S8)``, mentre con ``phylo.enabled = True``
-    includano anche ``S9``.
+    **Obiettivo**: Verificare che le dipendenze attive di ``S10`` siano
+    ``(S0, S7, S8)`` con ``phylo.enabled`` falso come con ``phylo.enabled``
+    vero, e che ``S9`` attiva sia una dipendenza di ``S14``.
 
     **Razionale scientifico e sistemistico**: L'oggetto ``phyloseq`` costruito in
-    ``S10`` assembla tabella ASV (``S7``), tassonomia (``S8``), metadati (``S0``)
-    ed eventualmente l'albero filogenetico (``S9``); quando ``S9`` è disattivata,
-    ``S10`` non deve restare bloccata in attesa di un albero che non verrà prodotto.
+    ``S10`` assembla tabella ASV (``S7``), tassonomia (``S8``) e metadati (``S0``),
+    sempre senza albero: l'albero delle varianti finali lo costruisce ``S9`` dopo
+    ``S13``, e lo aggiunge ``S14`` all'oggetto finale.
     """
     config = scenario.config
     assert not config.phylo.enabled
@@ -445,7 +450,9 @@ def test_con_la_filogenesi_disattivata_s10_non_ne_dipende(scenario):
     assert GRAFO.dipendenze_attive(Passo.S10, config) == (Passo.S0, Passo.S7, Passo.S8)
 
     attiva = _variante(config, phylo__enabled=True)
-    assert Passo.S9 in GRAFO.dipendenze_attive(Passo.S10, attiva)
+    assert GRAFO.dipendenze_attive(Passo.S10, attiva) == (Passo.S0, Passo.S7, Passo.S8)
+    assert GRAFO.dipendenze_attive(Passo.S14, config) == (Passo.S13,)
+    assert GRAFO.dipendenze_attive(Passo.S14, attiva) == (Passo.S13, Passo.S9)
 
 
 # --------------------------------------------------------------------------- #
@@ -684,14 +691,15 @@ def test_cambiando_un_parametro_nessuna_fase_resta_conclusa(eseguita, scenario, 
 def test_con_parametri_ristretti_si_rifa_solo_cio_che_ne_dipende(scenario, registro):
     """
     **Obiettivo**: Verificare che con ``RISTRETTI`` la modifica di ``tax.min_boot``
-    invalidi ``S8`` e i suoi discendenti ``S10..S14``, lasciando intatte ``S0..S7``
-    e la filogenesi ``S9``.
+    invalidi ``S8`` e i suoi discendenti ``S10..S14``, compresa la filogenesi
+    ``S9`` che segue ``S13``, lasciando intatte ``S0..S7``.
 
     **Razionale scientifico e sistemistico**: Quando ogni fase dichiara il proprio
     gruppo di parametri (es. ``S8 -> ("tax",)``, ``S9 -> ("phylo",)``), cambiare
     la soglia di bootstrap tassonomico ricalcola solo l'assegnazione SILVA in
-    ``S8`` e le matrici a valle, risparmiando sia il denoising DADA2 (``S2..S7``)
-    sia l'allineamento filogenetico (``S9``).
+    ``S8`` e le fasi a valle, risparmiando il denoising DADA2 (``S2..S7``). La
+    filogenesi si rifa' perche' i filtri tassonomici di ``S13`` decidono le
+    varianti finali su cui l'albero e' costruito.
     """
     config = _variante(scenario.config, phylo__enabled=True)
     run = ProjectRun(config, passi=_passi(registro, RISTRETTI))
@@ -704,22 +712,23 @@ def test_con_parametri_ristretti_si_rifa_solo_cio_che_ne_dipende(scenario, regis
     assert situazione[Passo.S10].motivo == "a monte da eseguire: S8"
 
     eseguite = riprendi(run, registro)
-    assert eseguite == [Passo.S8, Passo.S10, Passo.S11, Passo.S12, Passo.S13, Passo.S14]
-    assert Passo.S9 not in eseguite  # la filogenesi non legge la tassonomia
+    assert eseguite == [
+        Passo.S8, Passo.S10, Passo.S11, Passo.S12, Passo.S13, Passo.S9, Passo.S14,
+    ]
 
 
 def test_attivare_la_filogenesi_rifa_s9_e_cio_che_ne_dipende(scenario, registro):
     """
     **Obiettivo**: Verificare che passando da ``phylo.enabled = False`` a
-    ``True`` vengano eseguite solo ``S9..S14`` (con ``S8`` che resta ``COMPLETATA``),
-    e che riportando ``phylo.enabled = False`` vengano rieseguite ``S10..S14``
-    per ``dipendenze cambiate``.
+    ``True`` vengano eseguite solo ``S9`` e ``S14`` (con ``S13`` che resta
+    ``COMPLETATA``), e che riportando ``phylo.enabled = False`` venga rieseguita
+    la sola ``S14`` per ``dipendenze cambiate``.
 
     **Razionale scientifico e sistemistico**: Attivare l'albero filogenetico in un
-    secondo momento deve calcolare ``S9`` e aggiornare l'oggetto ``phyloseq`` in
-    ``S10`` (e i controlli/filtri successivi) senza ricalcolare DADA2 o SILVA;
-    viceversa, disattivarlo deve rigenerare ``S10`` affinché non contenga più un
-    albero obsoleto.
+    secondo momento deve calcolare ``S9`` sulle varianti finali e rifare
+    l'oggetto finale in ``S14``, senza ricalcolare l'oggetto integrato, i
+    controlli, la decontaminazione e i filtri; viceversa, disattivarlo deve
+    rigenerare ``S14`` affinché l'oggetto finale non contenga più un albero.
     """
     run = ProjectRun(scenario.config, passi=_passi(registro, RISTRETTI))
     riprendi(run, registro)
@@ -728,18 +737,14 @@ def test_attivare_la_filogenesi_rifa_s9_e_cio_che_ne_dipende(scenario, registro)
     run = ProjectRun(attiva, passi=_passi(registro, RISTRETTI))
     situazione = run.situazione()
     assert situazione[Passo.S9].motivo == "nessun manifesto: mai conclusa"
-    assert situazione[Passo.S8].stato is StatoPasso.COMPLETATA
+    assert situazione[Passo.S13].stato is StatoPasso.COMPLETATA
 
-    assert riprendi(run, registro) == [
-        Passo.S9, Passo.S10, Passo.S11, Passo.S12, Passo.S13, Passo.S14
-    ]
+    assert riprendi(run, registro) == [Passo.S9, Passo.S14]
 
-    # E disattivarla di nuovo rifa' S10, che non deve piu' contenere l'albero.
+    # E disattivarla di nuovo rifa' S14, che non deve piu' contenere l'albero.
     run = ProjectRun(scenario.config, passi=_passi(registro, RISTRETTI))
-    assert "dipendenze cambiate" in run.situazione()[Passo.S10].motivo
-    assert riprendi(run, registro) == [
-        Passo.S10, Passo.S11, Passo.S12, Passo.S13, Passo.S14
-    ]
+    assert "dipendenze cambiate" in run.situazione()[Passo.S14].motivo
+    assert riprendi(run, registro) == [Passo.S14]
 
 
 def test_dati_di_ingresso_sostituiti_invalidano_s0_e_il_resto(eseguita, scenario, registro):
@@ -1258,27 +1263,24 @@ def test_l_inventario_e_riletto_dall_artefatto_di_s0(scenario):
     assert run.inventario == Contesto(scenario.config).inventario
 
 
-def test_oggi_esistono_tutte_le_fasi_tranne_s9(scenario):
+def test_esistono_tutte_le_fasi(scenario):
     """
-    **Obiettivo**: Verificare che allo stato della Settimana 21 ``passi_realizzati()``
-    contenga tutte le fasi tranne ``Passo.S9``, la filogenesi: dopo S0,
+    **Obiettivo**: Verificare che ``passi_realizzati()`` contenga tutte le
+    quindici fasi, compresa ``Passo.S9``, la filogenesi: dopo S0,
     ``Passo.S1`` e ``Passo.S2`` sono da eseguire (S2 dipende da S0, non da S1),
     ``Passo.S3`` attende S2, ``Passo.S8`` attende S7, ``Passo.S10`` attende S7 e
-    S8 (S9 e' disattivata per difetto), ``Passo.S11`` attende S2 e S10,
+    S8, ``Passo.S11`` attende S2 e S10,
     ``Passo.S12`` attende S10 (non S11, di cui non legge artefatti),
     ``Passo.S13`` le fasi di cui legge gli
-    artefatti e ``Passo.S14`` attende S13; ``Passo.S9`` non e' realizzata e
-    solleva ``LookupError`` se richiesta a ``run.fase(Passo.S9)``.
+    artefatti e ``Passo.S14`` attende S13; ``Passo.S9`` e' realizzata e
+    disattivata per difetto.
 
-    **Razionale scientifico e sistemistico**: Separa in modo trasparente le fasi
-    già implementate nel codice di produzione dalle fasi successive
-    (``S8..S14``), evitando falsi stati di completamento.
+    **Razionale scientifico e sistemistico**: Con tutte le fasi realizzate
+    nessuna valutazione puo' piu' dare una fase prevista dal grafo e priva di
+    codice; la filogenesi resta fuori dal lavoro da fare finche' non e' chiesta.
     """
     run = ProjectRun(scenario.config)
-    assert set(passi_realizzati()) == {
-        Passo.S0, Passo.S1, Passo.S2, Passo.S3, Passo.S4, Passo.S5, Passo.S6, Passo.S7,
-        Passo.S8, Passo.S10, Passo.S11, Passo.S12, Passo.S13, Passo.S14,
-    }
+    assert set(passi_realizzati()) == set(Passo)
     esegui_s0(scenario.config)
 
     situazione = run.situazione()
@@ -1296,8 +1298,8 @@ def test_oggi_esistono_tutte_le_fasi_tranne_s9(scenario):
     assert situazione[Passo.S9].stato is StatoPasso.DISATTIVATA
     assert run.prossima() is Passo.S1
     assert not run.completa
-    with pytest.raises(LookupError, match="S9"):
-        run.fase(Passo.S9)
+    assert run.fase(Passo.S9).passo is Passo.S9
+    assert StatoPasso.NON_REALIZZATA not in {s.stato for s in situazione.values()}
 
 
 def test_l_albero_e_quello_della_configurazione(scenario):

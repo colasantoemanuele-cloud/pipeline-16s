@@ -18,7 +18,7 @@ nel codice. Questo vale anche per i percorsi dei dati, che non risiedono nel rep
 Scelta di progetto: due linguaggi con ruoli distinti.
 
 - **Python ≥ 3.11** orchestra l'esecuzione.
-- **R ≥ 4.1** esegue i calcoli scientifici (dada2, phyloseq, DECIPHER, decontam) come
+- **R ≥ 4.1** esegue i calcoli scientifici (dada2, phyloseq, DECIPHER, phangorn, decontam) come
   processi separati, non come libreria caricata nel processo Python.
 
 Lo scambio fra i due passa per il filesystem: parametri in ingresso, artefatti su disco
@@ -233,7 +233,7 @@ Codici di uscita, per chi lancia la pipeline da uno script o da uno scheduler:
 | 2 | riga di comando non valida (argomenti mancanti o sconosciuti) |
 | 3 | errore di configurazione: il file non è valido, G15 lo respinge, oppure `run` trova la cartella di output già usata; nessuna fase è partita |
 | 4 | arresto con punto di ripresa dichiarato, stampato e scritto in `99_logs/punto_di_ripresa.json` e `.txt` |
-| 5 | tutte le fasi realizzate sono concluse, ma la prossima non esiste ancora come codice: oggi soltanto con `phylo.enabled` vero, perché S9 non è realizzata |
+| 5 | riservato: una fase prevista dal grafo non esiste come codice. Con le quindici fasi realizzate non si presenta in alcuna esecuzione; il codice resta come guardia per un grafo esteso prima della fase che lo realizza |
 
 ## Stato dell'implementazione
 
@@ -304,7 +304,7 @@ Sono realizzati:
   manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
   in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
   lo stesso checksum fra due esecuzioni sugli stessi ingressi;
-- il catalogo degli errori (54 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (55 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -366,8 +366,14 @@ Sono realizzati:
   con la cartella in cui ciascuna scrive e le fasi di cui consuma gli artefatti, e
   solo quelle: S0 per ogni fase che legge l'inventario dei campioni, S2 per S5, S6 e
   S7, che ne leggono le letture filtrate; S12 dipende dalla sola S10, così cambiare
-  i parametri di S11 non rifà la decontaminazione. S9, la
-  filogenesi, è attiva solo con `phylo.enabled`, e S12 precede obbligatoriamente S13.
+  i parametri di S11 non rifà la decontaminazione. L'ordine di esecuzione non è
+  quello dei numeri: S9, la filogenesi, è attiva solo con `phylo.enabled`, dipende da
+  S13 e si esegue fra S13 e S14, perché l'albero si costruisce sulle varianti che
+  restano dopo i filtri finali; S14 dipende da S13 e, solo con la filogenesi attiva,
+  da S9; S10 non dipende da S9. Disattivata, S9 non è lavoro mancante e S14 non la
+  richiede; attivarla a catena conclusa rifà le sole S9 e S14. Il numero della fase e
+  la sua cartella `09_phylogeny` restano quelli del piano. S12 precede
+  obbligatoriamente S13.
   Ogni fase conclusa scrive nella propria cartella un manifesto suo, `manifest_S<n>.json`,
   così due fasi che condividono una cartella si concludono separatamente. Il manifesto
   registra anche su che cosa la fase è stata calcolata: l'impronta della
@@ -405,9 +411,8 @@ Sono realizzati:
   dentro una valutazione il checksum di ogni artefatto è calcolato una volta sola, ma
   una valutazione completa li calcola tutti, e con gli artefatti di S2 e S4, da
   gigabyte, costa secondi (7,0 sul dataset di riferimento con
-  S0-S8 e S10-S14 concluse); delle quindici fasi oggi esistono come codice quattordici, tutte tranne
-  S9, la filogenesi, che è disattivata per difetto e, se attivata, risulta non
-  realizzata;
+  S0-S8 e S10-S14 concluse); le quindici fasi esistono tutte come codice, e S9, la
+  filogenesi, è disattivata per difetto;
 - **la versione del calcolo e la provenienza** (`runner/provenienza.py`). Ogni fase
   dichiara una versione, che entra nell'impronta: si incrementa quando cambia ciò che
   la fase calcola, e la ripresa rifà allora quella fase e le successive. Il registro
@@ -624,8 +629,9 @@ Sono realizzati:
 - **la fase S10, l'oggetto integrato** (`steps/s10_phyloseq.py`, `R/10_phyloseq.R`,
   `R/lib/oggetto.R`), in `10_phyloseq/`: un oggetto phyloseq, `ps_integrato.rds`, con
   quattro componenti allineati, la tabella dei conteggi di S7, la tabella tassonomica
-  di S8, i metadati dei campioni e le sequenze di riferimento delle varianti; l'albero,
-  che verrebbe da S9, manca perché la filogenesi è disattivata. L'oggetto contiene
+  di S8, i metadati dei campioni e le sequenze di riferimento delle varianti; l'oggetto
+  integrato non porta mai l'albero, che S9 costruisce sulle varianti finali e S14
+  aggiunge all'oggetto finale. L'oggetto contiene
   tutti i campioni dell'inventario, nell'ordine dell'inventario: un campione rimasto
   senza letture, che non ha una riga nelle tabelle di S5-S7, vi entra con conteggi a
   zero e il riepilogo lo elenca (sul dataset di riferimento non ce ne sono; il caso è
@@ -752,7 +758,8 @@ Sono realizzati:
 - **la fase S14, la serializzazione** (`steps/s14_finale.py`, `R/14_finale.R`,
   `R/lib/export.R`), in `12_final/` accanto a S13: `ps_final.rds`
   (`out.serialization`) e, con `out.export_flat`, gli export piatti `conteggi.tsv`,
-  `tassonomia.tsv`, `metadati.tsv` e `sequenze.fasta`, scritti senza numeri decimali,
+  `tassonomia.tsv`, `metadati.tsv` e `sequenze.fasta` (e `albero.nwk` con la
+  filogenesi attiva), scritti senza numeri decimali,
   in UTF-8, con valori mancanti come campo vuoto; `checksum.sha256` riporta
   l'impronta di ogni file consegnato, nella forma di `sha256sum`. La validazione,
   `E-S14-01`: componenti allineati, solo biologici, nessun campione e nessuna variante
@@ -774,6 +781,45 @@ Sono realizzati:
   varianti (l'1,0%). L'oggetto finale ha 492 campioni e 1.753 varianti, con 21,2
   milioni di letture, il 92,2% delle loro letture senza chimere; il campione più
   povero ne ha 1.085;
+- **la fase S9, la filogenesi opzionale** (`steps/s09_phylogeny.py`,
+  `R/09_phylogeny.R`, `R/lib/albero.R`), in `09_phylogeny/`. È disattivata per difetto
+  (`phylo.enabled` falso): su letture di 137 basi, di un solo tratto del gene, un
+  albero costruito da zero è debolmente risolto, e le relazioni profonde non sono
+  sostenute dal dato. Attivata, costruisce l'albero delle varianti dell'oggetto
+  filtrato di S13, quelle consegnate: sulle varianti di S7 sarebbero 12.045 sul
+  dataset di riferimento, oltre `phylo.max_seqs` (5.000), contro le 1.753 finali.
+  **Le due guardie**, a revisione umana, sono nella fase Python, prima di avviare il
+  calcolo, sul numero di varianti finali: `E-S9-01` se supera `phylo.max_seqs`,
+  `E-S9-02` se sono meno di quattro, perché con tre foglie un albero non ha topologia
+  da stimare.
+  **Il metodo**: allineamento multiplo con `DECIPHER::AlignSeqs` (`phylo.aligner`,
+  `decipher`); massima verosimiglianza con phangorn sul modello `phylo.model`
+  (`GTR+G+I`: GTR, gamma a quattro categorie, siti invarianti), a partire da un albero
+  neighbor-joining su distanze JC69, ottimizzando frequenze, tassi, forma della
+  gamma, quota di invarianti, lunghezze dei rami e topologia. **La ricerca è
+  deterministica per scelta**: la topologia si migliora con scambi fra rami vicini
+  (NNI), senza la perturbazione casuale (`stochastic`, `ratchet`) che phangorn offre
+  per uscire dai massimi locali; il seme viene comunque da `run.seed`, e
+  `run.threads` riguarda il solo allineamento. È una salita locale: può fermarsi su
+  un albero con verosimiglianza un poco più bassa di quello che una ricerca casuale
+  troverebbe, e dipende dal punto di partenza, dichiarato nello script. L'albero,
+  l'allineamento e il riepilogo sono identici byte per byte fra due esecuzioni e con
+  un numero di thread diverso. **Il radicamento è al punto medio**
+  (`phangorn::midpoint`): fra le varianti non c'è un gruppo esterno, e le misure di
+  diversità che usano la filogenesi richiedono un albero radicato; assume tassi
+  simili nei due rami principali. Scrive `albero.nwk`, in formato Newick con le
+  foglie che portano gli identificativi delle varianti e le lunghezze dei rami a otto
+  cifre significative, `allineamento.fasta` e `filogenesi.json`, con metodo,
+  verosimiglianza e parametri stimati. **L'albero nell'oggetto finale**: con la
+  filogenesi attiva S14 legge `albero.nwk`, verificato contro il manifesto di S9,
+  controlla che le foglie siano esattamente gli identificativi delle varianti
+  dell'oggetto e che l'albero sia radicato (`E-S14-01` altrimenti), lo aggiunge a
+  `ps_final.rds` senza cambiare l'ordine delle varianti e, con `out.export_flat`, lo
+  esporta in `12_final/albero.nwk`, elencato in `checksum.sha256`. Sul dataset di
+  riferimento, su una copia dell'esecuzione, S9 impiega 2 minuti e 36 secondi con 12
+  thread per 1.753 varianti (allineamento di 145 colonne): il limite di 5.000 lascia
+  margine. Sulla stessa copia, rieseguite S10-S14 con la filogenesi disattivata, i 29
+  artefatti sono identici a quelli del riferimento;
 - il tracciamento delle letture (`runner/tracciamento.py`): ogni fase registra i propri
   passi in file suoi, `letture_<passo>.tsv`, e la tabella completa si ricompone
   leggendo quelli delle fasi concluse nell'ordine del grafo, senza che una fase
@@ -842,7 +888,7 @@ Sono realizzati:
   l'elenco dei parametri dichiarati: il report lo dichiara, senza ricostruirli. Sul
   dataset di riferimento il report si genera in meno di un secondo.
 
-Delle fasi di analisi sono realizzate tutte tranne S9, la filogenesi opzionale: con
-`phylo.enabled` falso, il predefinito, la catena arriva a `ps_final.rds`.
+Le quindici fasi sono tutte realizzate. Con `phylo.enabled` falso, il predefinito, S9
+è disattivata e la catena arriva a `ps_final.rds` senza albero.
 
 Questa sezione viene aggiornata a ogni avanzamento del lavoro.

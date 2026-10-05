@@ -76,8 +76,14 @@ FILT_REMOVE_NA_PHYLUM: Final = True
 FILT_EXCLUDE_TAXA: Final = ("Chloroplast", "Mitochondria", "Eukaryota")
 
 # phylo: albero filogenetico
+# Disattivata per difetto: su sequenze corte un albero costruito da zero e'
+# debolmente risolto, e rischia di suggerire relazioni che il dato non sostiene.
 PHYLO_ENABLED: Final = False
+# Varianti finali oltre le quali S9 si ferma prima del calcolo (E-S9-01).
 PHYLO_MAX_SEQS: Final = 5000
+# L'allineatore multiplo e il modello evolutivo della massima verosimiglianza.
+PHYLO_ALIGNER: Final = "decipher"
+PHYLO_MODEL: Final = "GTR+G+I"
 
 # decontam: rimozione dei contaminanti
 DECONTAM_MIN_BLANKS: Final = 5

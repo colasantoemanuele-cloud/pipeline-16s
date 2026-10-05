@@ -31,9 +31,10 @@ scheduler:
   partita;
 * ``4``: arresto con punto di ripresa dichiarato, stampato e scritto in
   ``99_logs/punto_di_ripresa.json`` e ``.txt``;
-* ``5``: tutte le fasi realizzate sono concluse, ma la prossima non esiste
-  ancora come codice. Oggi soltanto con ``phylo.enabled`` vero, perché S9 non è
-  realizzata: senza filogenesi la catena completa termina con ``0``.
+* ``5``: una fase prevista dal grafo non esiste come codice. Con le quindici
+  fasi realizzate non può presentarsi in un'esecuzione normale: resta come
+  guardia, perché un grafo esteso prima della fase che lo realizza fermi
+  l'esecuzione con un codice proprio invece di un errore imprevisto.
 """
 
 from __future__ import annotations

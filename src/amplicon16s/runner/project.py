@@ -62,6 +62,7 @@ from amplicon16s.steps.s05_seqtab import TabellaSequenze
 from amplicon16s.steps.s06_chimera import RimozioneChimere
 from amplicon16s.steps.s07_asv_length import FiltroLunghezza
 from amplicon16s.steps.s08_taxonomy import AssegnazioneTassonomica
+from amplicon16s.steps.s09_phylogeny import Filogenesi
 from amplicon16s.steps.s10_phyloseq import AssemblaggioOggetto
 from amplicon16s.steps.s11_controls import ValidazioneControlli
 from amplicon16s.steps.s12_decontam import Decontaminazione
@@ -94,6 +95,7 @@ def passi_realizzati() -> dict[Passo, PipelineStep]:
         Passo.S11: ValidazioneControlli(),
         Passo.S12: Decontaminazione(),
         Passo.S13: FiltriFinali(),
+        Passo.S9: Filogenesi(),
         Passo.S14: Serializzazione(),
     }
 

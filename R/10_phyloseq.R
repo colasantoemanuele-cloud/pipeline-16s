@@ -128,7 +128,7 @@ esegui_fase(function(parametri, cartella) {
     }
   }
   if (!is.null(phyloseq::phy_tree(ps, errorIfNULL = FALSE))) {
-    stop("l'oggetto non deve avere un albero: S9 non e' attiva")
+    stop("l'oggetto integrato non porta l'albero: lo aggiunge S14 all'oggetto finale")
   }
   if (sum(phyloseq::otu_table(ps)) != sum(tabella)) {
     errore_catalogo("E-S10-01", sprintf(

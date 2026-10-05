@@ -2,7 +2,9 @@
 #
 # Interfaccia:
 #   ricostruisci(cartella)  l'oggetto phyloseq ricostruito da conteggi.tsv,
-#                           tassonomia.tsv, metadati.tsv e sequenze.fasta
+#                           tassonomia.tsv, metadati.tsv e sequenze.fasta, con
+#                           l'albero di albero.nwk se il file c'e' (richiede
+#                           allora albero.R)
 #
 # Serve a S14 per verificare che gli export bastino a ricostruire l'oggetto
 # serializzato. I file si leggono come testo, con i tipi dichiarati: interi i
@@ -27,10 +29,15 @@ ricostruisci <- function(cartella) {
   metadati <- leggi_tabella(file.path(cartella, "metadati.tsv"), "character")
   rownames(metadati) <- metadati$accession
   sequenze <- Biostrings::readDNAStringSet(file.path(cartella, "sequenze.fasta"))
-  phyloseq::phyloseq(
+  ps <- phyloseq::phyloseq(
     phyloseq::otu_table(m, taxa_are_rows = TRUE),
     phyloseq::tax_table(t),
     phyloseq::sample_data(metadati),
     sequenze
   )
+  albero <- file.path(cartella, "albero.nwk")
+  if (file.exists(albero)) {
+    phyloseq::phy_tree(ps) <- foglie_in_ordine(leggi_newick(albero), phyloseq::taxa_names(ps))
+  }
+  ps
 }

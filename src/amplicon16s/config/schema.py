@@ -289,7 +289,15 @@ class Phylo(_Gruppo):
     """Costruzione dell'albero filogenetico."""
 
     enabled: StrictBool = d.PHYLO_ENABLED
+    # Varianti dell'oggetto filtrato (S13) oltre le quali S9 si ferma prima del
+    # calcolo (E-S9-01).
     max_seqs: InteroPositivo = d.PHYLO_MAX_SEQS
+    # Insiemi chiusi: vanno estesi quando un'altra forma viene realizzata.
+    # L'allineatore multiplo (DECIPHER::AlignSeqs) e il modello evolutivo
+    # dell'albero di massima verosimiglianza (phangorn): GTR con eterogeneita'
+    # gamma fra i siti e una quota di siti invarianti.
+    aligner: Literal["decipher"] = d.PHYLO_ALIGNER
+    model: Literal["GTR+G+I"] = d.PHYLO_MODEL
 
 
 class Ctrl(_Gruppo):

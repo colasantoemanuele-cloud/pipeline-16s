@@ -2,10 +2,10 @@
 
 Riunisce in un oggetto phyloseq (``R/10_phyloseq.R``) quattro componenti
 allineati: la tabella dei conteggi di S7, la tabella tassonomica di S8, i
-metadati dei campioni e le sequenze di riferimento delle varianti. L'albero
-filogenetico e' un quinto componente facoltativo, che verrebbe da S9: con
-``phylo.enabled`` falso S9 e' disattivata e l'oggetto non lo contiene. Scrive in
-``10_phyloseq/``.
+metadati dei campioni e le sequenze di riferimento delle varianti. L'oggetto
+integrato non porta mai l'albero filogenetico: S9 lo costruisce sulle varianti
+finali, dopo i filtri di S13, ed e' S14 ad aggiungerlo all'oggetto finale.
+Scrive in ``10_phyloseq/``.
 
 **Tutti i campioni dell'inventario.** I campioni rimasti senza letture filtrate
 non hanno una riga nelle tabelle di S5-S7; l'oggetto integrato li contiene
@@ -276,11 +276,11 @@ class AssemblaggioOggetto(PipelineStep):
     #: La forma dell'oggetto (orientamento, identificativi, colonne portate;
     #: serializzazione ed export sono di S14); le tabelle e le colonne da cui
     #: vengono i metadati, e i nomi delle colonne d'origine registrati nella
-    #: corrispondenza; se la filogenesi e' attiva, perche' l'albero sarebbe un
-    #: componente.
+    #: corrispondenza. Il gruppo phylo non c'e': l'oggetto integrato non ha
+    #: l'albero, e attivare la filogenesi non lo cambia.
     parametri: ClassVar[tuple[str, ...]] = (
         "out.taxa_are_rows", "out.asv_id_scheme", "out.sample_id_source",
-        "out.study_columns", "out.batch_columns", "phylo.enabled", "meta", "ctrl.column",
+        "out.study_columns", "out.batch_columns", "meta", "ctrl.column",
         "io.study_table", "io.batch_table", "io.accession_regex",
         "decontam.batch_column", "err.batch_column",
     )
@@ -292,11 +292,6 @@ class AssemblaggioOggetto(PipelineStep):
         if contesto.inventario is None:
             raise RuntimeError("S10 richiede l'inventario prodotto da S0")
         config = contesto.config
-        if config.phylo.enabled:
-            raise RuntimeError(
-                "con phylo.enabled vero l'albero di S9 sarebbe un componente "
-                "dell'oggetto, e S9 non e' realizzata"
-            )
         albero = contesto.albero
         inventario = contesto.inventario
 

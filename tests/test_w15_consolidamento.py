@@ -460,6 +460,8 @@ COPERTURA: dict[str, str] = {
     "E-S13-02": "test_w21_finale.py::test_un_campione_svuotato_dal_filtro_di_prevalenza_ferma_con_e_s13_02",
     "E-S13-03": "test_w21_finale.py::test_un_campione_svuotato_dal_filtro_tassonomico_esce_con_e_s13_03",
     "E-S14-01": "test_w21_finale.py::test_una_frazione_trattenuta_sotto_la_soglia_ferma_con_e_s14_01",
+    "E-S9-01": "test_w23_filogenesi.py::test_e_s9_01_ferma_prima_di_avviare_il_calcolo",
+    "E-S9-02": "test_w23_filogenesi.py::test_e_s9_02_ferma_con_troppo_poche_varianti",
 }
 
 _RADICE = Path(__file__).resolve().parents[1]

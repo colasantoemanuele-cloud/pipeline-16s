@@ -168,8 +168,19 @@ filt:
 # phylo: costruzione dell'albero filogenetico                                 #
 # --------------------------------------------------------------------------- #
 phylo:
+  # Disattivata per difetto. L'albero si costruisce sulle varianti che restano
+  # dopo i filtri finali (S13) ed entra nell'oggetto finale (S14). Su letture
+  # corte, di un solo tratto del gene, un albero costruito da zero e' debolmente
+  # risolto: va attivato sapendo che le relazioni profonde non sono sostenute.
   enabled: false
+  # Varianti finali oltre le quali la fase si ferma prima del calcolo (E-S9-01):
+  # il costo della massima verosimiglianza cresce rapidamente con il loro numero.
   max_seqs: 5000
+  # Allineatore multiplo: decipher (DECIPHER::AlignSeqs).
+  aligner: decipher
+  # Modello evolutivo della massima verosimiglianza (phangorn): GTR con
+  # eterogeneita' gamma fra i siti (quattro categorie) e siti invarianti.
+  model: "GTR+G+I"
 
 # --------------------------------------------------------------------------- #
 # ctrl: come si riconoscono controlli negativi, positivi e campioni           #
