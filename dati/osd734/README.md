@@ -52,43 +52,59 @@ presenti e integri.
 I calcoli richiedono R 4.5.2 con Bioconductor e dada2 1.36.0.1 (la 1.36.0 con la
 correzione dei pareggi di `assignTaxonomy`), presenti solo nell'immagine del container:
 la pipeline non si esegue sulla macchina dell'utente ma nel container, con il
-repository montato. Nei comandi `<immagine>` e' il nome che si sceglie per l'immagine
-costruita, per esempio `amplicon16s:locale`.
+repository montato.
 
-**1. Costruire l'immagine**, dalla radice del repository (serve la rete: le immagini di
-partenza, i pacchetti R dall'istantanea datata di CRAN e i sorgenti di dada2):
+**1. Procurarsi l'immagine.** La via principale e' scaricare l'immagine pubblicata,
+identificata per digest:
 
 ```bash
-docker build -f container/Dockerfile -t <immagine> .
+docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
 ```
+
+Il digest (`sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`) identifica i byte dell'immagine: il nome con cui e' pubblicata potra'
+cambiare, il digest no, e chi la scarica con quel digest ottiene la stessa immagine. Lo
+scarico e' di 1,86 GB compressi; su disco l'immagine occupa 7,6 GB. Nei comandi che
+seguono `<immagine>` e' quel riferimento completo.
+
+In alternativa l'immagine si costruisce dal Dockerfile, dalla radice del repository
+(serve la rete: le immagini di partenza, i pacchetti R dall'istantanea datata di CRAN e
+i sorgenti di dada2):
+
+```bash
+docker build -f container/Dockerfile -t amplicon16s:locale .
+```
+
+e `<immagine>` e' allora `amplicon16s:locale`. **Due costruzioni non sono identiche
+byte per byte**: date dei file, ordine di compressione e metadati cambiano, quindi
+un'immagine costruita in locale ha un altro identificativo e non e' l'immagine
+pubblicata. Contiene pero' gli stessi pacchetti alle stesse versioni, verificati contro
+`renv.lock` durante la costruzione, e nelle prove fatte ha dato gli stessi risultati
+(vedi sotto).
 
 **2. Adattare la configurazione** `config_osd734.yaml`, prima dell'esecuzione. I suoi
 percorsi sono relativi alla radice del repository, da cui il comando va lanciato: la
 riga di comando li rende assoluti al caricamento, e la configurazione registrata in
-`00_config/` riporta i percorsi dei file letti (nel container, sotto `/app`). Vanno
-adattati due valori:
+`00_config/` riporta i percorsi dei file letti (nel container, sotto `/app`).
 
-- `run.threads`, per primo. La configurazione non lo imposta e vale 16: se la macchina
-  ha meno processori utilizzabili, i controlli di avvio fermano l'esecuzione con
-  `E-S0-14` prima di qualunque fase. Va indicato il numero di processori della macchina
-  (`nproc`) o meno. Non cambia i risultati: e' fra i parametri senza effetto, fuori
-  dall'impronta delle fasi.
-- `run.container`, l'immagine con cui si esegue, ancorata per digest
-  (`nome@sha256:<64 cifre esadecimali>`; un tag non e' accettato, perche' puo' essere
-  riassegnato a un'immagine diversa). Un'immagine costruita in locale non ha un digest
-  di registro: si indica il suo identificativo di contenuto, che si ottiene con
+- `run.threads` e' il valore da adattare. La configurazione non lo imposta e vale 16:
+  se la macchina ha meno processori utilizzabili, i controlli di avvio fermano
+  l'esecuzione con `E-S0-14` prima di qualunque fase. Va indicato il numero di
+  processori della macchina (`nproc`) o meno. Non cambia i risultati: e' fra i
+  parametri senza effetto, fuori dall'impronta delle fasi.
+- `run.container` dichiara gia' l'immagine pubblicata, con il suo digest di registro, e
+  con quella non va toccato. Il valore non sceglie l'immagine da eseguire, che e'
+  quella passata a `docker run`: dichiara con quale immagine i risultati sono stati
+  prodotti. E' registrato nella configurazione salvata in `00_config/` e nella
+  provenienza del manifesto di ogni fase; una ripresa con un'immagine dichiarata
+  diversa lo segnala con un avviso di provenienza. Solo chi ha costruito l'immagine dal
+  Dockerfile lo sostituisce con l'identificativo locale, che vale soltanto sulla sua
+  macchina e si ottiene con
 
   ```bash
-  echo "amplicon16s@$(docker image inspect <immagine> --format '{{.Id}}')"
+  echo "amplicon16s@$(docker image inspect amplicon16s:locale --format '{{.Id}}')"
   ```
 
-  Il valore non sceglie l'immagine da eseguire, che e' quella passata a `docker run`:
-  dichiara con quale immagine i risultati sono stati prodotti. E' registrato nella
-  configurazione salvata in `00_config/` e nella provenienza del manifesto di ogni
-  fase; una ripresa con un'immagine dichiarata diversa lo segnala con un avviso di
-  provenienza. L'identificativo locale vale solo sulla macchina che ha costruito
-  l'immagine: per un'immagine pubblicata in un registro si indica il digest con cui la
-  si recupera (vedi "Identificare l'immagine per digest" nel README principale).
+  (un tag non e' accettato, perche' puo' essere riassegnato a un'immagine diversa).
 
 **3. Eseguire**, dalla radice del repository:
 
@@ -129,6 +145,13 @@ di riferimento precedente, prodotta su un'altra copia dei dati e con un'immagine
 costruita in un altro momento. Quell'esecuzione e' ora il riferimento, e i suoi
 checksum sono quelli pubblicati qui.
 
+**Con l'immagine pubblicata** la catena completa e' stata rieseguita il 6 ottobre 2026
+sugli stessi dati scaricati, in una cartella di output nuova: 1.031 artefatti
+identici ai checksum pubblicati, in 48 minuti e 11 secondi, con 12,6 GB di memoria di
+picco. L'immagine pubblicata contiene, rispetto a quella della riproduzione, tre
+pacchetti R in piu' per le analisi ecologiche (DESeq2, locfit, randomForest) e nessuna
+versione cambiata fra i 206 pacchetti gia' presenti.
+
 La prova ha fatto emergere un difetto, corretto: al commit `59ef39d` i percorsi
 relativi di `config_osd734.yaml` superavano S0 ma fermavano S1 con `E-R-02`, perche' il
 processo R di una fase parte nella cartella della fase e non trovava i propri
@@ -160,14 +183,14 @@ Non si confrontano i manifesti, la configurazione registrata in `00_config/`, i 
 il report: portano date, identificativi dell'esecuzione e percorsi, e differiscono per
 costruzione fra due esecuzioni.
 
-**A quale ambiente si riferiscono i checksum.** All'immagine costruita da
+**A quale ambiente si riferiscono i checksum.** All'immagine pubblicata,
+`ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`,
+con il codice del repository e la configurazione `config_osd734.yaml`, filogenesi
+disattivata; `run.threads` non incide sui risultati. Un'immagine costruita da
 `container/Dockerfile` (immagine di partenza ancorata per digest, pacchetti R
-dell'istantanea datata e di `renv.lock`, dada2 1.36.0.1), con il codice del repository
-e la configurazione `config_osd734.yaml`, filogenesi disattivata; `run.threads` non
-incide sui risultati. Un'immagine pubblicata in un registro, con il suo digest, non
-c'e' ancora: finche' non c'e', chi riproduce costruisce l'immagine dal Dockerfile, come
-nella prova descritta sopra, in cui due immagini costruite in momenti diversi hanno
-dato gli stessi byte. Fuori dal container, con un'altra versione di R o dei pacchetti,
+dell'istantanea datata e di `renv.lock`, dada2 1.36.0.1) non e' la stessa immagine, ma
+ha dato finora gli stessi byte: tre immagini costruite in momenti diversi, quella
+pubblicata compresa, coincidono su tutti gli artefatti. Fuori dal container, con un'altra versione di R o dei pacchetti,
 i risultati possono differire senza che l'esecuzione sia sbagliata: il confronto prova
 l'identita', non la correttezza.
 
@@ -181,7 +204,7 @@ l'identita', non la correttezza.
    con `config_osd734.yaml` (devono differire solo i percorsi, `run.threads` e
    `run.container`).
 3. Se e' una fase successiva, la differenza e' nell'ambiente di calcolo: controllare
-   di aver eseguito nell'immagine costruita dal Dockerfile del repository, con
+   di aver eseguito nell'immagine pubblicata, scaricata con il suo digest, con
    `AMPLICON16S_R_DIR=/app/R` (senza, l'immagine esegue gli script R copiati alla
    costruzione), e che `amplicon16s report --config dati/osd734/config_osd734.yaml`
    non riporti avvisi di provenienza ne' artefatti non integri. Il report indica anche
@@ -196,18 +219,18 @@ l'identita', non la correttezza.
 Misure sulla macchina di sviluppo (Intel Xeon W-10855M, 12 processori logici, 30 GB di
 memoria), con `run.threads: 12`. Dove non e' detto altrimenti vengono dalla
 riproduzione da zero del 5 ottobre 2026 (codice del commit `59ef39d`, immagine costruita
-dal suo Dockerfile).
+dal suo Dockerfile); quelle con l'immagine pubblicata sono del 6 ottobre 2026.
 
 | Che cosa | Misura | Fonte |
 |---|---|---|
 | Letture FASTQ | 2,52 GB (2.515.101.383 byte), 960 file | somma delle dimensioni dichiarate da ENA in `letture_ena.tsv`, uguale ai byte scaricati |
 | Riferimento SILVA 138 | 138 MB (137.973.851 byte) | `scarica_riferimento.py` |
 | Durata dello scarico | 2 ore e 48 minuti le letture, 44 secondi il riferimento, meno di un secondo il lotto | i tre script, in una cartella vuota; dipende dal collegamento con ENA |
-| Costruzione dell'immagine | 4 minuti e 37 secondi senza cache | `docker build --no-cache`; dipende dalla rete |
-| Immagine del container | 7,59 GB su disco, strati dell'immagine di partenza di Bioconductor compresi | `docker image ls` (colonna DISK USAGE) |
+| Immagine pubblicata | 1,86 GB da scaricare (1.863.204.352 byte compressi, 34 strati); 7,6 GB su disco, strati dell'immagine di partenza di Bioconductor compresi | manifesto del registro; `docker image ls` (colonna DISK USAGE) |
+| Costruzione dell'immagine, in alternativa | 4 minuti e 37 secondi senza cache | `docker build --no-cache`; dipende dalla rete |
 | Uscite dell'esecuzione completa | 2,27 GB, di cui 2,24 GB di letture filtrate (`03_filtered/`) e 32 MB di tutto il resto | `output/osd734/` a catena conclusa |
-| Durata dell'esecuzione completa | 53 minuti e 20 secondi per la catena S0-S14; la fase S4 (denoising) ne occupa 26, S2 9,5, S8 6, S1 5 | il comando di esecuzione qui sopra; nelle esecuzioni precedenti 55,5 e 64 minuti |
-| Memoria di picco della pipeline | 12,3 GB (11,5 GiB; 12.304.121.856 byte) | `memory.peak` del cgroup del container, letto al termine della catena, con il limite a 24 GB |
+| Durata dell'esecuzione completa | 53 minuti e 20 secondi per la catena S0-S14; la fase S4 (denoising) ne occupa 26, S2 9,5, S8 6, S1 5 | il comando di esecuzione qui sopra; 48 minuti e 11 secondi con l'immagine pubblicata, nelle esecuzioni precedenti 55,5 e 64 minuti |
+| Memoria di picco della pipeline | 12,3 GB (11,5 GiB; 12.304.121.856 byte); 12,6 GB con l'immagine pubblicata | `memory.peak` del cgroup del container, letto al termine della catena, con il limite a 24 GB |
 
 Lo spazio dell'immagine e' misurato con Docker 29.1.3, che usa l'archivio di immagini
 di containerd. Dei 7,59 GB, 5,67 sono strati condivisi con altre immagini della

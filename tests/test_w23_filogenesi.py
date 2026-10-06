@@ -105,7 +105,7 @@ from typing import Any, ClassVar
 
 import pytest
 from conftest import NEGATIVO, POSITIVO, Campione, copia_esecuzione, crea_scenario
-from sottoinsieme import config_ridotta, motivo_pacchetti_r_assenti
+from sottoinsieme import config_ridotta, motivo_pacchetti_r_assenti, processori_disponibili
 
 import amplicon16s.steps.s09_phylogeny as s09
 from amplicon16s.config.resolve import risolvi
@@ -567,7 +567,9 @@ def test_l_albero_e_identico_fra_due_esecuzioni_e_con_thread_diversi(
     """
     **Obiettivo**: Verificare che l'albero, l'allineamento e il riepilogo di S9,
     e l'oggetto finale e gli export di S14, siano identici byte per byte in una
-    seconda esecuzione e in una terza con un numero di thread diverso.
+    seconda esecuzione e in una terza con un numero di thread diverso (con lo
+    stesso numero su una macchina con un solo processore, dove un altro valore
+    non e' ammesso).
 
     **Razionale scientifico e sistemistico**: La ricerca dell'albero e'
     configurata senza componenti casuali, e il numero di processi riguarda il
@@ -578,7 +580,8 @@ def test_l_albero_e_identico_fra_due_esecuzioni_e_con_thread_diversi(
     attese = {f: _impronte(run.albero.cartella(f)) for f in (Fase.PHYLOGENY, Fase.FINAL)}
     assert NOME_ALBERO in attese[Fase.PHYLOGENY] and "ps_final.rds" in attese[Fase.FINAL]
     thread = run.config.run.threads
-    for nome, processi in (("seconda", thread), ("thread", 1 if thread > 1 else 2)):
+    altri = 1 if thread > 1 else min(2, processori_disponibili())
+    for nome, processi in (("seconda", thread), ("thread", altri)):
         altra, esito = _con_filogenesi(finale_calcolata, tmp_path / nome, run={"threads": processi})
         assert esito.conclusione is Conclusione.COMPLETATA
         for fase, impronte in attese.items():

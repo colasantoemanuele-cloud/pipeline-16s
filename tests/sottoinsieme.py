@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import os
 from pathlib import Path
 from typing import Any, Final
 
@@ -68,8 +69,31 @@ def manifesto() -> list[dict[str, str]]:
         return list(csv.DictReader(file, delimiter="\t"))
 
 
+def processori_disponibili() -> int:
+    """I processori utilizzabili da questo processo, come li conta G14.
+
+    E' l'insieme di affinita' del processo, non il numero di processori della
+    macchina: in un container limitato, o sotto ``taskset``, sono meno. I test
+    che chiedono piu' thread di quelli utilizzabili verrebbero fermati da G14
+    con ``E-S0-14``, correttamente: e' il test a dover chiedere cio' che la
+    macchina ha.
+    """
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # piattaforme senza affinita' dei processi
+        return os.cpu_count() or 1
+
+
+#: I thread chiesti dalle esecuzioni sul sottoinsieme di prova: due dove ci
+#: sono, per esercitare il calcolo parallelo, uno su una macchina con un solo
+#: processore. ``run.threads`` non incide sui risultati.
+THREAD_DI_PROVA: Final = min(2, processori_disponibili())
+
+
 def dati_config(cartella: Path, **sovrascrivi: dict[str, Any]) -> dict[str, Any]:
-    """I parametri d'esempio con i percorsi della versione ridotta."""
+    """I parametri d'esempio con i percorsi della versione ridotta e i thread
+    adattati ai processori utilizzabili (:data:`THREAD_DI_PROVA`).
+    """
     dati = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
     metadati = RIDOTTO / "metadati"
     dati["io"].update(
@@ -87,7 +111,7 @@ def dati_config(cartella: Path, **sovrascrivi: dict[str, Any]) -> dict[str, Any]
     # Nel riferimento sintetico la variante del ceppo dei controlli positivi
     # (Variovorax su SILVA 138) ha la linea inventata del genere Genere_01.
     dati["katharoseq"]["target_taxon"] = TAXON_SINTETICO
-    dati["run"]["threads"] = 2
+    dati["run"]["threads"] = THREAD_DI_PROVA
     for gruppo, valori in sovrascrivi.items():
         dati.setdefault(gruppo, {}).update(valori)
     return dati

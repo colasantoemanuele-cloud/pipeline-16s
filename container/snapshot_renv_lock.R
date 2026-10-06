@@ -16,6 +16,10 @@ pipeline <- c(
   "phangorn", "Biostrings", "ShortRead"
 )
 
+# Gli stessi pacchetti delle analisi ecologiche di install_r_packages.R.
+ecologia <- c("DESeq2", "vegan", "randomForest")
+pipeline <- c(pipeline, ecologia)
+
 mancanti <- pipeline[!vapply(pipeline, requireNamespace, logical(1), quietly = TRUE)]
 if (length(mancanti)) {
   stop("pacchetti non installati nell'immagine: ", paste(mancanti, collapse = ", "))

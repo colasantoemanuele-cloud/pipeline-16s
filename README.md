@@ -69,17 +69,38 @@ nell'immagine. Dove mancano, quei test si saltano.
 ### Ambiente containerizzato
 
 L'immagine contiene sia Python sia R con tutte le librerie della pipeline, ed è il modo
-previsto per eseguire la pipeline in modo riproducibile:
+previsto per eseguire la pipeline in modo riproducibile. La via principale è scaricare
+l'immagine pubblicata, identificata per digest:
+
+```bash
+docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
+docker run --rm ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
+```
+
+Il digest identifica i byte dell'immagine: il nome con cui è pubblicata potrà cambiare,
+il digest no. È l'immagine a cui si riferiscono i checksum attesi dei risultati in
+`dati/osd734/`, e quella dichiarata in `run.container` da
+`dati/osd734/config_osd734.yaml`. Lo scarico è di 1,86 GB.
+
+In alternativa l'immagine si costruisce dal Dockerfile:
 
 ```bash
 docker build -f container/Dockerfile -t <immagine> .
-docker run --rm <immagine>
 ```
 
-`<immagine>` è il nome scelto per l'immagine costruita, come nei comandi dei test;
-l'immagine corrente del progetto è indicata in `test.txt` (sezione 1.3). Il comando
-completo per eseguire la pipeline nel container, con il repository montato, è in
-`dati/osd734/README.md`.
+Due costruzioni non sono identiche byte per byte (date dei file, compressione,
+metadati): un'immagine costruita in locale ha un altro identificativo e non è l'immagine
+pubblicata, anche se contiene gli stessi pacchetti alle stesse versioni, verificati
+contro `renv.lock`. Nelle prove fatte, tre immagini costruite in momenti diversi hanno
+dato gli stessi 1.031 artefatti sul dataset di riferimento.
+
+Nei comandi dei test `<immagine>` è il riferimento all'immagine in uso: quella corrente
+del progetto è indicata in `test.txt` (sezione 1.3). Il comando completo per eseguire
+la pipeline nel container, con il repository montato, è in `dati/osd734/README.md`.
+
+L'immagine contiene anche i pacchetti R delle analisi ecologiche a valle (DESeq2, vegan,
+randomForest), registrati in `renv.lock` come quelli della pipeline. Il codice di quelle
+analisi non è nell'immagine: si eseguirà dal repository montato.
 
 Le versioni sono bloccate su entrambi i fronti: le dipendenze Python in
 `pyproject.toml` (e nei file `requirements.txt` / `requirements-dev.txt`), quelle R in
@@ -160,9 +181,10 @@ scaricati sono esclusi da git.
 
 ### Identificare l'immagine per digest
 
-Un tag locale identifica l'immagine solo su quella macchina e può
-essere riassegnato. Per riferirsi senza ambiguità a un'immagine costruita, si usa il suo
-digest:
+L'immagine pubblicata si cita con il digest di registro riportato sopra. Un tag locale
+identifica l'immagine solo su quella macchina e può
+essere riassegnato. Per riferirsi senza ambiguità a un'immagine costruita in locale, si
+usa il suo digest:
 
 ```bash
 # Digest dell'immagine costruita in locale
@@ -251,6 +273,21 @@ Sono realizzati:
 - l'ambiente di esecuzione containerizzato, che contiene Python 3.11 e R 4.5 con i
   pacchetti Bioconductor della pipeline, con le versioni bloccate e verificate a ogni
   costruzione dell'immagine;
+- **l'immagine pubblicata** nel registro dei container, identificata per digest
+  (`ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`),
+  1,86 GB da scaricare. Prima della pubblicazione ne è stato verificato il contenuto:
+  nessun percorso personale, nessuna credenziale, nessun dato oltre alle 28 letture del
+  sottoinsieme di prova, nulla di ciò che `.dockerignore` esclude. Rispetto alle
+  immagini precedenti contiene i pacchetti R delle analisi ecologiche (DESeq2, vegan,
+  randomForest): in `renv.lock` sono tre voci in più (DESeq2, locfit, randomForest;
+  vegan c'era già, come dipendenza di phyloseq) e nessuna versione cambiata. Con questa
+  immagine la catena completa sul dataset di riferimento dà i 1.031 artefatti dei
+  checksum pubblicati, e sul sottoinsieme di prova gli stessi 99 artefatti
+  dell'immagine locale. `dati/osd734/config_osd734.yaml` la dichiara in
+  `run.container`. La suite di test passa anche su una macchina con un solo
+  processore: le esecuzioni di prova chiedono due thread dove ci sono, uno altrimenti
+  (`tests/sottoinsieme.py`), perché G14 respinge, correttamente, più thread dei
+  processori utilizzabili;
 - la validazione della configurazione: lo schema copre tutti i parametri della
   pipeline e ne verifica tipo e dominio, respingendo le chiavi sconosciute;
   `config/config.example.yaml` ne è un'istanza completa;
@@ -517,8 +554,9 @@ Sono realizzati:
   (`checksum_finali.sha256` per i file consegnati, `checksum_artefatti.tsv` per tutti
   gli artefatti), e `confronta_risultati.py` li confronta con un'esecuzione indicando,
   se differiscono, la prima fase in cui la differenza compare. Si riferiscono
-  all'immagine costruita dal Dockerfile: un'immagine pubblicata in un registro non c'è
-  ancora. La prova ha fatto emergere un difetto, corretto: i percorsi relativi della
+  all'immagine pubblicata nel registro, con cui la catena completa è stata rieseguita
+  (1.031 artefatti identici, 48 minuti e 11 secondi, 12,6 GB di picco). La prova ha
+  fatto emergere un difetto, corretto: i percorsi relativi della
   configurazione fermavano S1, perché il processo R di una fase parte nella cartella
   della fase; ora la riga di comando rende assoluti, rispetto alla cartella di lancio,
   i percorsi relativi della configurazione (`cli.py`), e la configurazione registrata

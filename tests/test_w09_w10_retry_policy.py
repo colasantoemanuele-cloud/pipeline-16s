@@ -103,6 +103,7 @@ from typing import Any, ClassVar
 import pytest
 import yaml
 from conftest import NEGATIVO, POSITIVO, Campione, crea_scenario
+from sottoinsieme import processori_disponibili
 
 import amplicon16s.cli as cli
 from amplicon16s.config.resolve import risolvi, versioni_registrate
@@ -1162,8 +1163,10 @@ def test_resume_con_un_digest_diverso_registra_accanto_senza_sovrascrivere(
     file_config, scenario, con_doppioni, registro, tmp_path, capsys
 ):
     """
-    **Obiettivo**: Verificare che riprendendo con ``run.threads=2`` (e poi con
-    ``retry.max_attempts=3`` e infine tornando alla configurazione iniziale) non
+    **Obiettivo**: Verificare che riprendendo con un parametro senza effetto
+    sui risultati cambiato (``run.threads=2``, oppure ``run.batch_size=7`` su
+    una macchina con un solo processore, dove due thread non sono ammessi; poi
+    con ``retry.max_attempts=3`` e infine tornando alla configurazione iniziale) non
     venga ricalcolata alcuna fase, ``resolved.yaml`` resti intatto e vengano
     affiancati ``resolved_2.yaml``, ``resolved_3.yaml`` e ``resolved_4.yaml``
     con i campi ``precedente`` e ``differenze_dalla_precedente``.
@@ -1176,9 +1179,15 @@ def test_resume_con_un_digest_diverso_registra_accanto_senza_sovrascrivere(
     _cli("run", "--config", str(file_config), capsys=capsys)
     originale = versioni_registrate(scenario.config.io.out_root)[0].read_bytes()
 
-    # run.threads e' fuori dall'impronta dei risultati ma non dal digest.
+    # run.threads e' fuori dall'impronta dei risultati ma non dal digest. Con
+    # un solo processore G14 fermerebbe due thread: lo stesso vale per
+    # run.batch_size, senza effetto allo stesso modo.
+    if processori_disponibili() >= 2:
+        senza_effetto, differenza = {"run__threads": 2}, "run.threads: 1 -> 2"
+    else:
+        senza_effetto, differenza = {"run__batch_size": 7}, "run.batch_size: 24 -> 7"
     registro.clear()
-    diversa = _scrivi_config(tmp_path / "c2.yaml", scenario.config, run__threads=2)
+    diversa = _scrivi_config(tmp_path / "c2.yaml", scenario.config, **senza_effetto)
     codice, uscita = _cli("resume", "--config", str(diversa), capsys=capsys)
     assert codice == 0 and registro == []  # nessuna fase rifatta
     assert "registrata in resolved_2.yaml" in uscita
@@ -1187,11 +1196,11 @@ def test_resume_con_un_digest_diverso_registra_accanto_senza_sovrascrivere(
     assert versioni_registrate(scenario.config.io.out_root)[0].read_bytes() == originale
     assert seconda["_nome"] == "resolved_2.yaml"
     assert seconda["precedente"] == "resolved.yaml"
-    assert seconda["differenze_dalla_precedente"] == ["run.threads: 1 -> 2"]
+    assert seconda["differenze_dalla_precedente"] == [differenza]
     assert seconda["digest"] != prima["digest"]
 
     # Un parametro di retry e' un'altra configurazione ancora.
-    terza = _scrivi_config(tmp_path / "c3.yaml", scenario.config, run__threads=2,
+    terza = _scrivi_config(tmp_path / "c3.yaml", scenario.config, **senza_effetto,
                            retry__max_attempts=3)
     _cli("resume", "--config", str(terza), capsys=capsys)
     assert _registrate(scenario.config)[-1]["differenze_dalla_precedente"] == [

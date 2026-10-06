@@ -1,14 +1,14 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W24 (Fasi F0-F7, con l'anticipazione di attivita'
+Piano Operativo: Settimane W1 - W25 (Fasi F0-F7, con l'anticipazione di attivita'
 della fase F9 sulla riproducibilita')
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W24 del Piano Operativo.
+W1 - W25 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -42,22 +42,26 @@ sequenza:
 
     pytest tests/ -n 0
 
-Totale complessivo della suite: 1002 test su 28 moduli:
-  * 870 passed e 132 skipped in ambiente locale standard (R base + jsonlite, senza
-    Bioconductor e senza dati reali), in circa un minuto;
+Totale complessivo della suite: 1007 test su 29 moduli:
+  * 874 passed e 133 skipped in ambiente locale standard (R base + jsonlite, senza
+    Bioconductor e senza dati reali), in circa un minuto; lo stesso esito su un
+    solo processore ('taskset -c 0 pytest tests/'), in circa 9 minuti;
   * nel container CI standard (senza dati reali OSD-734), su quattro processi:
-    952 passed e 42 skipped in circa 9 minuti, misurati nell'immagine
-    costruita e lanciata in locale come fa la CI; il conteggio della CI e' da
-    aggiornare con il suo esito dopo la pubblicazione (l'ultimo, 950 passed e
-    37 skipped in circa 11 minuti, CI run 37304854192, e' della suite di 995
-    test). I salti sono 34 test sui dati reali OSD-734, 1 test
+    956 passed e 43 skipped in circa 8 minuti, misurati nell'immagine
+    pubblicata lanciata in locale come fa la CI; lo stesso esito con il
+    container limitato a un solo processore ('--cpuset-cpus=0'), in circa 23
+    minuti; il conteggio della CI e' da aggiornare con il suo esito dopo la
+    pubblicazione del repository (l'ultimo, 952
+    passed e 42 skipped in circa 11 minuti, CI run 37356664276, e' della suite
+    di 1002 test). I salti sono 34 test sui dati reali OSD-734, 1 test
     sull'allocazione R legata alla lingua, 1 test che richiede il repository
     .git, i 5 test di 'tests/test_w24_riproduzione.py' che usano i checksum
-    pubblicati in dati/ (uno dei quali e' il trentacinquesimo sui dati reali)
+    pubblicati in dati/ (uno dei quali e' il trentacinquesimo sui dati reali),
+    1 test di 'tests/test_w25_immagine.py' che legge la configurazione in dati/
     e il modulo 'tests/test_w21_dati_osd734.py',
     che nell'immagine si salta per intero e conta come un solo salto al posto
     dei suoi 9 test (la cartella dati/ non vi e' copiata): per questo i test
-    contati sono 994;
+    contati sono 999;
   * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 35 test che li
     richiedono, tutti sullo stesso processo: 999 passed e 3 skipped in 86
     minuti, con picco di memoria del container di 16,9 GB (limite a 24 GB),
@@ -74,15 +78,22 @@ impostare la variabile d'ambiente che punta al file di configurazione reale:
 1.3 Immagine del container
 --------------------------------------------------------------------------------
 Nei comandi delle intestazioni dei moduli di test, '<immagine>' sta per
-l'immagine del container della pipeline, costruita da 'container/Dockerfile'.
-Questo e' l'unico punto in cui e' indicata l'immagine corrente, da aggiornare a
-ogni ricostruzione:
+l'immagine del container della pipeline. Questo e' l'unico punto di test.txt
+in cui e' indicata l'immagine corrente, da aggiornare a ogni pubblicazione:
 
-    immagine corrente: amplicon16s:w24
+    immagine corrente:
+    ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
 
-Si costruisce dalla radice del repository con:
+E' l'immagine pubblicata nel registro, identificata per digest: il nome potra'
+cambiare, il digest no. Si scarica con:
 
-    docker build -f container/Dockerfile -t amplicon16s:w24 .
+    docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
+
+In alternativa si costruisce dalla radice del repository, con un nome locale a
+scelta (in locale e' etichettata amplicon16s:w25), sapendo che due costruzioni
+non sono identiche byte per byte:
+
+    docker build -f container/Dockerfile -t amplicon16s:w25 .
 
 Con il repository montato su /app servono sempre '-e PYTHONPATH=/app/src' e
 '-e AMPLICON16S_R_DIR=/app/R': senza la seconda l'immagine esegue gli script R
@@ -1521,6 +1532,49 @@ SETTIMANA 24 (W24) : RIPRODUZIONE DEI RISULTATI SU OSD-734 (MILESTONE M7)
 
 
 --------------------------------------------------------------------------------
+SETTIMANA 25 (W25) : IMMAGINE PUBBLICATA E AMBIENTE DEI TEST
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W25, Fase F7 (immagine del container pubblicata e identificata
+    per digest di registro; pacchetti R delle analisi ecologiche
+    nell'immagine; suite eseguibile su una macchina con un solo processore).
+
+  * FILE DI TEST:
+    tests/test_w25_immagine.py
+
+  * COSA VALUTA:
+    Che i thread chiesti dalle esecuzioni di prova si adattino ai processori
+    utilizzabili dal processo (due dove ci sono, uno altrimenti) e che la
+    configurazione del sottoinsieme li usi; che con un solo processore G14
+    accetti un thread e ne respinga due con 'E-S0-14'; che 'renv.lock'
+    contenga DESeq2, vegan e randomForest con locfit, accanto ai pacchetti
+    della pipeline, con R 4.5.2, Bioconductor 3.21 e dada2 1.36.0.1 con la
+    correzione, e che i due script del container elenchino gli stessi
+    pacchetti; che nell'immagine quei pacchetti si carichino alle versioni di
+    'renv.lock'; che 'run.container' di 'dati/osd734/config_osd734.yaml' sia un
+    digest di registro reale, e che i due README e questo documento indichino
+    la stessa immagine.
+
+  * COMANDO BASH:
+    pytest tests/test_w25_immagine.py -v
+
+  * RISULTATO ATTESO:
+    5 test (4 passed, 1 skipped in ambiente locale privo di Bioconductor; 5
+    passed nel container con il repository montato; nell'immagine senza il
+    repository montato, come nella CI, 4 passed e 1 skipped, perche' la
+    cartella dati/ manca)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. Un'immagine identificata per digest di registro e' la stessa per
+       chiunque la scarichi; un identificativo locale vale su una macchina.
+    2. Aggiungere pacchetti a un ambiente bloccato puo' trascinare versioni
+       nuove di dipendenze gia' presenti: il file di blocco deve mostrare sole
+       aggiunte.
+    3. Una suite che fallisce su un solo processore per i thread chiesti dai
+       test segnala un difetto che la pipeline non ha.
+
+
+--------------------------------------------------------------------------------
 MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
 --------------------------------------------------------------------------------
   * SETTIMANA E FASE:
@@ -1612,7 +1666,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W22       | tests/test_w22_report.py              |   19 | pytest tests/test_w22_report.py -v
   W23       | tests/test_w23_filogenesi.py          |   14 | pytest tests/test_w23_filogenesi.py -v
   W24       | tests/test_w24_riproduzione.py        |    7 | pytest tests/test_w24_riproduzione.py -v
+  W25       | tests/test_w25_immagine.py            |    5 | pytest tests/test_w25_immagine.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (28 moduli)              | 1002 | pytest tests/ -v
+  TOTALE    | Intera suite (29 moduli)              | 1007 | pytest tests/ -v
 ================================================================================

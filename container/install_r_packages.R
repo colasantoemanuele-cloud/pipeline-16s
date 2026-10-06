@@ -39,12 +39,20 @@ pipeline <- c(
   "phangorn", "Biostrings", "ShortRead"
 )
 
+# Pacchetti delle analisi ecologiche a valle (amplicon16s_eco): abbondanza
+# differenziale, ordinamento e diversita', classificazione. Stanno
+# nell'immagine perche' quelle analisi girino nello stesso ambiente bloccato
+# della pipeline; il loro codice R si esegue dal repository montato, non
+# dall'immagine. vegan e' gia' una dipendenza di phyloseq: e' elencato perche'
+# le analisi lo usano direttamente.
+ecologia <- c("DESeq2", "vegan", "randomForest")
+
 # Strumenti di servizio: renv produce il file di lock, jsonlite lo rilegge in
 # fase di verifica.
 servizio <- c("renv", "jsonlite")
 
 BiocManager::install(
-  c(pipeline, servizio),
+  c(pipeline, ecologia, servizio),
   site_repository = binari,
   ask = FALSE,
   update = FALSE
@@ -52,7 +60,7 @@ BiocManager::install(
 
 # Senza questo controllo un'installazione fallita resterebbe un semplice avviso
 # e l'immagine risulterebbe costruita ma inutilizzabile.
-tutti <- c(pipeline, servizio)
+tutti <- c(pipeline, ecologia, servizio)
 mancanti <- tutti[!vapply(tutti, requireNamespace, logical(1), quietly = TRUE)]
 if (length(mancanti)) {
   stop("pacchetti non installati: ", paste(mancanti, collapse = ", "))

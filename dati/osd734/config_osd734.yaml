@@ -29,9 +29,11 @@ run:
   # Non cambia i risultati. Per esempio, su 12 processori:
   # threads: 12
   #
-  # L'immagine con cui si esegue, ancorata per digest; e' registrata nella
-  # configurazione salvata e nella provenienza di ogni fase, non sceglie
-  # l'immagine da eseguire. Per un'immagine costruita in locale:
+  # L'immagine con cui si esegue, ancorata per digest: quella pubblicata nel
+  # registro, che si scarica con docker pull e questo stesso riferimento. Il
+  # valore e' registrato nella configurazione salvata e nella provenienza di
+  # ogni fase; non sceglie l'immagine da eseguire, che e' quella passata a
+  # docker run. Chi costruisce l'immagine dal Dockerfile, invece di scaricarla,
+  # indica qui il suo identificativo locale:
   #   echo "amplicon16s@$(docker image inspect <immagine> --format '{{.Id}}')"
-  # Sostituire il segnaposto con il valore ottenuto.
-  container: "registro.esempio/amplicon16s@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  container: "ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154"

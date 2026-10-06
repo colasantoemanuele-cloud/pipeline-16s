@@ -745,8 +745,12 @@ def test_s8_da_gli_stessi_byte_in_due_esecuzioni_e_con_thread_diversi(
     """
     run, _ = tassonomia_calcolata
     attese = _impronte(run.albero.cartella(Fase.TAXONOMY))
-    for thread in (run.config.run.threads, 1):
-        copia = copia_esecuzione(tassonomia_calcolata, tmp_path / f"t{thread}", run={"threads": thread})
+    # Su una macchina con un solo processore i due valori coincidono: le due
+    # copie stanno comunque in cartelle distinte.
+    for numero, thread in enumerate((run.config.run.threads, 1)):
+        copia = copia_esecuzione(
+            tassonomia_calcolata, tmp_path / f"copia{numero}", run={"threads": thread}
+        )
         assert copia.valuta().situazioni[Passo.S8].stato is StatoPasso.COMPLETATA
         copia.albero.rimuovi_manifesto_passo(Passo.S8, Fase.TAXONOMY)
         esito = Esecutore(copia, fino_a=Passo.S8).esegui()
