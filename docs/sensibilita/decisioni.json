@@ -1,0 +1,81 @@
+{
+  "soglie_assolute": {
+    "varianti": 0.1,
+    "campioni": 0.05,
+    "letture": 0.05
+  },
+  "fattore_di_sproporzione": 3.0,
+  "campioni_biologici": 770,
+  "letture_correnti": 21202825,
+  "decisioni": {
+    "katharoseq.target_sensitivity": {
+      "corrente": 0.9,
+      "mediane_dei_passi": {
+        "varianti": 0.050000000000000044,
+        "campioni": 0.05454545454545454,
+        "letture": 0.024887013876688603
+      },
+      "soglie_di_sproporzione": {
+        "varianti": 0.15000000000000013,
+        "campioni": 0.16363636363636364,
+        "letture": 0.07466104163006582
+      },
+      "instabile": false,
+      "motivi_di_instabilita": [],
+      "alternative_in_zona_stabile": [],
+      "scelto": 0.9,
+      "esito": "mantenuto: il valore corrente non e' instabile"
+    },
+    "decontam.threshold": {
+      "corrente": 0.5,
+      "mediane_dei_passi": {
+        "varianti": 0.03768076511056101,
+        "campioni": 0.0,
+        "letture": 0.003140359834125877
+      },
+      "soglie_di_sproporzione": {
+        "varianti": 0.11304229533168303,
+        "campioni": 0.0,
+        "letture": 0.009421079502377631
+      },
+      "instabile": false,
+      "motivi_di_instabilita": [],
+      "alternative_in_zona_stabile": [
+        0.2,
+        0.3,
+        0.4,
+        0.6
+      ],
+      "scelto": 0.5,
+      "esito": "mantenuto: il valore corrente non e' instabile"
+    },
+    "prev.min_fraction": {
+      "corrente": 0.01,
+      "mediane_dei_passi": {
+        "varianti": 0.1084430673896204,
+        "campioni": 0.0,
+        "letture": 0.0013166170074034947
+      },
+      "soglie_di_sproporzione": {
+        "varianti": 0.3253292021688612,
+        "campioni": 0.0,
+        "letture": 0.003949851022210484
+      },
+      "instabile": false,
+      "motivi_di_instabilita": [],
+      "alternative_in_zona_stabile": [],
+      "scelto": 0.01,
+      "esito": "mantenuto: il valore corrente non e' instabile"
+    },
+    "modalita' di decontaminazione": {
+      "corrente": "aggregata",
+      "scelto": "aggregata",
+      "esito": "mantenuta: la modalita' corrente e' ammissibile",
+      "ammissibili": {
+        "aggregata": true,
+        "per piastra, minimum": false,
+        "per piastra, fisher": true
+      }
+    }
+  }
+}

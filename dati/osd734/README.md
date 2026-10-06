@@ -91,6 +91,22 @@ riga di comando li rende assoluti al caricamento, e la configurazione registrata
   l'esecuzione con `E-S0-14` prima di qualunque fase. Va indicato il numero di
   processori della macchina (`nproc`) o meno. Non cambia i risultati: e' fra i
   parametri senza effetto, fuori dall'impronta delle fasi.
+- `run.strict_provenance` e' vero: e' la configurazione congelata, e l'esecuzione parte
+  solo se il codice e l'ambiente sono quelli dichiarati. Prima di qualunque fase la
+  pipeline verifica che il repository sia un clone git leggibile, che `src/` e `R/`
+  non abbiano modifiche non committate ne' file non tracciati, e che la versione di R
+  e quelle dei pacchetti installati siano quelle di `renv.lock`; altrimenti si ferma
+  con `E-PROV-01`, `E-PROV-02` o `E-PROV-03`, e il messaggio dice che cosa manca. Va
+  quindi eseguita da un clone (non da un archivio scaricato senza `.git`), con il
+  comando qui sotto e nell'immagine pubblicata. Modificare questo file di
+  configurazione, o scaricare i dati in `dati/`, non conta come modifica del codice.
+  Chi vuole provare una modifica al codice porta il parametro a `false`: i risultati
+  non saranno certificati rispetto al codice, e le fasi gia' calcolate con la regola
+  vengono rifatte.
+- I valori di `katharoseq.target_sensitivity`, `decontam.threshold`, `decontam.mode`,
+  `decontam.batch_combine` e `prev.min_fraction` sono dichiarati in modo esplicito:
+  sono quelli scelti con l'analisi di sensibilita' (`docs/sensibilita.md`), e
+  cambiarli cambia i risultati.
 - `run.container` dichiara gia' l'immagine pubblicata, con il suo digest di registro, e
   con quella non va toccato. Il valore non sceglie l'immagine da eseguire, che e'
   quella passata a `docker run`: dichiara con quale immagine i risultati sono stati
@@ -201,8 +217,7 @@ l'identita', non la correttezza.
 2. Se la prima fase e' S0, S1 o S2, la differenza e' nei dati di ingresso: rilanciare i
    tre script di scarico con `--solo-verifica`, che devono terminare con esito 0, e
    confrontare la configurazione registrata in `output/osd734/00_config/resolved.yaml`
-   con `config_osd734.yaml` (devono differire solo i percorsi, `run.threads` e
-   `run.container`).
+   con `config_osd734.yaml` (devono differire solo i percorsi e `run.threads`).
 3. Se e' una fase successiva, la differenza e' nell'ambiente di calcolo: controllare
    di aver eseguito nell'immagine pubblicata, scaricata con il suo digest, con
    `AMPLICON16S_R_DIR=/app/R` (senza, l'immagine esegue gli script R copiati alla

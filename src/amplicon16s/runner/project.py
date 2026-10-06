@@ -140,6 +140,11 @@ def _differenze(registrata: Mapping[str, Any], attesa: Mapping[str, Any]) -> str
             motivi.append(f"ricalcolate a monte: {', '.join(ricalcolate)}")
     if registrata.get("dati_esterni") != attesa["dati_esterni"]:
         motivi.append("dati di ingresso cambiati")
+    if registrata.get("provenienza") != attesa.get("provenienza"):
+        motivi.append(
+            "regola rigorosa sulla provenienza: sorgente, ambiente R o immagine dichiarata "
+            "diversi da quelli con cui e' stata calcolata"
+        )
     if registrata.get("versione") != attesa["versione"]:
         motivi.append(
             f"versione del calcolo cambiata: {registrata.get('versione')} -> {attesa['versione']}"

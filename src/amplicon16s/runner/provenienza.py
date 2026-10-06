@@ -32,6 +32,32 @@ repository (per esempio perché ``AMPLICON16S_R_DIR`` punta agli script copiati
 quando l'immagine è stata costruita) lascia quindi nel manifesto un'impronta
 diversa da quella registrata nel repository, invece di passare inosservata.
 
+**La regola rigorosa** (``run.strict_provenance``, disattivata per difetto e
+attiva nelle configurazioni congelate) rende la provenienza vincolante. Va
+letta distinguendo ciò che la pipeline **verifica** da ciò che può solo
+**registrare come dichiarato**:
+
+* *verificato, il codice*: il repository git è leggibile e ``src/`` e ``R/``
+  non hanno modifiche non committate, e gli script R eseguiti sono quelli del
+  repository (:func:`verifica_git`); l'impronta del
+  sorgente di ogni fase è calcolata sui file effettivamente eseguiti ed entra
+  nell'impronta della fase (:func:`impronta_rigorosa`). Il codice eseguito è
+  quindi quello del commit registrato;
+* *verificato, l'ambiente R*: la versione di R e quelle di tutti i pacchetti
+  del file di blocco, compresa la correzione di dada2, sono lette dalle
+  librerie installate (``R/00_ambiente.R``) e confrontate con ``run.lockfile``
+  (:func:`discordanze_ambiente`); l'impronta del file di blocco entra
+  nell'impronta di ogni fase;
+* *dichiarato, l'immagine*: ``run.container`` entra nell'impronta di ogni fase,
+  ma dall'interno del container il digest dell'immagine in esecuzione non è
+  conoscibile. È una dichiarazione di chi lancia l'esecuzione: ciò che la
+  sostiene è la verifica dell'ambiente R, non il digest. Non sono verificate le
+  librerie di sistema dell'immagine, che il file di blocco non descrive.
+
+Se una verifica fallisce l'esecuzione non parte (``E-PROV-01``, ``E-PROV-02``,
+``E-PROV-03``): in particolare, se git non è leggibile la regola rifiuta,
+invece di lasciar passare un codice che nulla identifica.
+
 **Il registro** (``steps/registro_sorgente.json``) tiene, per ogni fase
 realizzata, la versione e l'impronta del sorgente del repository. Un test
 fallisce se il sorgente cambia senza aggiornarlo, e lo strumento
@@ -64,6 +90,10 @@ __all__ = [
     "aggiorna_registro",
     "differenze_registro",
     "DAL_CONTESTO",
+    "blocco_r",
+    "discordanze_ambiente",
+    "impronta_rigorosa",
+    "verifica_git",
     "ECCEZIONI_PER_FASE",
     "ESCLUSI",
     "file_del_sorgente",
@@ -316,6 +346,112 @@ def _stato_git() -> tuple[str | None, bool | None]:
     except (OSError, subprocess.SubprocessError):
         return None, None
     return commit or None, bool(modifiche)
+
+
+def modifiche_non_committate() -> list[str] | None:
+    """I file di ``src/`` e ``R/`` con modifiche non committate, o ``None`` se
+    git non è leggibile.
+    """
+    try:
+        uscita = subprocess.run(
+            ["git", "-C", str(RADICE_REPOSITORY), "status", "--porcelain", "--", "src", "R"],
+            capture_output=True, text=True, timeout=10, check=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return [riga[3:] for riga in uscita.splitlines() if riga.strip()]
+
+
+def verifica_git(script_r: Path) -> tuple[str | None, str]:
+    """Il codice del catalogo che la regola rigorosa solleva per lo stato di
+    git, con il dettaglio; ``(None, commit)`` se il repository è leggibile e
+    il codice non ha modifiche non committate.
+
+    Un repository non leggibile è un rifiuto (``E-PROV-01``), non un via
+    libera: senza commit nulla identifica il codice eseguito. Lo stesso vale
+    se gli script R eseguiti (``script_r``) non sono quelli del repository:
+    il commit descriverebbe file diversi da quelli che calcolano.
+    """
+    # Lo stato si legge adesso, non dalla memoria di :func:`_stato_git`: la
+    # regola decide su cio' che c'e' al momento dell'avvio.
+    commit, _ = _stato_git.__wrapped__()
+    modificati = modifiche_non_committate()
+    if commit is None or modificati is None:
+        return "E-PROV-01", f"git non legge un repository in {RADICE_REPOSITORY}"
+    if script_r.resolve() != (RADICE_REPOSITORY / "R").resolve():
+        return "E-PROV-01", (
+            f"gli script R eseguiti stanno in {script_r}, fuori dal repository "
+            f"{RADICE_REPOSITORY} a cui il commit si riferisce"
+        )
+    if modificati:
+        return "E-PROV-02", f"{len(modificati)} file modificati: {', '.join(modificati[:10])}"
+    return None, commit
+
+
+def blocco_r(lockfile: str) -> tuple[Path, dict[str, Any]] | None:
+    """Il file di blocco dei pacchetti R e il suo contenuto, se si trova.
+
+    ``run.lockfile`` è cercato com'è (dalla cartella di lavoro, come
+    nell'immagine) e poi nella radice del repository.
+    """
+    for percorso in (Path(lockfile), RADICE_REPOSITORY / lockfile):
+        try:
+            contenuto = json.loads(percorso.read_bytes())
+            contenuto["Packages"]["dada2"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        return percorso, contenuto
+    return None
+
+
+def _numeri(versione: str) -> list[str]:
+    """Le componenti di una versione: R tratta ``-`` e ``.`` come separatori
+    equivalenti (``4.7-1.2`` e ``4.7.1.2`` sono la stessa versione).
+    """
+    return re.split(r"[.-]", versione)
+
+
+def discordanze_ambiente(blocco: Mapping[str, Any], ambiente: Mapping[str, Any]) -> list[str]:
+    """In che cosa l'ambiente R installato differisce dal file di blocco.
+
+    ``ambiente`` è ciò che ``R/00_ambiente.R`` ha letto dalle librerie
+    installate: la versione di R e, per pacchetto, versione e correzione.
+    Elenco vuoto se corrispondono.
+    """
+    discordanze = []
+    if ambiente.get("r") != blocco["R"]["Version"]:
+        discordanze.append(f"R: atteso {blocco['R']['Version']}, trovato {ambiente.get('r')}")
+    installati = ambiente.get("pacchetti", {})
+    for nome, voce in sorted(blocco["Packages"].items()):
+        trovato = installati.get(nome)
+        if trovato is None:
+            discordanze.append(f"{nome}: non installato")
+            continue
+        if _numeri(trovato["versione"]) != _numeri(voce["Version"]):
+            discordanze.append(f"{nome}: atteso {voce['Version']}, trovato {trovato['versione']}")
+        if (voce.get("Patch") or None) != (trovato.get("correzione") or None):
+            discordanze.append(f"{nome}: correzione diversa da quella del file di blocco")
+    return discordanze
+
+
+def impronta_rigorosa(fase: PipelineStep, config: Config) -> dict[str, Any]:
+    """Ciò che la regola rigorosa aggiunge all'impronta di una fase: il sorgente
+    eseguito, il file di blocco dell'ambiente R e l'immagine dichiarata.
+
+    Con la regola attiva, cambiare il codice di una fase, l'ambiente o
+    l'immagine dichiarata rende la fase da rifare, e non solo da segnalare.
+    """
+    from amplicon16s.rbridge.runner import cartella_r
+
+    sorgente, _ = impronta_sorgente(file_del_sorgente(fase, cartella_r()))
+    trovato = blocco_r(config.run.lockfile)
+    return {
+        "sorgente": sorgente,
+        "blocco_r": None if trovato is None else (
+            "sha256:" + hashlib.sha256(trovato[0].read_bytes()).hexdigest()
+        ),
+        "immagine": config.run.container,
+    }
 
 
 def provenienza(fase: PipelineStep, config: Config) -> dict[str, Any]:

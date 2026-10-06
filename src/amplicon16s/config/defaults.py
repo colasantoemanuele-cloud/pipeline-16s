@@ -175,6 +175,10 @@ RUN_SEED: Final = 100
 RUN_THREADS: Final = 16
 RUN_BATCH_SIZE: Final = 24
 RUN_KEEP_FILTERED_FASTQ: Final = True
+# La regola rigorosa sulla provenienza: disattivata per difetto, perche' lo
+# sviluppo e i test girano su alberi di lavoro modificati; attiva nelle
+# configurazioni congelate.
+RUN_STRICT_PROVENANCE: Final = False
 
 
 # --------------------------------------------------------------------------- #

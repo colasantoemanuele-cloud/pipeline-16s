@@ -34,7 +34,7 @@ R/                    Script R dei calcoli scientifici; R/lib/ per le funzioni c
 config/               File di configurazione (config.example.yaml)
 tests/                Suite di test
 dati/osd734/          Dati del dataset di riferimento: metadati, elenchi con i checksum, script di scarico
-docs/                 Riservata alla documentazione; oggi vuota (la documentazione è questo README e test.txt)
+docs/                 Registro delle decisioni di metodo (decision_log.md) e analisi di sensibilità (sensibilita.md, sensibilita/)
 scripts/              Script di utilità
 container/            Definizione dell'ambiente riproducibile (Dockerfile e script R)
 ```
@@ -349,7 +349,7 @@ Sono realizzati:
   manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
   in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
   lo stesso checksum fra due esecuzioni sugli stessi ingressi;
-- il catalogo degli errori (55 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (58 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -486,6 +486,38 @@ Sono realizzati:
   (`AMPLICON16S_R_DIR`), non le copie del repository, così un'immagine che esegue
   script diversi risulta tale nel manifesto. A parità di versione una provenienza
   diversa produce un avviso nel log e nel report, non un ricalcolo;
+- **la regola rigorosa sulla provenienza** (`run.strict_provenance`, falso per difetto,
+  vero nella configurazione congelata di OSD-734). Con la regola attiva l'esecutore,
+  dopo G15, G14 e G12 e prima di qualunque fase, verifica che il repository git sia
+  leggibile, che `src/` e `R/` non abbiano modifiche non committate né file non
+  tracciati e che gli script R eseguiti siano quelli del repository; poi legge dalle
+  librerie installate (`R/00_ambiente.R`) la versione di R e quelle di tutti i
+  pacchetti di `run.lockfile`, compresa la correzione di dada2 con la sua impronta, e
+  le confronta con il file. Se una verifica fallisce l'esecuzione non parte:
+  `E-PROV-01` (nessun commit leggibile identifica il codice: git non leggibile non è
+  un via libera), `E-PROV-02` (modifiche non committate), `E-PROV-03` (ambiente R
+  diverso dal file di blocco), tutti a revisione umana. Con la regola l'impronta del
+  sorgente della fase, quella del file di blocco e l'immagine dichiarata entrano in
+  ciò su cui la fase è calcolata: una differenza rende la fase da rifare, non solo da
+  segnalare, e un'esecuzione calcolata senza la regola va ricalcolata per intero
+  quando la si attiva. L'immagine resta una dichiarazione: da dentro il container il
+  digest dell'immagine in esecuzione non è conoscibile, e non sono verificate le
+  librerie di sistema né i pacchetti Python di terze parti. L'esito della regola è
+  registrato a ogni avvio e riportato dal report, che distingue ciò che è stato
+  verificato da ciò che è dichiarato;
+- **l'analisi di sensibilità e il registro delle decisioni** (`scripts/sensitivity.py`,
+  `scripts/confronto_modelli_filogenesi.R`, `docs/`). `docs/decision_log.md` registra
+  la regola con cui si scelgono i valori dei parametri sottoposti ad analisi di
+  sensibilità, fissata in una revisione che precede ogni risultato, l'esito
+  dell'analisi e le decisioni di metodo del progetto con motivazione e misure.
+  `scripts/sensitivity.py` copia un'esecuzione conclusa con collegamenti fisici, la
+  riprende cambiando un parametro alla volta (`katharoseq.target_sensitivity`,
+  `decontam.threshold`, `prev.min_fraction`, modalità di decontaminazione), misura
+  campioni conservati, varianti finali, letture, soglie per piastra e contaminanti, e
+  applica la regola; `docs/sensibilita.md` riporta parametri, intervalli, misure e
+  decisioni, con le tabelle in `docs/sensibilita/`. Su OSD-734 la regola mantiene i
+  quattro valori correnti, e il confronto fra GTR+G+I e GTR+G con il criterio
+  d'informazione bayesiano mantiene GTR+G+I come predefinito di `phylo.model`;
 - **l'esecutore e la politica dei tentativi** (`runner/executor.py`,
   `runner/retry.py`). A ogni avvio, con `run` come con `resume`, l'esecutore ripete
   la verifica di coerenza della configurazione (G15), quella delle risorse della

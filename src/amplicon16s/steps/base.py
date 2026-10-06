@@ -25,6 +25,9 @@ ingressi che non esistono piu'. Il manifesto registra quindi, in
   fase invalida tutte quelle che l'avevano registrata, e a cascata le loro;
 * ``dati_esterni``: per le fasi che leggono dati fuori dall'albero di output,
   un'impronta di quei dati;
+* ``provenienza``, solo con la regola rigorosa (``run.strict_provenance``):
+  l'impronta del sorgente eseguito, quella del file di blocco dell'ambiente R e
+  l'immagine dichiarata (:mod:`amplicon16s.runner.provenienza`);
 * ``versione``: la versione del calcolo che la fase dichiara
   (:attr:`PipelineStep.versione`), da incrementare quando cambia ciò che la fase
   calcola. Correggere un difetto di una fase e incrementarne la versione rifà
@@ -65,7 +68,7 @@ from amplicon16s.io_layer.artifacts import AlberoOutput, Artefatto, Fase, Manife
 from amplicon16s.logging.logger import registra_errore
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.runner.graph import GRAFO, Grafo, Nodo, Passo
-from amplicon16s.runner.provenienza import provenienza
+from amplicon16s.runner.provenienza import impronta_rigorosa, provenienza
 from amplicon16s.runner.retry import Aggiustamento
 
 __all__ = [
@@ -327,7 +330,7 @@ class PipelineStep(ABC):
         self, risolta: ConfigRisolta, a_monte: Mapping[Passo, str | None]
     ) -> dict[str, Any]:
         """Su che cosa la fase viene calcolata, nella forma del manifesto."""
-        return {
+        calcolata = {
             "configurazione": {
                 "parametri": list(self.parametri) if self.parametri is not None else None,
                 "impronta": impronta_parametri(risolta, self.parametri),
@@ -336,6 +339,13 @@ class PipelineStep(ABC):
             "dati_esterni": self.impronta_dati_esterni(risolta.config),
             "versione": self.versione,
         }
+        # Con la regola rigorosa il sorgente eseguito, l'ambiente R e l'immagine
+        # dichiarata decidono la validita' della fase, non solo un avviso. La
+        # chiave c'e' solo allora: senza la regola l'impronta resta quella di
+        # sempre.
+        if risolta.config.run.strict_provenance:
+            calcolata["provenienza"] = impronta_rigorosa(self, risolta.config)
+        return calcolata
 
     def verifica_prerequisiti(self, contesto: StepContext) -> None:
         """Le dipendenze attive devono essere concluse.

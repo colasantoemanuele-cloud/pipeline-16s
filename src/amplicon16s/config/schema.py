@@ -504,6 +504,13 @@ class Run(_Gruppo):
     # si rimuovono solo quando tutte le fasi sono concluse, e la rimozione e'
     # registrata: una ripresa non la scambia per un artefatto perso.
     keep_filtered_fastq: StrictBool = d.RUN_KEEP_FILTERED_FASTQ
+    # La regola rigorosa sulla provenienza. Con true l'esecuzione parte solo da
+    # un repository git leggibile, senza modifiche non committate al codice, e
+    # in un ambiente R che corrisponde a run.lockfile; l'impronta del sorgente,
+    # quella del file di blocco e l'immagine dichiarata entrano nell'impronta di
+    # ogni fase. Vedi runner/provenienza.py per cio' che e' verificato e cio'
+    # che e' solo dichiarato.
+    strict_provenance: StrictBool = d.RUN_STRICT_PROVENANCE
 
 
 # --------------------------------------------------------------------------- #

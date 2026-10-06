@@ -399,7 +399,8 @@ def _avvii(eventi: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
     def nuovo(evento: Mapping[str, Any]) -> dict[str, Any]:
         avvii.append({
             "istante": evento.get("istante", ""), "controlli": None, "fino_a": None,
-            "blocco_r": None, "configurazione": None, "fasi": [], "conclusione": None,
+            "blocco_r": None, "rigorosa": None, "configurazione": None, "fasi": [],
+            "conclusione": None,
         })
         return avvii[-1]
 
@@ -410,7 +411,7 @@ def _avvii(eventi: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
             avvio = nuovo(evento)
             avvio.update(
                 controlli=evento["esiti"], fino_a=evento.get("fino_a"),
-                blocco_r=evento.get("blocco_r"),
+                blocco_r=evento.get("blocco_r"), rigorosa=evento.get("provenienza_rigorosa"),
             )
         elif tipo == EVENTO_CONFIGURAZIONE:
             avvio = aperto if aperto and aperto["configurazione"] is None else nuovo(evento)
@@ -428,6 +429,26 @@ def _avvii(eventi: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 # Sezioni                                                                      #
 # --------------------------------------------------------------------------- #
+
+
+def _rigorosa(esito: Mapping[str, Any] | None) -> str:
+    """La regola rigorosa sulla provenienza in un avvio, in una riga: che cosa
+    e' stato verificato e che cosa e' solo dichiarato.
+    """
+    if esito is None:
+        return "non registrata"
+    if not esito.get("attiva"):
+        return "non attiva"
+    git, ambiente = esito.get("git", {}), esito.get("ambiente_r", {})
+    if not git.get("verificato"):
+        return "rifiutata: codice non identificato da un commit"
+    if not ambiente.get("verificato"):
+        return "rifiutata: ambiente R diverso dal file di blocco"
+    return (
+        f"verificati il codice (commit {str(git.get('commit'))[:12]}, senza modifiche) e "
+        f"l'ambiente R ({ambiente.get('r')}, {ambiente.get('pacchetti_confrontati')} pacchetti "
+        "uguali al file di blocco); immagine dichiarata, non verificabile"
+    )
 
 
 def _origine(chiave: str, versione: Mapping[str, Any]) -> str:
@@ -587,19 +608,19 @@ def _sezione_gate(esecuzione: _Esecuzione) -> _Sezione:
 def _sezione_configurazione(esecuzione: _Esecuzione) -> _Sezione:
     """Avvii, versioni della configurazione registrata e origine di ogni parametro."""
     sezione = _Sezione("configurazione", "Configurazione: esecuzioni, versioni e origine dei valori")
-    if not esecuzione.versioni:
-        sezione.testo("Nessuna configurazione registrata in <code>00_config</code>.")
-        return sezione
-
+    # Gli avvii prima delle versioni: un avvio rifiutato dai controlli non
+    # registra alcuna configurazione, e deve restare leggibile lo stesso.
     sezione.sottotitolo("Avvii dell'esecuzione")
     if esecuzione.avvii:
         sezione.tabella(_tabella(
             "esecuzioni", "Avvii dell'esecutore (99_logs/avvii.jsonl)",
-            ("avvio", "istante", "fino a", "controlli di avvio", "configurazione", "digest",
+            ("avvio", "istante", "fino a", "controlli di avvio",
+             "regola rigorosa sulla provenienza", "configurazione", "digest",
              "fasi eseguite", "conclusione"),
             ((numero, a["istante"], a["fino_a"] or "",
               "non registrati" if a["controlli"] is None
               else " ".join(f"{c['gate']}: {_esito(c)};" for c in a["controlli"]).rstrip(";"),
+              _rigorosa(a["rigorosa"]),
               a["configurazione"]["file"] if a["configurazione"] else "non registrata",
               _corta(a["configurazione"]["digest"]) if a["configurazione"] else "",
               ", ".join(p for p, _ in a["fasi"]) or "nessuna",
@@ -612,6 +633,10 @@ def _sezione_configurazione(esecuzione: _Esecuzione) -> _Sezione:
             "ciascuna versione della configurazione, non sono determinabili, e non vengono "
             "ricostruiti dal log.", "nota",
         )
+
+    if not esecuzione.versioni:
+        sezione.testo("Nessuna configurazione registrata in <code>00_config</code>.")
+        return sezione
 
     sezione.sottotitolo("Versioni della configurazione registrata")
     sezione.testo(
@@ -706,7 +731,11 @@ def _sezione_provenienza(esecuzione: _Esecuzione) -> tuple[_Sezione, list[tuple[
         "del sorgente effettivamente eseguito (moduli Python, script R e funzioni "
         "condivise), il commit del repository e l'immagine dichiarata in "
         "<code>run.container</code>. Il commit non è registrato quando il codice non sta in "
-        "un repository git, come nell'immagine. L'avviso confronta il sorgente e l'immagine "
+        "un repository git, come nell'immagine. L'immagine è una dichiarazione: dall'interno "
+        "del container il suo digest non è verificabile. Con la regola rigorosa sulla "
+        "provenienza (<code>run.strict_provenance</code>, riportata per ogni avvio nella "
+        'sezione <a href="#configurazione">Configurazione</a>) il codice e l\'ambiente R '
+        "sono invece verificati a ogni avvio. L'avviso confronta il sorgente e l'immagine "
         f"registrati con il sorgente della pipeline che ha generato questo documento "
         f"(amplicon16s {_e(__version__)}) e con l'immagine della configurazione in uso: a "
         "parità di versione una provenienza diversa non rende la fase da rifare, ma va "

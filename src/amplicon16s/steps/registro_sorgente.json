@@ -14,7 +14,7 @@
       "python/amplicon16s.metadata.tabelle",
       "python/amplicon16s.steps.s00_validate"
     ],
-    "sorgente": "sha256:c3088e1f564d5936972fd85ca9eb5bbdb32d9af476bf771d61722795a4c8f381",
+    "sorgente": "sha256:c13063a4ffbad9d6079a0c7271d706c5447f145ad58289e3a6d5a78daa760910",
     "versione": 2
   },
   "S1": {

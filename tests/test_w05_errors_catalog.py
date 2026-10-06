@@ -12,9 +12,10 @@ logging), con i codici aggiunti nelle settimane successive.
 
 3. Cosa valuta questo file
 --------------------------
-- completezza del catalogo ``CATALOGO``, **55 codici totali**: **40 codici di
+- completezza del catalogo ``CATALOGO``, **58 codici totali**: **40 codici di
   fase** inclusi ``E-S1-02``, ``E-S3-02``, ``E-S10-02``, ``E-S11-04`` ed ``E-S13-03``, **4 codici del ponte R**,
-  **1 codice del grafo** e **10 codici del Gate G15** (compreso ``E-G15-99``);
+  **1 codice del grafo**, **3 codici della regola rigorosa sulla provenienza**
+  e **10 codici del Gate G15** (compreso ``E-G15-99``);
   nessun codice inatteso, fase coerente con il codice, errore esplicito su un
   codice sconosciuto;
 - ogni codice possiede una sintesi diagnostica e un'azione operativa in
@@ -22,12 +23,13 @@ logging), con i codici aggiunti nelle settimane successive.
   *cosa è fallito*;
 - chiusura della whitelist dei tentativi ripetuti a **esattamente 4 codici**
   (``E-S2-03``, ``E-S3-01``, ``E-S4-02``, ``E-S5-01``), coerente con
-  ``retry.whitelist``; i restanti **50 codici** non ammettono il retry;
+  ``retry.whitelist``; i restanti **54 codici** non ammettono il retry;
 - corrispondenza fra categoria di gestione e classe dell'eccezione, rifiuto di
   una classe sbagliata, messaggio con codice, dettaglio e azione, traduzione
   in evento strutturato del log;
 - appartenenza a ``Categoria.REVISIONE_UMANA`` dei guasti del ponte verso R
-  (``E-R-01`` .. ``E-R-04``), del grafo (``E-GRAFO-01``) e dei controlli di
+  (``E-R-01`` .. ``E-R-04``), del grafo (``E-GRAFO-01``), della regola
+  rigorosa sulla provenienza (``E-PROV-01`` .. ``E-PROV-03``) e dei controlli di
   configurazione di G15; elenco chiuso delle degradazioni; uso di ciascuna
   delle quattro categorie.
 
@@ -133,6 +135,9 @@ CODICI_DEL_PONTE = ("E-R-01", "E-R-02", "E-R-03", "E-R-04")
 #: Codice di violazione dell'ordine topologico nel grafo delle fasi.
 CODICI_DEL_GRAFO = ("E-GRAFO-01",)
 
+#: Codici della regola rigorosa sulla provenienza, controllo di avvio.
+CODICI_DELLA_PROVENIENZA = ("E-PROV-01", "E-PROV-02", "E-PROV-03")
+
 #: Elenco chiuso dei 4 soli codici ammessi al retry automatico nella pipeline.
 AMMESSI_AL_RETRY = ("E-S2-03", "E-S3-01", "E-S4-02", "E-S5-01")
 
@@ -181,11 +186,14 @@ def test_il_messaggio_dice_anche_cosa_fare(codice):
     assert v.sintesi in v.messaggio and v.azione in v.messaggio
 
 
-@pytest.mark.parametrize("codice", CODICI_DI_FASE + CODICI_DEL_PONTE + CODICI_DEL_GRAFO)
+@pytest.mark.parametrize(
+    "codice", CODICI_DI_FASE + CODICI_DEL_PONTE + CODICI_DEL_GRAFO + CODICI_DELLA_PROVENIENZA
+)
 def test_tutti_i_codici_previsti_sono_catalogati(codice):
     """
-    **Obiettivo**: Verificare che ciascuno dei codici di fase, del ponte R e
-    del grafo previsti dalla specifica sia effettivamente presente in ``CATALOGO``.
+    **Obiettivo**: Verificare che ciascuno dei codici di fase, del ponte R,
+    del grafo e della regola rigorosa sulla provenienza previsti dalla
+    specifica sia effettivamente presente in ``CATALOGO``.
 
     **Razionale scientifico e sistemistico**: Evita che durante il refactoring
     un codice referenziato da una fase R o da un gate venga cancellato dal
@@ -211,14 +219,16 @@ def test_nessun_codice_inatteso_nel_catalogo():
     """
     **Obiettivo**: Verificare che l'insieme delle chiavi di ``CATALOGO`` coincida
     esattamente con l'unione di ``CODICI_DI_FASE``, ``CODICI_DEL_PONTE``,
-    ``CODICI_DEL_GRAFO`` e dei ``CONTROLLI`` del Gate G15.
+    ``CODICI_DEL_GRAFO``, ``CODICI_DELLA_PROVENIENZA`` e dei ``CONTROLLI`` del
+    Gate G15.
 
     **Razionale scientifico e sistemistico**: Impedisce l'accumulo di codici
     orfani o non documentati nella specifica dell'architettura.
     """
     dai_gate = {c.codice for c in CONTROLLI}
     assert set(CATALOGO) == (
-        set(CODICI_DI_FASE) | set(CODICI_DEL_PONTE) | set(CODICI_DEL_GRAFO) | dai_gate
+        set(CODICI_DI_FASE) | set(CODICI_DEL_PONTE) | set(CODICI_DEL_GRAFO)
+        | set(CODICI_DELLA_PROVENIENZA) | dai_gate
     )
 
 
@@ -344,7 +354,7 @@ def test_la_classe_discende_dalla_categoria(codice, classe):
 def test_ogni_codice_produce_un_errore_coerente(codice):
     """
     **Obiettivo**: Verificare che ``errore(codice)`` produca un'istanza valida
-    di ``ErrorePipeline`` per tutti i 55 codici del catalogo.
+    di ``ErrorePipeline`` per tutti i 58 codici del catalogo.
 
     **Razionale scientifico e sistemistico**: Assicura che nessuna voce del
     catalogo abbia una categoria non mappata nella tabella di dispatch di
@@ -426,11 +436,15 @@ def test_ogni_controllo_del_gate_e_nel_catalogo(controllo):
     assert controllo.categoria is CATALOGO[controllo.codice].categoria
 
 
-@pytest.mark.parametrize("codice", CODICI_DEL_PONTE + CODICI_DEL_GRAFO)
+@pytest.mark.parametrize(
+    "codice", CODICI_DEL_PONTE + CODICI_DEL_GRAFO + CODICI_DELLA_PROVENIENZA
+)
 def test_i_codici_del_ponte_e_del_grafo_chiedono_revisione_umana(codice):
     """
     **Obiettivo**: Verificare che tutti i codici del ponte R (``E-R-01`` ..
-    ``E-R-04``) e del grafo (``E-GRAFO-01``) abbiano ``Categoria.REVISIONE_UMANA``.
+    ``E-R-04``), del grafo (``E-GRAFO-01``) e della regola rigorosa sulla
+    provenienza (``E-PROV-01`` .. ``E-PROV-03``) abbiano
+    ``Categoria.REVISIONE_UMANA``.
 
     **Razionale scientifico e sistemistico**: Se l'interprete ``Rscript`` non è
     installato (`E-R-01`), se il processo R muore per segfault o timeout senza
@@ -438,7 +452,9 @@ def test_i_codici_del_ponte_e_del_grafo_chiedono_revisione_umana(codice):
     se esaurisce la memoria in una fase che non prevede riduzione del lotto
     (`E-R-04`), o se una fase viene invocata violando l'ordine delle dipendenze
     (`E-GRAFO-01`), ritentare automaticamente sarebbe inutile o dannoso: l'esecutore
-    deve fermarsi subito ed esigere l'intervento umano.
+    deve fermarsi subito ed esigere l'intervento umano. Lo stesso vale per la
+    regola rigorosa: un codice senza commit o un ambiente R diverso dal file di
+    blocco non si correggono ritentando.
     """
     assert CATALOGO[codice].categoria is Categoria.REVISIONE_UMANA
 

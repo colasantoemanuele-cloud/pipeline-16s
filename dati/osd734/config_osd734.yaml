@@ -7,9 +7,12 @@
 #   letture       dati/osd734/fastq/        scarica_letture.py
 #   riferimento   dati/osd734/riferimento/  scarica_riferimento.py
 #   lotto         dati/osd734/lotto/        ricostruisci_lotto.py
-# I parametri non indicati hanno il valore predefinito, che per OSD-734 e'
-# quello giusto: i valori scelti su fatti accertati di questo dataset sono
-# marcati [OSD-734] in config/config.example.yaml.
+# E' la configurazione congelata: i quattro parametri sottoposti ad analisi di
+# sensibilita' sono dichiarati qui con il valore scelto (docs/sensibilita.md,
+# docs/decision_log.md), e la regola rigorosa sulla provenienza e' attiva. Gli
+# altri parametri hanno il valore predefinito, che per OSD-734 e' quello
+# giusto: i valori scelti su fatti accertati di questo dataset sono marcati
+# [OSD-734] in config/config.example.yaml.
 io:
   fastq_dir: dati/osd734/fastq
   assay_table: "dati/osd734/metadati/a_OSD-734_amplicon-sequencing_16s_Illumina MiSeq.txt"
@@ -37,3 +40,19 @@ run:
   # indica qui il suo identificativo locale:
   #   echo "amplicon16s@$(docker image inspect <immagine> --format '{{.Id}}')"
   container: "ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154"
+  # La regola rigorosa sulla provenienza: l'esecuzione parte solo da un clone
+  # del repository senza modifiche non committate in src/ e in R/, e in un
+  # ambiente R le cui versioni installate sono quelle di renv.lock; sorgente,
+  # file di blocco e immagine dichiarata entrano nell'impronta di ogni fase.
+  # Altrimenti l'avvio e' rifiutato (E-PROV-01, E-PROV-02, E-PROV-03).
+  strict_provenance: true
+# I valori scelti con l'analisi di sensibilita'. Coincidono con i predefiniti;
+# sono dichiarati perche' la configurazione congelata non dipenda da essi.
+katharoseq:
+  target_sensitivity: 0.90
+decontam:
+  mode: aggregate
+  batch_combine: minimum
+  threshold: 0.5
+prev:
+  min_fraction: 0.01

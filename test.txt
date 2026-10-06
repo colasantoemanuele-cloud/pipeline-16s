@@ -1,14 +1,14 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W25 (Fasi F0-F7, con l'anticipazione di attivita'
+Piano Operativo: Settimane W1 - W26 (Fasi F0-F7, con l'anticipazione di attivita'
 della fase F9 sulla riproducibilita')
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W25 del Piano Operativo.
+W1 - W26 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -42,26 +42,25 @@ sequenza:
 
     pytest tests/ -n 0
 
-Totale complessivo della suite: 1007 test su 29 moduli:
-  * 874 passed e 133 skipped in ambiente locale standard (R base + jsonlite, senza
+Totale complessivo della suite: 1045 test su 30 moduli:
+  * 911 passed e 134 skipped in ambiente locale standard (R base + jsonlite, senza
     Bioconductor e senza dati reali), in circa un minuto; lo stesso esito su un
     solo processore ('taskset -c 0 pytest tests/'), in circa 9 minuti;
   * nel container CI standard (senza dati reali OSD-734), su quattro processi:
-    956 passed e 43 skipped in circa 8 minuti, misurati nell'immagine
-    pubblicata lanciata in locale come fa la CI; lo stesso esito con il
-    container limitato a un solo processore ('--cpuset-cpus=0'), in circa 23
-    minuti; il conteggio della CI e' da aggiornare con il suo esito dopo la
-    pubblicazione del repository (l'ultimo, 952
-    passed e 42 skipped in circa 11 minuti, CI run 37356664276, e' della suite
-    di 1002 test). I salti sono 34 test sui dati reali OSD-734, 1 test
+    991 passed e 46 skipped in circa 8 minuti, nell'immagine costruita dal
+    Dockerfile come nella CI (l'ultima esecuzione della CI, run 37447520163
+    sulla suite precedente di 1007 test, ha dato 956 passed e 43 skipped in
+    circa 11 minuti). I
+    salti sono 34 test sui dati reali OSD-734, 1 test
     sull'allocazione R legata alla lingua, 1 test che richiede il repository
     .git, i 5 test di 'tests/test_w24_riproduzione.py' che usano i checksum
     pubblicati in dati/ (uno dei quali e' il trentacinquesimo sui dati reali),
-    1 test di 'tests/test_w25_immagine.py' che legge la configurazione in dati/
+    1 test di 'tests/test_w25_immagine.py' che legge la configurazione in dati/,
+    3 test di 'tests/test_w26_congelamento.py' che leggono docs/ e dati/
     e il modulo 'tests/test_w21_dati_osd734.py',
     che nell'immagine si salta per intero e conta come un solo salto al posto
     dei suoi 9 test (la cartella dati/ non vi e' copiata): per questo i test
-    contati sono 999;
+    contati sono 1037;
   * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 35 test che li
     richiedono, tutti sullo stesso processo: 999 passed e 3 skipped in 86
     minuti, con picco di memoria del container di 16,9 GB (limite a 24 GB),
@@ -209,7 +208,7 @@ predisporre i seguenti 5 blocchi funzionali di file:
 
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W21)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W26)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -339,7 +338,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
 --------------------------------------------------------------------------------
 
-5.1 Catalogo centralizzato degli errori (55 codici catalogati)
+5.1 Catalogo centralizzato degli errori (58 codici catalogati)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   * SETTIMANA E FASE:
     Settimana W5 (esteso in W11 e W13), Fase F1/F4 (Tassonomia formale degli
@@ -349,24 +348,25 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     tests/test_w05_errors_catalog.py
 
   * COSA VALUTA:
-    Ispeziona sistematicamente tutti i 55 codici del catalogo ('CATALOGO': 40
+    Ispeziona sistematicamente tutti i 58 codici del catalogo ('CATALOGO': 40
     codici di fase S0-S14 inclusi 'E-S1-02', 'E-S3-02', 'E-S10-02', 'E-S11-04' ed
     'E-S13-03', 10 codici di
-    configurazione G15, 4 codici del ponte verso R 'E-R-01..04' e 1 codice del
-    grafo 'E-GRAFO-01'). Verifica che ogni codice appartenga a una delle 4
+    configurazione G15, 4 codici del ponte verso R 'E-R-01..04', 1 codice del
+    grafo 'E-GRAFO-01' e 3 codici della regola rigorosa sulla provenienza
+    'E-PROV-01..03'). Verifica che ogni codice appartenga a una delle 4
     categorie formali ('revisione_umana', 'retry', 'retry_poi_revisione',
     'degradazione'), possieda un messaggio diagnostico non banale (> 30
     caratteri) che prescriva un'azione operativa concreta e si mappi sulla
     sottoclasse corretta di 'ErrorePipeline'. Verifica inoltre che la whitelist
     dei codici ripetibili ('AMMESSI_AL_RETRY') sia chiusa ermeticamente ai soli
     4 codici tecnici 'E-S2-03', 'E-S3-01', 'E-S4-02', 'E-S5-01' e che i restanti
-    50 codici non ammettano mai il retry.
+    54 codici non ammettano mai il retry.
 
   * COMANDO BASH:
     pytest tests/test_w05_errors_catalog.py -v
 
   * RISULTATO ATTESO:
-    307 passed in ~0.35s
+    325 passed in ~0.35s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
@@ -1575,6 +1575,57 @@ SETTIMANA 25 (W25) : IMMAGINE PUBBLICATA E AMBIENTE DEI TEST
 
 
 --------------------------------------------------------------------------------
+SETTIMANA 26 (W26) : ANALISI DI SENSIBILITA' E CONGELAMENTO DELLA CONFIGURAZIONE
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W26, Fase F7 (regola di decisione dell'analisi di sensibilita',
+    configurazione congelata di OSD-734, regola rigorosa sulla provenienza).
+
+  * FILE DI TEST:
+    tests/test_w26_congelamento.py
+
+  * COSA VALUTA:
+    La regola di decisione di 'scripts/sensitivity.py' come funzione pura: i
+    tre cambiamenti di passo (varianti, campioni, letture); il valore corrente
+    mantenuto se non instabile; l'instabilita' solo oltre la soglia assoluta e
+    quella di sproporzione insieme; un vicino non ammissibile; la sostituzione
+    con l'alternativa in zona stabile piu' vicina; la regola delle modalita'
+    di decontaminazione. Che griglie e soglie dello strumento siano quelle di
+    'docs/decision_log.md', che le decisioni pubblicate in 'docs/sensibilita/'
+    si riottengano dai passi pubblicati, e che la configurazione congelata
+    dichiari i valori scelti con la regola rigorosa attiva. Per la regola
+    rigorosa ('run.strict_provenance'): falsa per difetto, senza effetto
+    sull'impronta di fase quando e' disattivata; con la regola, sorgente, file
+    di blocco e immagine dichiarata nell'impronta; rifiuto prima di qualunque
+    fase con git non leggibile o script R fuori dal repository ('E-PROV-01'),
+    con modifiche non committate ('E-PROV-02'), con ambiente R diverso dal
+    file di blocco ('E-PROV-03', letto dalle librerie installate con
+    'R/00_ambiente.R'); esito positivo nell'ambiente dell'immagine, con tutti
+    i pacchetti di 'renv.lock'; un'immagine dichiarata diversa rifa' la fase
+    solo con la regola; l'esito della regola nel report.
+
+  * COMANDO BASH:
+    pytest tests/test_w26_congelamento.py -v
+
+  * RISULTATO ATTESO:
+    20 test (19 passed, 1 skipped in ambiente locale privo di Bioconductor; 20
+    passed nel container con il repository montato; nell'immagine senza il
+    repository montato, come nella CI, 17 passed e 3 skipped, perche' le
+    cartelle docs/ e dati/ mancano)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. Una regola di decisione fissata prima dei risultati vale solo se lo
+       strumento che la applica e' quello descritto e le decisioni pubblicate
+       derivano dalle misure pubblicate.
+    2. Una configurazione congelata certifica i risultati solo se il codice
+       e' identificato da un commit e l'ambiente R e' quello del file di
+       blocco: cio' che non si puo' verificare ferma l'esecuzione.
+    3. L'immagine dichiarata resta una dichiarazione: la verifica possibile
+       da dentro il container e' quella delle versioni che i calcoli
+       caricano.
+
+
+--------------------------------------------------------------------------------
 MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
 --------------------------------------------------------------------------------
   * SETTIMANA E FASE:
@@ -1641,7 +1692,7 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   ----------+---------------------------------------+------+-------------------------------------------------
   W1 - W2   | tests/test_w01_w02_import.py          |   10 | pytest tests/test_w01_w02_import.py -v
   W3 - W4   | tests/test_w03_w04_config_schema.py   |   84 | pytest tests/test_w03_w04_config_schema.py -v
-  W5        | tests/test_w05_errors_catalog.py      |  307 | pytest tests/test_w05_errors_catalog.py -v
+  W5        | tests/test_w05_errors_catalog.py      |  325 | pytest tests/test_w05_errors_catalog.py -v
   W5        | tests/test_w05_artifacts.py           |   25 | pytest tests/test_w05_artifacts.py -v
   W5        | tests/test_w05_logging.py             |   14 | pytest tests/test_w05_logging.py -v
   W6        | tests/test_w06_crosswalk.py           |   43 | pytest tests/test_w06_crosswalk.py -v
@@ -1667,7 +1718,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W23       | tests/test_w23_filogenesi.py          |   14 | pytest tests/test_w23_filogenesi.py -v
   W24       | tests/test_w24_riproduzione.py        |    7 | pytest tests/test_w24_riproduzione.py -v
   W25       | tests/test_w25_immagine.py            |    5 | pytest tests/test_w25_immagine.py -v
+  W26       | tests/test_w26_congelamento.py        |   20 | pytest tests/test_w26_congelamento.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (29 moduli)              | 1007 | pytest tests/ -v
+  TOTALE    | Intera suite (30 moduli)              | 1045 | pytest tests/ -v
 ================================================================================

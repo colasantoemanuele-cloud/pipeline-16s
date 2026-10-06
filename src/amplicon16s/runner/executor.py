@@ -74,7 +74,8 @@ from amplicon16s.io_layer.artifacts import Fase, scrivi_atomico
 from amplicon16s.logging.logger import registra_errore
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import ProjectRun, StatoPasso, Valutazione
-from amplicon16s.runner.provenienza import RADICE_REPOSITORY
+from amplicon16s.rbridge.runner import cartella_r, esegui_script
+from amplicon16s.runner.provenienza import blocco_r, discordanze_ambiente, verifica_git
 from amplicon16s.runner.retry import (
     RITENTARE_INUTILE,
     Motivo,
@@ -113,25 +114,22 @@ EVENTO_CONCLUSIONE: Final = "conclusione"
 def _blocco_r(lockfile: str) -> dict[str, Any] | None:
     """Che cosa dichiara il file di blocco dei pacchetti R su dada2, se si trova.
 
-    ``run.lockfile`` e' cercato com'e' (dalla cartella di lavoro, come
-    nell'immagine) e poi nella radice del repository. Si registrano la sua
-    impronta e la voce di dada2, con la correzione dei pareggi di
-    assignTaxonomy se dichiarata: e' cio' che il file dichiara, come l'immagine
-    in ``run.container``, non una misura della libreria caricata da R. ``None``
-    se il file non si trova o non si legge.
+    Si registrano la sua impronta e la voce di dada2, con la correzione dei
+    pareggi di assignTaxonomy se dichiarata: e' cio' che il file dichiara, come
+    l'immagine in ``run.container``, non una misura della libreria caricata da
+    R. La misura la fa la regola rigorosa sulla provenienza, quando e' attiva.
+    ``None`` se il file non si trova o non si legge.
     """
-    for percorso in (Path(lockfile), RADICE_REPOSITORY / lockfile):
-        try:
-            dati = percorso.read_bytes()
-            dada2 = json.loads(dati)["Packages"]["dada2"]
-        except (OSError, ValueError, KeyError, TypeError):
-            continue
-        return {
-            "file": percorso.name,
-            "sha256": hashlib.sha256(dati).hexdigest(),
-            "dada2": {"versione": dada2.get("Version"), "correzione": dada2.get("Patch")},
-        }
-    return None
+    trovato = blocco_r(lockfile)
+    if trovato is None:
+        return None
+    percorso, contenuto = trovato
+    dada2 = contenuto["Packages"]["dada2"]
+    return {
+        "file": percorso.name,
+        "sha256": hashlib.sha256(percorso.read_bytes()).hexdigest(),
+        "dada2": {"versione": dada2.get("Version"), "correzione": dada2.get("Patch")},
+    }
 
 
 class Conclusione(StrEnum):
@@ -274,6 +272,10 @@ class Esecutore:
         riferimento tassonomico contro tax.ref_md5 a ogni avvio, anche con S0
         conclusa: un file alterato dopo S0 non arriva a S8.
 
+        Con ``run.strict_provenance`` vero segue la regola rigorosa sulla
+        provenienza (:meth:`_provenienza_rigorosa`), che rifiuta l'esecuzione
+        con ``E-PROV-01``, ``E-PROV-02`` o ``E-PROV-03``.
+
         L'esito di ciascun controllo va nel log e nel registro degli avvii come
         evento strutturato (:data:`EVENTO_CONTROLLI`), superato o no:
         ``gates.json`` riporta i gate come li ha visti S0, e una ripresa con S0
@@ -327,7 +329,29 @@ class Esecutore:
                     origine="controlli di avvio",
                 ))
 
-        superati = all(e["superato"] for e in esiti)
+        # La regola rigorosa sulla provenienza, se attiva, dopo i tre controlli:
+        # codice identificato da un commit e ambiente R conforme al file di blocco.
+        rigorosa: dict[str, Any] = {"attiva": False}
+        if self.config.run.strict_provenance and not coerenza and arresto is None:
+            rigorosa, rifiuto = self._provenienza_rigorosa()
+            if rifiuto is not None:
+                v = voce(rifiuto[0])
+                arresto = _Arresto(PuntoDiRipresa(
+                    passo=valutazione.prossima(),
+                    codice=rifiuto[0],
+                    categoria=v.categoria.value,
+                    sintesi=v.sintesi,
+                    azione=v.azione,
+                    dettaglio=rifiuto[1],
+                    motivo="La regola rigorosa sulla provenienza si verifica a ogni avvio, "
+                           "prima di qualunque fase.",
+                    tentativi=0,
+                    tentativi_massimi=self.politica.tentativi_massimi,
+                    comando=self.comando_ripresa,
+                    origine="controlli di avvio",
+                ))
+
+        superati = all(e["superato"] for e in esiti) and arresto is None
         self.log.log(
             logging.INFO if superati else logging.ERROR,
             "controlli di avvio " + ("superati" if superati else "non superati"),
@@ -336,12 +360,59 @@ class Esecutore:
                 "esiti": esiti,
                 "fino_a": str(self.fino_a) if self.fino_a else None,
                 "blocco_r": _blocco_r(self.config.run.lockfile),
+                "provenienza_rigorosa": rigorosa,
             },
         )
         if coerenza:
             raise ErroreGate("G15", coerenza)
         if arresto is not None:
             raise arresto
+
+    def _provenienza_rigorosa(self) -> tuple[dict[str, Any], tuple[str, str] | None]:
+        """Le verifiche della regola rigorosa: che cosa e' risultato, e il codice
+        del catalogo con il dettaglio se l'esecuzione va rifiutata.
+
+        Verificati: git leggibile e senza modifiche non committate al codice;
+        versione di R e dei pacchetti installati uguali al file di blocco,
+        lette dalle librerie con ``R/00_ambiente.R``. Dichiarata, e riportata
+        come tale: l'immagine di ``run.container``.
+        """
+        esito: dict[str, Any] = {"attiva": True, "immagine_dichiarata": self.config.run.container}
+        codice, dettaglio = verifica_git(cartella_r())
+        esito["git"] = {"verificato": codice is None, "commit": dettaglio if codice is None else None}
+        if codice is not None:
+            return esito, (codice, dettaglio)
+
+        trovato = blocco_r(self.config.run.lockfile)
+        if trovato is None:
+            esito["ambiente_r"] = {"verificato": False}
+            return esito, ("E-PROV-03", f"file di blocco {self.config.run.lockfile} non trovato")
+        _, blocco = trovato
+        try:
+            esegui_script(
+                cartella_r() / "00_ambiente.R", {"pacchetti": sorted(blocco["Packages"])},
+                self.run.albero, Fase.LOGS, passo="AVVIO", logger=self.log,
+            )
+            ambiente = json.loads(
+                (self.run.albero.cartella(Fase.LOGS) / "ambiente_r.json").read_text(encoding="utf-8")
+            )
+        except (ErrorePipeline, OSError, ValueError) as e:
+            esito["ambiente_r"] = {"verificato": False}
+            return esito, ("E-PROV-03", f"ambiente R non verificabile: {e}")
+        discordanze = discordanze_ambiente(blocco, ambiente)
+        esito["ambiente_r"] = {
+            "verificato": not discordanze,
+            "r": ambiente.get("r"),
+            "pacchetti_confrontati": len(blocco["Packages"]),
+            "discordanze": discordanze[:20],
+        }
+        if discordanze:
+            return esito, (
+                "E-PROV-03",
+                f"{len(discordanze)} discordanze con {self.config.run.lockfile}: "
+                + "; ".join(discordanze[:8]),
+            )
+        return esito, None
 
     # ----------------------------------------------------------------- #
     # Esecuzione                                                         #

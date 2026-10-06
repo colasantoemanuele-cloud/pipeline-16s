@@ -37,6 +37,12 @@ assente, un processo morto prima di scrivere l'esito, un errore che lo script
 non ha ricondotto a un codice. Sono tutti a revisione umana: nessuno di questi
 guasti ha un'azione correttiva che non richieda di capirne prima la causa.
 
+**I codici della provenienza.** I codici ``E-PROV-*`` appartengono alla regola
+rigorosa sulla provenienza (``run.strict_provenance``), un controllo di avvio
+che l'esecutore compie prima di qualunque fase: repository git non leggibile,
+codice con modifiche non committate, ambiente R diverso dal file di blocco.
+Sono a revisione umana.
+
 **Il codice del grafo.** ``E-GRAFO-01`` segnala una fase avviata prima che le
 fasi da cui dipende fossero concluse, qualunque sia la fase. Non va confuso
 con ``E-S13-01``, che riguarda la sola precedenza di metodo fra
@@ -609,6 +615,40 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "riprendi l'esecuzione, che le esegue nell'ordine del grafo. Se l'errore "
         "compare durante una ripresa, e' un difetto dell'orchestrazione e non "
         "dei dati: segnalalo insieme al log in 99_logs.",
+        _UMANA,
+    ),
+    # --------------------------------------------------------------- PROV ---
+    _v(
+        "E-PROV-01", "PROV",
+        "La regola rigorosa sulla provenienza e' attiva e nessun commit leggibile "
+        "identifica il codice eseguito.",
+        "Con run.strict_provenance: true l'esecuzione parte solo da un clone del "
+        "repository: il commit e' cio' che identifica il codice eseguito. Lancia la "
+        "pipeline dalla radice di un clone, con il repository montato nel container e "
+        "il comando del README (PYTHONPATH e AMPLICON16S_R_DIR che puntano al clone), "
+        "con lo stesso utente proprietario dei file, altrimenti git rifiuta il "
+        "repository. Senza un clone, disattiva la regola: i risultati non saranno "
+        "certificati rispetto al codice.",
+        _UMANA,
+    ),
+    _v(
+        "E-PROV-02", "PROV",
+        "La regola rigorosa sulla provenienza e' attiva e il codice ha modifiche non committate.",
+        "Con run.strict_provenance: true il codice eseguito deve coincidere con un "
+        "commit: le modifiche non committate in src/ o in R/ non sarebbero "
+        "identificate da nulla. Committa le modifiche o ripristina i file (git "
+        "status, git stash), poi riprendi; durante lo sviluppo, disattiva la regola.",
+        _UMANA,
+    ),
+    _v(
+        "E-PROV-03", "PROV",
+        "La regola rigorosa sulla provenienza e' attiva e l'ambiente R non corrisponde al file di blocco.",
+        "Con run.strict_provenance: true la versione di R e quelle dei pacchetti "
+        "installati devono essere quelle di run.lockfile, compresa la correzione di "
+        "dada2. Il dettaglio elenca le discordanze. Esegui nell'immagine indicata "
+        "dal README, scaricata con il suo digest, e non con l'R della macchina; se "
+        "il file di blocco non si trova, lancia la pipeline dalla radice del "
+        "repository.",
         _UMANA,
     ),
     # ------------------------------------------------------------------ R ---

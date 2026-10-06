@@ -407,6 +407,15 @@ run:
   # scambia per un artefatto perso e non rifa' nulla. Se una fase che le legge
   # deve poi essere ripetuta, S2 viene rieseguita prima di lei.
   keep_filtered_fastq: true
+  # La regola rigorosa sulla provenienza, da attivare nelle configurazioni
+  # congelate. Con true l'esecuzione parte solo se il codice sta in un
+  # repository git leggibile e senza modifiche non committate (src/ e R/), e se
+  # i pacchetti R installati corrispondono a run.lockfile; l'impronta del
+  # sorgente, quella del file di blocco e l'immagine dichiarata entrano
+  # nell'impronta di ogni fase, quindi cambiare codice o ambiente rifa' le
+  # fasi. L'immagine in run.container resta una dichiarazione: dall'interno del
+  # container il suo digest non e' verificabile.
+  strict_provenance: false
 
 # =========================================================================== #
 # Analisi ecologiche a valle                                                  #
