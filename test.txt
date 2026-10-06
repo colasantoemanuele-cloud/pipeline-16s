@@ -62,9 +62,10 @@ Totale complessivo della suite: 1045 test su 30 moduli:
     dei suoi 9 test (la cartella dati/ non vi e' copiata): per questo i test
     contati sono 1037;
   * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 35 test che li
-    richiedono, tutti sullo stesso processo: 999 passed e 3 skipped in 86
-    minuti, con picco di memoria del container di 16,9 GB (limite a 24 GB),
-    misurati il 5 ottobre 2026 con la suite attuale e il repository montato. I
+    richiedono, tutti sullo stesso processo: 1042 passed e 3 skipped in 76
+    minuti e mezzo, con picco di memoria del container di 16,0 GB (limite a
+    24 GB), misurati il 6 ottobre 2026 nell'immagine pubblicata con la suite
+    attuale e il repository montato. I
     3 salti restano anche in questo scenario: la lingua di R, e due test che
     richiedono che git riconosca il repository, cosa che nel container con il
     repository montato di un altro proprietario non avviene.

@@ -517,7 +517,10 @@ Sono realizzati:
   applica la regola; `docs/sensibilita.md` riporta parametri, intervalli, misure e
   decisioni, con le tabelle in `docs/sensibilita/`. Su OSD-734 la regola mantiene i
   quattro valori correnti, e il confronto fra GTR+G+I e GTR+G con il criterio
-  d'informazione bayesiano mantiene GTR+G+I come predefinito di `phylo.model`;
+  d'informazione bayesiano mantiene GTR+G+I come predefinito di `phylo.model`. Con la
+  configurazione congelata e la regola rigorosa attiva la catena completa, rieseguita
+  da zero nell'immagine pubblicata, dà i 1.031 artefatti dei checksum pubblicati in
+  `dati/osd734/`;
 - **l'esecutore e la politica dei tentativi** (`runner/executor.py`,
   `runner/retry.py`). A ogni avvio, con `run` come con `resume`, l'esecutore ripete
   la verifica di coerenza della configurazione (G15), quella delle risorse della

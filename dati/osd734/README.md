@@ -158,8 +158,8 @@ cache (4 minuti e 37 secondi), dati scaricati con i tre script in una cartella v
 catena S0-S14 con il comando qui sopra e `run.threads: 12`. Tutti i 1.031 artefatti
 dei manifesti di fase sono risultati identici, byte per byte, a quelli dell'esecuzione
 di riferimento precedente, prodotta su un'altra copia dei dati e con un'immagine
-costruita in un altro momento. Quell'esecuzione e' ora il riferimento, e i suoi
-checksum sono quelli pubblicati qui.
+costruita in un altro momento. I checksum pubblicati qui sono stati ricavati da
+quell'esecuzione.
 
 **Con l'immagine pubblicata** la catena completa e' stata rieseguita il 6 ottobre 2026
 sugli stessi dati scaricati, in una cartella di output nuova: 1.031 artefatti
@@ -167,6 +167,18 @@ identici ai checksum pubblicati, in 48 minuti e 11 secondi, con 12,6 GB di memor
 picco. L'immagine pubblicata contiene, rispetto a quella della riproduzione, tre
 pacchetti R in piu' per le analisi ecologiche (DESeq2, locfit, randomForest) e nessuna
 versione cambiata fra i 206 pacchetti gia' presenti.
+
+**Con la configurazione congelata** (i valori scelti con l'analisi di sensibilita' e la
+regola rigorosa sulla provenienza attiva) la catena completa e' stata rieseguita da
+zero il 6 ottobre 2026 da un clone al commit `af82ef9`, nell'immagine pubblicata, con
+il comando qui sopra e `run.threads: 12`: 1.031 artefatti identici ai checksum
+pubblicati, in 48 minuti e 39 secondi. All'avvio la regola ha verificato il commit,
+l'assenza di modifiche al codice e la corrispondenza fra `renv.lock` e l'ambiente R
+installato (R 4.5.2, 109 pacchetti); una ripresa successiva non ha ricalcolato nulla.
+E' questa l'esecuzione di riferimento: e' prodotta dalla configurazione pubblicata
+cosi' com'e', salvo `run.threads`, e la sua provenienza dichiara l'immagine pubblicata.
+I valori scelti coincidono con quelli usati fin qui, quindi i risultati e i checksum
+pubblicati non sono cambiati.
 
 La prova ha fatto emergere un difetto, corretto: al commit `59ef39d` i percorsi
 relativi di `config_osd734.yaml` superavano S0 ma fermavano S1 con `E-R-02`, perche' il
@@ -244,7 +256,7 @@ dal suo Dockerfile); quelle con l'immagine pubblicata sono del 6 ottobre 2026.
 | Immagine pubblicata | 1,86 GB da scaricare (1.863.204.352 byte compressi, 34 strati); 7,6 GB su disco, strati dell'immagine di partenza di Bioconductor compresi | manifesto del registro; `docker image ls` (colonna DISK USAGE) |
 | Costruzione dell'immagine, in alternativa | 4 minuti e 37 secondi senza cache | `docker build --no-cache`; dipende dalla rete |
 | Uscite dell'esecuzione completa | 2,27 GB, di cui 2,24 GB di letture filtrate (`03_filtered/`) e 32 MB di tutto il resto | `output/osd734/` a catena conclusa |
-| Durata dell'esecuzione completa | 53 minuti e 20 secondi per la catena S0-S14; la fase S4 (denoising) ne occupa 26, S2 9,5, S8 6, S1 5 | il comando di esecuzione qui sopra; 48 minuti e 11 secondi con l'immagine pubblicata, nelle esecuzioni precedenti 55,5 e 64 minuti |
+| Durata dell'esecuzione completa | 53 minuti e 20 secondi per la catena S0-S14; la fase S4 (denoising) ne occupa 26, S2 9,5, S8 6, S1 5 | il comando di esecuzione qui sopra; 48 minuti e 11 secondi e 48 minuti e 39 secondi con l'immagine pubblicata (la seconda con la configurazione congelata), nelle esecuzioni precedenti 55,5 e 64 minuti |
 | Memoria di picco della pipeline | 12,3 GB (11,5 GiB; 12.304.121.856 byte); 12,6 GB con l'immagine pubblicata | `memory.peak` del cgroup del container, letto al termine della catena, con il limite a 24 GB |
 
 Lo spazio dell'immagine e' misurato con Docker 29.1.3, che usa l'archivio di immagini
