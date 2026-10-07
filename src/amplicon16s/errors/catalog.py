@@ -250,6 +250,20 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "tutto il calcolo che la precede.",
         _UMANA,
     ),
+    _v(
+        "E-G15-14", "G15",
+        "Un parametro dei metadati e' dichiarato senza quello da cui dipende.",
+        "Tre parametri hanno effetto solo insieme a un altro, e dichiarati da "
+        "soli verrebbero ignorati senza che nulla lo segnali: "
+        "ctrl.blank_override_values richiede ctrl.blank_override_column (la "
+        "colonna in cui cercare i valori); meta.study_sample_id_column richiede "
+        "io.study_table (senza tabella di studio il nome del campione si legge "
+        "dalla tabella di assay, in meta.sample_id_column); meta.module_regex "
+        "richiede meta.module_column (la posizione da cui derivare il modulo). "
+        "Dichiara il parametro mancante, oppure rendi nullo o vuoto quello che "
+        "ne dipende.",
+        _UMANA,
+    ),
     # ----------------------------------------------------------------- S0 ---
     _v(
         "E-S0-01", "S0",
@@ -330,6 +344,17 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "stimati con piu' incertezza: tienine conto leggendo i risultati di "
         "quei campioni. Non e' un errore da correggere a posteriori, e' una "
         "proprieta' di come la piastra e' stata allestita.",
+        _DEGRADA,
+    ),
+    _v(
+        "E-S0-19", "S0",
+        "Il file del lotto ha righe che non corrispondono ad alcun campione.",
+        "L'esecuzione prosegue e quelle righe sono ignorate: il loro numero e' "
+        "registrato nel manifesto di S0. E' normale se il file descrive piu' "
+        "campioni di quanti l'assay ne contenga. Se invece le righe dovevano "
+        "corrispondere a dei campioni, la chiave in meta.batch_key_column e' "
+        "scritta in modo diverso dall'accession dei file e della tabella di "
+        "assay: confronta le chiavi elencate con 01_input_validation/crosswalk.tsv.",
         _DEGRADA,
     ),
     _v(

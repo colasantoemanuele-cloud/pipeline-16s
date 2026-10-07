@@ -10,21 +10,51 @@ presupponga la struttura di OSD-734, il dataset di riferimento del progetto.
 
 OSD-276 non e' un dataset single-end. E' depositato come PAIRED, e ENA distribuisce
 per ciascuna delle 15 corse **un solo file** che contiene le due letture di ogni
-coppia: prima tutte le inverse (record il cui nome termina con `/2`), poi tutte le
-forward (`/1`). La pipeline tratta dati single-end: **qui si usano le sole letture
+coppia, in due blocchi: i record la cui intestazione termina con `/1` e quelli che
+terminano con `/2`; in 8 corse viene prima il blocco `/1`, in 7 il blocco `/2`. La
+pipeline tratta dati single-end: **qui si usano le sole letture
 forward come dato single-end**. E' un uso legittimo (la lettura forward di un
 amplicone V4 e' cio' che un sequenziamento single-end produrrebbe) ma va dichiarato:
 i risultati non sono confrontabili con un'analisi paired-end dello stesso dataset, che
 ricostruisce l'intero amplicone.
 
 `scarica_letture.py` scarica il file di ENA, lo verifica con l'MD5 dichiarato da ENA e
-ne ricava le forward senza modificarle. Le forward cosi' ricavate coincidono con i file
-`GLDS-276_GAmplicon_<campione>_R1_raw.fastq.gz` pubblicati da OSDR (verificato sul
-campione SP9: stesse sequenze e stesse qualita').
+ne ricava le forward (i record `/1`) senza modificarle. Prima conta i record `/1`, i
+record `/2` e gli altri, e rifiuta il file se ce ne sono di altri, se `/1` e `/2` non
+sono in numero uguale o se la somma non e' il numero di letture dichiarato dal
+deposito; un file forward con un'impronta diversa dall'attesa viene messo da parte
+(`.md5_errato`) e non resta in `fastq/`; il guasto di una corsa finisce nel riepilogo
+finale senza fermare le altre.
 
-I file di ENA cosi' come sono **non vanno dati alla pipeline**: la fase di validazione
-li accetterebbe, perche' giudica il layout dai nomi dei file, e la catena mescolerebbe
-letture forward e inverse.
+### Confronto con i file pubblicati da OSDR
+
+OSDR pubblica per ogni campione due file,
+`GLDS-276_GAmplicon_<campione>_R1_raw.fastq.gz` e `..._R2_raw.fastq.gz`. Il 7 ottobre
+2026 sono stati scaricati tutti e 30 e confrontati con i due blocchi dei 15 file di
+ENA, record per record (sequenze e qualita', nello stesso ordine; le intestazioni
+differiscono per formato):
+
+- ogni blocco di ENA coincide con uno dei due file di OSDR, in tutte le 15 corse;
+- le forward ricavate qui (il blocco `/1`) coincidono con il file **R1** di OSDR in 7
+  corse (SP2, SP4, SP5, SP7, SP9, SP10, SP13) e con il file **R2** in 8 (SP1, SP3,
+  SP6, SP8, SP11, SP12, SP14, SP15): il file R1 di OSDR e' sempre il secondo blocco
+  del file di ENA, qualunque etichetta porti;
+- il motivo conservato a valle del primer 515F apre dal 26% al 73% delle letture del
+  blocco `/1` e lo 0% di quelle del blocco `/2`, in tutte le 15 corse.
+
+L'etichetta `/1` di ENA individua quindi in ogni corsa la lettura che parte dal lato
+del 515F, quella che la pipeline si attende; il nome R1 dei file di OSDR no, e usare
+i file R1 di OSDR avrebbe mescolato le due estremita' dell'amplicone in 8 campioni su
+15. Una verifica precedente, fatta sul solo campione SP9, aveva concluso che le
+forward ricavate coincidono con gli R1 di OSDR: vale per 7 corse, non per tutte.
+
+I file di ENA cosi' come sono **non vanno dati alla pipeline**. La fase di validazione
+riconosce un file con le due letture di ogni coppia dalle intestazioni delle letture
+che ispeziona (le prime `qc.head_reads`, 10.000 per difetto): in questi file ogni
+blocco e' piu' lungo (da 35.489 a 105.423 letture), le letture ispezionate sono tutte
+dello stesso blocco, e con il valore predefinito il file passa; con `qc.head_reads`
+oltre la lunghezza del primo blocco viene respinto (`E-S0-07`). Passato, la catena
+mescolerebbe letture forward e inverse.
 
 ## Perche' questo dataset
 

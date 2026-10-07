@@ -38,7 +38,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, ClassVar, Final
 
-from amplicon16s.config.schema import Config, Qc
+from amplicon16s.config.schema import Config, Qc, thread_effettivi
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import ManifestoPasso
 from amplicon16s.io_layer.conteggi import leggi_conteggi
@@ -174,7 +174,7 @@ class FiltroLetture(PipelineStep):
         campioni = {
             c.accession: str(c.file) for c in contesto.inventario if c.file is not None
         }
-        with ThreadPoolExecutor(max_workers=config.run.threads) as esecutore:
+        with ThreadPoolExecutor(max_workers=thread_effettivi(config)) as esecutore:
             motivi = dict(zip(campioni, esecutore.map(archivio_incompleto, map(Path, campioni.values()))))
         incompleti = {a: m for a, m in motivi.items() if m is not None}
         if incompleti:
@@ -195,7 +195,7 @@ class FiltroLetture(PipelineStep):
                 "truncQ": filtro.truncQ,
                 "maxN": filtro.maxN,
                 "rm_phix": filtro.rm_phix,
-                "processi": config.run.threads,
+                "processi": thread_effettivi(config),
                 "lotto": config.run.batch_size,
             },
             contesto.albero,

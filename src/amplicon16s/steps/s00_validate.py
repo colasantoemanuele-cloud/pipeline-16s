@@ -204,7 +204,10 @@ class ValidazioneIngressi(PipelineStep):
     """
 
     passo: ClassVar[Passo] = Passo.S0
-    versione: ClassVar[int] = 5
+    #: 6: G10 cerca il primer nelle sole classi controllate; G08 dichiara le
+    #: righe del lotto senza campione (E-S0-19); il modulo viene dal lotto
+    #: anche senza meta.module_column.
+    versione: ClassVar[int] = 6
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre
@@ -311,8 +314,8 @@ class ValidazioneIngressi(PipelineStep):
                 )
             )
 
-        # Gli avvisi di degradazione (E-S0-15 da G08, E-S0-17 da G11, E-S0-18
-        # da G10) non fermano la
+        # Gli avvisi di degradazione (E-S0-15 ed E-S0-19 da G08, E-S0-17 da G11,
+        # E-S0-18 da G10) non fermano la
         # fase e finiscono nel suo manifesto; gli altri restano segnalazioni
         # nel log.
         for esito in esiti:

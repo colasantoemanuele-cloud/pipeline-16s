@@ -49,6 +49,7 @@ from amplicon16s.config.schema import (
     INTESTAZIONE_MANCANTI,
     Config,
     ErroreConfigurazione,
+    processori_disponibili,
     valida,
 )
 from amplicon16s.errors.catalog import CATALOGO, Categoria, VoceCatalogo, voce
@@ -168,6 +169,13 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
         "gate",
     ),
     Controllo(
+        "E-G15-14",
+        ("ctrl.blank_override_values", "ctrl.blank_override_column",
+         "meta.study_sample_id_column", "io.study_table",
+         "meta.module_regex", "meta.module_column"),
+        "gate",
+    ),
+    Controllo(
         "E-G15-99",
         (),
         "schema",
@@ -284,6 +292,10 @@ def _codice_per_problema(problema: str) -> str:
         return "E-G15-10"
     if "parametro derivato" in problema:
         return "E-G15-08"
+    # La regola di riclassificazione senza la sua colonna: lo schema la respinge
+    # da se', e il rifiuto e' quello del controllo sulle dipendenze fra parametri.
+    if problema.startswith("ctrl:") and "blank_override_column e' nullo" in problema:
+        return "E-G15-14"
     for percorso, _tipi, codice in _ATTRIBUZIONI:
         if problema.startswith(".".join(percorso) + ":"):
             return codice
@@ -301,7 +313,7 @@ def _violazione_da_schema(problema: str) -> Violazione:
     codice = _codice_per_problema(problema)
     controllo = _PER_CODICE[codice]
 
-    if not controllo.parametri:
+    if not controllo.parametri or codice == "E-G15-14":
         return Violazione(codice, problema)
 
     return Violazione(
@@ -442,6 +454,31 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
                     ),
                 )
             )
+
+    # E-G15-14 : un parametro che ha effetto solo insieme a un altro. Dichiarato
+    # da solo verrebbe ignorato in silenzio, e chi lo ha scritto crederebbe il
+    # contrario. (La regola di riclassificazione senza colonna la respinge gia'
+    # lo schema, con lo stesso codice.)
+    if config.meta.study_sample_id_column is not None and config.io.study_table is None:
+        violazioni.append(
+            Violazione(
+                "E-G15-14",
+                "meta.study_sample_id_column e' dichiarato "
+                f"({config.meta.study_sample_id_column!r}) ma io.study_table e' nullo: "
+                "senza tabella di studio il nome del campione si legge dalla tabella di "
+                "assay, in meta.sample_id_column, e il parametro non avrebbe effetto",
+            )
+        )
+    if config.meta.module_regex is not None and config.meta.module_column is None:
+        violazioni.append(
+            Violazione(
+                "E-G15-14",
+                f"meta.module_regex e' dichiarata ({config.meta.module_regex!r}) ma "
+                "meta.module_column e' nullo: l'espressione si applica alla posizione "
+                "del campione, e senza la colonna che la dichiara non deriverebbe alcun "
+                "modulo",
+            )
+        )
 
     # E-G15-13 : due colonne richieste non possono avere lo stesso nome
     # nell'oggetto, ne' quello di una colonna dell'inventario.
@@ -989,15 +1026,17 @@ def _g12_riferimento_verificato(contesto: Contesto) -> tuple[list[Violazione], l
 
 
 def _g14_risorse_disponibili(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
-    """Le CPU richieste e lo spazio su disco sono disponibili."""
+    """Le CPU richieste e lo spazio su disco sono disponibili.
+
+    Con ``run.threads`` nullo (automatico) le fasi usano i processori
+    utilizzabili, qualunque sia il loro numero: non c'e' una richiesta da
+    confrontare, e il controllo riguarda il solo spazio su disco.
+    """
     config = contesto.config
     violazioni: list[Violazione] = []
 
-    try:
-        disponibili = len(os.sched_getaffinity(0))
-    except AttributeError:  # piattaforme senza affinita' di processo
-        disponibili = os.cpu_count() or 1
-    if config.run.threads > disponibili:
+    disponibili = processori_disponibili()
+    if config.run.threads is not None and config.run.threads > disponibili:
         violazioni.append(
             Violazione(
                 "E-S0-14",
@@ -1123,6 +1162,10 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
 
     **Come e' costruito.** Su due scelte, ciascuna con la propria ragione:
 
+    * il primer in testa si giudica file per file, ma sulle stesse classi: in
+      un controllo negativo con una manciata di letture una sola che comincia
+      per caso come il primer supera qualunque soglia in frazione, e non dice
+      nulla di come sono state prodotte le letture;
     * riguarda le sole classi da cui ci si puo' attendere il segnale del
       bersaglio (:data:`~amplicon16s.metadata.models.CLASSI_CONTROLLATE`),
       quindi esclude i controlli negativi. E' un principio, non una
@@ -1145,10 +1188,15 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
 
     # Il primer in testa e' un difetto solo se il filtro non lo togliera': con
     # filter.trimLeft maggiore di zero non si cerca (la scansione non lo conta).
+    # Si giudica sui campioni biologici e sui controlli positivi, come il
+    # motivo: i controlli negativi hanno troppo poche letture perche' una
+    # frazione vi abbia significato.
+    controllati = {c.accession for c in inventario if c.classe in CLASSI_CONTROLLATE}
     col_primer = {
         accession: s
         for accession, s in contesto.scansione.items()
-        if s.valido and s.frazione_primer > config.qc.max_primer_hit_frac
+        if accession in controllati
+        and s.valido and s.frazione_primer > config.qc.max_primer_hit_frac
     }
     if col_primer and taglio == 0:
         peggiori = sorted(
@@ -1160,8 +1208,8 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
         violazioni.append(
             Violazione(
                 "E-S0-10",
-                f"{len(col_primer)} file hanno piu' di "
-                f"{config.qc.max_primer_hit_frac:.0%} di letture che iniziano con il "
+                f"{len(col_primer)} file di campioni biologici o di controlli positivi "
+                f"hanno piu' di {config.qc.max_primer_hit_frac:.0%} di letture che iniziano con il "
                 f"primer {config.qc.primer_sequence}: {dettaglio}. Imposta "
                 f"filter.trimLeft a {len(config.qc.primer_sequence)}, la lunghezza "
                 f"del primer",
@@ -1316,6 +1364,22 @@ def _g08_lotto_coerente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
             )
         if violazioni:
             return violazioni, []
+
+        # Il verso opposto: righe del file che non corrispondono ad alcun
+        # campione. Non fermano (un file del lotto puo' coprire piu' assay, o
+        # campioni poi esclusi) ma vanno dette: sono anche il sintomo di una
+        # chiave scritta in modo diverso da quella dei campioni.
+        if analisi.righe_lotto_senza_campione:
+            avvisi.append(
+                Avviso(
+                    "E-S0-19",
+                    "{} righe di {} non corrispondono ad alcun campione e sono "
+                    "ignorate: {}".format(
+                        sum(analisi.righe_lotto_senza_campione.values()), percorso.name,
+                        _elenca(sorted(analisi.righe_lotto_senza_campione)),
+                    ),
+                )
+            )
 
     inventario = contesto.inventario
     per_piastra: dict[str, int] = {}

@@ -39,7 +39,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, ClassVar, Final
 
-from amplicon16s.config.schema import Config
+from amplicon16s.config.schema import Config, thread_effettivi
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.io_layer.conteggi import leggi_conteggi
@@ -219,7 +219,7 @@ class ModelloErrore(PipelineStep):
                 "max_consist": config.err.max_consist,
                 "funzione_errore": config.err.error_function,
                 "seme": config.run.seed,
-                "processi": config.run.threads,
+                "processi": thread_effettivi(config),
             },
             contesto.albero,
             self.cartella,

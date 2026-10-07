@@ -747,9 +747,10 @@ def test_le_degradazioni_di_s0_finiscono_nel_suo_manifesto(tmp_path, registro):
     run, esito = _esegui(scenario.config, registro)
     assert esito.conclusione is Conclusione.COMPLETATA
     codici = [d["codice"] for d in run.albero.manifesto_passo(Passo.S0, Fase.INPUT_VALIDATION).degradazioni]
-    # E-S0-15 e' la piastra con pochi negativi (G08); E-S0-17, che lo precede,
-    # dichiara che lo scenario intero ha meno negativi di decontam.min_blanks.
-    assert "E-S0-15" in codici and set(codici) <= {"E-S0-15", "E-S0-17"}
+    # Esattamente due, nell'ordine dei gate: E-S0-17 (G11) dichiara che lo
+    # scenario intero ha meno negativi di decontam.min_blanks; E-S0-15 (G08) e'
+    # la piastra con pochi negativi.
+    assert codici == ["E-S0-17", "E-S0-15"]
 
 
 # --------------------------------------------------------------------------- #

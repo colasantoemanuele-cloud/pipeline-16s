@@ -458,8 +458,10 @@ run:
   # esecuzioni sono confrontabili anche rispetto alle versioni R impiegate.
   lockfile: renv.lock
   seed: 100
-  # Per difetto i processori utilizzabili dal processo; indicare un numero
-  # solo per usarne meno. Non incide sui risultati.
+  # Nullo per difetto, cioe' automatico: si usano i processori utilizzabili dal
+  # processo, contati all'uso, e il loro numero non entra nel digest della
+  # configurazione. Indicare un numero solo per usarne meno. Non incide sui
+  # risultati.
   # threads: 8
   batch_size: 24
   # Se conservare le letture filtrate da S2 (03_filtered) a esecuzione

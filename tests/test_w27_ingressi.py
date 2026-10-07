@@ -19,7 +19,8 @@ calcolo).
   ``src/amplicon16s/steps/s11_controls.py`` (``colonna_dei_livelli``)
 * ``src/amplicon16s/report/builder.py`` (parametri tarati e non dichiarati)
 * ``config/config.example.yaml``, ``dati/osd734/config_osd734.yaml``,
-  ``dati/osd276/``
+  ``dati/osd276/`` (``scarica_letture.py``)
+* ``src/amplicon16s/errors/catalog.py`` (``E-G15-14``, ``E-S0-19``)
 
 3. Cosa valuta questo file
 --------------------------
@@ -45,8 +46,17 @@ calcolo).
   schema; marcatori delle letture inverse ancorati prima dell'estensione;
   FASTQ compressi o no riconosciuti dai primi byte;
 - S0 dichiara i controlli che il dataset non ha (``E-S0-17``);
-  ``run.threads`` vale per difetto i processori utilizzabili e
-  ``run.container`` e' facoltativo;
+  ``run.threads`` e' nullo per difetto, i thread effettivi sono i processori
+  utilizzabili contati all'uso, e il digest della configurazione e' lo stesso
+  con 4 e con 16 processori; ``run.container`` e' facoltativo;
+- senza ``meta.module_column`` il modulo viene dal file del lotto; G15 respinge
+  un parametro dichiarato senza quello da cui dipende (``E-G15-14``); un
+  gruppo mancante elenca tutti i suoi parametri senza predefinito;
+- G10 cerca il primer nelle sole classi controllate; G08 dichiara le righe del
+  lotto senza campione (``E-S0-19``);
+- lo script che ricava le letture forward del secondo dataset conta i record
+  ``/1``, ``/2`` e gli altri, mette da parte un file non conforme e raccoglie i
+  guasti nel riepilogo;
 - il report elenca solo i parametri tarati su OSD-734 presi per difetto, e
   dichiararli al loro valore li toglie dall'elenco anche a una ripresa;
 - le configurazioni di OSD-734 e del secondo dataset dichiarano tutto, e nessun
@@ -126,7 +136,7 @@ from sottoinsieme import dati_esempio
 
 import amplicon16s.cli as cli
 from amplicon16s.config import defaults
-from amplicon16s.config.resolve import parametri_dichiarati, risolvi
+from amplicon16s.config.resolve import parametri_dichiarati, risolvi, scrivi_risolta
 from amplicon16s.config.schema import (
     INTESTAZIONE_MANCANTI,
     Config,
@@ -134,6 +144,7 @@ from amplicon16s.config.schema import (
     carica,
     obbligatori_mancanti,
     processori_disponibili,
+    thread_effettivi,
     valida,
 )
 from amplicon16s.errors.catalog import CATALOGO, Categoria
@@ -889,10 +900,11 @@ def test_s0_dichiara_i_controlli_che_il_dataset_non_ha(tmp_path):
 
 def test_i_thread_valgono_i_processori_disponibili_e_l_immagine_e_facoltativa(tmp_path, monkeypatch):
     """
-    **Obiettivo**: Verificare che senza ``run.threads`` il valore sia il numero
-    di processori utilizzabili dal processo e non risulti dichiarato, che G14
-    lo accetti, e che senza ``run.container`` la configurazione sia valida, S0
-    passi e la provenienza registri un'immagine nulla.
+    **Obiettivo**: Verificare che senza ``run.threads`` il parametro resti
+    nullo (automatico) e non risulti dichiarato, che i thread effettivi siano i
+    processori utilizzabili dal processo, che G14 lo accetti, e che senza
+    ``run.container`` la configurazione sia valida, S0 passi e la provenienza
+    registri un'immagine nulla.
 
     **Razionale scientifico e sistemistico**: Un numero fisso di thread fermava
     G14 su ogni macchina piu' piccola di quella di sviluppo senza cambiare
@@ -904,7 +916,8 @@ def test_i_thread_valgono_i_processori_disponibili_e_l_immagine_e_facoltativa(tm
     del dati["run"]
     monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {0, 1, 2})
     config = valida(dati)
-    assert processori_disponibili() == 3 and config.run.threads == 3
+    assert processori_disponibili() == 3 and config.run.threads is None
+    assert thread_effettivi(config) == 3
     assert config.run.container is None
     assert not {"run.threads", "run.container"} & set(parametri_dichiarati(config))
     assert esegui_gate("G14", Contesto(config)).superato
@@ -1034,3 +1047,315 @@ def test_s0_dichiara_i_parametri_che_i_suoi_gate_leggono(tmp_path):
     dopo = fase.calcolata_su(risolvi(_con(scenario.config, filter={"trimLeft": 3})), {})
     assert prima["configurazione"]["impronta"] != dopo["configurazione"]["impronta"]
     assert copy.deepcopy(prima) == fase.calcolata_su(risolvi(scenario.config), {})
+
+
+# --------------------------------------------------------------------------- #
+# 9. Correzioni dopo la revisione esterna                                      #
+# --------------------------------------------------------------------------- #
+
+
+def test_il_digest_non_dipende_dai_processori_della_macchina(tmp_path, monkeypatch):
+    """
+    **Obiettivo**: Verificare che la stessa configurazione, senza
+    ``run.threads``, abbia lo stesso digest e la stessa impronta dei risultati
+    su una macchina con 4 processori e su una con 16 (simulati), che
+    ``resolved.yaml`` riporti ``threads`` nullo, e che il valore effettivo si
+    calcoli all'uso: 4 e 16. Un valore dichiarato resta quello dichiarato,
+    entra nel digest e G14 lo confronta con i processori utilizzabili.
+
+    **Razionale scientifico e sistemistico**: Il digest identifica la
+    configurazione: se dipendesse dalla macchina, due esecuzioni della stessa
+    configurazione congelata risulterebbero diverse, e ogni ripresa su un'altra
+    macchina registrerebbe una configurazione nuova.
+    """
+    scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
+    dati = scenario.config.model_dump(mode="python")
+    del dati["run"]
+    visti = {}
+    for processori in (4, 16):
+        monkeypatch.setattr(os, "sched_getaffinity", lambda pid, n=processori: set(range(n)))
+        config = valida(copy.deepcopy(dati))
+        risolta = risolvi(config)
+        assert config.run.threads is None and thread_effettivi(config) == processori
+        assert risolta.come_mappa()["run"]["threads"] is None
+        assert esegui_gate("G14", Contesto(config)).superato
+        registrata = yaml.safe_load(
+            scrivi_risolta(risolta, tmp_path / f"out_{processori}").read_text(encoding="utf-8"))
+        assert registrata["parametri"]["run"]["threads"] is None
+        assert registrata["digest"] == risolta.digest
+        visti[processori] = (risolta.digest, risolta.impronta_risultati)
+    assert visti[4] == visti[16]
+
+    dichiarata = _con(config, run={"threads": 2})
+    assert thread_effettivi(dichiarata) == 2
+    assert risolvi(dichiarata).digest != visti[16][0]
+    assert risolvi(dichiarata).impronta_risultati == visti[16][1]
+    troppi = esegui_gate("G14", Contesto(_con(config, run={"threads": 17})))
+    assert [v.codice for v in troppi.violazioni] == ["E-S0-14"]
+
+
+def test_senza_colonna_della_posizione_il_modulo_viene_dal_file_del_lotto(tmp_path):
+    """
+    **Obiettivo**: Verificare che con ``meta.module_column`` nullo e
+    ``meta.batch_module_column`` dichiarata ogni campione prenda il modulo dal
+    file del lotto e resti senza posizione; che con la colonna della posizione
+    dichiarata la regola delle non superfici continui a valere; e che G15
+    respinga con ``E-G15-14`` ``meta.module_regex`` valorizzata con
+    ``meta.module_column`` nullo.
+
+    **Razionale scientifico e sistemistico**: Senza una posizione dichiarata la
+    regola delle non superfici non ha nulla da giudicare, e scartare il modulo
+    che il file del lotto dichiara lascerebbe i campioni senza raggruppamento
+    senza alcun messaggio; un'espressione senza la colonna a cui applicarla non
+    deriverebbe mai nulla.
+    """
+    campioni = _campioni()
+    senza = crea_scenario(
+        tmp_path / "a", campioni, con_arricchimento=True, con_letture=True,
+        sovrascrivi={"meta": {"module_column": None, "module_regex": None},
+                     "ctrl": {"blank_override_column": None, "blank_override_values": []}},
+    )
+    assert esegui_gate("G15", Contesto(senza.config)).superato
+    inventario = Contesto(senza.config).inventario
+    assert [c.modulo for c in inventario] == ["Modulo Uno"] * len(campioni)
+    assert [c.posizione for c in inventario] == [None] * len(campioni)
+
+    con = crea_scenario(tmp_path / "b", campioni, con_arricchimento=True, con_letture=True)
+    moduli = {c.nome: c.modulo for c in Contesto(con.config).inventario}
+    assert moduli["NOD1D4.L1"] == "Modulo Uno" and moduli["POS.P1.1"] is None
+
+    incoerente = crea_scenario(
+        tmp_path / "c", campioni, con_arricchimento=True,
+        sovrascrivi={"meta": {"module_column": None},
+                     "ctrl": {"blank_override_column": None, "blank_override_values": []}},
+    )
+    esito = esegui_gate("G15", Contesto(incoerente.config))
+    assert [v.codice for v in esito.violazioni] == ["E-G15-14"]
+    assert "meta.module_regex" in esito.violazioni[0].dettaglio
+    assert CATALOGO["E-G15-14"].categoria is Categoria.REVISIONE_UMANA
+
+
+def test_g10_non_cerca_il_primer_nei_controlli_negativi(tmp_path):
+    """
+    **Obiettivo**: Verificare che un controllo negativo con tre letture, di cui
+    una comincia con il primer, non fermi G10; e che lo stesso primer in testa
+    alle letture di un campione biologico lo fermi con ``E-S0-10``, nominando
+    quel solo file.
+
+    **Razionale scientifico e sistemistico**: In un bianco con una manciata di
+    letture una frazione non ha significato: una lettura su tre supera
+    qualunque soglia senza dire nulla di come le letture sono state prodotte.
+    Il controllo del primer riguarda le stesse classi del controllo del motivo.
+    """
+    scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
+    bianco = next(Path(scenario.config.io.fastq_dir).glob("*ERX3000004*"))
+    scrivi_fastq(bianco, [lettura(INIZIO_CON_PRIMER)] + [lettura()] * 2)
+    contesto = Contesto(scenario.config)
+    assert contesto.scansione["ERX3000004"].frazione_primer > scenario.config.qc.max_primer_hit_frac
+    assert esegui_gate("G10", contesto).superato
+
+    biologico = next(Path(scenario.config.io.fastq_dir).glob("*ERX3000001*"))
+    scrivi_fastq(biologico, [lettura(INIZIO_CON_PRIMER)] * 40)
+    esito = esegui_gate("G10", Contesto(scenario.config))
+    assert [v.codice for v in esito.violazioni] == ["E-S0-10"]
+    assert biologico.name in esito.violazioni[0].dettaglio
+    assert bianco.name not in esito.violazioni[0].dettaglio
+    assert esito.violazioni[0].dettaglio.startswith("1 file")
+
+
+@pytest.mark.parametrize("gruppo, attesi", [
+    ("tax", {"tax.ref_fasta", "tax.ref_md5"}),
+    ("io", {"io.fastq_dir", "io.assay_table", "io.out_root"}),
+])
+def test_un_gruppo_mancante_elenca_tutti_i_suoi_parametri_senza_predefinito(tmp_path, gruppo, attesi):
+    """
+    **Obiettivo**: Verificare che, tolto dalla configurazione un intero gruppo,
+    l'elenco dei problemi nomini ogni suo parametro senza predefinito: quelli
+    di ``OBBLIGATORI`` nella voce che li riunisce, gli altri (percorsi,
+    checksum del riferimento) ciascuno con la propria riga; e che nessuno sia
+    detto due volte.
+
+    **Razionale scientifico e sistemistico**: Chi compila la configurazione di
+    un dataset nuovo deve vedere l'elenco intero in una sola esecuzione: un
+    parametro taciuto perche' il suo gruppo manca verrebbe scoperto solo dopo
+    aver corretto gli altri.
+    """
+    scenario = crea_scenario(tmp_path, _campioni())
+    dati = scenario.config.model_dump(mode="json")
+    del dati[gruppo]
+    with pytest.raises(ErroreConfigurazione) as info:
+        valida(dati)
+    problemi = info.value.problemi
+    obbligatori = {c for c in defaults.OBBLIGATORI if c.startswith(f"{gruppo}.")}
+    assert problemi[0].startswith(INTESTAZIONE_MANCANTI)
+    assert all(c in problemi[0] for c in obbligatori)
+    singoli = {p.split(":")[0] for p in problemi[1:]}
+    assert singoli == attesi and not singoli & obbligatori
+    assert all("parametro obbligatorio mancante" in p for p in problemi[1:])
+    assert len(problemi) == 1 + len(attesi)
+    with pytest.raises(ErroreGate) as rifiuto:
+        esegui_g15(dati)
+    assert [v.codice for v in rifiuto.value.violazioni] == ["E-G15-10"] + ["E-G15-99"] * len(attesi)
+
+
+def test_g15_respinge_un_parametro_dichiarato_senza_quello_da_cui_dipende(tmp_path):
+    """
+    **Obiettivo**: Verificare che G15 respinga con ``E-G15-14``
+    ``ctrl.blank_override_values`` non vuoto con ``ctrl.blank_override_column``
+    nullo, e ``meta.study_sample_id_column`` dichiarato con ``io.study_table``
+    nullo; e che le stesse configurazioni, corrette, passino.
+
+    **Razionale scientifico e sistemistico**: Un parametro che ha effetto solo
+    insieme a un altro, dichiarato da solo, verrebbe ignorato in silenzio: chi
+    lo ha scritto crederebbe di avere riclassificato dei campioni, o di leggere
+    i nomi da un'altra colonna.
+    """
+    scenario = crea_scenario(tmp_path, _campioni())
+    dati = scenario.config.model_dump(mode="json")
+    assert esegui_g15(dati).config.ctrl.blank_override_values
+
+    senza_colonna = copy.deepcopy(dati)
+    senza_colonna["ctrl"]["blank_override_column"] = None
+    with pytest.raises(ErroreGate) as info:
+        esegui_g15(senza_colonna)
+    assert [v.codice for v in info.value.violazioni] == ["E-G15-14"]
+    assert "blank_override_values" in info.value.violazioni[0].dettaglio
+
+    senza_studio = copy.deepcopy(dati)
+    senza_studio["io"]["study_table"] = None
+    senza_studio["meta"]["study_sample_id_column"] = "Source Name"
+    with pytest.raises(ErroreGate) as info:
+        esegui_g15(senza_studio)
+    assert [v.codice for v in info.value.violazioni] == ["E-G15-14"]
+    assert "meta.study_sample_id_column" in info.value.violazioni[0].dettaglio
+    assert "io.study_table" in info.value.violazioni[0].dettaglio
+
+    senza_studio["meta"]["study_sample_id_column"] = None
+    assert esegui_g15(senza_studio).config.io.study_table is None
+
+
+def test_g08_dichiara_le_righe_del_lotto_senza_campione(tmp_path):
+    """
+    **Obiettivo**: Verificare che, con due righe del file del lotto che non
+    corrispondono ad alcun campione, G08 passi con un avviso ``E-S0-19`` che ne
+    riporta il numero e le chiavi, che S0 lo registri fra le degradazioni del
+    manifesto, e che senza righe in piu' l'avviso non ci sia.
+
+    **Razionale scientifico e sistemistico**: Una riga senza campione puo'
+    essere legittima (un file che copre piu' assay), ma e' anche il sintomo di
+    una chiave scritta in modo diverso da quella dei campioni: ignorarla in
+    silenzio nasconderebbe il secondo caso.
+    """
+    scenario = crea_scenario(tmp_path, _campioni(), con_arricchimento=True, con_letture=True)
+    assert not [a for a in esegui_gate("G08", Contesto(scenario.config)).avvisi
+                if a.codice == "E-S0-19"]
+
+    lotto = Path(scenario.config.io.batch_table)
+    with open(lotto, "a", encoding="utf-8") as file:
+        file.write("ERX3999998\t1\tcorsa_A\tModulo Uno\n")
+        file.write("ERX3999999\t1\tcorsa_A\tModulo Uno\n")
+    esito = esegui_gate("G08", Contesto(scenario.config))
+    assert esito.superato
+    (avviso,) = [a for a in esito.avvisi if a.codice == "E-S0-19"]
+    assert avviso.dettaglio.startswith("2 righe")
+    assert "ERX3999998" in avviso.dettaglio and "ERX3999999" in avviso.dettaglio
+    assert CATALOGO["E-S0-19"].categoria is Categoria.DEGRADAZIONE_AUTOMATICA
+
+    risultato = esegui_s0(scenario.config)
+    assert risultato.superata
+    manifesto = json.loads(
+        next(Path(scenario.config.io.out_root).rglob("manifest_S0.json")).read_text())
+    assert "E-S0-19" in [d["codice"] for d in manifesto["degradazioni"]]
+
+
+def _modulo_delle_letture_del_secondo_dataset():
+    """Lo script ``dati/osd276/scarica_letture.py``, caricato con un nome suo
+    (quello di ``dati/osd734`` ha lo stesso nome di file).
+    """
+    import importlib.util
+
+    percorso = RADICE / "dati" / "osd276" / "scarica_letture.py"
+    specifica = importlib.util.spec_from_file_location("scarica_letture_secondo", percorso)
+    modulo = importlib.util.module_from_spec(specifica)
+    specifica.loader.exec_module(modulo)
+    return modulo
+
+
+def _deposito(percorso: Path, intestazioni: list[str]) -> None:
+    """Un file come quelli del deposito: un record per intestazione."""
+    percorso.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(percorso, "wb") as file:
+        for intestazione in intestazioni:
+            file.write(f"@{intestazione}\nACGT\n+\nIIII\n".encode())
+
+
+@pytest.mark.skipif(not (RADICE / "dati" / "osd276").is_dir(),
+                    reason="la cartella dati/ non e' presente (nell'immagine non viene copiata)")
+def test_le_forward_si_ricavano_solo_da_un_deposito_con_le_coppie_complete(tmp_path, monkeypatch, capsys):
+    """
+    **Obiettivo**: Verificare che lo script che ricava le letture forward del
+    secondo dataset conti i record ``/1``, ``/2`` e gli altri, e rifiuti un
+    deposito con record che non sono di una coppia, con ``/1`` e ``/2`` in
+    numero diverso, o con una somma diversa dalle letture dichiarate; che un
+    file forward con un'impronta diversa dall'attesa venga messo da parte e non
+    resti in ``fastq/``; e che il guasto di una corsa (un archivio illeggibile)
+    finisca nel riepilogo senza fermare le altre, con esito 1.
+
+    **Razionale scientifico e sistemistico**: Un deposito che non ha la forma
+    attesa darebbe letture forward plausibili e sbagliate, e un file non
+    conforme lasciato nella cartella delle letture verrebbe analizzato: i
+    controlli devono fermare prima, e dire per quale corsa.
+    """
+    import hashlib
+
+    script = _modulo_delle_letture_del_secondo_dataset()
+    coppie = [f"c.{i} {i}/1" for i in range(1, 4)] + [f"c.{i} {i}/2" for i in range(1, 4)]
+    buono = tmp_path / "prove" / "buono.fastq.gz"
+    _deposito(buono, coppie)
+    assert script.conta_letture(buono) == (3, 3, 0)
+    assert script.verifica_conteggi(buono, 6) == 3
+    for nome, intestazioni, dichiarate, atteso in (
+        ("altri", coppie + ["c.9 senza marcatore"], 7, "ne' la prima ne' la seconda"),
+        ("spaiate", coppie[:5], 5, "non sono in numero uguale"),
+        ("somma", coppie, 8, "letture dichiarato dal deposito (8)"),
+    ):
+        percorso = tmp_path / "prove" / f"{nome}.fastq.gz"
+        _deposito(percorso, intestazioni)
+        with pytest.raises(script.DepositoInatteso, match=re.escape(atteso)):
+            script.verifica_conteggi(percorso, dichiarate)
+
+    # Tre corse gia' scaricate: una conforme, una le cui forward non hanno
+    # l'impronta attesa, una con un archivio illeggibile.
+    cartella = tmp_path / "dati"
+    forward = "".join(f"@{i}\nACGT\n+\nIIII\n" for i in coppie[:3]).encode()
+    righe, impronte = [], []
+    for corsa, contenuto_md5 in (("CORSA1", hashlib.md5(forward).hexdigest()),
+                                 ("CORSA2", "0" * 32), ("CORSA3", "0" * 32)):
+        deposito = cartella / "ena" / f"{corsa}.fastq.gz"
+        if corsa == "CORSA3":
+            deposito.parent.mkdir(parents=True, exist_ok=True)
+            deposito.write_bytes(b"non e' un archivio")
+        else:
+            _deposito(deposito, coppie)
+        nome = f"{corsa}_campione_R1.fastq.gz"
+        righe.append([nome, corsa, "ESP1", "campione", "https://esempio.invalid/" + corsa,
+                      hashlib.md5(deposito.read_bytes()).hexdigest(),
+                      str(deposito.stat().st_size), "6", "3"])
+        impronte.append(f"{contenuto_md5}  {nome}\n")
+    elenco = tmp_path / "letture_ena.tsv"
+    elenco.write_text("\t".join(
+        ["file", "run_accession", "experiment_accession", "sample_name", "fastq_url",
+         "fastq_md5", "fastq_bytes", "letture_deposito", "letture_forward"]) + "\n"
+        + "".join("\t".join(r) + "\n" for r in righe), encoding="utf-8")
+    (tmp_path / "letture_forward.md5").write_text("".join(impronte), encoding="utf-8")
+    monkeypatch.setattr(script, "ELENCO", elenco)
+    monkeypatch.setattr(script, "IMPRONTE", tmp_path / "letture_forward.md5")
+
+    assert script.main(["--cartella", str(cartella), "--pausa", "0"]) == 1
+    uscita = capsys.readouterr().out
+    assert "file forward conformi 1, mancanti o non conformi 2" in uscita
+    presenti = sorted(p.name for p in (cartella / "fastq").iterdir())
+    assert presenti == ["CORSA1_campione_R1.fastq.gz", "CORSA2_campione_R1.fastq.gz.md5_errato"]
+    assert "CORSA2_campione_R1.fastq.gz: DepositoInatteso" in uscita and "messo da parte" in uscita
+    assert "CORSA3_campione_R1.fastq.gz: BadGzipFile" in uscita
+    assert script.main(["--cartella", str(cartella), "--solo-verifica"]) == 1

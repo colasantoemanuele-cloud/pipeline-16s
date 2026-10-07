@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 from typing import ClassVar, Final
 
+from amplicon16s.config.schema import thread_effettivi
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
@@ -108,7 +109,7 @@ class Filogenesi(PipelineStep):
                 "allineatore": config.phylo.aligner,
                 "modello": config.phylo.model,
                 "seme": config.run.seed,
-                "processi": config.run.threads,
+                "processi": thread_effettivi(config),
             },
             albero,
             self.cartella,

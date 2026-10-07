@@ -47,6 +47,7 @@ __all__ = [
     "PARAMETRI_DERIVATI",
     "obbligatori_mancanti",
     "processori_disponibili",
+    "thread_effettivi",
     "carica",
     "chiavi_schema",
     "gruppi_schema",
@@ -128,6 +129,17 @@ def processori_disponibili() -> int:
         return len(os.sched_getaffinity(0))
     except AttributeError:  # piattaforme senza affinita' di processo
         return os.cpu_count() or 1
+
+
+def thread_effettivi(config: Any) -> int:
+    """I thread con cui eseguire: ``run.threads`` se dichiarato, altrimenti i
+    processori utilizzabili dal processo in questo momento.
+
+    Si calcola all'uso (G14 e le fasi) e non alla validazione: un valore
+    ricavato dalla macchina non deve entrare nella configurazione, altrimenti
+    il suo digest cambierebbe da una macchina all'altra a parita' di file.
+    """
+    return config.run.threads or processori_disponibili()
 
 
 class _Gruppo(BaseModel):
@@ -541,9 +553,12 @@ class Run(_Gruppo):
     # e due esecuzioni diventano confrontabili anche rispetto alle versioni R.
     lockfile: StringaNonVuota = d.RUN_LOCKFILE
     seed: int = d.RUN_SEED
-    # Per difetto i processori utilizzabili dal processo: non incide sui
-    # risultati, e un valore fisso fermerebbe G14 sulle macchine piu' piccole.
-    threads: InteroPositivo = Field(default_factory=lambda: processori_disponibili())
+    # Nullo per difetto, cioe' automatico: si usano i processori utilizzabili
+    # dal processo, contati all'uso (thread_effettivi). Il valore ricavato dalla
+    # macchina non entra nella configurazione ne' nel suo digest, che resta lo
+    # stesso su macchine diverse; un valore fisso per difetto fermerebbe G14
+    # sulle macchine piu' piccole.
+    threads: InteroPositivo | None = None
     batch_size: InteroPositivo = d.RUN_BATCH_SIZE
     # Se conservare le letture filtrate da S2 a esecuzione conclusa. Con false
     # si rimuovono solo quando tutte le fasi sono concluse, e la rimozione e'
@@ -803,11 +818,25 @@ def valida(dati: dict[str, Any], origine: str | None = None) -> Config:
     try:
         return Config.model_validate(dati)
     except ValidationError as errore:
-        gia_detti = set(mancanti) | {m.split(".")[0] for m in mancanti}
-        problemi = [
-            _descrivi(e) for e in errore.errors()
-            if not (e["type"] == "missing" and ".".join(str(p) for p in e["loc"]) in gia_detti)
-        ]
+        # Si tacciono le sole chiavi gia' elencate fra gli obbligatori. Un gruppo
+        # assente e' per pydantic un solo errore sul gruppo: lo si scioglie nei
+        # suoi campi senza predefinito, cosi' quelli che non sono in OBBLIGATORI
+        # (un percorso, un checksum) restano nell'elenco invece di sparire con
+        # il gruppo.
+        gia_detti = set(mancanti)
+        problemi = []
+        for e in errore.errors():
+            chiave = ".".join(str(p) for p in e["loc"])
+            if e["type"] != "missing":
+                problemi.append(_descrivi(e))
+            elif chiave in Config.model_fields:
+                problemi += [
+                    f"{chiave}.{nome}: {_MESSAGGI_SEMPLICI['missing']}"
+                    for nome, campo in Config.model_fields[chiave].annotation.model_fields.items()
+                    if campo.is_required() and f"{chiave}.{nome}" not in gia_detti
+                ]
+            elif chiave not in gia_detti:
+                problemi.append(_descrivi(e))
         if mancanti:
             problemi.insert(0, _voce_mancanti(mancanti))
         raise ErroreConfigurazione(problemi, origine) from errore

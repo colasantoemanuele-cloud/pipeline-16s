@@ -178,8 +178,8 @@ OUT_SAMPLE_ID_SOURCE: Final = "accession"
 # confrontabili rispetto alle versioni R impiegate.
 RUN_LOCKFILE: Final = "renv.lock"
 RUN_SEED: Final = 100
-# run.threads non ha un valore fisso: per difetto vale i processori utilizzabili
-# dal processo al momento della validazione (config/schema.py).
+# run.threads non ha un valore fisso: per difetto e' nullo, cioe' automatico, e i
+# processori utilizzabili si contano all'uso (config/schema.py, thread_effettivi).
 RUN_BATCH_SIZE: Final = 24
 RUN_KEEP_FILTERED_FASTQ: Final = True
 # La regola rigorosa sulla provenienza: disattivata per difetto, perche' lo

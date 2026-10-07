@@ -122,16 +122,34 @@ from amplicon16s.io_layer.artifacts import Fase
 RADICE = Path(__file__).resolve().parents[1]
 ESEMPIO = RADICE / "config" / "config.example.yaml"
 
+#: I 25 parametri che descrivono il dataset e non hanno un predefinito. L'elenco
+#: e' scritto qui per esteso, e non letto da ``defaults.OBBLIGATORI``: e' il
+#: codice che il test deve verificare, e un parametro tolto da li' per errore
+#: sparirebbe anche dall'atteso.
+DEL_DATASET = (
+    # come si riconoscono file e campioni
+    "io.accession_regex", "meta.sample_id_column", "meta.accession_column",
+    # il formato dei metadati
+    "meta.module_regex", "meta.module_column", "meta.non_surface_positions",
+    "meta.batch_key_column", "meta.batch_module_column",
+    "err.batch_column", "decontam.batch_column",
+    "ctrl.column", "ctrl.blank_values", "ctrl.positive_values", "ctrl.biological_values",
+    "ctrl.blank_override_column", "ctrl.blank_override_values",
+    "katharoseq.cell_count_column", "out.study_columns", "out.batch_columns",
+    # l'esperimento
+    "filter.truncLen", "qc.primer_sequence", "qc.conserved_motif",
+    "katharoseq.target_taxon", "tax.ref_name", "tax.ref_version",
+)
+
 #: Elenco tassativo dei parametri privi di valore predefinito nello schema: i
-#: percorsi e il checksum del riferimento, piu' quelli che descrivono il dataset
-#: (``defaults.OBBLIGATORI``).
+#: percorsi e il checksum del riferimento, piu' i 25 che descrivono il dataset.
 OBBLIGATORI = (
     "io.fastq_dir",
     "io.assay_table",
     "io.out_root",
     "tax.ref_fasta",
     "tax.ref_md5",
-    *defaults.OBBLIGATORI,
+    *DEL_DATASET,
 )
 
 
@@ -280,15 +298,25 @@ def test_tutti_i_gruppi_compaiono_nel_file(dati_esempio):
 def test_elenco_obbligatori_coincide_con_lo_schema():
     """
     **Obiettivo**: Verificare che l'insieme dei campi richiesti senza default
-    in ``Config`` coincida esattamente con la tupla ``OBBLIGATORI``.
+    in ``Config`` coincida esattamente con la tupla ``OBBLIGATORI`` scritta in
+    questo modulo, e che ``defaults.OBBLIGATORI`` sia, nello stesso ordine,
+    l'elenco letterale dei 25 parametri del dataset (``DEL_DATASET``).
 
     **Razionale scientifico e sistemistico**: I percorsi dei dati di input
-    (``io.fastq_dir``, ``io.assay_table``, ``io.study_table``, ``io.out_root``),
-    il riferimento tassonomico con il suo checksum (``tax.ref_*``) e il digest
-    del container (``run.container``) dipendono dall'ambiente e dallo studio:
-    introdurre un valore di default per uno di essi rischierebbe di far girare
-    la pipeline su file o database sbagliati senza avvertire l'utente.
+    (``io.fastq_dir``, ``io.assay_table``, ``io.out_root``), il riferimento
+    tassonomico con il suo checksum (``tax.ref_fasta``, ``tax.ref_md5``) e i 25
+    parametri che descrivono il dataset dipendono dall'ambiente e dallo
+    studio: un valore di default per uno di essi farebbe girare la pipeline su
+    file sbagliati o con il formato di un altro dataset senza avvertire.
+    ``io.study_table`` e ``run.container`` non sono obbligatori: senza tabella
+    di studio le classi si leggono dalla tabella di assay, e l'immagine e' una
+    dichiarazione che chi esegue fuori da un container non ha. L'atteso e'
+    letterale perche' un elenco letto dal codice verificherebbe il codice
+    contro se stesso.
     """
+    assert len(DEL_DATASET) == 25 and len(set(DEL_DATASET)) == 25
+    assert defaults.OBBLIGATORI == DEL_DATASET
+    assert not {"io.study_table", "run.container"} & set(OBBLIGATORI)
     dallo_schema = {
         f"{gruppo}.{campo}"
         for gruppo, descrittore in Config.model_fields.items()

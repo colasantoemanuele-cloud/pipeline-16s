@@ -39,7 +39,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, ClassVar, Final
 
-from amplicon16s.config.schema import Config, Qc
+from amplicon16s.config.schema import Config, Qc, thread_effettivi
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE
@@ -145,7 +145,7 @@ class AssegnazioneTassonomica(PipelineStep):
                 "min_boot": tax.min_boot,
                 "try_rc": tax.try_rc,
                 "seme": config.run.seed,
-                "processi": config.run.threads,
+                "processi": thread_effettivi(config),
                 "gruppi": {c.accession: c.classe.value for c in contesto.inventario},
             },
             contesto.albero,

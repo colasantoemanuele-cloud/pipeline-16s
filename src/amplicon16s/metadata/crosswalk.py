@@ -127,6 +127,9 @@ class Analisi:
     arricchimento_ambiguo: dict[str, int] = field(default_factory=dict)
     #: Campioni con la riga del lotto ma senza il valore di una colonna
     #: dichiarata: la piastra (decontam.batch_column), la corsa (err.batch_column).
+    #: Righe del file che non corrispondono ad alcun campione dell'assay, per
+    #: chiave: il file ne dichiara piu' di quanti campioni la pipeline tratti.
+    righe_lotto_senza_campione: dict[str, int] = field(default_factory=dict)
     senza_piastra: list[str] = field(default_factory=list)
     senza_corsa: list[str] = field(default_factory=list)
 
@@ -283,6 +286,11 @@ def analizza(config: Config) -> Analisi:
     studio_per_nome = _righe_studio(config)
     arricchimento_per_accession = _righe_arricchimento(config, analisi)
     analisi.arricchimento_presente = config.io.batch_table is not None
+    analisi.righe_lotto_senza_campione = {
+        accession: len(righe)
+        for accession, righe in arricchimento_per_accession.items()
+        if accession not in nell_assay
+    }
 
     # G03 : la restrizione si misura qui: si itera sulle righe dell'assay e la
     # tabella di studio viene solo consultata. Le sue righe in piu' restano
@@ -337,7 +345,15 @@ def analizza(config: Config) -> Analisi:
         # forzato ne' dalla regex ne' dal dato dichiarato. Applicarla a una
         # sola delle due farebbe dipendere il raggruppamento dalla presenza
         # del file di arricchimento, e lo stesso dataset darebbe due risultati.
-        superficie = _e_superficie(posizione, non_superfici)
+        #
+        # Senza meta.module_column il dataset non dichiara alcuna posizione, e
+        # la regola non ha nulla da giudicare: il modulo, se c'e', e' quello
+        # che il file del lotto dichiara. Con la colonna indicata, invece, una
+        # posizione vuota resta una non superficie: il dato era atteso e manca.
+        superficie = (
+            True if config.meta.module_column is None
+            else _e_superficie(posizione, non_superfici)
+        )
 
         piastra = corsa = None
         riga_lotto: dict[str, str] | None = None
@@ -368,8 +384,8 @@ def analizza(config: Config) -> Analisi:
         # un'informazione, non un'assenza da colmare con la regex.
         modulo = None
         if not superficie:
-            # Aria, tubi non aperti, posizioni non dichiarate: restano una
-            # categoria a parte, in entrambe le modalita'.
+            # Aria, tubi non aperti, posizioni attese e non compilate: restano
+            # una categoria a parte, in entrambe le modalita'.
             pass
         elif (
             riga_lotto is not None

@@ -47,7 +47,7 @@ import json
 from pathlib import Path
 from typing import Any, ClassVar, Final
 
-from amplicon16s.config.schema import Qc
+from amplicon16s.config.schema import Qc, thread_effettivi
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.io_layer.conteggi import leggi_conteggi
@@ -173,7 +173,7 @@ class RimozioneChimere(PipelineStep):
                 "min_parent_abundance": chimera.min_parent_abundance,
                 "min_sample_fraction": chimera.min_sample_fraction,
                 "allow_one_off": chimera.allow_one_off,
-                "processi": config.run.threads,
+                "processi": thread_effettivi(config),
             },
             contesto.albero,
             self.cartella,

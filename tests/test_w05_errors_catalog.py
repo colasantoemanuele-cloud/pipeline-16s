@@ -12,10 +12,10 @@ logging), con i codici aggiunti nelle settimane successive.
 
 3. Cosa valuta questo file
 --------------------------
-- completezza del catalogo ``CATALOGO``, **70 codici totali**: **50 codici di
+- completezza del catalogo ``CATALOGO``, **72 codici totali**: **51 codici di
   fase** inclusi ``E-S1-02``, ``E-S3-02``, ``E-S10-02``, ``E-S11-04`` ed ``E-S13-03``, **4 codici del ponte R**,
   **1 codice del grafo**, **3 codici della regola rigorosa sulla provenienza**
-  e **12 codici del Gate G15** (compreso ``E-G15-99``);
+  e **13 codici del Gate G15** (compreso ``E-G15-99``);
   nessun codice inatteso, fase coerente con il codice, errore esplicito su un
   codice sconosciuto;
 - ogni codice possiede una sintesi diagnostica e un'azione operativa in
@@ -23,7 +23,7 @@ logging), con i codici aggiunti nelle settimane successive.
   *cosa è fallito*;
 - chiusura della whitelist dei tentativi ripetuti a **esattamente 4 codici**
   (``E-S2-03``, ``E-S3-01``, ``E-S4-02``, ``E-S5-01``), coerente con
-  ``retry.whitelist``; i restanti **59 codici** non ammettono il retry;
+  ``retry.whitelist``; i restanti **68 codici** non ammettono il retry;
 - corrispondenza fra categoria di gestione e classe dell'eccezione, rifiuto di
   una classe sbagliata, messaggio con codice, dettaglio e azione, traduzione
   in evento strutturato del log;
@@ -107,12 +107,13 @@ from amplicon16s.errors.exceptions import (
 )
 from amplicon16s.gates.g01_g15 import CONTROLLI
 
-#: Elenco esplicito di controllo dei 50 codici di fase (S0-S14): mantenuto nel test
+#: Elenco esplicito di controllo dei 51 codici di fase (S0-S14): mantenuto nel test
 #: per intercettare qualsiasi rimozione accidentale dal dizionario ``CATALOGO``.
 CODICI_DI_FASE = (
     "E-S0-01", "E-S0-02", "E-S0-03", "E-S0-04", "E-S0-05", "E-S0-06", "E-S0-07",
     "E-S0-08", "E-S0-09", "E-S0-10", "E-S0-11", "E-S0-12",
     "E-S0-13", "E-S0-14", "E-S0-15", "E-S0-16", "E-S0-17", "E-S0-18",
+    "E-S0-19",
     "E-S1-01", "E-S1-02", "E-S1-03",
     "E-S2-01", "E-S2-02", "E-S2-03",
     "E-S3-01", "E-S3-02", "E-S3-03", "E-S3-04",
@@ -354,7 +355,7 @@ def test_la_classe_discende_dalla_categoria(codice, classe):
 def test_ogni_codice_produce_un_errore_coerente(codice):
     """
     **Obiettivo**: Verificare che ``errore(codice)`` produca un'istanza valida
-    di ``ErrorePipeline`` per tutti i 70 codici del catalogo.
+    di ``ErrorePipeline`` per tutti i 72 codici del catalogo.
 
     **Razionale scientifico e sistemistico**: Assicura che nessuna voce del
     catalogo abbia una categoria non mappata nella tabella di dispatch di
@@ -479,7 +480,7 @@ def test_nessun_controllo_di_configurazione_e_ritentabile():
 
 #: Elenco chiuso dei codici autorizzati alla degradazione automatica controllata.
 DEGRADAZIONI = (
-    "E-S0-15", "E-S0-17", "E-S0-18", "E-S1-01", "E-S1-03", "E-S6-02", "E-S11-02", "E-S11-04",
+    "E-S0-15", "E-S0-17", "E-S0-18", "E-S0-19", "E-S1-01", "E-S1-03", "E-S6-02", "E-S11-02", "E-S11-04",
     "E-S11-05", "E-S12-03", "E-S13-02", "E-S13-03", "E-S13-05",
 )
 
@@ -488,7 +489,7 @@ def test_le_degradazioni_sono_quelle_previste():
     """
     **Obiettivo**: Verificare che i codici con ``Categoria.DEGRADAZIONE_AUTOMATICA``
     siano esattamente quelli di ``DEGRADAZIONI``: ``E-S0-15``, ``E-S0-17``,
-    ``E-S0-18``, ``E-S1-01``, ``E-S1-03``, ``E-S6-02``, ``E-S11-02``,
+    ``E-S0-18``, ``E-S0-19``, ``E-S1-01``, ``E-S1-03``, ``E-S6-02``, ``E-S11-02``,
     ``E-S11-04``, ``E-S11-05``, ``E-S12-03``, ``E-S13-02``, ``E-S13-03``,
     ``E-S13-05``.
 

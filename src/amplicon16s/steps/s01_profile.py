@@ -37,6 +37,7 @@ import json
 from collections import defaultdict
 from typing import Any, ClassVar, Final
 
+from amplicon16s.config.schema import thread_effettivi
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
@@ -114,7 +115,7 @@ class ProfiloLetture(PipelineStep):
         }
         esito = esegui_script(
             cartella_r() / NOME_SCRIPT,
-            {"campioni": campioni, "processi": contesto.config.run.threads},
+            {"campioni": campioni, "processi": thread_effettivi(contesto.config)},
             contesto.albero,
             self.cartella,
             passo=self.passo,

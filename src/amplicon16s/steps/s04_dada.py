@@ -56,6 +56,7 @@ import json
 from pathlib import Path
 from typing import ClassVar, Final
 
+from amplicon16s.config.schema import thread_effettivi
 from amplicon16s.errors.exceptions import ErrorePipeline, errore
 from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.io_layer.conteggi import leggi_conteggi
@@ -128,7 +129,7 @@ class InferenzaVarianti(PipelineStep):
                     "omega_a": config.dada.omega_a,
                     "funzione_errore": config.err.error_function,
                     "lotto": config.run.batch_size,
-                    "processi": config.run.threads,
+                    "processi": thread_effettivi(config),
                 },
                 contesto.albero,
                 self.cartella,
