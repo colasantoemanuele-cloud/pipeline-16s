@@ -51,9 +51,12 @@ forward ricavate coincidono con gli R1 di OSDR: vale per 7 corse, non per tutte.
 I file di ENA cosi' come sono **non vanno dati alla pipeline**. La fase di validazione
 riconosce un file con le due letture di ogni coppia dalle intestazioni delle letture
 che ispeziona (le prime `qc.head_reads`, 10.000 per difetto): in questi file ogni
-blocco e' piu' lungo (da 35.489 a 105.423 letture), le letture ispezionate sono tutte
-dello stesso blocco, e con il valore predefinito il file passa; con `qc.head_reads`
-oltre la lunghezza del primo blocco viene respinto (`E-S0-07`). Passato, la catena
+blocco e' piu' lungo (da 35.489 a 105.423 letture), e le letture ispezionate sono
+tutte dello stesso blocco. I 7 file che cominciano con il blocco `/2` sono respinti
+(`E-S0-07`: sole seconde letture), e tanto basta a fermare la validazione
+dell'insieme; gli 8 che cominciano con il blocco `/1` sembrano, nelle letture
+ispezionate, file di sole forward, e da soli passerebbero (con `qc.head_reads` oltre
+la lunghezza del primo blocco vengono respinti anch'essi). Passati, la catena
 mescolerebbe letture forward e inverse.
 
 ## Perche' questo dataset

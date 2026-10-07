@@ -366,7 +366,8 @@ Sono realizzati:
   stesso su macchine diverse; `run.container` è facoltativo. G15 respinge un
   parametro dichiarato senza quello da cui dipende (`E-G15-14`: la regola di
   riclassificazione senza la sua colonna, `meta.study_sample_id_column` senza
-  tabella di studio, `meta.module_regex` senza `meta.module_column`), e se manca un
+  tabella di studio, `meta.module_regex` o `meta.non_surface_positions` senza
+  `meta.module_column`), e se manca un
   intero gruppo l'elenco dei problemi nomina ogni suo parametro senza predefinito;
 - **la prova su un secondo dataset** (`dati/osd276/`): OSD-276, 15 tamponi di
   superfici della stessa stazione, di un altro laboratorio; paired-end, di cui si
@@ -407,9 +408,11 @@ Sono realizzati:
   `meta.batch_module_column` è dichiarata.
   G07 riconosce le letture inverse dal marcatore che precede l'estensione e, nelle
   letture ispezionate, i file con le due letture di ogni coppia (intestazioni con
-  `/1` e `/2`, o lo stesso nome di lettura ripetuto): è un limite dichiarato che un
-  file con tutte le prime letture seguite da tutte le seconde si riconosce solo se
-  le `qc.head_reads` letture ispezionate arrivano alla seconda metà. I FASTQ,
+  `/1` e `/2`, o la stessa intestazione ripetuta) e quelli di sole seconde letture,
+  giudicando sulla frazione delle letture e non su un record isolato: è un limite
+  dichiarato che un file con tutte le prime letture seguite da tutte le seconde si
+  riconosce solo se le `qc.head_reads` letture ispezionate arrivano al secondo
+  blocco. I FASTQ,
   compressi o no, si riconoscono dai primi byte, in S0 come nel controllo che S2 fa
   sugli archivi prima del filtro. G09 giudica la frazione di letture più corte
   del troncamento separatamente per i campioni biologici e per i controlli positivi:
@@ -723,7 +726,7 @@ Sono realizzati:
   ferma S3 con `E-S3-03`; letture con un solo valore di qualità, da cui nessuna
   funzione può stimare il modello, con `E-S3-04` (e in quel caso `E-S1-03` non
   suggerisce una funzione); ogni altra stima fallita, con più valori di qualità,
-  con `E-S3-05`. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
+  con `E-S3-05`, che riporta il messaggio originale della funzione di stima. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
   `filter.truncLen_shortfall_warn`, che prima registrava S0 dalla stima;
 - **la fase S2, filtro e troncamento** (`steps/s02_filter.py`, `R/02_filter.R`), con
   `dada2::filterAndTrim` e i parametri del gruppo `filter`; scrive in `03_filtered/`

@@ -643,15 +643,19 @@ in cui le verifiche dipendono l'una dall'altra.**
 - Decisione: un parametro che ha effetto solo insieme a un altro, dichiarato da solo,
   è respinto (`E-G15-14`: i valori della riclassificazione in controllo negativo
   senza la colonna, la colonna del nome nella tabella di studio senza la tabella,
-  l'espressione del modulo senza la colonna della posizione). Senza colonna della
+  l'espressione del modulo o le posizioni non di superficie senza la colonna della
+  posizione). Senza colonna della
   posizione il modulo viene dal file del lotto, se lo dichiara. Un valore dei
   metadati con una tabulazione o un a capo dentro un campo fra virgolette, in una
-  colonna che la pipeline legge, ferma la validazione (`E-S0-02` per le tabelle di
+  colonna che la pipeline legge e in una riga di un campione dell'assay, ferma la
+  validazione (`E-S0-02` per le tabelle di
   assay e di studio, `E-S0-08` per il file del lotto). Le righe del file del lotto
   che non corrispondono ad alcun campione non fermano, ma sono dichiarate con il
   loro numero (`E-S0-19`). Un file che nelle letture ispezionate porta le due
-  letture di ogni coppia (intestazioni con `/1` e `/2`, o lo stesso nome ripetuto)
-  è respinto come layout non single-end (`E-S0-07`). Il primer in testa alle letture
+  letture di ogni coppia (intestazioni con `/1` e `/2`, o la stessa intestazione
+  ripetuta), o le sole seconde letture, è respinto come layout non single-end
+  (`E-S0-07`); il segno deve riguardare almeno il 5% delle letture ispezionate,
+  perché un record anomalo isolato non fermi un dataset single-end. Il primer in testa alle letture
   si cerca nei soli campioni biologici e controlli positivi, come il motivo
   conservato.
 - Motivazione: sono tutti casi in cui la pipeline proseguiva con un risultato
@@ -661,9 +665,13 @@ in cui le verifiche dipendono l'una dall'altra.**
   primer supera qualunque soglia in frazione.
 - Limite dichiarato: i file con le due letture di ogni coppia si riconoscono nelle
   sole letture ispezionate (`qc.head_reads`). Un file con tutte le prime letture
-  seguite da tutte le seconde, come quelli che ENA distribuisce per il secondo
-  dataset (da 35.489 a 105.423 coppie per file), non si riconosce con il valore
-  predefinito di 10.000.
+  seguite da tutte le seconde non si riconosce se le letture ispezionate non
+  arrivano al secondo blocco. Dei 15 file che ENA distribuisce per il secondo
+  dataset (da 35.489 a 105.423 coppie per file) i 7 che cominciano con le seconde
+  letture sono respinti con il valore predefinito di 10.000, e bastano a fermare la
+  validazione; gli 8 che cominciano con le prime, presi da soli, passerebbero.
+  Chiudere il limite richiede di contare i marcatori su tutte le letture, nel
+  profilo di qualità.
 
 **Il numero di thread non fa parte dell'identità della configurazione.**
 - Decisione: `run.threads` è nullo per difetto, cioè automatico: i processori
