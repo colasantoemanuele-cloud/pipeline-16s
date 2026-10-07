@@ -769,3 +769,72 @@ solo ciò che si consegna.**
 - Misure: sul dataset di riferimento l'oggetto finale, gli export e le tabelle di
   calcolo restano identici byte per byte; cambiano la collocazione degli intermedi di
   S13, la fase che scrive `ps_controlli.rds` e l'elenco di `checksum.sha256`.
+
+## 4. Regola della soglia di profondità omogenea
+
+Decisa il 7 ottobre 2026 e registrata in una revisione che precede ogni modifica al
+codice e ogni calcolo con la regola nuova: la storia del repository lo attesta. Serve
+a impedire che la regola sia adattata all'esito che produce. Sostituisce il ripiego
+descritto nella sezione 3.8.
+
+**Il difetto che la regola corregge.** Dove la curva di una piastra non è determinata
+dai dati, il ripiego applicava 1.000 letture grezze (`qc.min_reads_raw`), mentre le
+altre piastre applicavano da 6.376 a 41.968 letture senza chimere. Sul dataset di
+riferimento il filtro esclude 277 campioni biologici nelle piastre 3-10 e uno solo
+nelle piastre 1-2, che diventano 155 dei 492 campioni finali (31%): un effetto di
+lotto che entrerebbe nelle analisi ecologiche.
+
+### 4.1 Stadio delle letture
+
+Ogni soglia derivata dai controlli positivi si applica alle letture senza chimere
+(`katharoseq.read_stage`), per tutte le piastre. Nessuna soglia si applica più alle
+letture grezze.
+
+### 4.2 Scelta del modello
+
+1. Si adattano la curva aggregata e una curva per ogni piastra sugli **stessi punti**:
+   i controlli positivi conformi delle piastre con almeno `ctrl.min_positives` punti.
+2. Si sceglie il modello con l'AIC minore. L'AIC del modello per piastra è la somma
+   degli AIC delle singole curve.
+3. La bontà dichiarata (R²) del modello per piastra è quella delle sole piastre che
+   usano la propria curva.
+
+### 4.3 Soglia di ogni piastra
+
+In quest'ordine:
+
+1. Se il modello scelto è l'aggregato ed è valido, tutte le piastre usano la soglia
+   aggregata.
+2. Altrimenti, una piastra con la propria curva valida usa la propria soglia.
+3. Una piastra senza curva valida usa la soglia aggregata, se l'aggregato è valido.
+4. Altrimenti usa la mediana delle soglie delle piastre con curva propria valida,
+   arrotondata all'intero superiore. Il valore non arrotondato va registrato.
+5. Un campione senza piastra segue i passi 3 e 4.
+6. Se nessuna curva è valida, nemmeno l'aggregata (per esempio un dataset senza
+   controlli positivi o senza `katharoseq.cell_count_column`), non si applica alcuna
+   soglia KatharoSeq. Resta solo `qc.min_reads_final` nei filtri finali.
+
+Una curva è valida con i criteri già in uso: almeno `ctrl.min_positives` punti, R² non
+inferiore a `katharoseq.min_r2`, soglia dentro le profondità osservate e determinata
+dai dati.
+
+### 4.4 Codici d'errore
+
+- `E-S11-02` (degradazione): almeno una piastra o un campione senza piastra non usa
+  una curva propria. Il dettaglio riporta, per ognuno, l'origine della soglia
+  (aggregata o mediana) e il motivo.
+- `E-S11-05` (degradazione): nessuna curva valida, quindi nessuna soglia KatharoSeq.
+
+### 4.5 Parametri
+
+- `qc.min_reads_raw` non serve più ed è rimosso.
+- `qc.min_reads_mode` ammette `katharoseq_if_available` (predefinito) e `none`, che non
+  applica alcuna soglia di profondità salvo `qc.min_reads_final`.
+- Una configurazione che dichiara ancora `qc.min_reads_raw` o il modo `fixed` è
+  respinta con un messaggio che spiega il cambiamento.
+
+### 4.6 Previsione sul dataset di riferimento
+
+Formulata prima dei calcoli, da confermare o smentire con i dati. L'aggregato non è
+valido (R² 0,566). Le piastre 1 e 2 useranno quindi la mediana delle soglie delle
+piastre 3-10: (12.034 + 18.063) / 2 = 15.048,5, cioè 15.049 letture senza chimere.
