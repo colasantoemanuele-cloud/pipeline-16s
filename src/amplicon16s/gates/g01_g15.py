@@ -58,6 +58,7 @@ from amplicon16s.io_layer.reads import StatisticheFile, espandi_iupac, scansiona
 from amplicon16s.metadata.crosswalk import Analisi, analizza
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione, Inventario
 from amplicon16s.metadata.tabelle import intestazione as _intestazione
+from amplicon16s.metadata.tabelle import leggi_tsv as _leggi_tsv
 from amplicon16s.metadata.tabelle import (
     nomi_in_collisione,
     tabella_delle_cellule,
@@ -887,14 +888,15 @@ def _colonne_mancanti(
 
 
 def _valori_spezzati(
-    percorso: Path, colonne: Sequence[tuple[str, str]], tabella: str, codice: str
+    percorso: Path, colonne: Sequence[tuple[str, str]], tabella: str, codice: str,
+    solo: tuple[str, frozenset[str]] | None = None,
 ) -> list[Violazione]:
     """Una violazione se una colonna dichiarata ha valori con una tabulazione o
     un a capo dentro il campo: le tabelle scritte a valle (crosswalk, metadati
     dell'oggetto) non hanno virgolette, e S10 se ne accorgerebbe dopo tutto il
     calcolo.
     """
-    trovati = valori_non_tabellari(percorso, [nome for _, nome in colonne])
+    trovati = valori_non_tabellari(percorso, [nome for _, nome in colonne], solo)
     if not trovati:
         return []
     return [
@@ -983,8 +985,17 @@ def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Av
         violazioni += mancanti
         if not mancanti:
             try:
+                # Della tabella di studio si guardano le sole righe dei campioni
+                # dell'assay: le altre non entrano in alcun artefatto.
+                solo = None
+                if parametro == "io.study_table":
+                    nomi = frozenset(
+                        riga.get(config.meta.sample_id_column, "")
+                        for riga in _leggi_tsv(Path(config.io.assay_table))
+                    )
+                    solo = (colonna_id, nomi)
                 violazioni += _valori_spezzati(
-                    percorso, uniche, f"{percorso.name} ({parametro})", "E-S0-02"
+                    percorso, uniche, f"{percorso.name} ({parametro})", "E-S0-02", solo
                 )
             except (OSError, UnicodeDecodeError, csv.Error) as guasto:
                 violazioni.append(
@@ -1005,7 +1016,7 @@ _LETTURA_INVERSA: Final = re.compile(
 
 def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
     """Un solo file per campione, nessun file di lettura inversa, e nessun file
-    con le due letture di ogni coppia.
+    con le due letture di ogni coppia o con le sole seconde letture.
 
     Il terzo controllo guarda dentro i file, nelle letture gia' ispezionate:
     alcuni archivi pubblici distribuiscono un dataset paired-end con un solo
@@ -1050,9 +1061,10 @@ def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[A
         violazioni.append(
             Violazione(
                 "E-S0-07",
-                "{} file contengono le due letture di ogni coppia: {}. Estrai le sole "
-                "letture forward (la prima di ogni coppia) in un file per campione e "
-                "indica quelli in io.fastq_dir".format(len(intercalati), _elenca(intercalati)),
+                "{} file non contengono le sole prime letture delle coppie: {}. Estrai "
+                "le sole letture forward (la prima di ogni coppia) in un file per "
+                "campione e indica quelli in io.fastq_dir".format(
+                    len(intercalati), _elenca(intercalati)),
             )
         )
     return violazioni, []
@@ -1236,12 +1248,8 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
     Il motivo non distingue quindi il segnale dalla contaminazione, e chi lo
     usasse per quello leggerebbe una risposta a una domanda diversa.
 
-    **Come e' costruito.** Su due scelte, ciascuna con la propria ragione:
+    **Come e' costruito.** Su tre scelte, ciascuna con la propria ragione:
 
-    * il primer in testa si giudica file per file, ma sulle stesse classi: in
-      un controllo negativo con una manciata di letture una sola che comincia
-      per caso come il primer supera qualunque soglia in frazione, e non dice
-      nulla di come sono state prodotte le letture;
     * riguarda le sole classi da cui ci si puo' attendere il segnale del
       bersaglio (:data:`~amplicon16s.metadata.models.CLASSI_CONTROLLATE`),
       quindi esclude i controlli negativi. E' un principio, non una
@@ -1250,7 +1258,11 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
     * guarda la **mediana** fra quei campioni e non ciascuno di essi: un
       campione biologico legittimo e profondo puo' stare sotto la soglia (per
       esempio se e' dominato da 16S mitocondriale, che non porta il motivo), e
-      una verifica file per file lo farebbe fallire.
+      una verifica file per file lo farebbe fallire;
+    * il primer in testa si giudica invece file per file, ma sulle stesse
+      classi: in un controllo negativo con una manciata di letture una sola
+      che comincia per caso come il primer supera qualunque soglia in
+      frazione, e non dice nulla di come sono state prodotte le letture.
 
     Cosi' costruito, il controllo fallisce solo se il segnale manca nel
     complesso - file sbagliati, regione diversa da quella dichiarata - che e'

@@ -83,8 +83,8 @@ esegui_fase(function(parametri, cartella) {
   nel_confronto <- (negativo | biologico) & con_letture
   if (!any(biologico & con_letture)) {
     errore_catalogo("E-S12-04", sprintf(
-      "nessun campione biologico ha letture nell'oggetto integrato (%d biologici, %d con letture): la decontaminazione non ha campioni da ripulire",
-      sum(biologico), sum(biologico & con_letture)))
+      "nessuno dei %d campioni biologici ha letture nell'oggetto integrato: la decontaminazione non ha campioni da ripulire",
+      sum(biologico)))
   }
 
   # ---- Aggregata ------------------------------------------------------------

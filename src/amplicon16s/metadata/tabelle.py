@@ -62,7 +62,9 @@ def leggi_tsv(percorso: Path) -> list[dict[str, str]]:
         ]
 
 
-def valori_non_tabellari(percorso: Path, colonne: Iterable[str]) -> list[tuple[int, str]]:
+def valori_non_tabellari(
+    percorso: Path, colonne: Iterable[str], solo: tuple[str, frozenset[str]] | None = None
+) -> list[tuple[int, str]]:
     """I valori delle colonne indicate che contengono una tabulazione o un a
     capo, come coppie (riga del file, colonna); la prima riga di dati e' la 2.
 
@@ -70,11 +72,16 @@ def valori_non_tabellari(percorso: Path, colonne: Iterable[str]) -> list[tuple[i
     intero: ma le tabelle che la pipeline scrive (il crosswalk, i metadati
     dell'oggetto) sono senza virgolette, e un valore cosi' le spezzerebbe. Si
     guardano le sole colonne che la pipeline legge: un campo di testo libero
-    che non entra in alcun artefatto non e' un difetto.
+    che non entra in alcun artefatto non e' un difetto. Per la stessa ragione
+    ``solo``, una coppia (colonna, valori ammessi), restringe il controllo alle
+    righe che la pipeline usa: una tabella di studio condivisa fra piu' assay
+    ha righe di campioni che non appartengono a questo.
     """
     attese = set(colonne)
     trovati = []
     for numero, riga in enumerate(leggi_tsv(percorso), start=2):
+        if solo is not None and riga.get(solo[0], "") not in solo[1]:
+            continue
         for nome, valore in riga.items():
             if nome in attese and any(c in valore for c in "\t\n\r"):
                 trovati.append((numero, nome))

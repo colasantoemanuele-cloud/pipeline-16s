@@ -201,9 +201,11 @@ class ProfiloLetture(PipelineStep):
             )
             contesto.degrada(
                 "E-S1-03",
-                f"le letture hanno {len(valori)} valori di qualita' distinti "
-                f"({', '.join(str(v) for v in sorted(valori))}): qualita' raggruppate. "
-                f"{seguito}",
+                (f"le letture hanno un solo valore di qualita' ({valori[0]}): "
+                 if len(valori) == 1 else
+                 f"le letture hanno {len(valori)} valori di qualita' distinti "
+                 f"({', '.join(str(v) for v in sorted(valori))}): qualita' raggruppate. ")
+                + seguito,
                 valori=sorted(valori),
             )
 

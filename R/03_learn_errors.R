@@ -59,13 +59,22 @@ valori_di_qualita <- function(file, basta = 1L) {
   sum(presenti)
 }
 
-# I messaggi con cui dada2 e loess riportano una stima dei tassi fallita: la
-# matrice d'errore nulla di learnErrors e gli arresti di stats::loess. Ogni
-# altro errore (memoria esaurita, file illeggibile) non e' una stima fallita e
-# prosegue invariato, perche' il ponte lo riconosca per quello che e'.
-STIMA_FALLITA <- paste(
-  "Error matrix is NULL", "span is too small", "invalid 'x'", "NA/NaN/Inf in foreign",
-  "need at least", "non-finite", sep = "|")
+# learnErrors riporta QUALUNQUE errore della funzione di stima con lo stesso
+# messaggio, senza la causa. La funzione si avvolge quindi in una chiusura che
+# registra il messaggio originale: serve a dichiararlo insieme al codice, e a
+# riconoscere un esaurimento della memoria, che non e' una stima fallita e deve
+# arrivare al ponte per quello che e'.
+STIMA_FALLITA <- "Error matrix is NULL"
+MEMORIA_ESAURITA <- "cannot allocate|memory exhausted|std::bad_alloc"
+
+con_causa <- function(funzione, registro) {
+  function(trans) {
+    tryCatch(funzione(trans), error = function(e) {
+      registro$causa <- conditionMessage(e)
+      stop(e)
+    })
+  }
+}
 
 esegui_fase(function(parametri, cartella) {
   richiedi_pacchetti(c("dada2", "ggplot2"))
@@ -87,29 +96,33 @@ esegui_fase(function(parametri, cartella) {
     # cui learnErrors riporta QUALUNQUE fallimento della funzione di stima:
     # prima di dichiarare E-S3-04 si contano i valori di qualita' delle letture
     # su cui si stimava. Se sono piu' d'uno la causa e' un'altra, e il codice e'
-    # E-S3-05, con il messaggio originale. Ogni errore che non e' una stima
-    # fallita prosegue invariato.
+    # E-S3-05, con il messaggio originale della funzione di stima. Un
+    # esaurimento della memoria dentro la stima, e ogni errore che non e' una
+    # stima fallita, proseguono invariati.
+    registro <- new.env()
     modello <- tryCatch(
       dada2::learnErrors(
         file,
         nbases = as.numeric(parametri$nbases),
         randomize = FALSE,
-        errorEstimationFunction = funzione_errore(parametri$funzione_errore),
+        errorEstimationFunction = con_causa(funzione_errore(parametri$funzione_errore), registro),
         MAX_CONSIST = as.integer(parametri$max_consist),
         multithread = as.integer(parametri$processi),
         verbose = 0
       ),
       error = function(e) {
         if (grepl(STIMA_FALLITA, conditionMessage(e))) {
+          causa <- if (is.null(registro$causa)) conditionMessage(e) else registro$causa
+          if (grepl(MEMORIA_ESAURITA, causa)) stop(causa, call. = FALSE)
           distinti <- valori_di_qualita(file)
           if (distinti <= 1L) {
             errore_catalogo("E-S3-04", sprintf(
               "modello %s, err.error_function %s: le letture filtrate hanno un solo valore di qualita' (%s)",
-              nome, parametri$funzione_errore, conditionMessage(e)))
+              nome, parametri$funzione_errore, causa))
           }
           errore_catalogo("E-S3-05", sprintf(
             "modello %s, err.error_function %s: %s (le letture filtrate hanno piu' di un valore di qualita')",
-            nome, parametri$funzione_errore, conditionMessage(e)))
+            nome, parametri$funzione_errore, causa))
         }
         stop(e)
       }

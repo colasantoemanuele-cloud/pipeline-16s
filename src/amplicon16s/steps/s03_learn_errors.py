@@ -172,7 +172,8 @@ class ModelloErrore(PipelineStep):
     passo: ClassVar[Passo] = Passo.S3
     #: 2: loess_monotono adatta un loess di primo grado con span 2 e pesi
     #: logaritmici (prima span 0,95); una stima fallita con piu' di un valore
-    #: di qualita' ha il suo codice (E-S3-05), distinto da E-S3-04.
+    #: di qualita' ha il suo codice (E-S3-05), distinto da E-S3-04, e porta il
+    #: messaggio originale della funzione di stima.
     versione: ClassVar[int] = 2
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: Tutto il gruppo err; il seme per l'ordine dei campioni; troncamento e

@@ -210,8 +210,11 @@ class ValidazioneIngressi(PipelineStep):
     #: da sola; G07 riconosce i file con le due letture di ogni coppia; G02 e
     #: G08 respingono i valori con tabulazioni o a capo. 8: G15, i cui esiti
     #: sono in gates.json, respinge anche meta.non_surface_positions senza la
-    #: colonna della posizione.
-    versione: ClassVar[int] = 8
+    #: colonna della posizione. 9: G07 giudica i segni di coppia sulla
+    #: frazione delle letture esaminate, sull'intera intestazione, e respinge un
+    #: file di sole seconde letture; G02 guarda nella tabella di studio le sole
+    #: righe dei campioni dell'assay.
+    versione: ClassVar[int] = 9
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre

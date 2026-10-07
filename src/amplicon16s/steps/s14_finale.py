@@ -94,7 +94,8 @@ class Serializzazione(PipelineStep):
     #: 2: con la filogenesi attiva aggiunge l'albero di S9 all'oggetto finale,
     #: ne verifica le foglie e lo esporta. 3: consegna ps_controlli.rds, lo
     #: elenca in checksum.sha256 e toglie i file di un'esecuzione precedente.
-    #: 4: verifica anche ps_integrato.rds di S10 contro il suo manifesto.
+    #: 4: verifica anche ps_integrato.rds di S10 contro il suo manifesto; un
+    #: ingresso assente e' E-S14-01 come uno alterato.
     versione: ClassVar[int] = 4
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La serializzazione, l'orientamento verificato, gli export, la frazione
@@ -119,7 +120,8 @@ class Serializzazione(PipelineStep):
         s13 = albero.manifesto_passo(Passo.S13, Fase.FINAL_INTERMEDI)
         voce = None if s13 is None else next(
             (v for v in s13.artefatti if v["nome"] == NOME_FILTRATO), None)
-        if voce is None or checksum_file(intermedi / NOME_FILTRATO) != voce["checksum"]:
+        filtrato = intermedi / NOME_FILTRATO
+        if voce is None or not filtrato.is_file() or checksum_file(filtrato) != voce["checksum"]:
             raise errore("E-S14-01", f"{NOME_FILTRATO} di S13 manca o non corrisponde al suo manifesto")
         # L'oggetto integrato di S10 e' l'altro ingresso: da li' vengono i
         # controlli consegnati in ps_controlli.rds. Vale la stessa regola.

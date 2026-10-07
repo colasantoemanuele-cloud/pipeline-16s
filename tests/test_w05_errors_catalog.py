@@ -69,10 +69,10 @@ logging), con i codici aggiunti nelle settimane successive.
 
 5. Risultato atteso
 -------------------
-287 test totali:
-- 287 passed in ambiente locale standard (~0.3s);
-- 287 passed nel container Docker standard sul sottoinsieme ridotto (~0.1s);
-- 287 passed nel container Docker con i dati reali OSD-734 (~0.1s).
+410 test totali:
+- 410 passed in ambiente locale standard (~0.3s);
+- 410 passed nel container Docker standard sul sottoinsieme ridotto (~0.1s);
+- 410 passed nel container Docker con i dati reali OSD-734 (~0.1s).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------

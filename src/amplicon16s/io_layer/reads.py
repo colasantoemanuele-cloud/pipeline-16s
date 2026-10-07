@@ -109,21 +109,36 @@ class StatisticheFile:
 
     @property
     def coppie_nello_stesso_file(self) -> str | None:
-        """Perche' il file contiene le due letture di ogni coppia, o ``None``.
+        """Perche' il file non contiene le sole prime letture, o ``None``.
 
-        Due segni indipendenti: intestazioni che marcano sia la prima sia la
-        seconda lettura, oppure lo stesso nome di lettura piu' di una volta.
-        Vale per le sole letture esaminate: un file che riporta tutte le prime
-        letture e poi tutte le seconde non si riconosce se le esaminate non
-        arrivano alla seconda meta'.
+        Tre segni, giudicati sulla frazione delle letture esaminate e non su un
+        record isolato (:data:`FRAZIONE_DI_COPPIA`): intestazioni che marcano
+        sia la prima sia la seconda lettura di una coppia; lo stesso nome di
+        lettura piu' volte; oppure sole seconde letture, come nella testa di
+        un file che riporta prima tutte le seconde e poi tutte le prime. Vale
+        per le letture esaminate: un file che riporta prima tutte le prime
+        letture e poi le seconde non si riconosce se le esaminate non arrivano
+        al secondo blocco.
         """
-        if self.prime_di_coppia and self.seconde_di_coppia:
+        if not self.letture_esaminate:
+            return None
+        minimo = FRAZIONE_DI_COPPIA * self.letture_esaminate
+        if self.prime_di_coppia >= minimo and self.seconde_di_coppia >= minimo:
             return (
-                f"{self.prime_di_coppia} intestazioni marcano la prima lettura di una "
-                f"coppia e {self.seconde_di_coppia} la seconda"
+                f"{self.prime_di_coppia} intestazioni su {self.letture_esaminate} marcano "
+                f"la prima lettura di una coppia e {self.seconde_di_coppia} la seconda"
             )
-        if self.nomi_ripetuti:
-            return f"{self.nomi_ripetuti} letture ripetono il nome di una lettura precedente"
+        if self.nomi_ripetuti >= minimo:
+            return (
+                f"{self.nomi_ripetuti} letture su {self.letture_esaminate} ripetono il nome "
+                "di una lettura precedente"
+            )
+        if self.seconde_di_coppia and not self.prime_di_coppia \
+                and self.seconde_di_coppia >= self.letture_esaminate - minimo:
+            return (
+                f"{self.seconde_di_coppia} intestazioni su {self.letture_esaminate} marcano "
+                "la seconda lettura di una coppia, e nessuna la prima"
+            )
         return None
 
     @property
@@ -151,6 +166,13 @@ class StatisticheFile:
         return self.con_motivo / self.letture_esaminate if self.letture_esaminate else 0.0
 
 
+#: La frazione delle letture esaminate oltre la quale un segno di coppia conta:
+#: un record isolato con un marcatore o un nome ripetuto e' un difetto del
+#: file, non la prova che contenga le due letture di ogni coppia. E' una
+#: tolleranza al rumore, non una proprieta' di un dataset: in un file con le
+#: coppie i segni riguardano circa meta' delle letture.
+FRAZIONE_DI_COPPIA: Final = 0.05
+
 #: La lettura di una coppia dichiarata dall'intestazione, nelle due convenzioni
 #: diffuse: il suffisso ``/1`` o ``/2`` in fondo al nome o all'intestazione, e
 #: il commento ``1:N:0:...`` o ``2:N:0:...`` dei sequenziatori Illumina.
@@ -159,17 +181,24 @@ _COMMENTO_COPPIA: Final = re.compile(r"^([12]):[YN]:")
 
 
 def _nome_e_coppia(intestazione: str) -> tuple[str, str | None]:
-    """Il nome della lettura senza il marcatore di coppia, e il marcatore
-    (``"1"``, ``"2"`` o ``None``) letto dall'intestazione.
+    """L'intestazione della lettura senza il marcatore di coppia, e il marcatore
+    (``"1"``, ``"2"`` o ``None``).
+
+    Il nome con cui si riconosce una ripetizione e' l'intera intestazione, non
+    il suo primo campo: alcuni file ripetono in testa il nome del campione e
+    numerano la lettura nel campo seguente. Tolto il marcatore, le due letture
+    di una coppia hanno la stessa intestazione.
     """
     riga = intestazione[1:].rstrip("\r\n")
-    nome, _, commento = riga.partition(" ")
-    for testo in (nome, riga):
+    nome, separatore, commento = riga.partition(" ")
+    for testo, resto in ((nome, separatore + commento), (riga, "")):
         trovato = _SUFFISSO_COPPIA.search(testo)
         if trovato:
-            return _SUFFISSO_COPPIA.sub("", nome), trovato.group(1)
+            return _SUFFISSO_COPPIA.sub("", testo) + resto, trovato.group(1)
     trovato = _COMMENTO_COPPIA.match(commento)
-    return nome, trovato.group(1) if trovato else None
+    if trovato:
+        return f"{nome} {commento[1:]}", trovato.group(1)
+    return riga, None
 
 
 def scansiona_file(

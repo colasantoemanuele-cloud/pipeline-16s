@@ -71,10 +71,10 @@ Settimane 3 e 4 (W3/W4), Fase F1: schema di validazione della configurazione
 
 5. Risultato atteso
 -------------------
-88 test totali:
-- 88 passed in ambiente locale standard (~1.2s);
-- 88 passed nel container Docker standard sul sottoinsieme ridotto (~1.1s);
-- 88 passed nel container Docker con i dati reali OSD-734 (~0.9s).
+107 test totali:
+- 107 passed in ambiente locale standard (~1.2s);
+- 107 passed nel container Docker standard sul sottoinsieme ridotto (~1.1s);
+- 107 passed nel container Docker con i dati reali OSD-734 (~0.9s).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------

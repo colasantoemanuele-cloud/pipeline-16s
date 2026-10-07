@@ -406,7 +406,7 @@ def test_con_poche_qualita_distinte_s1_avvisa_con_e_s1_03(bioc, tmp_path):
     manifesto = run.albero.manifesto_passo(Passo.S1, Fase.QC_PROFILES)
     (degradazione,) = [d for d in manifesto.degradazioni if d["codice"] == "E-S1-03"]
     # Con un solo valore non si suggerisce una funzione: nessuna puo' stimare.
-    assert "1 valori" in degradazione["dettaglio"] and "E-S3-04" in degradazione["dettaglio"]
+    assert "un solo valore" in degradazione["dettaglio"] and "E-S3-04" in degradazione["dettaglio"]
     assert "loess_monotono" not in degradazione["dettaglio"]
     valori = _tsv(run.albero.cartella(Fase.QC_PROFILES) / "valori_qualita.tsv")
     assert [v["qualita"] for v in valori] == ["40"]
@@ -1083,8 +1083,11 @@ def test_una_classe_minoritaria_di_sole_letture_corte_ferma_s1(bioc, tmp_path):
     ("commento", ["r1 1:N:0:ACGT", "r1 2:N:0:ACGT", "r2 1:N:0:ACGT", "r2 2:N:0:ACGT"], True),
     ("deposito", ["CORSA.1 1/1", "CORSA.2 2/1", "CORSA.1 1/2", "CORSA.2 2/2"], True),
     ("nome_ripetuto", ["r1", "r1", "r2", "r2"], True),
+    ("solo_seconde", ["r1/2", "r2/2", "r3/2", "r4/2"], True),
     ("solo_forward", ["r1/1", "r2/1", "r3/1", "r4/1"], False),
     ("senza_marcatore", ["r1 lunghezza=151", "r2 lunghezza=151", "r3", "r4"], False),
+    ("campione_in_testa", ["Campione 1 length=151", "Campione 2 length=151",
+                           "Campione 3 length=151", "Campione 4 length=151"], False),
 ])
 def test_g07_riconosce_le_due_letture_di_ogni_coppia_nello_stesso_file(
     tmp_path, nome, intestazioni, intercalato
@@ -1093,8 +1096,10 @@ def test_g07_riconosce_le_due_letture_di_ogni_coppia_nello_stesso_file(
     **Obiettivo**: Verificare che G07 respinga con ``E-S0-07`` un file le cui
     letture ispezionate portano sia la prima sia la seconda lettura di una
     coppia (suffissi ``/1`` e ``/2``, commento ``1:N:`` e ``2:N:``, o lo stesso
-    nome di lettura ripetuto), dicendo di estrarre le letture forward; e che un
-    file di sole letture forward, o senza marcatori, passi.
+    nome di lettura ripetuto) o le sole seconde letture, dicendo di estrarre
+    le letture forward; e che un file di sole letture forward, senza
+    marcatori, o con il nome del campione ripetuto in testa a ogni
+    intestazione, passi.
 
     **Razionale scientifico e sistemistico**: Alcuni archivi distribuiscono un
     dataset paired-end con un solo file per corsa: il nome non lo dice, e
@@ -1116,6 +1121,30 @@ def test_g07_riconosce_le_due_letture_di_ogni_coppia_nello_stesso_file(
     assert "letture forward" in dettaglio
 
 
+def test_un_record_isolato_non_fa_di_un_file_un_file_di_coppie(tmp_path):
+    """
+    **Obiettivo**: Verificare che un file di quaranta letture forward in cui
+    una sola porta il marcatore della seconda lettura, o ripete il nome di
+    un'altra, superi G07; e che lo stesso segno su meta' delle letture lo
+    fermi.
+
+    **Razionale scientifico e sistemistico**: Un record anomalo e' un difetto
+    del file, non la prova che contenga le due letture di ogni coppia: il
+    giudizio e' sulla frazione delle letture esaminate, perche' un dataset
+    single-end legittimo non si fermi per una intestazione.
+    """
+    scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
+    percorso = _file_di(scenario, "ERX3000001")
+    forward = [(f"r{i}/1", lettura(), "I" * 151) for i in range(39)]
+    for anomalo in ("r99/2", "r0/1"):
+        _scrivi_record(percorso, forward + [(anomalo, lettura(), "I" * 151)])
+        statistiche = Contesto(scenario.config).scansione["ERX3000001"]
+        assert statistiche.seconde_di_coppia + statistiche.nomi_ripetuti == 1
+        assert esegui_gate("G07", Contesto(scenario.config)).superato, anomalo
+    _scrivi_record(percorso, forward[:20] + [(f"r{i}/2", lettura(), "I" * 151) for i in range(20)])
+    assert [v.codice for v in esegui_gate("G07", Contesto(scenario.config)).violazioni] == ["E-S0-07"]
+
+
 def test_un_valore_con_tabulazione_o_a_capo_fra_virgolette_ferma_s0(tmp_path):
     """
     **Obiettivo**: Verificare che un valore con un a capo, o con una
@@ -1123,7 +1152,8 @@ def test_un_valore_con_tabulazione_o_a_capo_fra_virgolette_ferma_s0(tmp_path):
     fermi G02 con ``E-S0-02`` (tabelle di assay e di studio) e G08 con
     ``E-S0-08`` (file del lotto), indicando riga e colonna; che S0 non risulti
     superata; e che lo stesso valore in una colonna che la pipeline non legge
-    non fermi nulla.
+    non fermi nulla, e nemmeno in una riga della tabella di studio che non
+    e' di un campione dell'assay.
 
     **Razionale scientifico e sistemistico**: Le tabelle che la pipeline scrive
     non hanno virgolette, e un valore cosi' le spezzerebbe: prima lo scopriva
@@ -1163,6 +1193,11 @@ def test_un_valore_con_tabulazione_o_a_capo_fra_virgolette_ferma_s0(tmp_path):
     libero = con_valore(tmp_path / "libero", "study_table", "Comment[Note]", "testo\nlibero")
     assert Esecutore(ProjectRun(libero.config), fino_a=Passo.S0).esegui().conclusione \
         is Conclusione.COMPLETATA
+
+    # Una riga della tabella di studio che non e' di un campione dell'assay.
+    estranea = crea_scenario(tmp_path / "estranea", _campioni(), con_letture=True,
+                             righe_studio_extra=[("ALTRO.1", "Surface swab", "prima\tdopo")])
+    assert esegui_gate("G02", Contesto(estranea.config)).superato
 
 
 @pytest.mark.parametrize("osservate", [(2, 12, 23, 37), (12, 23, 37), (12, 37)])
@@ -1250,6 +1285,8 @@ def test_una_stima_fallita_con_piu_qualita_non_e_e_s3_04(bioc, tmp_path):
     assert fermo.punto.codice == "E-S3-05", fermo.punto
     assert fermo.punto.categoria == "revisione_umana"
     assert "piu' di un valore di qualita'" in fermo.punto.dettaglio
+    # Il messaggio originale della funzione di stima, non quello generico di learnErrors.
+    assert "Error matrix is NULL" not in fermo.punto.dettaglio
 
     monotona = copia_esecuzione((run, esito), tmp_path / "monotono",
                                 err={"error_function": "loess_monotono"})
