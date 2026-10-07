@@ -14,7 +14,9 @@ calcolo).
 * ``src/amplicon16s/gates/g01_g15.py``, ``src/amplicon16s/gates/registry.py``
 * ``src/amplicon16s/metadata/tabelle.py``, ``src/amplicon16s/metadata/crosswalk.py``
 * ``src/amplicon16s/io_layer/reads.py``
-* ``src/amplicon16s/steps/s00_validate.py``, ``src/amplicon16s/cli.py``
+* ``src/amplicon16s/steps/s00_validate.py``, ``src/amplicon16s/cli.py``,
+  ``src/amplicon16s/steps/s02_filter.py`` (``archivio_incompleto``),
+  ``src/amplicon16s/steps/s11_controls.py`` (``colonna_dei_livelli``)
 * ``src/amplicon16s/report/builder.py`` (parametri tarati e non dichiarati)
 * ``config/config.example.yaml``, ``dati/osd734/config_osd734.yaml``,
   ``dati/osd276/``
@@ -149,6 +151,7 @@ from amplicon16s.metadata.tabelle import intestazione, leggi_tsv, tabella_di_stu
 from amplicon16s.report.builder import CARTELLA_REPORT, NOME_REPORT
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.s00_validate import ValidazioneIngressi, esegui_s0
+from amplicon16s.steps.s02_filter import archivio_incompleto
 
 RADICE = Path(__file__).resolve().parents[1]
 PRIMER = "GTGYCAGCMGCCGCGGTAA"
@@ -536,10 +539,11 @@ def test_senza_motivo_conservato_g10_verifica_il_solo_primer(tmp_path):
 def test_g02_verifica_ogni_colonna_dichiarata_delle_tabelle(tmp_path):
     """
     **Obiettivo**: Verificare che G02 respinga con ``E-S0-02``, nominando
-    parametro e colonna, una colonna di ``out.study_columns``, la colonna di
-    ``ctrl.blank_override_column`` e, senza file del lotto, quella di
-    ``katharoseq.cell_count_column`` assenti dalla tabella di studio; e che
-    una colonna ripetuta nell'intestazione sia respinta allo stesso modo.
+    parametro e colonna, una colonna di ``out.study_columns`` e la colonna di
+    ``ctrl.blank_override_column`` assenti dalla tabella di studio; che la
+    colonna di ``katharoseq.cell_count_column`` debba essere fra quelle portate
+    nell'oggetto (``E-G15-12``) e sia quindi verificata con esse; e che una
+    colonna ripetuta nell'intestazione sia respinta allo stesso modo.
 
     **Razionale scientifico e sistemistico**: Ogni colonna che la
     configurazione nomina va cercata prima del calcolo: scoperta assente da
@@ -547,10 +551,20 @@ def test_g02_verifica_ogni_colonna_dichiarata_delle_tabelle(tmp_path):
     """
     scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
     casi = {
-        "out.study_columns": {"out": {"study_columns": ["Colonna che non c'e'"]}},
+        "out.study_columns": {"out": {"study_columns": ["katharoseq_cell_count",
+                                                        "Colonna che non c'e'"]}},
         "ctrl.blank_override_column": {"ctrl": {"blank_override_column": "Altra colonna"}},
-        "katharoseq.cell_count_column": {"katharoseq": {"cell_count_column": "cellule"}},
     }
+    non_portata = _con(scenario.config, katharoseq={"cell_count_column": "cellule"})
+    esito = esegui_gate("G15", Contesto(non_portata))
+    assert [v.codice for v in esito.violazioni] == ["E-G15-12"]
+    assert "out.batch_columns o in out.study_columns" in esito.violazioni[0].dettaglio
+    portata = _con(scenario.config, katharoseq={"cell_count_column": "cellule"},
+                   out={"study_columns": ["cellule"]})
+    assert esegui_gate("G15", Contesto(portata)).superato
+    esito = _esiti(portata)["G02"]
+    assert {v.codice for v in esito.violazioni} == {"E-S0-02"}
+    assert "'cellule'" in esito.violazioni[0].dettaglio
     for parametro, modifica in casi.items():
         esito = _esiti(_con(scenario.config, **modifica))["G02"]
         assert not esito.superato and {v.codice for v in esito.violazioni} == {"E-S0-02"}
@@ -562,7 +576,8 @@ def test_g02_verifica_ogni_colonna_dichiarata_delle_tabelle(tmp_path):
     righe[0] += "\tnota\tnota"
     studio.write_text("\n".join(r + "\tx\ty" if i and r else r for i, r in enumerate(righe)),
                       encoding="utf-8")
-    esito = _esiti(_con(scenario.config, out={"study_columns": ["nota"]}))["G02"]
+    esito = _esiti(_con(scenario.config,
+                        out={"study_columns": ["katharoseq_cell_count", "nota"]}))["G02"]
     assert "compare 2 volte" in esito.violazioni[0].dettaglio
 
 
@@ -571,8 +586,8 @@ def test_g08_verifica_le_colonne_e_la_completezza_del_file_del_lotto(tmp_path):
     **Obiettivo**: Verificare che G08 respinga con ``E-S0-08`` una colonna di
     ``out.batch_columns`` o di ``meta.batch_module_column`` assente dal file
     del lotto; un file in cui un campione non ha riga (incompleto); un file in
-    cui un campione ha due righe (ambiguo); un campione con la corsa vuota. Il
-    file completo passa.
+    cui un campione ha due righe (ambiguo); un campione con la corsa vuota o
+    con la piastra vuota. Il file completo passa.
 
     **Razionale scientifico e sistemistico**: Un file del lotto incompleto o
     ambiguo era un errore di S3, dopo il filtro di tutte le letture: riguarda
@@ -609,6 +624,14 @@ def test_g08_verifica_le_colonne_e_la_completezza_del_file_del_lotto(tmp_path):
     assert {v.codice for v in esito.violazioni} == {"E-S0-08"}
     assert "err.batch_column" in esito.violazioni[0].dettaglio
     assert "ERX3000002" in esito.violazioni[0].dettaglio
+
+    campioni = _campioni()
+    campioni[2].piastra = "Not Applicable"
+    senza_piastra = crea_scenario(tmp_path / "c", campioni, con_letture=True, con_arricchimento=True)
+    esito = _esiti(senza_piastra.config)["G08"]
+    assert {v.codice for v in esito.violazioni} == {"E-S0-08"}
+    assert "decontam.batch_column" in esito.violazioni[0].dettaglio
+    assert "ERX3000003" in esito.violazioni[0].dettaglio
 
 
 # --------------------------------------------------------------------------- #
@@ -663,7 +686,8 @@ def test_senza_tabella_di_studio_la_classe_si_legge_dalla_tabella_di_assay(tmp_p
     assert risultato.superata
     assert risultato.inventario.conteggi()[ClasseCampione.BIOLOGICO] == 4
 
-    manca = _dataset_diverso(tmp_path / "b", con_studio=False, out={"study_columns": ["assente"]})
+    manca = _dataset_diverso(tmp_path / "b", con_studio=False,
+                             out={"study_columns": ["nota", "assente"]})
     esito = _esiti(manca)["G02"]
     assert {v.codice for v in esito.violazioni} == {"E-S0-02"}
     assert "io.assay_table" in esito.violazioni[0].dettaglio
@@ -793,6 +817,12 @@ def test_un_fastq_si_riconosce_dai_primi_byte_non_dall_estensione(tmp_path):
                   s.con_primer, s.con_motivo)
         attese = attese or misure
         assert misure == attese == (True, 5, 100, 100, 0, 5), nome
+        # Il controllo di S2 prima del filtro legge il file allo stesso modo:
+        # un FASTQ non compresso non e' un archivio corrotto.
+        assert archivio_incompleto(tmp_path / nome) is None, nome
+    troncato = tmp_path / "troncato.fastq.gz"
+    troncato.write_bytes(compresso.read_bytes()[:-20])
+    assert archivio_incompleto(troncato) is not None
 
 
 # --------------------------------------------------------------------------- #

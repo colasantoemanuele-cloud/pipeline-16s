@@ -64,9 +64,15 @@ SUFFISSO_FILTRATI: Final = "_filt.fastq.gz"
 
 
 def archivio_incompleto(percorso: Path) -> str | None:
-    """Il motivo per cui un archivio non si decomprime per intero, o ``None``."""
+    """Il motivo per cui un archivio non si decomprime per intero, o ``None``.
+
+    Un FASTQ non compresso, riconosciuto dai primi byte come in S0, non ha
+    nulla da decomprimere: basta che si legga fino in fondo.
+    """
     try:
-        with gzip.open(percorso, "rb") as file:
+        with open(percorso, "rb") as file:
+            compresso = file.read(2) == b"\x1f\x8b"
+        with (gzip.open if compresso else open)(percorso, "rb") as file:
             while file.read(1 << 22):
                 pass
     except (OSError, EOFError, zlib.error) as e:

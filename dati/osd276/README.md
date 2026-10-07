@@ -117,6 +117,6 @@ che i contaminanti non sono stimabili.
 
 ## Stato della prova
 
-La prova della pipeline su questo dataset, con l'elenco dei difetti che ha fatto
-emergere, e' descritta nella sezione "Stato dell'implementazione" del README
-principale.
+L'esito della prova della pipeline su questo dataset (dove si fermava con i valori
+predefiniti di OSD-734, e fin dove arriva con questa configurazione) e' descritto
+nella sezione "Stato dell'implementazione" del README principale.

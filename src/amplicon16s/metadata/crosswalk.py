@@ -47,7 +47,7 @@ def estrai_accession(testo: str, espressione: re.Pattern[str]) -> str:
     La chiave e' la corrispondenza intera dell'espressione oppure, se
     l'espressione ha un gruppo di cattura, il primo gruppo: cosi' un file
     nominato per campione o per corsa si descrive delimitando la chiave con
-    cio' che la circonda, per esempio ``^(SP[0-9]+)_R1``. Un gruppo che serve
+    cio' che la circonda, per esempio ``^(CAMP[0-9]+)_R1``. Un gruppo che serve
     solo a raggruppare va scritto senza cattura, ``(?:...)``.
 
     Zero corrispondenze e più di una sono entrambe errori, e per la stessa

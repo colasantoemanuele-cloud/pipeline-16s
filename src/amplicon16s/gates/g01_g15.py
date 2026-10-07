@@ -160,7 +160,8 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
     ),
     Controllo(
         "E-G15-12",
-        ("ctrl.positive_values", "katharoseq.target_taxon", "katharoseq.cell_count_column"),
+        ("ctrl.positive_values", "katharoseq.target_taxon", "katharoseq.cell_count_column",
+         "out.batch_columns", "out.study_columns"),
         "gate",
     ),
     Controllo(
@@ -440,6 +441,21 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
                     ),
                 )
             )
+    # La calibrazione legge le cellule dall'oggetto integrato: la colonna deve
+    # essere fra quelle che S10 vi porta, altrimenti S11 non la troverebbe e
+    # ripiegherebbe sulla soglia fissa a calcolo concluso.
+    cellule = config.katharoseq.cell_count_column
+    if cellule is not None and cellule not in (
+        *config.out.batch_columns, *config.out.study_columns
+    ):
+        violazioni.append(
+            Violazione(
+                "E-G15-12",
+                f"katharoseq.cell_count_column ({cellule!r}) non e' fra le colonne portate "
+                f"nell'oggetto: va elencata in out.batch_columns o in out.study_columns, "
+                f"secondo la tabella che la contiene",
+            )
+        )
 
     return violazioni
 
@@ -847,10 +863,9 @@ def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Av
     if config.ctrl.blank_override_column is not None:
         di_studio.append(("ctrl.blank_override_column", config.ctrl.blank_override_column))
     di_studio += [("out.study_columns", c) for c in config.out.study_columns]
-    # Le cellule dei controlli positivi stanno nel file del lotto o nella tabella
-    # di studio: con il file del lotto lo verifica G08, che ne legge l'intestazione.
-    if config.katharoseq.cell_count_column is not None and config.io.batch_table is None:
-        di_studio.append(("katharoseq.cell_count_column", config.katharoseq.cell_count_column))
+    # Le cellule dei controlli positivi sono una delle colonne portate
+    # nell'oggetto (lo impone G15): se sta fra out.study_columns e' verificata
+    # qui sopra con le altre, se sta fra out.batch_columns la verifica G08.
 
     if config.io.study_table is None:
         attese = [("io.assay_table", Path(config.io.assay_table), assay + di_studio[1:])]
@@ -1214,20 +1229,6 @@ def _g08_lotto_coerente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
         violazioni += _colonne_mancanti(
             intestazione, uniche, f"{percorso.name} (io.batch_table)", "E-S0-08"
         )
-        # Le cellule seminate nei controlli positivi: nel file del lotto o
-        # nella tabella di studio.
-        cellule = config.katharoseq.cell_count_column
-        if cellule is not None and cellule not in intestazione:
-            studio, _ = tabella_di_studio(config)
-            if cellule not in _intestazione(studio):
-                violazioni.append(
-                    Violazione(
-                        "E-S0-08",
-                        f"la colonna {cellule!r}, dichiarata in "
-                        f"katharoseq.cell_count_column, non compare ne' in "
-                        f"{percorso.name} ne' in {studio.name}",
-                    )
-                )
         if violazioni:
             return violazioni, []
 
@@ -1253,6 +1254,18 @@ def _g08_lotto_coerente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
                         len(analisi.arricchimento_ambiguo), percorso.name,
                         _elenca([f"{a} ({n} righe)" for a, n in
                                  sorted(analisi.arricchimento_ambiguo.items())]),
+                    ),
+                )
+            )
+        if analisi.senza_piastra:
+            violazioni.append(
+                Violazione(
+                    "E-S0-08",
+                    "{} campioni hanno la colonna {!r} (decontam.batch_column) vuota in {}: "
+                    "{}. Un campione senza piastra non ha una soglia di profondita' ne' un "
+                    "confronto di decontaminazione propri".format(
+                        len(analisi.senza_piastra), config.decontam.batch_column, percorso.name,
+                        _elenca(sorted(analisi.senza_piastra)),
                     ),
                 )
             )

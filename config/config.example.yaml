@@ -52,7 +52,7 @@ io:
   # Espressione regolare che estrae dal nome di ogni file la chiave del
   # campione: la corrispondenza intera oppure, se l'espressione ha un gruppo
   # di cattura, il primo gruppo (per file nominati per campione o per corsa,
-  # per esempio "^(SP[0-9]+)_"). La stessa chiave si ricava dal valore di
+  # per esempio "^(CAMP[0-9]+)_"). La stessa chiave si ricava dal valore di
   # meta.accession_column; un gruppo che serve solo a raggruppare va scritto
   # senza cattura, (?:...).
   # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:

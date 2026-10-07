@@ -273,10 +273,10 @@ def crea_scenario(
 
     # I parametri obbligatori hanno i valori di OSD-734, che e' la forma dei
     # metadati dello scenario; quelli del file del lotto sono nulli o vuoti
-    # quando lo scenario non lo ha, e le colonne da portare nell'oggetto sono
-    # vuote perche' le tabelle dello scenario non le contengono.
+    # quando lo scenario non lo ha, e delle colonne da portare nell'oggetto resta
     dati = parametri_osd734()
-    dati["out"].update(study_columns=[], batch_columns=[])
+    # la sola colonna delle cellule, che la calibrazione legge dall'oggetto
+    dati["out"].update(study_columns=["katharoseq_cell_count"], batch_columns=[])
     if arricchimento is None:
         dati["meta"].update(batch_key_column=None, batch_module_column=None)
         dati["err"]["batch_column"] = None

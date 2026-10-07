@@ -530,8 +530,10 @@ def test_s11_da_gli_stessi_byte_in_due_esecuzioni(bioc, controlli_calcolati, tmp
 def test_la_colonna_dei_livelli_assente_e_respinta_in_s0(tmp_path):
     """
     **Obiettivo**: Verificare che una ``katharoseq.cell_count_column`` che non
-    compare ne' nel file del lotto ne' nella tabella di studio sia respinta da
-    G08 con ``E-S0-08``, nominando il parametro, prima di qualunque calcolo.
+    e' fra le colonne portate nell'oggetto sia respinta da G15 con
+    ``E-G15-12``; che, elencata in ``out.batch_columns`` ma assente dal file
+    del lotto, sia respinta da G08 con ``E-S0-08``; e che la colonna si trovi
+    nell'oggetto da qualunque delle due tabelle venga.
 
     **Razionale scientifico e sistemistico**: Senza la colonna dei livelli S11
     ripiegava sulla soglia fissa dopo l'intera catena di calcolo: una colonna
@@ -539,10 +541,27 @@ def test_la_colonna_dei_livelli_assente_e_respinta_in_s0(tmp_path):
     leggendo le intestazioni.
     """
     config = config_ridotta(tmp_path, katharoseq={"cell_count_column": "cellule_inesistenti"})
-    esito = esegui_gate("G08", Contesto(config))
-    assert not esito.superato and {v.codice for v in esito.violazioni} == {"E-S0-08"}
+    esito = esegui_gate("G15", Contesto(config))
+    assert not esito.superato and {v.codice for v in esito.violazioni} == {"E-G15-12"}
     assert "katharoseq.cell_count_column" in esito.violazioni[0].dettaglio
     assert "cellule_inesistenti" in esito.violazioni[0].dettaglio
+
+    colonne = [*config.out.batch_columns, "cellule_inesistenti"]
+    elencata = config_ridotta(tmp_path, katharoseq={"cell_count_column": "cellule_inesistenti"},
+                              out={"batch_columns": colonne})
+    assert esegui_gate("G15", Contesto(elencata)).superato
+    esito = esegui_gate("G08", Contesto(elencata))
+    assert not esito.superato and {v.codice for v in esito.violazioni} == {"E-S0-08"}
+    assert "cellule_inesistenti" in esito.violazioni[0].dettaglio
+
+    dal_lotto = {"colonna": "cellule", "origine": "file di arricchimento (io.batch_table)",
+                 "colonna_originale": "Cellule seminate", "valore": "valore originale"}
+    dallo_studio = {**dal_lotto, "origine": "tabella campioni di studio (io.study_table)"}
+    inventario = {**dal_lotto, "colonna": "piastra", "colonna_originale": "Cellule seminate"}
+    assert colonna_dei_livelli([dal_lotto], "Cellule seminate") == "cellule"
+    assert colonna_dei_livelli([dallo_studio], "Cellule seminate") == "cellule"
+    assert colonna_dei_livelli([inventario], "Cellule seminate") is None
+    assert colonna_dei_livelli([dal_lotto], None) is None
 
 
 @pytest.mark.parametrize(

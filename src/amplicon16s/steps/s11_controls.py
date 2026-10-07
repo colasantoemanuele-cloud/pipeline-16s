@@ -59,7 +59,7 @@ from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s10_phyloseq import NOME_COLONNE, NOME_OGGETTO
+from amplicon16s.steps.s10_phyloseq import COLONNE_INVENTARIO, NOME_COLONNE, NOME_OGGETTO
 
 __all__ = ["NOME_SOGLIA", "ValidazioneControlli", "colonna_dei_livelli"]
 
@@ -71,16 +71,19 @@ NOME_RIEPILOGO: Final = "riepilogo.json"
 NOME_GREZZE: Final = "letture_prefiltro.tsv"
 
 
-def colonna_dei_livelli(corrispondenza: list[dict[str, str]], originale: str) -> str | None:
+def colonna_dei_livelli(
+    corrispondenza: list[dict[str, str]], originale: str | None
+) -> str | None:
     """Il nome nell'oggetto integrato della colonna dei livelli, se S10 l'ha portata.
 
-    La colonna si cerca fra quelle venute dal file di arricchimento, per nome
-    originale.
+    La colonna si cerca per nome originale fra quelle aggiunte all'oggetto dal
+    file di arricchimento o dalla tabella di studio (``out.batch_columns``,
+    ``out.study_columns``), non fra quelle dell'inventario.
     """
+    if originale is None:
+        return None
     for voce in corrispondenza:
-        if voce["colonna_originale"] == originale and voce["origine"].startswith(
-            "file di arricchimento"
-        ):
+        if voce["colonna_originale"] == originale and voce["colonna"] not in COLONNE_INVENTARIO:
             return voce["colonna"]
     return None
 
@@ -119,7 +122,7 @@ class ValidazioneControlli(PipelineStep):
                 "motivo_colonna": (
                     f"la colonna {katharoseq.cell_count_column!r} "
                     "(katharoseq.cell_count_column) non e' fra le colonne dell'oggetto "
-                    "integrato: va indicata in out.batch_columns"
+                    "integrato: va indicata in out.batch_columns o in out.study_columns"
                 ),
                 "rango": katharoseq.collapse_rank,
                 "taxon": katharoseq.target_taxon,

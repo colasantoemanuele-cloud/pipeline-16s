@@ -380,10 +380,13 @@ Sono realizzati:
   che leggono le sequenze, così un'etichetta non dichiarata è diagnosticata come tale
   e non come segnale assente. G02 e G08 verificano ogni colonna che la configurazione
   nomina, sulle tabelle di assay e di studio e sul file del lotto, comprese quelle da
-  portare nell'oggetto (`out.study_columns`, `out.batch_columns`); G08 respinge un
-  file del lotto in cui un campione non ha riga, ne ha più d'una o non ha la corsa.
+  portare nell'oggetto (`out.study_columns`, `out.batch_columns`), fra le quali deve
+  stare la colonna delle cellule dei controlli positivi, perché è dall'oggetto che la
+  calibrazione la legge (`E-G15-12`); G08 respinge un file del lotto in cui un
+  campione non ha riga, ne ha più d'una, o non ha la piastra o la corsa dichiarate.
   G07 riconosce le letture inverse dal marcatore che precede l'estensione; i FASTQ,
-  compressi o no, si riconoscono dai primi byte. G10 cerca il primer in testa alle
+  compressi o no, si riconoscono dai primi byte, in S0 come nel controllo che S2 fa
+  sugli archivi prima del filtro. G10 cerca il primer in testa alle
   letture solo con `filter.trimLeft` a zero, e il motivo conservato a partire dalla
   posizione `filter.trimLeft`: così la correzione che il gate indica (il taglio pari
   alla lunghezza del primer) lo fa superare. Primer presente (`E-S0-10`) e segnale

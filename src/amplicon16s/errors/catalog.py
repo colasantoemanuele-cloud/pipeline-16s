@@ -239,8 +239,11 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "Se ctrl.positive_values elenca delle etichette, katharoseq.target_taxon "
         "e katharoseq.cell_count_column devono essere indicati: senza il taxon "
         "atteso e le cellule seminate i controlli positivi non sono valutabili. "
-        "Se il dataset non ha controlli positivi, dichiara ctrl.positive_values "
-        "vuoto.",
+        "La colonna delle cellule deve inoltre essere fra quelle portate "
+        "nell'oggetto (out.batch_columns o out.study_columns), perche' e' "
+        "dall'oggetto che la calibrazione la legge. Se il dataset non ha "
+        "controlli positivi, dichiara ctrl.positive_values vuoto e i due "
+        "parametri nulli.",
         _UMANA,
     ),
     # ----------------------------------------------------------------- S0 ---
@@ -306,7 +309,7 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "L'informazione di lotto non e' coerente.",
         "Verifica che le colonne dichiarate per il file del lotto "
         "(decontam.batch_column, err.batch_column, meta.batch_module_column, "
-        "out.batch_columns, katharoseq.cell_count_column) esistano nel file "
+        "out.batch_columns) esistano nel file "
         "indicato da io.batch_table, e che il file abbia una e una sola riga per "
         "ogni campione, con piastra e corsa compilate dove sono dichiarate: un "
         "campione senza riga, o con piu' righe, resterebbe senza lotto. In "

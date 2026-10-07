@@ -89,6 +89,10 @@ NOME_COLONNE: Final = "colonne_metadati.tsv"
 NOME_RIEPILOGO: Final = "riepilogo.json"
 
 #: Le colonne dell'inventario nell'oggetto, con i nomi del crosswalk di S0.
+#: Le origini registrate in colonne_metadati.tsv.
+ORIGINE_LOTTO: Final = "file di arricchimento (io.batch_table)"
+ORIGINE_ASSAY: Final = "tabella di assay (io.assay_table)"
+
 COLONNE_INVENTARIO: Final = (
     "accession", "sample_name", "classe", "materiale",
     "posizione", "modulo", "piastra", "corsa",
@@ -130,20 +134,25 @@ def colonne_metadati(config: Any) -> list[dict[str, str]]:
     puo' portare nell'oggetto senza ambiguita' solleva ``E-S10-02``.
     """
     io, meta = config.io, config.meta
-    lotto = "file di arricchimento (io.batch_table)"
+    lotto = ORIGINE_LOTTO
+    # Senza io.study_table classe e variabili vengono dalla tabella di assay.
+    studio = (
+        "tabella campioni di studio (io.study_table)" if io.study_table is not None
+        else ORIGINE_ASSAY
+    )
     colonne = [
         {"colonna": "accession", "origine": "tabella di assay (io.assay_table)",
          "colonna_originale": meta.accession_column,
          "valore": "accession estratto con io.accession_regex; identificativo del campione"},
         {"colonna": "sample_name", "origine": "tabella di assay (io.assay_table)",
          "colonna_originale": meta.sample_id_column, "valore": "valore originale"},
-        {"colonna": "classe", "origine": "tabella campioni di studio (io.study_table)",
+        {"colonna": "classe", "origine": studio,
          "colonna_originale": config.ctrl.column,
          "valore": "classe del campione, da ctrl.blank_values, positive_values e "
                    "biological_values"},
-        {"colonna": "materiale", "origine": "tabella campioni di studio (io.study_table)",
+        {"colonna": "materiale", "origine": studio,
          "colonna_originale": config.ctrl.column, "valore": "valore originale"},
-        {"colonna": "posizione", "origine": "tabella campioni di studio (io.study_table)",
+        {"colonna": "posizione", "origine": studio,
          "colonna_originale": meta.module_column or "",
          "valore": "valore originale; vuoto se non applicabile" if meta.module_column else
                    "vuoto: meta.module_column nullo"},
@@ -173,10 +182,7 @@ def colonne_metadati(config: Any) -> list[dict[str, str]]:
     intestazioni = {"studio": intestazione(tabella_di_studio(config)[0])}
     if io.batch_table is not None:
         intestazioni["lotto"] = intestazione(Path(io.batch_table))
-    origini = {
-        "studio": "tabella campioni di studio (io.study_table)",
-        "lotto": lotto,
-    }
+    origini = {"studio": studio, "lotto": lotto}
     for tabella, originale in richieste:
         if tabella not in intestazioni:
             raise errore(
@@ -243,7 +249,7 @@ def _valori_metadati(
             nome = voce["colonna"]
             if nome in valori:
                 riga.append(valori[nome])
-            elif voce["origine"].startswith("tabella campioni"):
+            elif voce["origine"] != ORIGINE_LOTTO:
                 riga.append(studio.get(c.nome, {}).get(voce["colonna_originale"], ""))
             else:
                 riga.append(lotto.get(c.accession, {}).get(voce["colonna_originale"], ""))
