@@ -33,6 +33,9 @@ htmlcov/
 # I dati di OSD-734 recuperati in dati/osd734/: l'immagine non li contiene.
 dati/osd734/fastq/
 dati/osd734/riferimento/
+# Il riferimento tassonomico comune scaricato in dati/riferimento/.
+dati/riferimento/silva_*
+dati/riferimento/SILVA_LICENSE.txt
 dati/osd734/lotto/
 # Le letture di OSD-276 scaricate in dati/osd276/.
 dati/osd276/ena/

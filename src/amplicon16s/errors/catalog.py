@@ -486,7 +486,6 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "stimare il modello, e S3 si ferma con E-S3-04.",
         _DEGRADA,
     ),
-    # ----------------------------------------------------------------- S2 ---
     _v(
         "E-S1-04", "S1",
         "Un file di letture, su tutte le sue letture, non ha un layout single-end.",
@@ -500,6 +499,7 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "solo letture singole.",
         _UMANA,
     ),
+    # ----------------------------------------------------------------- S2 ---
     _v(
         "E-S2-01", "S2",
         "Uno o piu' campioni non conservano alcuna lettura dopo il filtro.",

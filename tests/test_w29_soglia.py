@@ -149,10 +149,6 @@ senza_dati = pytest.mark.skipif(
     not (DATI / "riferimento").is_dir(),
     reason="la cartella dati/ non e' presente (nell'immagine non viene copiata)",
 )
-senza_docs = pytest.mark.skipif(
-    not (RADICE / "docs" / "sensibilita").is_dir(),
-    reason="la cartella docs/ non e' presente (nell'immagine non viene copiata)",
-)
 
 
 @pytest.fixture(autouse=True)
@@ -472,6 +468,42 @@ def test_piastre_senza_curva_valida_e_aggregato_non_valido_usano_la_mediana(
         assert esiti == {True, False}, piastra
 
 
+def test_la_mediana_di_un_numero_dispari_di_soglie_e_quella_centrale(
+    bioc, oggetto_calcolato, tmp_path
+):
+    """
+    **Obiettivo**: Verificare, con tre piastre dalla curva valida e punti medi
+    scelti a distanza (soglie attese dall'equazione attorno a 13.500, 43.000 e
+    136.000 letture), che la piastra senza controlli riceva la soglia
+    centrale, senza arrotondamenti, e che le tre soglie proprie coincidano
+    entro l'1% con quelle calcolate qui dall'equazione della curva.
+
+    **Razionale scientifico e sistemistico**: Le attese degli altri casi sono
+    lette da ``curve.tsv``, cioe' dal codice sotto prova: qui la soglia viene
+    dall'equazione dichiarata, n* = 10^(x50 (s / (1 - s))^(1 / h)), e la
+    mediana da un conto indipendente.
+    """
+    punti_medi = {"A": 3.7, "B": 4.15, "C": 4.6}
+    scala = {"A": 1, "B": 3, "C": 10}
+    positivi = {p: _serie(x50, tuple(scala[p] * n for n in PROFONDITA))
+                for p, x50 in punti_medi.items()}
+    run, _ = _s11_costruito(oggetto_calcolato, tmp_path, positivi,
+                            {p: BIOLOGICI for p in ("A", "B", "C", "D")})
+    soglia, curve, campioni = _esiti(run)
+    attese = {p: 10 ** (x50 * 9 ** (1 / 20)) for p, x50 in punti_medi.items()}
+    for piastra, attesa in attese.items():
+        voce = soglia["per_piastra"][piastra]
+        assert voce["origine"] == "propria"
+        assert voce["valore"] == pytest.approx(attesa, rel=0.01), piastra
+    centrale = soglia["per_piastra"]["B"]["valore"]
+    assert soglia["mediana"]["valore_non_arrotondato"] == soglia["mediana"]["valore"] == centrale
+    assert soglia["mediana"]["piastre"] == ["A", "B", "C"]
+    assert (soglia["per_piastra"]["D"]["valore"], soglia["per_piastra"]["D"]["origine"]) == (
+        centrale, "mediana")
+    assert curve["aggregato"]["valida"] == "no"
+    _applicata(soglia, campioni)
+
+
 def test_con_l_aggregato_valido_le_piastre_senza_curva_propria_lo_usano(
     bioc, oggetto_calcolato, tmp_path
 ):
@@ -613,9 +645,16 @@ def test_una_curva_che_non_converge_non_fa_preferire_l_aggregato(bioc, oggetto_c
     assert curve["piastra B"]["aic"] == "" and "non convergente" in curve["piastra B"]["motivo"]
     modello = soglia["modello"]
     assert modello["aic_per_piastra"] is None and modello["preferito_aic"] == "per_piastra"
-    assert soglia["per_piastra"]["A"]["origine"] == "propria"
-    assert soglia["per_piastra"]["B"]["origine"] in ("aggregata", "mediana")
-    assert soglia["per_piastra"]["B"]["valore"] is not None
+    assert "non calcolabile" in soglia["motivo_scelta"]
+    propria = int(curve["piastra A"]["soglia"])
+    assert (soglia["per_piastra"]["A"]["valore"], soglia["per_piastra"]["A"]["origine"]) == (
+        propria, "propria")
+    # L'aggregato, con i punti disordinati della B, non e' valido: la B riceve
+    # la mediana delle soglie proprie, che con una sola piastra e' quella di A.
+    assert curve["aggregato"]["valida"] == "no"
+    assert (soglia["per_piastra"]["B"]["valore"], soglia["per_piastra"]["B"]["origine"]) == (
+        propria, "mediana")
+    assert soglia["mediana"]["valore_non_arrotondato"] == propria
     assert "E-S11-02" in [d.codice for d in contesto.degradazioni]
     _applicata(soglia, campioni)
 
@@ -1105,8 +1144,9 @@ def test_solo_un_arresto_previsto_dalla_regola_rende_un_valore_non_ammissibile(
     origine = _esecuzione_finta(tmp_path / "origine", [])
     base = dati_config(tmp_path / "base")
 
-    def esecutore_con(codice: str | None):
-        punto = None if codice is None else SimpleNamespace(passo=Passo.S12, codice=codice)
+    def esecutore_con(codice: str | None, dettaglio: str = ""):
+        punto = None if codice is None else SimpleNamespace(
+            passo=Passo.S12, codice=codice, dettaglio=dettaglio)
         esito = SimpleNamespace(
             conclusione=Conclusione.COMPLETATA if codice is None else Conclusione.ARRESTATA,
             punto=punto, eseguite=[])
@@ -1120,6 +1160,16 @@ def test_solo_un_arresto_previsto_dalla_regola_rende_un_valore_non_ammissibile(
     monkeypatch.setattr(modulo_esecutore, "Esecutore", esecutore_con("E-R-03"))
     with pytest.raises(S.ErroreSensibilita, match="imprevista.*E-R-03.*non e' un arresto previsto"):
         S.esegui_variante("imprevista", base, origine, tmp_path / "lavoro", {}, False)
+    # E-S14-01 e' anche un oggetto finale non valido: e' previsto dalla regola
+    # solo quando riguarda la frazione di letture trattenute.
+    monkeypatch.setattr(modulo_esecutore, "Esecutore", esecutore_con(
+        "E-S14-01", "frazione 0.31 sotto qc.min_frac_reads_retained (0.4)"))
+    trattenute = S.esegui_variante("trattenute", base, origine, tmp_path / "lavoro", {}, False)
+    assert trattenute["codice_arresto"] == "E-S14-01" and not trattenute["ammissibile"]
+    monkeypatch.setattr(modulo_esecutore, "Esecutore", esecutore_con(
+        "E-S14-01", "ps_filtrato.rds di S13 manca o non corrisponde al suo manifesto"))
+    with pytest.raises(S.ErroreSensibilita, match="strutturale.*E-S14-01.*ps_filtrato"):
+        S.esegui_variante("strutturale", base, origine, tmp_path / "lavoro", {}, False)
     monkeypatch.setattr(modulo_esecutore, "Esecutore", esecutore_con(None))
     assert S.esegui_variante("conclusa", base, origine, tmp_path / "lavoro", {}, False)["ammissibile"]
 

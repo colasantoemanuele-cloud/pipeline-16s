@@ -259,6 +259,9 @@ esegui_fase(function(parametri, cartella) {
     motivo_scelta <- if (preferito == "aggregato") sprintf(
       "AIC dell'aggregato %s, minore di %s del modello per piastra, ma l'aggregato non e' valido: %s",
       aic_testo(aic_aggregato), aic_testo(aic_per_piastra), aggregato$motivo_validita
+    ) else if (is.na(aic_per_piastra)) sprintf(paste0(
+      "AIC del modello per piastra non calcolabile (una curva non converge): ",
+      "l'aggregato (AIC %s) non e' preferito"), aic_testo(aic_aggregato)
     ) else sprintf("AIC del modello per piastra %s, non maggiore di %s dell'aggregato",
                    aic_testo(aic_per_piastra), aic_testo(aic_aggregato))
   } else {

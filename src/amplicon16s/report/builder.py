@@ -814,7 +814,7 @@ def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
             ("AIC della curva aggregata", numero(modello.get("aic_aggregato"), 2)),
             ("AIC del modello per piastra (somma delle curve)",
              numero(modello.get("aic_per_piastra"), 2)),
-            ("punti comuni ai due modelli", _e(modello.get("punti_comuni", ""))),
+            ("punti comuni ai due modelli", modello.get("punti_comuni", "")),
             ("R² dichiarato", numero(modello.get("r2_dichiarato"), 4)),
             ("mediana delle soglie proprie",
              "nessuna" if not mediana else
@@ -1034,8 +1034,9 @@ def _decisioni_troncamento(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
     )
     nomi = {r["accession"]: r["sample_name"] for r in inventario}
 
-    def o_assente(valore: Any) -> str:
-        return _e(valore if valore is not None else "non calcolabile")
+    # La sintesi codifica gia' i valori per l'HTML: qui restano testo semplice.
+    def o_assente(valore: Any) -> Any:
+        return valore if valore is not None else "non calcolabile"
 
     peggiore = esito["campione_peggiore"]
     sezione.sottotitolo("Troncamento suggerito dalle letture (S1)")
@@ -1050,7 +1051,7 @@ def _decisioni_troncamento(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
          o_assente(esito["per_lunghezza"])),
         ("alla lunghezza ammessa, perdita peggiore per singolo campione",
          "non calcolabile" if peggiore is None else
-         f"{_pct(esito['perdita_peggiore'])} ({_e(nomi.get(peggiore, peggiore))}, {_e(peggiore)})"),
+         f"{_pct(esito['perdita_peggiore'])} ({nomi.get(peggiore, peggiore)}, {peggiore})"),
         (f"per qualità: l'ultima posizione con qualità mediana dei biologici almeno "
          f"{QUALITA_MINIMA_SUGGERITA}", o_assente(esito["per_qualita"])),
     ))

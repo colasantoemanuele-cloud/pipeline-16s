@@ -113,8 +113,9 @@ class ValidazioneControlli(PipelineStep):
     #: 4: modello scelto per AIC sugli stessi punti; chi non ha una curva
     #: propria usa la soglia aggregata o la mediana delle soglie proprie, sulle
     #: letture senza chimere; senza curve valide nessuna soglia. Il ripiego
-    #: sulle letture grezze non esiste piu'.
-    versione: ClassVar[int] = 4
+    #: sulle letture grezze non esiste piu'. 5: il motivo della scelta dice
+    #: quando l'AIC del modello per piastra non e' calcolabile.
+    versione: ClassVar[int] = 5
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La curva (katharoseq), i controlli minimi, la frazione di conformi e il
     #: comportamento sotto di essa (ctrl), se una soglia si applica (qc).

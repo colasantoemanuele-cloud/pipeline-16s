@@ -79,6 +79,10 @@ ARRESTI_PREVISTI = {
     "E-S12-02": "letture rimosse come contaminanti oltre qc.max_frac_contaminant",
     "E-S14-01": "frazione di letture trattenute sotto qc.min_frac_reads_retained",
 }
+#: Un codice che la pipeline usa anche per altre cause e' un arresto previsto
+#: solo se il suo dettaglio nomina il parametro della condizione: E-S14-01 e'
+#: anche l'oggetto finale non valido o un ingresso alterato, che sono guasti.
+CAUSA_RICHIESTA = {"E-S14-01": "qc.min_frac_reads_retained"}
 #: La terza condizione della regola, i campioni svuotati dal filtro di
 #: prevalenza: la pipeline la dichiara senza fermarsi, e la regola la tratta
 #: comunque come non ammissibile.
@@ -325,9 +329,13 @@ def esegui_variante(nome: str, base: dict[str, Any], origine: Path, lavoro: Path
     esito = Esecutore(run).esegui()
     arresto = None
     if esito.conclusione is not Conclusione.COMPLETATA:
-        if esito.punto is None or esito.punto.codice not in ARRESTI_PREVISTI:
+        previsto = (
+            esito.punto is not None and esito.punto.codice in ARRESTI_PREVISTI
+            and CAUSA_RICHIESTA.get(esito.punto.codice, "") in esito.punto.dettaglio
+        )
+        if not previsto:
             dove = "senza punto di ripresa" if esito.punto is None else (
-                f"in {esito.punto.passo} con {esito.punto.codice}")
+                f"in {esito.punto.passo} con {esito.punto.codice} ({esito.punto.dettaglio})")
             raise ErroreSensibilita(
                 f"la variante {nome} si e' fermata {dove}: non e' un arresto previsto dalla "
                 f"regola ({', '.join(ARRESTI_PREVISTI)}). Log in {destinazione / '99_logs'}")

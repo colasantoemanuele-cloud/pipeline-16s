@@ -293,7 +293,8 @@ mai sui negativi.**
   su 25.730.344), 0,53% nei controlli positivi (16.056 su 3.001.536), 0,68% nei
   controlli negativi; la lettura più corta è di 137 basi in tutte e tre le classi.
   Per campione, fra gli 850 biologici e positivi: perdita mediana 1,1%, novantesimo
-  percentile 2,7%, novantanovesimo 11,1%; 365 campioni perderebbero fino all'1%, 460
+  percentile 2,7%, novantanovesimo 11,1%; 2 campioni non perderebbero nulla, 365
+  perderebbero fino all'1%, 460
   fra l'1% e il 5%, 23 più del 5%, 9 più del 10%, 4 più del 20%. La perdita peggiore è
   l'89,2% (JLP1S1.R4, 269 letture); fra i campioni profondi, il 40,8% di JLP1P1.R2
   (83.231 letture) e il 20,4% di JLP1P1.R4 (72.240). La perdita cresce negli ultimi
@@ -701,8 +702,9 @@ in cui le verifiche dipendono l'una dall'altra.**
   respinti da G07 con il valore predefinito di 10.000; gli 8 che cominciano con le
   prime, che presi da soli superavano la validazione, sono respinti dal conteggio.
   Sui 960 file del dataset di riferimento (31.544.697 letture) nessun segno di
-  coppia, e nessuno sulle letture forward ricavate per il secondo dataset; il
-  conteggio costa 24 secondi con dodici processi.
+  coppia; nelle letture forward ricavate per il secondo dataset ogni lettura porta
+  il marcatore della prima e nessuna quello della seconda, e nessun file è respinto.
+  Il conteggio costa 24 secondi con dodici processi.
 - Due tolleranze rese simmetriche. Un nome in più di due copie non spegne più da
   solo il riconoscimento delle coppie per nome: si tollera entro la stessa frazione
   degli altri segni (5%, almeno due), così un'intestazione vuota o uguale per tutte
@@ -876,3 +878,49 @@ dai dati.
 Formulata prima dei calcoli, da confermare o smentire con i dati. L'aggregato non è
 valido (R² 0,566). Le piastre 1 e 2 useranno quindi la mediana delle soglie delle
 piastre 3-10: (12.034 + 18.063) / 2 = 15.048,5, cioè 15.049 letture senza chimere.
+
+### 4.7 Come la regola è stata applicata, e i suoi limiti
+
+Scritta dopo la realizzazione. La regola non è stata modificata: dove il testo non
+decideva un caso si è presa la lettura più aderente alla lettera, e la si dichiara
+qui perché chi valuta possa giudicarla.
+
+- **Punti comuni.** Entrano nelle curve i controlli positivi con un livello di
+  diluizione noto, con più di una lettura e non giudicati non conformi, delle piastre
+  che ne hanno almeno `ctrl.min_positives`. Un controllo senza piastra, o di una
+  piastra con meno punti, non entra in alcuna curva, nemmeno nell'aggregata.
+- **Limite: un dataset con controlli positivi e senza piastre non ha una soglia.** Se
+  nessun campione ha la piastra, nessuna piastra raggiunge il numero minimo di punti,
+  non c'è alcun punto comune e non si adatta alcuna curva: l'esecuzione lo dichiara
+  (`E-S11-05`) e resta il solo `qc.min_reads_final`. È la lettura letterale del punto
+  1 della sezione 4.2, e la sezione 4.3 non prevede il caso. Prima della regola
+  l'aggregato si adattava su tutti i controlli utilizzabili e la sua soglia valeva per
+  ogni campione: per un dataset di un solo lotto che non dichiara la piastra è una
+  perdita, da decidere con una regola nuova e non con un ritocco. Chi ha un solo
+  lotto può dichiararlo con una colonna della piastra a valore costante.
+- **Parità di AIC.** L'aggregato è preferito solo se il suo AIC è strettamente minore.
+  Con una sola piastra i due modelli coincidono, e vale il modello per piastra: la
+  piastra usa la propria curva, e chi non ne ha una usa la stessa curva come
+  aggregata.
+- **AIC non calcolabile.** Se la curva di una piastra con abbastanza punti non
+  converge, la somma degli AIC non esiste e l'aggregato non è preferito: le piastre
+  con una curva valida tengono la propria soglia, le altre seguono i passi 3 e 4.
+- **Aggregato preferito e non valido.** Si passa ai passi 2, 3 e 4.
+- **`E-S11-02` anche quando l'aggregato è scelto dall'AIC.** La sezione 4.4 lo
+  dichiara per ogni piastra che non usa una curva propria: con l'aggregato scelto le
+  elenca tutte, con il motivo. Non segnala un difetto dei controlli, dice da dove
+  viene la soglia.
+- **Mediana sui valori interi.** La mediana si calcola sulle soglie delle piastre
+  come sono applicate, cioè già arrotondate all'intero superiore, come nella
+  previsione della sezione 4.6. Sulle soglie non arrotondate potrebbe differire di
+  una lettura.
+- **R² dichiarato.** Dell'aggregato quando è il modello scelto; altrimenti l'R² dei
+  residui riuniti delle sole piastre che usano la propria curva. Se il modello per
+  piastra è preferito ma nessuna piastra ha una curva valida, e tutte usano
+  l'aggregata, la regola non indica quale bontà dichiarare: il valore resta vuoto, e
+  l'R² dell'aggregato è riportato accanto.
+- **Una piastra senza alcun controllo** segue i passi 3 e 4, come una con la curva
+  non valida.
+- **`qc.min_reads_mode: none`.** Le curve si adattano e si riportano come
+  diagnostica; nessuna soglia si applica, e non è una degradazione perché è una
+  scelta dichiarata.
