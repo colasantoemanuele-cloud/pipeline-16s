@@ -206,8 +206,10 @@ class ValidazioneIngressi(PipelineStep):
     passo: ClassVar[Passo] = Passo.S0
     #: 6: G10 cerca il primer nelle sole classi controllate; G08 dichiara le
     #: righe del lotto senza campione (E-S0-19); il modulo viene dal lotto
-    #: anche senza meta.module_column.
-    versione: ClassVar[int] = 6
+    #: anche senza meta.module_column. 7: G09 giudica ogni classe controllata
+    #: da sola; G07 riconosce i file con le due letture di ogni coppia; G02 e
+    #: G08 respingono i valori con tabulazioni o a capo.
+    versione: ClassVar[int] = 7
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre

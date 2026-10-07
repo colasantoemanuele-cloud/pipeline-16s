@@ -1,8 +1,12 @@
 """Fase S14: la serializzazione, gli export e la validazione dell'oggetto finale.
 
 Da S14 esce il risultato dell'intera pipeline: ``ps_final.rds``
-(``out.serialization`` = ``rds``) in ``12_final/``, dove stanno i soli file
-consegnati (gli intermedi dei filtri di S13 sono in ``12_final/intermedi/``).
+(``out.serialization`` = ``rds``) in ``12_final/``. Gli intermedi dei filtri di
+S13 sono in ``12_final/intermedi/``; in ``12_final/`` restano i file consegnati
+e, accanto a loro, i file di servizio: il manifesto della cartella
+(``manifest.json``), quello della fase (``manifest_S14.json``) e i due file del
+ponte verso R (``rbridge_richiesta_S14.json``, ``rbridge_esito_S14.json``).
+I file consegnati sono quelli che ``checksum.sha256`` elenca.
 Con ``out.export_flat`` anche gli export piatti, per chi non usa lo stesso
 ambiente di calcolo: ``conteggi.tsv``, ``tassonomia.tsv``, ``metadati.tsv`` e
 ``sequenze.fasta``. Sono identici byte per byte fra due esecuzioni e
@@ -16,7 +20,7 @@ di ``sha256sum``.
 ``12_final/`` i file consegnati che potrebbero non essere piu' prodotti (un
 albero dopo aver disattivato la filogenesi, gli export dopo aver disattivato
 ``out.export_flat``, i controlli di un altro inventario): nella cartella
-consegnata resta solo cio' che ``checksum.sha256`` elenca.
+consegnata non restano file consegnati che ``checksum.sha256`` non elenca.
 
 **L'albero filogenetico.** Con ``phylo.enabled`` vero S14 dipende anche da S9:
 legge ``albero.nwk`` da ``09_phylogeny/``, verificato contro il manifesto di
@@ -28,8 +32,9 @@ l'oggetto finale non ha l'albero, e nulla di S14 cambia.
 foglie dell'albero, se c'e', esattamente uguali agli identificativi delle
 varianti e l'albero radicato, solo campioni biologici, nessun campione e nessuna variante senza letture, l'oggetto
 riletto identico a quello scritto, l'oggetto ricostruito dai soli export
-identico a quello serializzato, ``ps_filtrato.rds`` di S13 integro rispetto al
-suo manifesto, i checksum dei file consegnati uguali a quelli registrati.
+identico a quello serializzato, ``ps_filtrato.rds`` di S13 e ``ps_integrato.rds``
+di S10 integri rispetto ai manifesti di chi li ha scritti, i checksum dei file
+consegnati uguali a quelli registrati.
 
 **Le due soglie del piano.** ``qc.min_reads_final`` vale per campione e si
 applica in S13, dove un campione sotto soglia esce dall'oggetto finale con il
@@ -89,7 +94,8 @@ class Serializzazione(PipelineStep):
     #: 2: con la filogenesi attiva aggiunge l'albero di S9 all'oggetto finale,
     #: ne verifica le foglie e lo esporta. 3: consegna ps_controlli.rds, lo
     #: elenca in checksum.sha256 e toglie i file di un'esecuzione precedente.
-    versione: ClassVar[int] = 3
+    #: 4: verifica anche ps_integrato.rds di S10 contro il suo manifesto.
+    versione: ClassVar[int] = 4
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La serializzazione, l'orientamento verificato, gli export, la frazione
     #: minima delle letture trattenute dall'insieme dei campioni finali, e se
@@ -115,6 +121,14 @@ class Serializzazione(PipelineStep):
             (v for v in s13.artefatti if v["nome"] == NOME_FILTRATO), None)
         if voce is None or checksum_file(intermedi / NOME_FILTRATO) != voce["checksum"]:
             raise errore("E-S14-01", f"{NOME_FILTRATO} di S13 manca o non corrisponde al suo manifesto")
+        # L'oggetto integrato di S10 e' l'altro ingresso: da li' vengono i
+        # controlli consegnati in ps_controlli.rds. Vale la stessa regola.
+        integrato = albero.cartella(Fase.PHYLOSEQ) / NOME_OGGETTO
+        s10 = albero.manifesto_passo(Passo.S10, Fase.PHYLOSEQ)
+        voce = None if s10 is None else next(
+            (v for v in s10.artefatti if v["nome"] == NOME_OGGETTO), None)
+        if voce is None or not integrato.is_file() or checksum_file(integrato) != voce["checksum"]:
+            raise errore("E-S14-01", f"{NOME_OGGETTO} di S10 manca o non corrisponde al suo manifesto")
 
         # Nella cartella consegnata resta solo cio' che questa esecuzione
         # produce: un file di una configurazione precedente non e' un risultato.
@@ -140,7 +154,7 @@ class Serializzazione(PipelineStep):
             cartella_r() / NOME_SCRIPT,
             {
                 "filtrato": str(intermedi / NOME_FILTRATO),
-                "integrato": str(albero.cartella(Fase.PHYLOSEQ) / NOME_OGGETTO),
+                "integrato": str(integrato),
                 "albero": None if filogenesi is None else str(filogenesi),
                 "taxa_are_rows": config.out.taxa_are_rows,
                 "export": config.out.export_flat,

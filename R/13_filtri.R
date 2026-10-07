@@ -89,10 +89,12 @@ esegui_fase(function(parametri, cartella) {
   }
   esclusi_taxa <- sub("^[A-Za-z]__", "", as.character(unlist(parametri$taxa_esclusi)))
   for (i in seq_along(varianti)) {
-    ranghi <- senza_prefisso[varianti[i], ]
+    # drop = FALSE e i nomi dalle colonne: con una tassonomia di un solo rango
+    # la riga sarebbe un valore senza nome, e il motivo non si potrebbe scrivere.
+    ranghi <- senza_prefisso[varianti[i], , drop = FALSE]
     trovato <- which(!is.na(ranghi) & ranghi %in% esclusi_taxa)
     if (length(trovato)) {
-      voce <- sprintf("%s = %s, in filt.exclude_taxa", names(ranghi)[trovato[1]], ranghi[trovato[1]])
+      voce <- sprintf("%s = %s, in filt.exclude_taxa", colnames(ranghi)[trovato[1]], ranghi[trovato[1]])
       motivo_tax[i] <- if (nzchar(motivo_tax[i])) paste(motivo_tax[i], voce, sep = "; ") else voce
     }
   }

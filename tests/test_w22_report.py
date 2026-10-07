@@ -540,7 +540,7 @@ def test_l_origine_dei_parametri_e_i_valori_di_osd734(scenario, file_config, fas
     assert set(valori) == set(defaults.DERIVATI_DAL_DATASET)
     assert not set(valori) & set(defaults.OBBLIGATORI)
     assert {r["origine"] for r in valori.values()} == {"predefinito"}
-    assert valori["prev.min_fraction"]["valore in uso"] == "0.01"
+    assert valori["prev.min_fraction"]["valore in uso"] == str(defaults.PREV_MIN_FRACTION)
     assert valori["prev.min_fraction"]["fatto accertato su OSD-734"] == defaults.FATTI_OSD734["prev.min_fraction"].fatto
     numero = len(defaults.DERIVATI_DAL_DATASET)
     assert f"{numero} parametri non dichiarati valgono il predefinito tarato su OSD-734" in uscita

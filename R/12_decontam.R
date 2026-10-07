@@ -43,6 +43,14 @@
 # modalita' dichiarata rimuove e' il controllo: oltre qc.max_frac_contaminant
 # la fase si ferma con E-S12-02 (lo dichiara la fase Python, dopo che questo
 # script ha scritto le misure).
+#
+# DUE CONDIZIONI SENZA RISULTATO, ciascuna con il suo codice. Nessun campione
+# biologico con letture nell'oggetto integrato (E-S12-04): non c'e' nulla da
+# decontaminare ne' una frazione rimossa da giudicare, in nessuna delle due
+# modalita'. Tutte le varianti classificate contaminanti, entro la quota
+# ammessa (E-S12-05, possibile solo con qc.max_frac_contaminant pari a 1):
+# l'oggetto ripulito non avrebbe varianti. In entrambe lo script si ferma
+# prima di scrivere artefatti.
 
 for (f in c("io_json.R", "errors.R", "letture.R", "decontaminazione.R")) {
   source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
@@ -73,6 +81,11 @@ esegui_fase(function(parametri, cartella) {
   positivo <- classe == "controllo_positivo"
   con_letture <- rowSums(conteggi) > 0
   nel_confronto <- (negativo | biologico) & con_letture
+  if (!any(biologico & con_letture)) {
+    errore_catalogo("E-S12-04", sprintf(
+      "nessun campione biologico ha letture nell'oggetto integrato (%d biologici, %d con letture): la decontaminazione non ha campioni da ripulire",
+      sum(biologico), sum(biologico & con_letture)))
+  }
 
   # ---- Aggregata ------------------------------------------------------------
   # Con meno di decontam.min_blanks negativi con letture in tutto il dataset la
@@ -141,7 +154,9 @@ esegui_fase(function(parametri, cartella) {
   m_per_piastra <- if (per_piastra_disponibile) misura(c_per_piastra) else NULL
   dichiarata <- if (modalita == "batch" && !insufficienti) m_per_piastra else m_aggregata
   if (is.null(dichiarata)) {
-    stop("decontam.mode e' batch ma nessun campione biologico ha letture")
+    # Non raggiungibile: con almeno un biologico con letture e i negativi
+    # sufficienti la modalita' per piastra ha almeno un confronto.
+    stop("decontam.mode e' batch ma nessuna piastra ha un confronto")
   }
   rimossa_bio <- dichiarata$letture_rimosse$biologico
   entro <- !is.na(rimossa_bio) && rimossa_bio <= max_frazione
@@ -149,10 +164,6 @@ esegui_fase(function(parametri, cartella) {
     "%s: rimuove %.4f delle letture dei biologici, %s qc.max_frac_contaminant (%s)",
     if (modalita == "batch") "per piastra" else "aggregata", rimossa_bio,
     if (entro) "entro" else "oltre", format(max_frazione))
-  if (is.na(rimossa_bio)) {
-    esito <- paste0("nessun campione biologico ha letture nell'oggetto integrato: ",
-                    "la frazione rimossa non e' calcolabile")
-  }
   if (insufficienti) {
     entro <- TRUE
     esito <- sprintf(
@@ -161,6 +172,12 @@ esegui_fase(function(parametri, cartella) {
   }
   rimuovere <- if (!entro) rep(FALSE, length(varianti)) else
     if (modalita == "batch") c_per_piastra else c_aggregata
+  if (length(varianti) > 0L && all(rimuovere)) {
+    errore_catalogo("E-S12-05", sprintf(
+      "la modalita' %s classifica contaminanti tutte le %d varianti, e qc.max_frac_contaminant (%s) lo ammette: l'oggetto decontaminato non avrebbe varianti",
+      if (modalita == "batch") "per piastra" else "aggregata", length(varianti),
+      format(max_frazione)))
+  }
 
   # ---- Artefatti per variante -----------------------------------------------
   prev <- function(righe) colSums(conteggi[righe, , drop = FALSE] > 0)

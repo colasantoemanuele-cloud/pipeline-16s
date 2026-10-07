@@ -38,6 +38,35 @@ convergente <- function(modello) {
   any(vapply(modello$err_in, identical, logical(1), modello$err_out))
 }
 
+# Quanti valori di qualita' distinti hanno le letture dei file indicati. Si
+# chiama solo quando la stima e' fallita, per dire di quale guasto si tratta, e
+# si ferma appena ne ha visti piu' di `basta`: il conto esatto non serve.
+valori_di_qualita <- function(file, basta = 1L) {
+  presenti <- logical(256L)
+  for (f in file) {
+    flusso <- ShortRead::FastqStreamer(f, n = 1e5)
+    repeat {
+      parte <- ShortRead::yield(flusso)
+      if (length(parte) == 0L) break
+      frequenze <- Biostrings::alphabetFrequency(
+        Biostrings::quality(Biostrings::quality(parte)), collapse = TRUE)
+      presenti <- presenti | (frequenze > 0)
+      if (sum(presenti) > basta) break
+    }
+    close(flusso)
+    if (sum(presenti) > basta) break
+  }
+  sum(presenti)
+}
+
+# I messaggi con cui dada2 e loess riportano una stima dei tassi fallita: la
+# matrice d'errore nulla di learnErrors e gli arresti di stats::loess. Ogni
+# altro errore (memoria esaurita, file illeggibile) non e' una stima fallita e
+# prosegue invariato, perche' il ponte lo riconosca per quello che e'.
+STIMA_FALLITA <- paste(
+  "Error matrix is NULL", "span is too small", "invalid 'x'", "NA/NaN/Inf in foreign",
+  "need at least", "non-finite", sep = "|")
+
 esegui_fase(function(parametri, cartella) {
   richiedi_pacchetti(c("dada2", "ggplot2"))
 
@@ -54,8 +83,12 @@ esegui_fase(function(parametri, cartella) {
     #
     # Con un solo valore di qualita' nelle letture (file a qualita'
     # normalizzata) nessuna funzione di stima ha una curva da adattare: dada2
-    # lo riporta come matrice d'errore nulla. E' una condizione dei dati, con
-    # il suo codice; ogni altro errore prosegue invariato.
+    # lo riporta come matrice d'errore nulla. Ma la matrice nulla e' il modo in
+    # cui learnErrors riporta QUALUNQUE fallimento della funzione di stima:
+    # prima di dichiarare E-S3-04 si contano i valori di qualita' delle letture
+    # su cui si stimava. Se sono piu' d'uno la causa e' un'altra, e il codice e'
+    # E-S3-05, con il messaggio originale. Ogni errore che non e' una stima
+    # fallita prosegue invariato.
     modello <- tryCatch(
       dada2::learnErrors(
         file,
@@ -67,10 +100,16 @@ esegui_fase(function(parametri, cartella) {
         verbose = 0
       ),
       error = function(e) {
-        if (grepl("Error matrix is NULL|span is too small", conditionMessage(e))) {
-          errore_catalogo("E-S3-04", sprintf(
-            "modello %s, err.error_function %s: %s", nome, parametri$funzione_errore,
-            conditionMessage(e)))
+        if (grepl(STIMA_FALLITA, conditionMessage(e))) {
+          distinti <- valori_di_qualita(file)
+          if (distinti <= 1L) {
+            errore_catalogo("E-S3-04", sprintf(
+              "modello %s, err.error_function %s: le letture filtrate hanno un solo valore di qualita' (%s)",
+              nome, parametri$funzione_errore, conditionMessage(e)))
+          }
+          errore_catalogo("E-S3-05", sprintf(
+            "modello %s, err.error_function %s: %s (le letture filtrate hanno piu' di un valore di qualita')",
+            nome, parametri$funzione_errore, conditionMessage(e)))
         }
         stop(e)
       }

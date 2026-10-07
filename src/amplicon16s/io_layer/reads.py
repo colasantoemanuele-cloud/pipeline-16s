@@ -100,6 +100,31 @@ class StatisticheFile:
     #: Letture esaminate piu' corte della lunghezza richiesta alla scansione
     #: (``filter.truncLen``): il filtro le scarterebbe.
     piu_corte: int = 0
+    #: Letture esaminate la cui intestazione le marca come prima o seconda
+    #: lettura di una coppia (``/1``, ``/2``, o ``1:`` e ``2:`` nel commento), e
+    #: letture il cui nome era gia' comparso nello stesso file.
+    prime_di_coppia: int = 0
+    seconde_di_coppia: int = 0
+    nomi_ripetuti: int = 0
+
+    @property
+    def coppie_nello_stesso_file(self) -> str | None:
+        """Perche' il file contiene le due letture di ogni coppia, o ``None``.
+
+        Due segni indipendenti: intestazioni che marcano sia la prima sia la
+        seconda lettura, oppure lo stesso nome di lettura piu' di una volta.
+        Vale per le sole letture esaminate: un file che riporta tutte le prime
+        letture e poi tutte le seconde non si riconosce se le esaminate non
+        arrivano alla seconda meta'.
+        """
+        if self.prime_di_coppia and self.seconde_di_coppia:
+            return (
+                f"{self.prime_di_coppia} intestazioni marcano la prima lettura di una "
+                f"coppia e {self.seconde_di_coppia} la seconda"
+            )
+        if self.nomi_ripetuti:
+            return f"{self.nomi_ripetuti} letture ripetono il nome di una lettura precedente"
+        return None
 
     @property
     def frazione_corte(self) -> float:
@@ -124,6 +149,27 @@ class StatisticheFile:
         nessuna è stata esaminata.
         """
         return self.con_motivo / self.letture_esaminate if self.letture_esaminate else 0.0
+
+
+#: La lettura di una coppia dichiarata dall'intestazione, nelle due convenzioni
+#: diffuse: il suffisso ``/1`` o ``/2`` in fondo al nome o all'intestazione, e
+#: il commento ``1:N:0:...`` o ``2:N:0:...`` dei sequenziatori Illumina.
+_SUFFISSO_COPPIA: Final = re.compile(r"/([12])$")
+_COMMENTO_COPPIA: Final = re.compile(r"^([12]):[YN]:")
+
+
+def _nome_e_coppia(intestazione: str) -> tuple[str, str | None]:
+    """Il nome della lettura senza il marcatore di coppia, e il marcatore
+    (``"1"``, ``"2"`` o ``None``) letto dall'intestazione.
+    """
+    riga = intestazione[1:].rstrip("\r\n")
+    nome, _, commento = riga.partition(" ")
+    for testo in (nome, riga):
+        trovato = _SUFFISSO_COPPIA.search(testo)
+        if trovato:
+            return _SUFFISSO_COPPIA.sub("", nome), trovato.group(1)
+    trovato = _COMMENTO_COPPIA.match(commento)
+    return nome, trovato.group(1) if trovato else None
 
 
 def scansiona_file(
@@ -152,6 +198,8 @@ def scansiona_file(
     espressione_motivo = re.compile(motivo) if motivo is not None else None
 
     letture = con_primer = con_motivo = corte = 0
+    prime = seconde = ripetuti = 0
+    nomi: set[str] = set()
     minima: int | None = None
     massima: int | None = None
     esaurito = True
@@ -194,6 +242,12 @@ def scansiona_file(
                     )
 
                 letture += 1
+                nome, coppia = _nome_e_coppia(intestazione)
+                prime += coppia == "1"
+                seconde += coppia == "2"
+                if nome in nomi:
+                    ripetuti += 1
+                nomi.add(nome)
                 lunghezza = len(sequenza)
                 minima = lunghezza if minima is None else min(minima, lunghezza)
                 massima = lunghezza if massima is None else max(massima, lunghezza)
@@ -224,6 +278,7 @@ def scansiona_file(
     return StatisticheFile(
         percorso.name, letture, minima, massima, con_primer, con_motivo,
         esaurito=esaurito, piu_corte=corte,
+        prime_di_coppia=prime, seconde_di_coppia=seconde, nomi_ripetuti=ripetuti,
     )
 
 

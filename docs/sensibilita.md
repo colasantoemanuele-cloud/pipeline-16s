@@ -307,5 +307,5 @@ Per rieseguire il confronto, nell'immagine della pipeline:
 
 ```bash
 Rscript --vanilla scripts/confronto_modelli_filogenesi.R \
-  output/osd734/12_final/ps_filtrato.rds confronto_modelli_filogenesi.json 12
+  output/osd734/12_final/intermedi/ps_filtrato.rds confronto_modelli_filogenesi.json 12
 ```

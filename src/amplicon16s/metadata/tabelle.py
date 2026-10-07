@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import csv
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
@@ -26,6 +27,7 @@ __all__ = [
     "nome_nell_oggetto",
     "nomi_in_collisione",
     "pulisci",
+    "valori_non_tabellari",
     "tabella_delle_cellule",
     "tabella_di_studio",
 ]
@@ -58,6 +60,25 @@ def leggi_tsv(percorso: Path) -> list[dict[str, str]]:
              if chiave and (nome := pulisci(chiave))}
             for riga in csv.DictReader(file, delimiter="\t")
         ]
+
+
+def valori_non_tabellari(percorso: Path, colonne: Iterable[str]) -> list[tuple[int, str]]:
+    """I valori delle colonne indicate che contengono una tabulazione o un a
+    capo, come coppie (riga del file, colonna); la prima riga di dati e' la 2.
+
+    Un campo fra virgolette puo' contenerli, e il lettore lo restituisce per
+    intero: ma le tabelle che la pipeline scrive (il crosswalk, i metadati
+    dell'oggetto) sono senza virgolette, e un valore cosi' le spezzerebbe. Si
+    guardano le sole colonne che la pipeline legge: un campo di testo libero
+    che non entra in alcun artefatto non e' un difetto.
+    """
+    attese = set(colonne)
+    trovati = []
+    for numero, riga in enumerate(leggi_tsv(percorso), start=2):
+        for nome, valore in riga.items():
+            if nome in attese and any(c in valore for c in "\t\n\r"):
+                trovati.append((numero, nome))
+    return trovati
 
 
 def tabella_di_studio(config: Config) -> tuple[Path, str]:

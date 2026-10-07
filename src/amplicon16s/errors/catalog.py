@@ -319,7 +319,10 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "E-S0-07", "S0",
         "I dati non hanno un layout single-end.",
         "Seleziona il sottoinsieme single-end oppure usa una pipeline "
-        "paired-end: questa tratta solo letture singole.",
+        "paired-end: questa tratta solo letture singole. Se un file contiene le "
+        "due letture di ogni coppia (lo dicono le intestazioni, con /1 e /2 o con "
+        "lo stesso nome ripetuto), estrai le sole letture forward in un file per "
+        "campione.",
         _UMANA,
     ),
     _v(
@@ -360,8 +363,9 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S0-09", "S0",
         "filter.truncLen e' incompatibile con le lunghezze osservate.",
-        "Fra le prime qc.head_reads letture dei campioni biologici e dei controlli "
-        "positivi, quelle piu' corte di filter.truncLen superano "
+        "Fra le prime qc.head_reads letture dei campioni biologici, o fra quelle "
+        "dei controlli positivi (le due classi si giudicano separatamente), "
+        "quelle piu' corte di filter.truncLen superano "
         "qc.max_frac_short_reads: il filtro le scarterebbe, non le accorcerebbe. "
         "Abbassa filter.truncLen dopo aver esaminato le lunghezze, oppure alza "
         "qc.max_frac_short_reads se la perdita e' accettata. Poche letture corte "
@@ -465,8 +469,9 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "scartate, non accorciate: abbassa filter.truncLen (il report indica un "
         "valore suggerito dal profilo di lunghezza e di qualita'), oppure alza "
         "qc.max_frac_short_reads accettando la perdita, che l'errore quantifica "
-        "per classe e per campione. La frazione si misura sui campioni biologici "
-        "e sui controlli positivi; i controlli negativi non contano.",
+        "per classe e per campione. La frazione si misura separatamente sui "
+        "campioni biologici e sui controlli positivi, e basta che una delle due "
+        "classi superi la soglia; i controlli negativi non contano.",
         _UMANA,
     ),
     _v(
@@ -476,7 +481,8 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "di alcuni sequenziatori (NovaSeq, NextSeq): con esse la stima standard "
         "del modello d'errore puo' dare tassi non monotoni rispetto alla qualita'. "
         "Valuta err.error_function: loess_monotono, e controlla i grafici in "
-        "04_error_models.",
+        "04_error_models. Con un solo valore di qualita' nessuna funzione puo' "
+        "stimare il modello, e S3 si ferma con E-S3-04.",
         _DEGRADA,
     ),
     # ----------------------------------------------------------------- S2 ---
@@ -542,6 +548,19 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "con nessuna delle funzioni di err.error_function. I valori presenti "
         "sono in 02_qc_profiles/valori_qualita.tsv. Servono le letture con le "
         "qualita' originali del sequenziatore.",
+        _UMANA,
+    ),
+    _v(
+        "E-S3-05", "S3",
+        "La stima del modello d'errore e' fallita.",
+        "La funzione di err.error_function non ha potuto adattare la curva dei "
+        "tassi d'errore, e le letture hanno piu' di un valore di qualita': non e' "
+        "la condizione di E-S3-04. Il messaggio originale accompagna l'errore. "
+        "Le cause note sono poche letture filtrate nella corsa (guarda "
+        "03_filtered/letture_filtrate.tsv) e qualita' raggruppate in due o tre "
+        "valori (02_qc_profiles/valori_qualita.tsv): nel secondo caso prova "
+        "l'altra funzione di err.error_function. Se nessuna delle due spiega "
+        "l'arresto, segnalalo con il log in 99_logs.",
         _UMANA,
     ),
     # ----------------------------------------------------------------- S4 ---
@@ -624,7 +643,8 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "L'esecuzione si ferma prima di avviare il calcolo: un albero radicato ha "
         "una topologia da stimare solo con almeno quattro sequenze. Il codice si "
         "presenta solo se phylo.enabled e' true. Controlla in "
-        "12_final/filtri_riepilogo.json e in varianti_rimosse.tsv quali filtri "
+        "12_final/intermedi/filtri_riepilogo.json e in varianti_rimosse.tsv, "
+        "nella stessa cartella, quali filtri "
         "hanno tolto le varianti: se cosi' poche varianti finali sono un esito "
         "inatteso, rivedi le soglie di S13 (filt, prev) e la decontaminazione; se "
         "sono attese, rinuncia all'albero con phylo.enabled: false.",
@@ -718,6 +738,29 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "finale: va dichiarato con i risultati. Se i controlli esistono ma non "
         "sono stati riconosciuti, correggi ctrl.blank_values.",
         _DEGRADA,
+    ),
+    _v(
+        "E-S12-04", "S12",
+        "Nessun campione biologico ha letture da decontaminare.",
+        "Nell'oggetto integrato di S10 i campioni biologici non hanno letture: "
+        "non c'e' nulla da confrontare con i controlli negativi, in nessuna "
+        "modalita' di decontam.mode. Guarda in 99_logs il tracciamento delle "
+        "letture per campione per capire in quale fase i biologici le hanno "
+        "perse (filtro, inferenza, chimere, lunghezza delle varianti), e "
+        "verifica che ctrl.biological_values riconosca i campioni giusti.",
+        _UMANA,
+    ),
+    _v(
+        "E-S12-05", "S12",
+        "La decontaminazione toglierebbe tutte le varianti.",
+        "Ogni variante risulta piu' prevalente nei controlli negativi che nei "
+        "campioni, e qc.max_frac_contaminant e' abbastanza alto da ammetterlo: "
+        "l'oggetto decontaminato sarebbe vuoto. Le misure sono nel messaggio. "
+        "Verifica ctrl.blank_values e ctrl.biological_values (le classi "
+        "potrebbero essere scambiate), decontam.threshold e decontam.mode; un "
+        "valore di qc.max_frac_contaminant pari a 1 toglie il controllo che "
+        "avrebbe fermato prima, con E-S12-02.",
+        _UMANA,
     ),
     # ---------------------------------------------------------------- S13 ---
     _v(

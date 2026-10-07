@@ -62,6 +62,7 @@ from amplicon16s.metadata.tabelle import (
     nomi_in_collisione,
     tabella_delle_cellule,
     tabella_di_studio,
+    valori_non_tabellari,
 )
 
 __all__ = [
@@ -875,6 +876,30 @@ def _colonne_mancanti(
     return violazioni
 
 
+def _valori_spezzati(
+    percorso: Path, colonne: Sequence[tuple[str, str]], tabella: str, codice: str
+) -> list[Violazione]:
+    """Una violazione se una colonna dichiarata ha valori con una tabulazione o
+    un a capo dentro il campo: le tabelle scritte a valle (crosswalk, metadati
+    dell'oggetto) non hanno virgolette, e S10 se ne accorgerebbe dopo tutto il
+    calcolo.
+    """
+    trovati = valori_non_tabellari(percorso, [nome for _, nome in colonne])
+    if not trovati:
+        return []
+    return [
+        Violazione(
+            codice,
+            "{} valori di {} contengono una tabulazione o un a capo dentro il campo: {}. "
+            "Le tabelle prodotte dalla pipeline non li possono riportare: sostituiscili "
+            "con uno spazio nel file dei metadati".format(
+                len(trovati), tabella,
+                _elenca([f"riga {riga}, colonna {nome!r}" for riga, nome in trovati]),
+            ),
+        )
+    ]
+
+
 def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
     """Le tabelle di metadati si aprono e hanno ogni colonna dichiarata.
 
@@ -942,9 +967,19 @@ def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Av
             continue
         # Lo stesso nome dichiarato in due parametri si segnala una volta sola.
         uniche = list(dict((nome, (dichiarata, nome)) for dichiarata, nome in colonne).values())
-        violazioni += _colonne_mancanti(
+        mancanti = _colonne_mancanti(
             intestazione, uniche, f"{percorso.name} ({parametro})", "E-S0-02"
         )
+        violazioni += mancanti
+        if not mancanti:
+            try:
+                violazioni += _valori_spezzati(
+                    percorso, uniche, f"{percorso.name} ({parametro})", "E-S0-02"
+                )
+            except (OSError, UnicodeDecodeError, csv.Error) as guasto:
+                violazioni.append(
+                    Violazione("E-S0-02", f"{parametro}: {percorso} non si legge: {guasto}")
+                )
     return violazioni, []
 
 
@@ -959,7 +994,15 @@ _LETTURA_INVERSA: Final = re.compile(
 
 
 def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
-    """Un solo file per campione e nessun file di lettura inversa."""
+    """Un solo file per campione, nessun file di lettura inversa, e nessun file
+    con le due letture di ogni coppia.
+
+    Il terzo controllo guarda dentro i file, nelle letture gia' ispezionate:
+    alcuni archivi pubblici distribuiscono un dataset paired-end con un solo
+    file per corsa, che contiene le letture forward e le reverse. Il nome non
+    lo dice, e trattato come single-end darebbe varianti di due regioni
+    diverse con il doppio delle letture.
+    """
     config = contesto.config
     violazioni: list[Violazione] = []
 
@@ -985,6 +1028,21 @@ def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[A
                 "E-S0-07",
                 "{} file sembrano letture inverse: {}. Questa pipeline tratta "
                 "solo dati single-end".format(len(inverse), _elenca(inverse)),
+            )
+        )
+
+    intercalati = sorted(
+        f"{s.nome} ({s.coppie_nello_stesso_file})"
+        for s in contesto.scansione.values()
+        if s.valido and s.coppie_nello_stesso_file
+    )
+    if intercalati:
+        violazioni.append(
+            Violazione(
+                "E-S0-07",
+                "{} file contengono le due letture di ogni coppia: {}. Estrai le sole "
+                "letture forward (la prima di ogni coppia) in un file per campione e "
+                "indica quelli in io.fastq_dir".format(len(intercalati), _elenca(intercalati)),
             )
         )
     return violazioni, []
@@ -1098,10 +1156,13 @@ def _g09_troncamento_compatibile(contesto: Contesto) -> tuple[list[Violazione], 
     valore troppo alto azzera interi campioni senza che nulla lo segnali. Una
     sola lettura corta, pero', non e' un motivo per fermarsi: in un dataset a
     lunghezza variabile ce n'e' quasi sempre qualcuna, e il filtro la toglie
-    senza danno. Il gate misura la **frazione** di letture piu' corte, sui
-    campioni biologici e sui controlli positivi (i controlli negativi, che
-    amplificano poco e male, non contano), e si ferma oltre
-    ``qc.max_frac_short_reads``.
+    senza danno. Il gate misura la **frazione** di letture piu' corte **per
+    classe**, separatamente per i campioni biologici e per i controlli positivi
+    (i controlli negativi, che amplificano poco e male, non contano), e si
+    ferma se una delle due supera ``qc.max_frac_short_reads``. Le due classi
+    non si riuniscono in una sola frazione pesata sulle letture: la classe
+    meno numerosa (di norma i positivi) potrebbe perdere tutte le sue letture
+    senza spostare la frazione complessiva.
 
     La misura e' sulle prime qc.head_reads letture di ogni file, non su tutto
     il file: il limite e' chiuso da S1, che legge tutte le letture e ripete la
@@ -1112,32 +1173,37 @@ def _g09_troncamento_compatibile(contesto: Contesto) -> tuple[list[Violazione], 
     massima = config.qc.max_frac_short_reads
     classi = {c.accession: c.classe for c in contesto.inventario}
 
-    esaminate = corte = 0
-    con_corte: dict[str, StatisticheFile] = {}
-    for accession, s in contesto.scansione.items():
-        if not s.valido or classi.get(accession) not in CLASSI_CONTROLLATE:
+    violazioni: list[Violazione] = []
+    for classe in CLASSI_CONTROLLATE:
+        esaminate = corte = 0
+        con_corte: list[StatisticheFile] = []
+        for accession, s in contesto.scansione.items():
+            if not s.valido or classi.get(accession) is not classe:
+                continue
+            esaminate += s.letture_esaminate
+            corte += s.piu_corte
+            if s.piu_corte:
+                con_corte.append(s)
+        frazione = corte / esaminate if esaminate else 0.0
+        if frazione <= massima:
             continue
-        esaminate += s.letture_esaminate
-        corte += s.piu_corte
-        if s.piu_corte:
-            con_corte[accession] = s
-    frazione = corte / esaminate if esaminate else 0.0
-    if frazione > massima:
-        peggiori = sorted(con_corte.values(), key=lambda s: -s.frazione_corte)
+        peggiori = sorted(con_corte, key=lambda s: -s.frazione_corte)
         dettaglio = ", ".join(
             f"{s.nome} ({s.frazione_corte:.1%}, minima {s.lunghezza_minima} bp)"
             for s in peggiori[:5]
         )
-        return [
+        violazioni.append(
             Violazione(
                 "E-S0-09",
                 f"filter.truncLen vale {troncamento} e il {frazione:.1%} delle prime "
-                f"letture dei campioni biologici e dei controlli positivi e' piu' corto "
-                f"({corte} su {esaminate}), oltre il {massima:.0%} di "
-                f"qc.max_frac_short_reads; {len(con_corte)} file ne hanno: {dettaglio}. "
-                f"Le letture piu' corte del troncamento vengono scartate, non accorciate",
+                f"letture della classe {classe.value} e' piu' corto ({corte} su "
+                f"{esaminate}), oltre il {massima:.1%} di qc.max_frac_short_reads; "
+                f"{len(con_corte)} file ne hanno: {dettaglio}. Le letture piu' corte "
+                f"del troncamento vengono scartate, non accorciate",
             )
-        ], []
+        )
+    if violazioni:
+        return violazioni, []
 
     # Lo scarto opposto (troncare molto sotto la lettura piu' corta) e'
     # E-S1-01, e non si valuta qui: su una stima del minimo sarebbe sbagliato
@@ -1310,6 +1376,13 @@ def _g08_lotto_coerente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
         uniche = list(dict((nome, (dichiarata, nome)) for dichiarata, nome in colonne).values())
         violazioni += _colonne_mancanti(
             intestazione, uniche, f"{percorso.name} (io.batch_table)", "E-S0-08"
+        )
+        if violazioni:
+            return violazioni, []
+        chiave = [("meta.batch_key_column", config.meta.batch_key_column)]
+        violazioni += _valori_spezzati(
+            percorso, [c for c in chiave + uniche if c[1] is not None],
+            f"{percorso.name} (io.batch_table)", "E-S0-08",
         )
         if violazioni:
             return violazioni, []

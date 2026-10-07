@@ -880,7 +880,9 @@ def test_s0_dichiara_i_controlli_che_il_dataset_non_ha(tmp_path):
     g11 = next(e for e in risultato.esiti if e.gate == "G11")
     assert [a.codice for a in g11.avvisi] == ["E-S0-17", "E-S0-17"]
     testi = " | ".join(a.dettaglio for a in g11.avvisi)
-    assert "0 controlli negativi, meno dei 5" in testi and "ctrl.blank_values e' vuoto" in testi
+    minimo = defaults.DECONTAM_MIN_BLANKS
+    assert f"0 controlli negativi, meno dei {minimo}" in testi
+    assert "ctrl.blank_values e' vuoto" in testi
     assert "non ha controlli positivi (ctrl.positive_values e' vuoto)" in testi
     radice = Path(senza.config.io.out_root)
     manifesto = json.loads(next(radice.rglob("manifest_S0.json")).read_text())

@@ -359,12 +359,13 @@ def test_una_versione_incrementata_si_registra_senza_dichiarazioni(tmp_path):
         file.write("# il calcolo cambia\n")
 
     class Successiva(InferenzaVarianti):
-        versione: ClassVar[int] = 2
+        versione: ClassVar[int] = InferenzaVarianti.versione + 1
 
     fasi = {**_fasi(), "S4": Successiva()}
     # La sottoclasse vive in questo modulo: il sorgente cambia comunque.
     assert differenze_registro(leggi_registro(), fasi, cartella) == {"S4": "versione incrementata"}
-    assert aggiorna_registro(leggi_registro(), fasi, cartella_r=cartella)["S4"]["versione"] == 2
+    assert (aggiorna_registro(leggi_registro(), fasi, cartella_r=cartella)["S4"]["versione"]
+            == InferenzaVarianti.versione + 1)
 
     class Precedente(InferenzaVarianti):
         versione: ClassVar[int] = 0
@@ -416,7 +417,7 @@ def test_la_provenienza_usa_gli_script_r_eseguiti(tmp_path, monkeypatch):
     diversa = provenienza(InferenzaVarianti(), config)
     assert diversa["sorgente"] != leggi_registro()["S4"]["sorgente"]
     assert [n for n in diversa["file"] if diversa["file"][n] != uguale["file"][n]] == ["R/04_dada.R"]
-    assert diversa["versione"] == 1
+    assert diversa["versione"] == InferenzaVarianti.versione
     assert diversa["immagine"] == config.run.container
 
 

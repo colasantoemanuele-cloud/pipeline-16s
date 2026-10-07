@@ -110,7 +110,8 @@ class FiltriFinali(PipelineStep):
     #: 2: scrive in 12_final/intermedi/ e non produce piu' ps_controlli.rds
     #: (lo consegna S14); confronta i taxa senza il prefisso di rango; un
     #: campione svuotato dalla prevalenza esce invece di fermare la fase.
-    versione: ClassVar[int] = 2
+    #: 3: una tassonomia di un solo rango non ferma il filtro sui taxa.
+    versione: ClassVar[int] = 3
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("finali",)
     #: I filtri tassonomici (filt), quello di prevalenza (prev) e le letture

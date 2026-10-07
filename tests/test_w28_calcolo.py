@@ -21,30 +21,39 @@ del catalogo e mai con un errore generico di R).
 * ``src/amplicon16s/steps/s14_finale.py``, ``R/14_finale.R``
 * ``src/amplicon16s/report/builder.py`` (troncamento suggerito, classi vuote)
 * ``src/amplicon16s/errors/catalog.py`` (``E-S1-03``, ``E-S3-03``,
-  ``E-S3-04``, ``E-S11-05``, ``E-S12-03``, ``E-S13-04``, ``E-S13-05``)
+  ``E-S3-04``, ``E-S3-05``, ``E-S11-05``, ``E-S12-03``, ``E-S12-04``,
+  ``E-S12-05``, ``E-S13-04``, ``E-S13-05``)
 
 3. Cosa valuta questo file
 --------------------------
 - il troncamento si giudica sulla frazione di letture piu' corte dei campioni
-  biologici e dei controlli positivi (``qc.max_frac_short_reads``): poche
-  letture corte non fermano ne' G09 ne' S1, una quota rilevante si', e i
-  controlli negativi non contano; ``filter.minLen`` non esiste piu';
+  biologici e dei controlli positivi (``qc.max_frac_short_reads``), ogni classe
+  da sola: poche letture corte non fermano ne' G09 ne' S1, una quota rilevante
+  si', anche di una classe poco numerosa, e i controlli negativi non contano;
+  ``filter.minLen`` non esiste piu';
+- G07 riconosce i file con le due letture di ogni coppia; un valore dei
+  metadati con tabulazione o a capo fra virgolette ferma G02 o G08;
 - il modello di errore: ``err.error_function`` accetta ``loess`` e
   ``loess_monotono``, la variante monotona da' tassi non crescenti con la
   qualita'; S1 avvisa con ``E-S1-03`` se le qualita' distinte sono poche; una
-  corsa senza letture filtrate ferma S3 con ``E-S3-03``, e letture con un solo
-  valore di qualita' con ``E-S3-04``;
+  corsa senza letture filtrate ferma S3 con ``E-S3-03``, letture con un solo
+  valore di qualita' con ``E-S3-04``, ogni altra stima fallita con
+  ``E-S3-05``; la variante monotona regge due, tre e quattro qualita';
 - un dataset senza controlli: S11 senza positivi dichiara ``E-S11-05`` e non
   adatta curve, non si ferma per un controllo senza piastra o con una sola
-  lettura; S12 con pochi negativi dichiara ``E-S12-03`` e non toglie nulla;
+  lettura; S12 con pochi negativi dichiara ``E-S12-03`` e non toglie nulla,
+  senza biologici con letture si ferma con ``E-S12-04`` e con sole varianti
+  contaminanti con ``E-S12-05``;
 - la colonna dei livelli dei controlli positivi si cerca nel file del lotto e
   nella tabella di studio, ed entra nell'oggetto da sola;
 - i filtri finali: i nomi dei taxa si confrontano senza il prefisso di rango;
   una tassonomia senza Phylum e' dichiarata con ``E-S13-05``; se nessun
   campione supera i filtri la fase si ferma con ``E-S13-04``;
   ``tax.assign_species`` vero e' respinto dallo schema;
+- una tassonomia di un solo rango non ferma il filtro sui taxa;
 - ``12_final``: i file consegnati di un'esecuzione precedente si tolgono
-  prima del calcolo, e senza controlli ``ps_controlli.rds`` non esiste;
+  prima del calcolo, e senza controlli ``ps_controlli.rds`` non esiste; S14
+  verifica ``ps_integrato.rds`` contro il manifesto di S10;
 - il report: troncamento suggerito, e classi di controllo vuote;
 - la catena intera su quattro insiemi ridotti (senza positivi, senza negativi,
   senza file del lotto, con una sola piastra) si conclude, o si ferma con un
@@ -99,6 +108,7 @@ Vedi ``test.txt``, scheda W28.
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 import os
 import subprocess
@@ -123,7 +133,7 @@ from amplicon16s.report.builder import _pct, genera, troncamento_suggerito
 from amplicon16s.runner.executor import Conclusione, Esecutore
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import ProjectRun
-from amplicon16s.steps.s01_profile import letture_corte
+from amplicon16s.steps.s01_profile import classi_oltre_soglia, letture_corte
 from amplicon16s.steps.s10_phyloseq import NOME_OGGETTO, colonne_metadati
 from amplicon16s.steps.s14_finale import NOME_CONTROLLI
 
@@ -235,7 +245,12 @@ def test_poche_letture_corte_non_fermano_g09(tmp_path):
     esito = esegui_gate("G09", Contesto(severa))
     assert [v.codice for v in esito.violazioni] == ["E-S0-09"]
     assert "qc.max_frac_short_reads" in esito.violazioni[0].dettaglio
-    assert "2 su 120" in esito.violazioni[0].dettaglio
+    # La frazione e' quella della classe che supera la soglia, e la soglia si
+    # legge con una cifra decimale: "oltre il 1%" di una quota del 2,5% e' chiaro,
+    # "il 3.6% oltre il 4%" non lo sarebbe.
+    assert "classe biologico" in esito.violazioni[0].dettaglio
+    assert "2 su 80" in esito.violazioni[0].dettaglio
+    assert "il 2.5%" in esito.violazioni[0].dettaglio and "oltre il 1.0%" in esito.violazioni[0].dettaglio
 
 
 def test_le_letture_corte_dei_controlli_negativi_non_contano(tmp_path):
@@ -373,7 +388,9 @@ def test_con_poche_qualita_distinte_s1_avvisa_con_e_s1_03(bioc, tmp_path):
     """
     **Obiettivo**: Verificare che su letture con un solo valore di qualita' S1
     si concluda registrando la degradazione ``E-S1-03``, con i valori trovati
-    e l'indicazione di ``err.error_function``, e scriva ``valori_qualita.tsv``;
+    e l'indicazione che nessuna funzione di ``err.error_function`` potra'
+    stimare il modello (senza suggerire ``loess_monotono``), e scriva
+    ``valori_qualita.tsv``;
     e che proseguendo S3 si fermi con ``E-S3-04``, di revisione umana, con
     entrambe le funzioni di errore, e non con un errore generico del ponte.
 
@@ -388,7 +405,9 @@ def test_con_poche_qualita_distinte_s1_avvisa_con_e_s1_03(bioc, tmp_path):
     assert esito.conclusione is Conclusione.COMPLETATA
     manifesto = run.albero.manifesto_passo(Passo.S1, Fase.QC_PROFILES)
     (degradazione,) = [d for d in manifesto.degradazioni if d["codice"] == "E-S1-03"]
-    assert "1 valori" in degradazione["dettaglio"] and "loess" in degradazione["dettaglio"]
+    # Con un solo valore non si suggerisce una funzione: nessuna puo' stimare.
+    assert "1 valori" in degradazione["dettaglio"] and "E-S3-04" in degradazione["dettaglio"]
+    assert "loess_monotono" not in degradazione["dettaglio"]
     valori = _tsv(run.albero.cartella(Fase.QC_PROFILES) / "valori_qualita.tsv")
     assert [v["qualita"] for v in valori] == ["40"]
 
@@ -971,3 +990,373 @@ def test_la_catena_intera_non_da_mai_un_errore_generico_di_r(bioc, tmp_path, nom
     report = genera(run.config.io.out_root)
     assert report.is_file() and "Decisioni prese automaticamente" in report.read_text(encoding="utf-8")
     print(f"\n{nome}: {esito.conclusione.value}, fasi {[str(r.passo) for r in esito.eseguite]}")
+
+
+# --------------------------------------------------------------------------- #
+# 7. Correzioni dopo la revisione esterna                                      #
+# --------------------------------------------------------------------------- #
+
+
+def _scrivi_record(percorso: Path, record: list[tuple[str, str, str]]) -> None:
+    """Scrive un FASTQ compresso da terne (intestazione senza ``@``, sequenza,
+    qualita'): serve dove conta l'intestazione o la qualita' di ogni lettura.
+    """
+    with gzip.open(percorso, "wt", encoding="utf-8") as file:
+        for intestazione, sequenza, qualita in record:
+            file.write(f"@{intestazione}\n{sequenza}\n+\n{qualita}\n")
+
+
+def _cento_campioni() -> list[Campione]:
+    """97 biologici con letture lunghe e 3 controlli positivi, come una piastra
+    con pochi controlli.
+    """
+    biologici = [Campione(f"ERX31{i:05d}", f"NOD1D4.B{i}") for i in range(97)]
+    # Nomi che non finiscono in ".2": il file sembrerebbe una lettura inversa (G07).
+    positivi = [Campione(f"ERX32{i:05d}", f"POS.P1.{lettera}", materiale=POSITIVO,
+                         posizione="Not Applicable") for i, lettera in enumerate("ABC")]
+    return biologici + positivi
+
+
+def test_una_classe_minoritaria_di_sole_letture_corte_ferma_g09(tmp_path):
+    """
+    **Obiettivo**: Verificare che, con 3 controlli positivi al 100% di letture
+    piu' corte di ``filter.truncLen`` fra 97 biologici allo 0%, G09 si fermi
+    con ``E-S0-09`` nominando la classe dei controlli positivi (120 letture su
+    120), benche' la frazione sulle due classi riunite sia il 3%, sotto
+    ``qc.max_frac_short_reads``; e che ``classi_oltre_soglia``, la regola di
+    S1, dia lo stesso giudizio sulle stesse proporzioni.
+
+    **Razionale scientifico e sistemistico**: Una frazione unica pesata sulle
+    letture lascia passare una classe poco numerosa che il filtro azzererebbe
+    per intero: i controlli positivi sono pochi per costruzione, e senza di
+    loro la soglia di profondita' non si puo' calibrare.
+    """
+    campioni = _cento_campioni()
+    for campione in campioni[97:]:
+        campione.lunghezza_letture = 100
+    scenario = crea_scenario(tmp_path, campioni, con_letture=True)
+    massima = scenario.config.qc.max_frac_short_reads
+    assert 3 * 40 / (100 * 40) < massima
+    esito = esegui_gate("G09", Contesto(scenario.config))
+    assert [v.codice for v in esito.violazioni] == ["E-S0-09"]
+    dettaglio = esito.violazioni[0].dettaglio
+    assert "classe controllo_positivo" in dettaglio and "120 su 120" in dettaglio
+    assert f"oltre il {massima:.1%}" in dettaglio and "biologico" not in dettaglio
+
+    lunghezze = {c.accession: {c.lunghezza_letture: 40} for c in campioni}
+    classi = {c.accession: (ClasseCampione.CONTROLLO_POSITIVO if c.materiale == POSITIVO
+                            else ClasseCampione.BIOLOGICO) for c in campioni}
+    corte = letture_corte(lunghezze, classi, scenario.config.filter.truncLen)
+    assert corte["controllate"]["frazione"] == 0.03
+    assert classi_oltre_soglia(corte, massima) == ["controllo_positivo"]
+    assert classi_oltre_soglia(corte, 1.0) == []
+
+
+def test_una_classe_minoritaria_di_sole_letture_corte_ferma_s1(bioc, tmp_path):
+    """
+    **Obiettivo**: Verificare con R che, quando G09 guarda la sola prima
+    lettura di ogni file (lunga) e i 3 controlli positivi hanno tutte le altre
+    letture piu' corte del troncamento, S0 passi e S1 si fermi con
+    ``E-S1-02``, nominando la classe dei controlli positivi con la sua
+    frazione a una cifra decimale.
+
+    **Razionale scientifico e sistemistico**: S1 legge tutte le letture e
+    chiude il limite di G09: il giudizio per classe dev'essere lo stesso nelle
+    due fasi, altrimenti la classe persa passerebbe dove la misura e' completa.
+    """
+    campioni = _cento_campioni()
+    scenario = crea_scenario(tmp_path, campioni, con_letture=True,
+                             sovrascrivi={"qc": {"head_reads": 1}})
+    for campione in campioni[97:]:
+        scrivi_fastq(_file_di(scenario, campione.accession),
+                     [lettura()] + [lettura(lunghezza=100)] * 39)
+    esito = Esecutore(ProjectRun(scenario.config), fino_a=Passo.S1).esegui()
+    assert [r.passo for r in esito.eseguite] == [Passo.S0]
+    assert esito.conclusione is Conclusione.ARRESTATA and esito.punto.codice == "E-S1-02"
+    assert "il 97.5% delle letture della classe controllo_positivo (117 su 120)" \
+        in esito.punto.dettaglio
+    assert "oltre il 5.0%" in esito.punto.dettaglio
+
+
+@pytest.mark.parametrize("nome, intestazioni, intercalato", [
+    ("barra", ["r1/1", "r1/2", "r2/1", "r2/2"], True),
+    ("commento", ["r1 1:N:0:ACGT", "r1 2:N:0:ACGT", "r2 1:N:0:ACGT", "r2 2:N:0:ACGT"], True),
+    ("deposito", ["CORSA.1 1/1", "CORSA.2 2/1", "CORSA.1 1/2", "CORSA.2 2/2"], True),
+    ("nome_ripetuto", ["r1", "r1", "r2", "r2"], True),
+    ("solo_forward", ["r1/1", "r2/1", "r3/1", "r4/1"], False),
+    ("senza_marcatore", ["r1 lunghezza=151", "r2 lunghezza=151", "r3", "r4"], False),
+])
+def test_g07_riconosce_le_due_letture_di_ogni_coppia_nello_stesso_file(
+    tmp_path, nome, intestazioni, intercalato
+):
+    """
+    **Obiettivo**: Verificare che G07 respinga con ``E-S0-07`` un file le cui
+    letture ispezionate portano sia la prima sia la seconda lettura di una
+    coppia (suffissi ``/1`` e ``/2``, commento ``1:N:`` e ``2:N:``, o lo stesso
+    nome di lettura ripetuto), dicendo di estrarre le letture forward; e che un
+    file di sole letture forward, o senza marcatori, passi.
+
+    **Razionale scientifico e sistemistico**: Alcuni archivi distribuiscono un
+    dataset paired-end con un solo file per corsa: il nome non lo dice, e
+    trattato come single-end darebbe il doppio delle letture e varianti di due
+    estremita' diverse dell'amplicone, senza alcun errore.
+    """
+    scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
+    percorso = _file_di(scenario, "ERX3000001")
+    # Cinque blocchi con nomi distinti: i nomi si ripetono solo dove lo dice il caso.
+    _scrivi_record(percorso, [(f"b{blocco}{i}", lettura(), "I" * 151)
+                              for blocco in range(5) for i in intestazioni])
+    esito = esegui_gate("G07", Contesto(scenario.config))
+    if not intercalato:
+        assert esito.superato, nome
+        return
+    assert [v.codice for v in esito.violazioni] == ["E-S0-07"], nome
+    dettaglio = esito.violazioni[0].dettaglio
+    assert dettaglio.startswith("1 file") and percorso.name in dettaglio
+    assert "letture forward" in dettaglio
+
+
+def test_un_valore_con_tabulazione_o_a_capo_fra_virgolette_ferma_s0(tmp_path):
+    """
+    **Obiettivo**: Verificare che un valore con un a capo, o con una
+    tabulazione, dentro un campo fra virgolette di una colonna dichiarata
+    fermi G02 con ``E-S0-02`` (tabelle di assay e di studio) e G08 con
+    ``E-S0-08`` (file del lotto), indicando riga e colonna; che S0 non risulti
+    superata; e che lo stesso valore in una colonna che la pipeline non legge
+    non fermi nulla.
+
+    **Razionale scientifico e sistemistico**: Le tabelle che la pipeline scrive
+    non hanno virgolette, e un valore cosi' le spezzerebbe: prima lo scopriva
+    S10, con un errore fuori catalogo e dopo tutte le fasi di calcolo.
+    """
+    def con_valore(cartella: Path, tabella: str, colonna: str, valore: str):
+        scenario = crea_scenario(cartella, _campioni(), con_arricchimento=True, con_letture=True)
+        percorso = Path(getattr(scenario.config.io, tabella))
+        righe = list(csv.reader(open(percorso, encoding="utf-8", newline=""), delimiter="\t"))
+        if colonna not in righe[0]:
+            righe[0].append(colonna)
+            for riga in righe[1:]:
+                riga.append("")
+        righe[2][righe[0].index(colonna)] = valore
+        with open(percorso, "w", encoding="utf-8", newline="") as file:
+            csv.writer(file, delimiter="\t", lineterminator="\n").writerows(righe)
+        return scenario
+
+    posizione = "Factor Value[Sample Location]"
+    for nome, tabella, colonna, valore, gate, codice in (
+        ("a_capo", "study_table", posizione, "riga uno\nriga due", "G02", "E-S0-02"),
+        ("tabulazione", "study_table", posizione, "prima\tdopo", "G02", "E-S0-02"),
+        ("assay", "assay_table", "Sample Name", "NOD1D4\n.L2", "G02", "E-S0-02"),
+        ("lotto", "batch_table", "run_prefix", "corsa\tA", "G08", "E-S0-08"),
+    ):
+        scenario = con_valore(tmp_path / nome, tabella, colonna, valore)
+        esito = esegui_gate(gate, Contesto(scenario.config))
+        assert [v.codice for v in esito.violazioni] == [codice], nome
+        assert "riga 3" in esito.violazioni[0].dettaglio, nome
+        assert repr(colonna) in esito.violazioni[0].dettaglio, nome
+
+    fermo = Esecutore(ProjectRun(con_valore(
+        tmp_path / "s0", "study_table", posizione, "riga uno\nriga due").config),
+        fino_a=Passo.S0).esegui()
+    assert fermo.conclusione is Conclusione.ARRESTATA and fermo.punto.codice == "E-S0-02"
+
+    libero = con_valore(tmp_path / "libero", "study_table", "Comment[Note]", "testo\nlibero")
+    assert Esecutore(ProjectRun(libero.config), fino_a=Passo.S0).esegui().conclusione \
+        is Conclusione.COMPLETATA
+
+
+@pytest.mark.parametrize("osservate", [(2, 12, 23, 37), (12, 23, 37), (12, 37)])
+def test_la_funzione_monotona_regge_poche_qualita_distinte(r, tmp_path, osservate):
+    """
+    **Obiettivo**: Verificare che ``loess_monotono``, su una matrice di
+    transizioni con le colonne di tutte le qualita' da 0 a 40 di cui solo
+    quattro osservate (come NovaSeq), poi tre, poi due, dia tassi finiti a ogni
+    qualita', non crescenti con la qualita' ed entro i limiti; che con quattro
+    valori la curva non sia l'interpolazione esatta dei punti osservati; e che
+    con una sola qualita' osservata la funzione si fermi.
+
+    **Razionale scientifico e sistemistico**: Con lo span stretto di prima, su
+    due o tre valori il loess interpolava esattamente i punti o falliva: la
+    variante esiste proprio per i sequenziatori a qualita' raggruppate, e deve
+    reggere il loro caso tipico.
+    """
+    esito = _r(f"""
+source({json.dumps(str(cartella_r() / "lib" / "errore_loess.R"))})
+basi <- c("A", "C", "G", "T")
+nomi <- paste0(rep(basi, each = 4), "2", basi)
+osservate <- c({", ".join(str(q) for q in osservate)})
+costruisci <- function(qq) {{
+  trans <- matrix(0, nrow = 16, ncol = 41, dimnames = list(nomi, 0:40))
+  for (q in qq) for (n in nomi) {{
+    uguale <- substr(n, 1, 1) == substr(n, 3, 3)
+    trans[n, as.character(q)] <- if (uguale) 1e6 else round(1e6 * 10^(-q / 10) / (3 + q / 20))
+  }}
+  trans
+}}
+trans <- costruisci(osservate)
+err <- loess_monotono(trans)
+errori <- err[substr(nomi, 1, 1) != substr(nomi, 3, 3), ]
+grezzo <- (trans["A2C", ] + 1) / colSums(trans[paste0("A2", basi), ])
+scarto <- max(abs(log10(err["A2C", as.character(osservate)]) -
+                  log10(grezzo[as.character(osservate)])))
+una <- tryCatch({{ loess_monotono(costruisci(37)); "nessun errore" }},
+                error = function(e) conditionMessage(e))
+jsonlite::write_json(list(
+  finiti = all(is.finite(err)),
+  monotona = all(apply(errori, 1, function(x) all(diff(x) <= 1e-15))),
+  entro = all(errori >= 1e-7 & errori <= 0.25),
+  somme = max(abs(vapply(basi, function(b) max(abs(colSums(err[paste0(b, "2", basi), ]) - 1)), 1))),
+  forma = dim(err), scarto = scarto, una = una
+), uscita, auto_unbox = TRUE)
+""", tmp_path)
+    assert esito["finiti"] and esito["monotona"] and esito["entro"]
+    assert esito["somme"] < 1e-12 and esito["forma"] == [16, 41]
+    if len(osservate) == 4:
+        # Non e' l'interpolazione dei quattro punti: la curva li liscia.
+        assert esito["scarto"] > 1e-3
+    assert "ne servono almeno due" in esito["una"]
+
+
+def test_una_stima_fallita_con_piu_qualita_non_e_e_s3_04(bioc, tmp_path):
+    """
+    **Obiettivo**: Verificare che su letture con due soli valori di qualita' S1
+    suggerisca ``loess_monotono`` (``E-S1-03``), che con la funzione standard
+    S3 si fermi con ``E-S3-05``, di revisione umana, e non con ``E-S3-04`` ne'
+    con un errore generico del ponte, e che con ``loess_monotono`` S3 si
+    concluda.
+
+    **Razionale scientifico e sistemistico**: ``E-S3-04`` dice che le letture
+    hanno un solo valore di qualita' e che servono altri file: dichiararlo per
+    qualunque fallimento della stima manderebbe a cercare file diversi chi ha
+    solo da cambiare funzione.
+    """
+    scenario = crea_scenario(tmp_path / "s", _campioni(), con_arricchimento=True, con_letture=True)
+    # I due valori si alternano lungo la lettura, cosi' ogni base di partenza li
+    # porta entrambi: Q40 e Q20.
+    qualita = ("I5" * 76)[:151]
+    for campione in scenario.campioni:
+        _scrivi_record(_file_di(scenario, campione.accession),
+                       [(f"lettura{i}", lettura(), qualita) for i in range(40)])
+    run = ProjectRun(scenario.config)
+    esito = Esecutore(run, fino_a=Passo.S1).esegui()
+    assert esito.conclusione is Conclusione.COMPLETATA
+    (degradazione,) = [d for d in run.albero.manifesto_passo(Passo.S1, Fase.QC_PROFILES).degradazioni
+                       if d["codice"] == "E-S1-03"]
+    assert "2 valori" in degradazione["dettaglio"] and "loess_monotono" in degradazione["dettaglio"]
+
+    standard = copia_esecuzione((run, esito), tmp_path / "loess")
+    fermo = Esecutore(standard, fino_a=Passo.S3).esegui()
+    assert fermo.conclusione is Conclusione.ARRESTATA and fermo.punto.passo is Passo.S3
+    assert fermo.punto.codice == "E-S3-05", fermo.punto
+    assert fermo.punto.categoria == "revisione_umana"
+    assert "piu' di un valore di qualita'" in fermo.punto.dettaglio
+
+    monotona = copia_esecuzione((run, esito), tmp_path / "monotono",
+                                err={"error_function": "loess_monotono"})
+    assert Esecutore(monotona, fino_a=Passo.S3).esegui().conclusione is Conclusione.COMPLETATA
+
+
+def test_una_tassonomia_di_un_solo_rango_non_ferma_il_filtro_sui_taxa(
+    bioc, decontam_calcolata, tmp_path
+):
+    """
+    **Obiettivo**: Verificare che, con una tassonomia ridotta al solo rango
+    Genus e un genere presente in ``filt.exclude_taxa``, S13 si concluda e
+    registri le varianti di quel genere fra le rimosse dal filtro tassonomico,
+    con il rango nel motivo.
+
+    **Razionale scientifico e sistemistico**: In R una matrice con una sola
+    colonna, indicizzata per riga, perde i nomi: il motivo dell'esclusione non
+    si poteva scrivere e la fase si fermava con un errore generico, su una
+    tassonomia del tutto legittima.
+    """
+    oggetto = decontam_calcolata[0].albero.cartella(Fase.CONTROLS) / "ps_decontaminato.rds"
+    genere = _r(f"""
+suppressPackageStartupMessages(library(phyloseq))
+t <- as(tax_table(readRDS({json.dumps(str(oggetto))})), "matrix")
+jsonlite::write_json(list(genere = names(sort(table(t[, "Genus"]), decreasing = TRUE))[1]),
+                     uscita, auto_unbox = TRUE)
+""", tmp_path / "genere")["genere"]
+    run = _s13_su_decontaminato(
+        decontam_calcolata, tmp_path,
+        't <- as(tax_table(ps), "matrix"); '
+        'tax_table(ps) <- tax_table(t[, "Genus", drop = FALSE])',
+        filt={"exclude_taxa": [genere]}, prev={"apply": False}, qc={"min_reads_final": 1},
+    )
+    riepilogo = run.albero.cartella(Fase.TAXONOMY) / "riepilogo.json"
+    dati = json.loads(riepilogo.read_text())
+    dati["ranghi"] = ["Genus"]
+    riepilogo.write_text(json.dumps(dati), encoding="utf-8")
+    _calcola(run, Passo.S13)
+    righe = _tsv(run.albero.cartella(Fase.FINAL_INTERMEDI) / "varianti_rimosse.tsv")
+    tassonomico = [r for r in righe if r["filtro"] == "tassonomico"]
+    assert tassonomico
+    assert all(r["motivo"] == f"Genus = {genere}, in filt.exclude_taxa" for r in tassonomico)
+
+
+@pytest.mark.parametrize("modalita", ["aggregate", "batch"])
+def test_s12_senza_biologici_con_letture_o_con_sole_varianti_contaminanti_ha_un_codice(
+    bioc, oggetto_calcolato, tmp_path, modalita
+):
+    """
+    **Obiettivo**: Verificare, nelle due modalita' di ``decontam.mode``, che su
+    un oggetto in cui nessun biologico ha letture S12 si fermi con
+    ``E-S12-04``; e che su un oggetto in cui ogni variante e' piu' prevalente
+    nei negativi, con ``qc.max_frac_contaminant`` a 1, si fermi con
+    ``E-S12-05``; entrambi di revisione umana, senza scrivere l'oggetto
+    decontaminato.
+
+    **Razionale scientifico e sistemistico**: Erano un errore generico del
+    ponte (oggetto senza varianti), uno ``stop`` di R, o ``E-S12-02`` con una
+    frazione non calcolabile: tre modi di non dire quale condizione dei dati
+    avesse fermato la fase.
+    """
+    casi = {
+        "E-S12-04": 'm[, dati$classe == "biologico"] <- 0',
+        "E-S12-05": 'neg <- which(dati$classe == "controllo_negativo"); '
+                    'bio <- which(dati$classe == "biologico"); '
+                    'm[, ] <- 0; m[, neg] <- 10; '
+                    'm[cbind(seq_len(nrow(m)), bio[(seq_len(nrow(m)) - 1) %% length(bio) + 1])] <- 5',
+    }
+    for codice, modifica in casi.items():
+        run = _con_oggetto_riscritto(oggetto_calcolato, tmp_path / codice, modifica,
+                                     decontam={"mode": modalita},
+                                     qc={"max_frac_contaminant": 1.0})
+        fase = run.fase(Passo.S12)
+        contesto = run.contesto(Passo.S12, run.valuta()).ristretto(fase.parametri)
+        with pytest.raises(ErrorePipeline) as info:
+            fase.calcola(contesto)
+        assert info.value.codice == codice, (codice, modalita, str(info.value))
+        assert info.value.categoria.value == "revisione_umana"
+        assert not (run.albero.cartella(Fase.CONTROLS) / "ps_decontaminato.rds").exists()
+
+
+def test_s14_verifica_l_oggetto_integrato_contro_il_manifesto_di_s10(
+    bioc, finale_calcolata, tmp_path
+):
+    """
+    **Obiettivo**: Verificare che, con ``ps_integrato.rds`` alterato dopo S10,
+    il calcolo di S14 si fermi con ``E-S14-01`` nominando il file, prima di
+    costruire ``ps_controlli.rds`` e senza toccare i file consegnati; e che
+    sull'oggetto integro S14 si concluda.
+
+    **Razionale scientifico e sistemistico**: I controlli consegnati vengono
+    dall'oggetto integrato: un ingresso diverso da quello registrato da chi
+    l'ha scritto darebbe un file consegnato, con il suo checksum, che non
+    corrisponde ad alcuna esecuzione.
+    """
+    integra = copia_esecuzione(finale_calcolata, tmp_path / "integra")
+    _calcola(integra, Passo.S14)
+
+    run = copia_esecuzione(finale_calcolata, tmp_path / "alterata")
+    finale = run.albero.cartella(Fase.FINAL)
+    prima = (finale / "checksum.sha256").read_bytes()
+    with open(run.albero.cartella(Fase.PHYLOSEQ) / NOME_OGGETTO, "ab") as file:
+        file.write(b"alterato")
+    fase = run.fase(Passo.S14)
+    contesto = run.contesto(Passo.S14, run.valuta()).ristretto(fase.parametri)
+    with pytest.raises(ErrorePipeline) as info:
+        fase.calcola(contesto)
+    assert info.value.codice == "E-S14-01" and NOME_OGGETTO in info.value.dettaglio
+    assert (finale / "checksum.sha256").read_bytes() == prima
+    assert (finale / NOME_CONTROLLI).is_file()

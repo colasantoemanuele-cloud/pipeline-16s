@@ -11,17 +11,20 @@ e può passare quando non dovrebbe. S1 conosce tutte le lunghezze e ripete la
 stessa verifica: le letture più corte di ``filter.truncLen`` verrebbero
 scartate dal filtro, non accorciate. Una sola lettura corta non ferma nulla:
 la fase misura **per classe** la frazione di letture più corte, e si ferma
-con ``E-S1-02`` solo se quella dei campioni biologici e dei controlli
-positivi supera ``qc.max_frac_short_reads``. I controlli negativi non
-contano: amplificano poco, e le loro letture corte non dicono nulla del
-troncamento. Il codice è di S1 e non è ``E-S0-09``: la condizione si verifica
+con ``E-S1-02`` se quella dei campioni biologici, o quella dei controlli
+positivi, supera ``qc.max_frac_short_reads``: ogni classe si giudica da sola,
+perché in una frazione unica pesata sulle letture una classe poco numerosa
+potrebbe perdere tutte le sue letture senza farsi notare. I controlli
+negativi non contano: amplificano poco, e le loro letture corte non dicono
+nulla del troncamento. Il codice è di S1 e non è ``E-S0-09``: la condizione si verifica
 qui, e il log deve dire dove. Le frazioni per classe restano nelle metriche
 del manifesto.
 
 **Segnala le qualità raggruppate, E-S1-03.** Con quattro valori di qualità
 distinti o meno (``valori_qualita.tsv``) le letture vengono da un
 sequenziatore che raggruppa le qualità: è una degradazione dichiarata, che
-rimanda a ``err.error_function``.
+rimanda a ``err.error_function``. Con un solo valore non c'è una funzione da
+scegliere (S3 non ha una curva da stimare, ``E-S3-04``), e il messaggio lo dice.
 
 **Registra lo scarto in difetto, E-S1-01.** Se ``filter.truncLen`` è sotto il
 minimo osservato di più di ``filter.truncLen_shortfall_warn``, ogni lettura
@@ -44,7 +47,7 @@ from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 
-__all__ = ["ProfiloLetture", "NOME_LUNGHEZZE", "NOME_QUALITA", "NOME_RIEPILOGO"]
+__all__ = ["ProfiloLetture", "classi_oltre_soglia", "letture_corte", "NOME_LUNGHEZZE", "NOME_QUALITA", "NOME_RIEPILOGO"]
 
 NOME_SCRIPT: Final = "01_profile.R"
 NOME_LUNGHEZZE: Final = "lunghezze.tsv"
@@ -67,7 +70,8 @@ def letture_corte(
 
     ``lunghezze`` da' per campione le letture di ogni lunghezza. La voce
     ``controllate`` riunisce le classi da cui ci si attende il segnale
-    (biologici e controlli positivi): e' su quella che si giudica.
+    (biologici e controlli positivi) ed e' un riepilogo: il giudizio e' su
+    ciascuna delle due classi, separatamente (:func:`classi_oltre_soglia`).
     """
     per_classe: dict[str, dict[str, Any]] = {}
     for campione, distribuzione in lunghezze.items():
@@ -84,14 +88,28 @@ def letture_corte(
     return dict(sorted(per_classe.items()))
 
 
+def classi_oltre_soglia(corte: dict[str, dict[str, Any]], massima: float) -> list[str]:
+    """Le classi controllate la cui frazione di letture corte supera la soglia.
+
+    Ogni classe da sola: tre controlli positivi con tutte le letture corte fra
+    cento biologici senza letture corte sono una classe persa per intero, che
+    una frazione unica (il 3%) non mostrerebbe.
+    """
+    return [
+        classe.value for classe in CLASSI_CONTROLLATE
+        if corte.get(classe.value, {"frazione": 0.0})["frazione"] > massima
+    ]
+
+
 class ProfiloLetture(PipelineStep):
     """S1: profili di qualità e lunghezza, sul contenuto intero dei file."""
 
     passo: ClassVar[Passo] = Passo.S1
     #: 2: il troncamento si giudica sulla frazione di letture piu' corte, per
     #: classe, e non piu' sulla sola lettura piu' corta; si contano i valori di
-    #: qualita' distinti.
-    versione: ClassVar[int] = 2
+    #: qualita' distinti. 3: la frazione si giudica su ciascuna classe
+    #: controllata, non sulle due riunite.
+    versione: ClassVar[int] = 3
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("grezze",)
     #: I profili dipendono solo dalle letture, cioe' da S0; il troncamento, la
@@ -134,8 +152,8 @@ class ProfiloLetture(PipelineStep):
         lunghezze = self._lunghezze(cartella)
         classi = {c.accession: c.classe for c in contesto.inventario}
         corte = letture_corte(lunghezze, classi, troncamento)
-        controllate = corte.get("controllate", {"letture": 0, "corte": 0, "frazione": 0.0})
         massima = contesto.config.qc.max_frac_short_reads
+        oltre = classi_oltre_soglia(corte, massima)
 
         with open(cartella / NOME_VALORI_QUALITA, encoding="utf-8", newline="") as file:
             valori = [int(r["qualita"]) for r in csv.DictReader(file, delimiter="\t")]
@@ -150,13 +168,13 @@ class ProfiloLetture(PipelineStep):
             "valori_di_qualita_distinti": len(valori),
         }
 
-        if controllate["frazione"] > massima:
+        if oltre:
             raise errore(
                 "E-S1-02",
-                self._dettaglio_corte(lunghezze, classi, corte, troncamento, minimo, massima),
+                self._dettaglio_corte(lunghezze, classi, corte, oltre, troncamento, minimo, massima),
                 truncLen=troncamento,
                 lunghezza_minima=minimo,
-                frazione=controllate["frazione"],
+                frazione={classe: corte[classe]["frazione"] for classe in oltre},
             )
 
         scarto = minimo - troncamento
@@ -171,12 +189,21 @@ class ProfiloLetture(PipelineStep):
                 scarto=scarto,
             )
         if len(valori) <= QUALITA_RAGGRUPPATE:
+            # Con un solo valore non c'e' una curva da adattare, con nessuna
+            # funzione: suggerire loess_monotono manderebbe a un secondo arresto.
+            seguito = (
+                "con un solo valore di qualita' il modello d'errore non e' stimabile "
+                "con nessuna funzione di err.error_function, e S3 si fermera' "
+                "(E-S3-04): servono le letture con le qualita' originali"
+                if len(valori) <= 1 else
+                "con err.error_function loess_monotono la stima del modello di errore "
+                "e' vincolata a non crescere con la qualita'"
+            )
             contesto.degrada(
                 "E-S1-03",
                 f"le letture hanno {len(valori)} valori di qualita' distinti "
                 f"({', '.join(str(v) for v in sorted(valori))}): qualita' raggruppate. "
-                "con err.error_function loess_monotono la stima del modello di errore "
-                "e' vincolata a non crescere con la qualita'",
+                f"{seguito}",
                 valori=sorted(valori),
             )
 
@@ -196,14 +223,17 @@ class ProfiloLetture(PipelineStep):
         lunghezze: dict[str, dict[int, int]],
         classi: dict[str, ClasseCampione],
         corte: dict[str, dict[str, Any]],
+        oltre: list[str],
         troncamento: int,
         minimo: int,
         massima: float,
     ) -> str:
-        """La frazione per classe e i campioni piu' colpiti."""
+        """Le classi oltre la soglia, la frazione di ogni classe e i campioni
+        piu' colpiti fra quelli delle classi oltre la soglia.
+        """
         per_campione = {
             c: (sum(n for l, n in d.items() if l < troncamento), sum(d.values()))
-            for c, d in lunghezze.items() if classi[c] in CLASSI_CONTROLLATE
+            for c, d in lunghezze.items() if classi[c].value in oltre
         }
         colpiti = {c: v for c, v in per_campione.items() if v[0]}
         peggiori = sorted(colpiti, key=lambda c: colpiti[c][0] / colpiti[c][1], reverse=True)
@@ -212,12 +242,15 @@ class ProfiloLetture(PipelineStep):
             f"{classe} {voce['corte']} su {voce['letture']} ({voce['frazione']:.1%})"
             for classe, voce in corte.items() if classe != "controllate"
         )
-        controllate = corte["controllate"]
+        superano = "; ".join(
+            f"il {corte[classe]['frazione']:.1%} delle letture della classe {classe} "
+            f"({corte[classe]['corte']} su {corte[classe]['letture']})"
+            for classe in oltre
+        )
         return (
-            f"filter.truncLen vale {troncamento} e il {controllate['frazione']:.1%} delle "
-            f"letture dei campioni biologici e dei controlli positivi e' piu' corto "
-            f"({controllate['corte']} su {controllate['letture']}), oltre il {massima:.0%} di "
-            f"qc.max_frac_short_reads; la lettura piu' corta e' di {minimo} bp. Per classe: "
-            f"{per_classe}. {len(colpiti)} campioni hanno letture piu' corte, che verrebbero "
-            f"scartate; i piu' colpiti: {elenco}"
+            f"filter.truncLen vale {troncamento} e {superano} e' piu' corto, oltre il "
+            f"{massima:.1%} di qc.max_frac_short_reads; la lettura piu' corta e' di {minimo} "
+            f"bp. Per classe: {per_classe}. {len(colpiti)} campioni di "
+            f"{'questa classe' if len(oltre) == 1 else 'queste classi'} hanno letture piu' "
+            f"corte, che verrebbero scartate; i piu' colpiti: {elenco}"
         )

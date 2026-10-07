@@ -170,7 +170,10 @@ class ModelloErrore(PipelineStep):
     """S3: un modello d'errore per corsa."""
 
     passo: ClassVar[Passo] = Passo.S3
-    versione: ClassVar[int] = 1
+    #: 2: loess_monotono adatta un loess di primo grado con span 2 e pesi
+    #: logaritmici (prima span 0,95); una stima fallita con piu' di un valore
+    #: di qualita' ha il suo codice (E-S3-05), distinto da E-S3-04.
+    versione: ClassVar[int] = 2
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: Tutto il gruppo err; il seme per l'ordine dei campioni; troncamento e
     #: taglio iniziale per le basi di ciascuna lettura; io.batch_table, che

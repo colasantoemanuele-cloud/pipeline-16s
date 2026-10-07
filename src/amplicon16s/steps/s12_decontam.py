@@ -72,8 +72,10 @@ class Decontaminazione(PipelineStep):
 
     passo: ClassVar[Passo] = Passo.S12
     #: 3: con meno di decontam.min_blanks negativi con letture non toglie
-    #: nulla e lo dichiara (E-S12-03).
-    versione: ClassVar[int] = 3
+    #: nulla e lo dichiara (E-S12-03). 4: senza biologici con letture, o con
+    #: tutte le varianti contaminanti, si ferma con un codice proprio
+    #: (E-S12-04, E-S12-05) invece di un errore generico.
+    versione: ClassVar[int] = 4
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("decontaminate",)
     #: Il gruppo decontam (metodo, modalita', soglia, negativi minimi, colonna e

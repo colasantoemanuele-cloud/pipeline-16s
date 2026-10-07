@@ -22,7 +22,9 @@ riproducibilita'.
   esegue dalla cartella a cui i percorsi si riferiscono: la configurazione
   registrata porta i percorsi assoluti, i parametri dichiarati restano gli
   stessi, e una fase con un calcolo in R trova i suoi ingressi;
-- l'ordine delle fasi dello script e' quello del grafo, con S9 dopo S13;
+- l'ordine delle fasi dello script e' quello del grafo, con S9 dopo S13; i
+  manifesti si leggono nelle sole cartelle delle fasi, e una fase con due
+  manifesti ferma il confronto;
 - ``--aggiorna`` scrive i due file dei checksum attesi da un'esecuzione, e il
   confronto della stessa esecuzione li trova identici, con esito 0;
 - un artefatto alterato, uno mancante e uno non atteso danno esito 1, e il
@@ -33,7 +35,10 @@ riproducibilita'.
   ogni fase eseguita con la filogenesi disattivata vi compare; il README della
   cartella riporta il comando del confronto;
 - sul dataset completo: la catena eseguita dalla suite da' gli artefatti
-  attesi pubblicati.
+  attesi pubblicati; le differenze per costruzione sono ammesse per nome e
+  verificate nel contenuto (``gates.json`` riordinato ha l'impronta pubblicata,
+  la riga in piu' di ``checksum.sha256`` e' quella di ``ps_controlli.rds``), e
+  solo finche' i checksum pubblicati sono quelli del riferimento precedente.
 
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
@@ -389,6 +394,100 @@ def test_i_checksum_pubblicati_sono_coerenti():
 
 
 @richiede_dati
+def test_i_manifesti_si_cercano_nelle_sole_cartelle_delle_fasi(attesi, capsys):
+    """
+    **Obiettivo**: Verificare che lo script di confronto legga i manifesti
+    nelle sole cartelle delle fasi e in ``12_final/intermedi``, elencate in
+    ``CARTELLE`` e uguali alle cartelle della pipeline: un manifesto vecchio in
+    una sottocartella di una fase, o quelli di un'uscita annidata, non entrano
+    nel confronto; e che una fase con due manifesti lo fermi, nominandoli.
+
+    **Razionale scientifico e sistemistico**: Una ricerca in tutte le
+    sottocartelle prendeva per ogni fase l'ultimo manifesto trovato: quello di
+    una copia dimenticata poteva sostituire in silenzio quello dell'esecuzione.
+    """
+    assert set(confronto.CARTELLE) == {f.value for f in Fase} - {Fase.CONFIG.value, Fase.LOGS.value}
+    uscita = _esecuzione(attesi / "nuova")
+    vecchio = json.dumps({"passo": "S5", "cartella": "06_seqtab",
+                          "artefatti": [{"nome": "di_un_altra_esecuzione.rds", "byte": 1}]})
+    for annidata in (uscita / "06_seqtab" / "vecchia", uscita / "copia" / "06_seqtab"):
+        annidata.mkdir(parents=True)
+        (annidata / "manifest_S5.json").write_text(vecchio, encoding="utf-8")
+    assert confronto.main(["--uscita", str(uscita)]) == 0
+    assert "RISULTATI IDENTICI" in capsys.readouterr().out
+
+    (uscita / "07_chimera" / "manifest_S5.json").write_text(vecchio, encoding="utf-8")
+    with pytest.raises(SystemExit) as info:
+        confronto.main(["--uscita", str(uscita)])
+    assert "la fase S5 ha due manifesti" in str(info.value)
+    assert "06_seqtab/manifest_S5.json" in str(info.value)
+
+
+#: L'impronta di ``checksum_artefatti.tsv`` quando contiene il riferimento
+#: prodotto dal commit af82ef9, precedente alle modifiche che hanno cambiato per
+#: costruzione alcuni artefatti. Le differenze ammesse dal test sul dataset
+#: completo valgono solo per quel riferimento: rigenerato il file, cadono.
+RIFERIMENTO_PRECEDENTE = "48051f4b971febec2da297ffb997e3e0a12541a3168e46440386e735e4c63978"
+#: L'ordine dei gate in ``gates.json`` di quel riferimento: G15, poi il numero.
+ORDINE_DEI_GATE_PRECEDENTE = ("G15", *(f"G{n:02d}" for n in range(1, 15)))
+
+
+def _gates_nell_ordine_precedente(percorso: Path) -> str:
+    """Il contenuto di ``gates.json`` con i gate rimessi nell'ordine del
+    riferimento precedente, riserializzato come lo scrive S0.
+    """
+    from amplicon16s.gates.g01_g15 import Avviso, Violazione
+    from amplicon16s.gates.registry import EsitoGate
+    from amplicon16s.steps.s00_validate import _esiti_json
+
+    documento = json.loads(percorso.read_text(encoding="utf-8"))
+    per_nome = {voce["gate"]: voce for voce in documento["gate"]}
+    assert sorted(per_nome) == sorted(ORDINE_DEI_GATE_PRECEDENTE)
+    esiti = tuple(
+        EsitoGate(
+            gate=voce["gate"], descrizione=voce["descrizione"], eseguito=voce["eseguito"],
+            superato=voce["superato"],
+            violazioni=tuple(Violazione(**v) for v in voce["violazioni"]),
+            avvisi=tuple(Avviso(**a) for a in voce["avvisi"]),
+        )
+        for voce in (per_nome[nome] for nome in ORDINE_DEI_GATE_PRECEDENTE)
+    )
+    return _esiti_json(esiti)
+
+
+@richiede_dati
+def test_gates_json_riordinato_si_riserializza_con_gli_stessi_byte(tmp_path):
+    """
+    **Obiettivo**: Verificare su un'esecuzione di S0 sintetica che rimettere i
+    gate di ``gates.json`` nell'ordine di esecuzione e riserializzarli con la
+    funzione di S0 restituisca gli stessi byte del file, e che un ordine diverso
+    ne cambi l'impronta.
+
+    **Razionale scientifico e sistemistico**: Il confronto sul dataset completo
+    ammette per ``gates.json`` il solo cambio d'ordine dei gate: la
+    riserializzazione dev'essere fedele al byte, altrimenti proverebbe poco.
+    """
+    from amplicon16s.gates.registry import nomi_dei_gate
+    from amplicon16s.steps.s00_validate import esegui_s0
+
+    scenario = crea_scenario(tmp_path, [
+        Campione("ERX3000001", "NOD1D4.L1"), Campione("ERX3000002", "NOD1D4.L2"),
+        Campione("ERX3000003", "POS.P1.1", materiale=POSITIVO, posizione="Not Applicable"),
+        Campione("ERX3000004", "BLANK.P1.1", materiale=NEGATIVO, posizione="Not Applicable"),
+    ], con_letture=True)
+    assert esegui_s0(scenario.config).superata
+    percorso = tmp_path / "out" / Fase.INPUT_VALIDATION.value / "gates.json"
+    originale = percorso.read_text(encoding="utf-8")
+    assert [v["gate"] for v in json.loads(originale)["gate"]] == list(nomi_dei_gate())
+    riordinato = _gates_nell_ordine_precedente(percorso)
+    assert riordinato != originale
+    assert json.loads(riordinato)["superata"] is True
+    assert [v["gate"] for v in json.loads(riordinato)["gate"]] == list(ORDINE_DEI_GATE_PRECEDENTE)
+    percorso.write_text(riordinato, encoding="utf-8")
+    assert _gates_nell_ordine_precedente(percorso) == riordinato
+
+
+@richiede_dati
 @pytest.mark.dati_reali
 def test_la_catena_sul_dataset_completo_da_i_checksum_pubblicati(catena_reale, capsys):
     """
@@ -399,7 +498,12 @@ def test_la_catena_sul_dataset_completo_da_i_checksum_pubblicati(catena_reale, c
     i checksum pubblicati non si rigenerano: l'ordine dei gate in S0, gli
     intermedi di S13 spostati in ``12_final/intermedi``, e in S14 l'elenco dei
     checksum con ``ps_controlli.rds``. I cinque file consegnati pubblicati
-    devono coincidere.
+    devono coincidere. Ogni differenza ammessa e' verificata nel contenuto:
+    ``gates.json``, con i gate rimessi nell'ordine del riferimento, ha
+    l'impronta pubblicata; la riga in piu' di ``checksum.sha256`` e' l'impronta
+    di ``ps_controlli.rds``, uguale a quella pubblicata. Le differenze sono
+    ammesse solo finche' ``checksum_artefatti.tsv`` e' il riferimento
+    precedente: se il file cambia, non ne e' ammessa alcuna.
 
     **Razionale scientifico e sistemistico**: E' la regressione piu' stretta
     che la suite possa esprimere: lo stesso dato, la stessa configurazione e il
@@ -410,18 +514,28 @@ def test_la_catena_sul_dataset_completo_da_i_checksum_pubblicati(catena_reale, c
     esito = confronto.main(["--uscita", str(run.config.io.out_root)])
     uscita = capsys.readouterr().out
     diverse = [riga.split()[0] for riga in uscita.splitlines() if "differenze" in riga]
-    assert set(diverse) <= {"S0", "S1", "S13", "S14"}, uscita
     assert esito == (1 if diverse else 0)
     # Ogni riga di differenza dev'essere una di quelle dichiarate, per nome:
     # nient'altro puo' cambiare, mancare o comparire.
     pubblicati = _pubblicati()
     di_s1 = {r["nome"] for r in pubblicati if r["fase"] == "S1"}
+    # S1 non e' fra le fasi della catena condivisa: i suoi artefatti mancano
+    # qualunque sia il riferimento.
+    ammesse = {("S1", nome, "manca") for nome in di_s1}
+    riferimento_precedente = (
+        confronto.sha256(DATI / "checksum_artefatti.tsv") == RIFERIMENTO_PRECEDENTE
+    )
+    if not riferimento_precedente:
+        # Checksum pubblicati rigenerati: le tolleranze cadono, e il resto del
+        # test (scritto per le differenze dal riferimento precedente) non serve.
+        assert set(diverse) <= {"S1"}, uscita
+        return
+    assert set(diverse) <= {"S0", "S1", "S13", "S14"}, uscita
     di_s13 = {r["nome"]: r["sha256"] for r in pubblicati if r["fase"] == "S13"}
     spostati = set(di_s13) - {"ps_controlli.rds"}
-    ammesse = (
+    ammesse |= (
         {("S0", "gates.json", "contenuto diverso"), ("S14", "checksum.sha256", "contenuto diverso"),
          ("S14", "ps_controlli.rds", "non atteso"), ("S1", "valori_qualita.tsv", "non atteso")}
-        | {("S1", nome, "manca") for nome in di_s1}
         | {("S13", nome, "manca") for nome in spostati}
     )
     fase = None
@@ -443,5 +557,13 @@ def test_la_catena_sul_dataset_completo_da_i_checksum_pubblicati(catena_reale, c
         assert confronto.sha256(finale / nome) == impronta, nome
     elenco = (finale / "checksum.sha256").read_text(encoding="utf-8").splitlines()
     assert elenco[:len(attesi_finali)] == attesi_finali and len(elenco) == len(attesi_finali) + 1
+    # La riga in piu' e' l'impronta di ps_controlli.rds, la stessa pubblicata.
+    assert elenco[-1] == f"{di_s13['ps_controlli.rds']}  ps_controlli.rds"
+    # gates.json differisce per il solo ordine dei gate: rimessi nell'ordine del
+    # riferimento e riserializzati come li scrive S0, danno l'impronta pubblicata.
+    (gates,) = [r for r in pubblicati if r["nome"] == "gates.json"]
+    riordinato = _gates_nell_ordine_precedente(Path(run.config.io.out_root) / gates["cartella"]
+                                               / "gates.json")
+    assert hashlib.sha256(riordinato.encode("utf-8")).hexdigest() == gates["sha256"]
     attesi = sum(r["fase"] != "S1" for r in _pubblicati())
     assert uscita.count("identica") == len(confronto.ORDINE) - 1 - len(diverse) and attesi > 1000

@@ -54,6 +54,16 @@ ORDINE = (
     "S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8",
     "S10", "S11", "S12", "S13", "S9", "S14",
 )
+#: Le cartelle in cui le fasi scrivono il proprio manifesto: quelle del grafo,
+#: e la sottocartella degli intermedi dei filtri finali. I manifesti si cercano
+#: solo qui: una ricerca in tutte le sottocartelle leggerebbe anche quelli di
+#: un'uscita annidata o di una copia lasciata in una cartella di fase. Un test
+#: tiene questo elenco allineato alle cartelle della pipeline.
+CARTELLE = (
+    "01_input_validation", "02_qc_profiles", "03_filtered", "04_error_models",
+    "05_asv_inference", "06_seqtab", "07_chimera", "08_taxonomy", "09_phylogeny",
+    "10_phyloseq", "11_controls", "12_final", "12_final/intermedi",
+)
 #: La cartella e il manifesto dei file consegnati.
 CARTELLA_FINALE = "12_final"
 MANIFESTO_FINALE = "checksum.sha256"
@@ -74,12 +84,23 @@ def artefatti_dei_manifesti(uscita: Path) -> list[dict[str, str]]:
 
     Per ciascuno la fase, la cartella, il nome e i byte dichiarati dal
     manifesto. L'impronta non si prende dal manifesto: si ricalcola dal file.
+    I manifesti si leggono nelle sole cartelle di :data:`CARTELLE`, e una fase
+    con due manifesti ferma il confronto: non si saprebbe quale dei due
+    descrive l'esecuzione.
     """
     per_fase: dict[str, tuple[str, list[dict[str, object]]]] = {}
-    # Anche nelle sottocartelle: S13 scrive i suoi intermedi in 12_final/intermedi.
-    for manifesto in sorted(uscita.glob("**/manifest_S*.json")):
-        documento = json.loads(manifesto.read_text(encoding="utf-8"))
-        per_fase[documento["passo"]] = (documento["cartella"], documento["artefatti"])
+    origine: dict[str, Path] = {}
+    for cartella in CARTELLE:
+        for manifesto in sorted((uscita / cartella).glob("manifest_S*.json")):
+            documento = json.loads(manifesto.read_text(encoding="utf-8"))
+            fase = documento["passo"]
+            if fase in per_fase:
+                raise SystemExit(
+                    f"la fase {fase} ha due manifesti, {origine[fase].relative_to(uscita)} e "
+                    f"{manifesto.relative_to(uscita)}: uno dei due e' di un'altra esecuzione, "
+                    "toglilo prima di confrontare")
+            per_fase[fase] = (documento["cartella"], documento["artefatti"])
+            origine[fase] = manifesto
     sconosciute = sorted(set(per_fase) - set(ORDINE))
     if sconosciute:
         raise SystemExit(f"fasi non previste nei manifesti: {', '.join(sconosciute)}")
