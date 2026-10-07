@@ -110,6 +110,9 @@ class Fase(StrEnum):
     PHYLOSEQ = "10_phyloseq"
     CONTROLS = "11_controls"
     FINAL = "12_final"
+    #: Gli intermedi dei filtri finali (S13), sotto la cartella consegnata: in
+    #: ``12_final`` restano i soli file consegnati, scritti da S14.
+    FINAL_INTERMEDI = "12_final/intermedi"
     LOGS = "99_logs"
 
 

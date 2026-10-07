@@ -215,7 +215,7 @@ def test_s9_sta_fra_s13_e_s14_e_s10_non_ne_dipende():
     assert GRAFO.ordine() == ORDINE
     assert GRAFO.nodo(Passo.S9).dipendenze == (Passo.S13,)
     assert GRAFO.nodo(Passo.S10).dipendenze == (Passo.S0, Passo.S7, Passo.S8)
-    assert GRAFO.nodo(Passo.S14).dipendenze == (Passo.S13, Passo.S9)
+    assert GRAFO.nodo(Passo.S14).dipendenze == (Passo.S10, Passo.S13, Passo.S9)
     assert [n.passo for n in GRAFO if n.facoltativa] == [Passo.S9]
     assert GRAFO.nodo(Passo.S9).parametro_attivazione == "phylo.enabled"
     assert GRAFO.nodo(Passo.S9).cartella is Fase.PHYLOGENY
@@ -235,8 +235,8 @@ def test_s14_dipende_da_s9_solo_con_la_filogenesi_attiva(scenario):
     configurazione non chiede.
     """
     spenta, accesa = scenario.config, _con(scenario.config, phylo={"enabled": True})
-    assert GRAFO.dipendenze_attive(Passo.S14, spenta) == (Passo.S13,)
-    assert GRAFO.dipendenze_attive(Passo.S14, accesa) == (Passo.S13, Passo.S9)
+    assert GRAFO.dipendenze_attive(Passo.S14, spenta) == (Passo.S10, Passo.S13)
+    assert GRAFO.dipendenze_attive(Passo.S14, accesa) == (Passo.S10, Passo.S13, Passo.S9)
     assert Passo.S9 not in GRAFO.antenati(Passo.S14, spenta)
     assert Passo.S9 in GRAFO.antenati(Passo.S14, accesa)
     assert Passo.S9 not in GRAFO.attive(spenta) and Passo.S9 in GRAFO.attive(accesa)
@@ -263,7 +263,7 @@ def test_con_la_filogenesi_disattivata_s9_e_disattivata_e_la_catena_completa(sce
     assert "phylo.enabled" in valutazione.situazioni[Passo.S9].motivo
     assert Passo.S9 not in valutazione.da_eseguire
     manifesto = run.albero.manifesto_passo(Passo.S14, Fase.FINAL)
-    assert list(manifesto.calcolata_su["a_monte"]) == ["S13"]
+    assert list(manifesto.calcolata_su["a_monte"]) == ["S10", "S13"]
     assert not run.albero.cartella(Fase.PHYLOGENY).exists()
 
 
@@ -285,7 +285,7 @@ def test_attivare_la_filogenesi_rifa_solo_s9_e_s14(scenario):
     run, esito = _esegui(accesa, eseguite)
     assert esito.conclusione is Conclusione.COMPLETATA
     assert eseguite == [Passo.S9, Passo.S14]
-    assert set(run.albero.manifesto_passo(Passo.S14, Fase.FINAL).calcolata_su["a_monte"]) == {"S9", "S13"}
+    assert set(run.albero.manifesto_passo(Passo.S14, Fase.FINAL).calcolata_su["a_monte"]) == {"S9", "S10", "S13"}
 
     _, esito = _esegui(_con(accesa, phylo={"max_seqs": 4000}), eseguite)
     assert eseguite == [Passo.S9, Passo.S14]
@@ -358,8 +358,8 @@ def test_e_s9_01_ferma_prima_di_avviare_il_calcolo(tmp_path, monkeypatch):
     )
 
     def con_varianti(numero: int) -> None:
-        albero.prepara(Fase.FINAL)
-        (albero.cartella(Fase.FINAL) / NOME_RIEPILOGO).write_text(
+        albero.prepara(Fase.FINAL_INTERMEDI)
+        (albero.cartella(Fase.FINAL_INTERMEDI) / NOME_RIEPILOGO).write_text(
             json.dumps({"varianti": {"finali": numero}}), encoding="utf-8"
         )
 
@@ -405,9 +405,9 @@ def test_e_s9_02_ferma_con_troppo_poche_varianti(tmp_path, monkeypatch):
     contesto = StepContext(
         risolta=risolvi(config), albero=albero, logger=ottieni("prova"), inventario=None,
     )
-    albero.prepara(Fase.FINAL)
+    albero.prepara(Fase.FINAL_INTERMEDI)
     for numero in (0, 3):
-        (albero.cartella(Fase.FINAL) / NOME_RIEPILOGO).write_text(
+        (albero.cartella(Fase.FINAL_INTERMEDI) / NOME_RIEPILOGO).write_text(
             json.dumps({"varianti": {"finali": numero}}), encoding="utf-8"
         )
         with pytest.raises(ErrorePipeline) as fermata:
@@ -416,7 +416,7 @@ def test_e_s9_02_ferma_con_troppo_poche_varianti(tmp_path, monkeypatch):
         assert f"{numero} varianti finali, meno delle 4" in fermata.value.dettaglio
     assert avviati == []
 
-    (albero.cartella(Fase.FINAL) / NOME_RIEPILOGO).write_text(
+    (albero.cartella(Fase.FINAL_INTERMEDI) / NOME_RIEPILOGO).write_text(
         json.dumps({"varianti": {"finali": s09.VARIANTI_MINIME}}), encoding="utf-8"
     )
     with pytest.raises(RuntimeError, match="processo R avviato"):
@@ -486,7 +486,7 @@ def _impronte(cartella: Path) -> dict[str, str]:
     return {
         p.name: hashlib.sha256(p.read_bytes()).hexdigest()
         for p in sorted(cartella.iterdir())
-        if not p.name.startswith((PREFISSO, "manifest"))
+        if p.is_file() and not p.name.startswith((PREFISSO, "manifest"))
     }
 
 
@@ -723,7 +723,7 @@ def test_la_filogenesi_sul_dataset_completo(bioc, catena_reale, tmp_path):
     esito = Esecutore(run, fino_a=Passo.S14).esegui()
     assert esito.conclusione is Conclusione.COMPLETATA
     assert [r.passo for r in esito.eseguite] == [Passo.S9, Passo.S14]
-    finali = json.loads((run.albero.cartella(Fase.FINAL) / NOME_RIEPILOGO).read_text())["varianti"]["finali"]
+    finali = json.loads((run.albero.cartella(Fase.FINAL_INTERMEDI) / NOME_RIEPILOGO).read_text())["varianti"]["finali"]
     newick = (run.albero.cartella(Fase.FINAL) / NOME_ALBERO).read_text(encoding="utf-8")
     assert len(set(_foglie(newick))) == finali == esito.eseguite[0].metriche["varianti"]
     dopo = {str(p.relative_to(origine)): p.stat().st_mtime_ns for p in origine.rglob("*") if p.is_file()}

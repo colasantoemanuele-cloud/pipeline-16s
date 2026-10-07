@@ -143,14 +143,6 @@ _DEGRADA = Categoria.DEGRADAZIONE_AUTOMATICA
 _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     # ---------------------------------------------------------------- G15 ---
     _v(
-        "E-G15-01", "G15",
-        "filter.minLen supera filter.truncLen.",
-        "E' un'incoerenza nella derivazione dei parametri, non nella "
-        "configurazione: segnalala, perche' filter.minLen e' calcolato da "
-        "filter.truncLen e non dovrebbe poterlo superare.",
-        _UMANA,
-    ),
-    _v(
         "E-G15-02", "G15",
         "decontam.threshold non e' strettamente compreso fra 0 e 1.",
         "Porta decontam.threshold entro l'intervallo aperto (0, 1): a 0 nessuna "
@@ -239,9 +231,9 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "Se ctrl.positive_values elenca delle etichette, katharoseq.target_taxon "
         "e katharoseq.cell_count_column devono essere indicati: senza il taxon "
         "atteso e le cellule seminate i controlli positivi non sono valutabili. "
-        "La colonna delle cellule deve inoltre essere fra quelle portate "
-        "nell'oggetto (out.batch_columns o out.study_columns), perche' e' "
-        "dall'oggetto che la calibrazione la legge. Se il dataset non ha "
+        "La colonna delle cellule si cerca nel file di arricchimento e nella "
+        "tabella di studio, ed entra nell'oggetto anche se non e' fra le "
+        "colonne richieste. Se il dataset non ha "
         "controlli positivi, dichiara ctrl.positive_values vuoto e i due "
         "parametri nulli.",
         _UMANA,
@@ -343,9 +335,12 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S0-09", "S0",
         "filter.truncLen e' incompatibile con le lunghezze osservate.",
-        "Abbassa filter.truncLen dopo aver esaminato i profili di lunghezza in "
-        "02_qc_profiles: al valore attuale una parte rilevante delle letture "
-        "verrebbe scartata.",
+        "Fra le prime qc.head_reads letture dei campioni biologici e dei controlli "
+        "positivi, quelle piu' corte di filter.truncLen superano "
+        "qc.max_frac_short_reads: il filtro le scarterebbe, non le accorcerebbe. "
+        "Abbassa filter.truncLen dopo aver esaminato le lunghezze, oppure alza "
+        "qc.max_frac_short_reads se la perdita e' accettata. Poche letture corte "
+        "non fermano l'esecuzione.",
         _UMANA,
     ),
     _v(
@@ -438,15 +433,26 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     ),
     _v(
         "E-S1-02", "S1",
-        "filter.truncLen supera la lunghezza minima delle letture, misurata su "
-        "tutte le letture.",
-        "G09, in S0, stima il minimo dalle sole prime qc.head_reads letture di "
-        "ogni file e non aveva visto le letture piu' corte. Le letture piu' "
-        "corte del troncamento verrebbero scartate, non accorciate: abbassa "
-        "filter.truncLen al minimo riportato in 02_qc_profiles/riepilogo.json, "
-        "oppure accetta consapevolmente di perdere quelle letture, che "
-        "l'errore quantifica per campione.",
+        "Le letture piu' corte di filter.truncLen, misurate su tutte le letture, "
+        "superano qc.max_frac_short_reads.",
+        "G09, in S0, guarda le sole prime qc.head_reads letture di ogni file e "
+        "non le aveva viste. Le letture piu' corte del troncamento verrebbero "
+        "scartate, non accorciate: abbassa filter.truncLen (il report indica un "
+        "valore suggerito dal profilo di lunghezza e di qualita'), oppure alza "
+        "qc.max_frac_short_reads accettando la perdita, che l'errore quantifica "
+        "per classe e per campione. La frazione si misura sui campioni biologici "
+        "e sui controlli positivi; i controlli negativi non contano.",
         _UMANA,
+    ),
+    _v(
+        "E-S1-03", "S1",
+        "Le letture hanno pochi valori di qualita' distinti.",
+        "L'esecuzione prosegue. Qualita' raggruppate in pochi valori sono proprie "
+        "di alcuni sequenziatori (NovaSeq, NextSeq): con esse la stima standard "
+        "del modello d'errore puo' dare tassi non monotoni rispetto alla qualita'. "
+        "Valuta err.error_function: loess_monotono, e controlla i grafici in "
+        "04_error_models.",
+        _DEGRADA,
     ),
     # ----------------------------------------------------------------- S2 ---
     _v(
@@ -490,6 +496,16 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "correggere. Completa io.batch_table per i campioni indicati, oppure "
         "imposta err.batch_column a null per stimare un solo modello su tutti "
         "i campioni.",
+        _UMANA,
+    ),
+    _v(
+        "E-S3-03", "S3",
+        "Una corsa di sequenziamento non ha letture filtrate.",
+        "Nessun campione della corsa indicata ha letture dopo il filtro, quindi "
+        "il suo modello d'errore non si puo' stimare. Guarda quante letture il "
+        "filtro ha tolto a quei campioni in 03_filtered/letture_filtrate.tsv: se "
+        "la corsa e' fatta di soli controlli negativi vuoti, togli i campioni o "
+        "imposta err.batch_column a null per stimare un solo modello.",
         _UMANA,
     ),
     # ----------------------------------------------------------------- S4 ---
@@ -636,6 +652,18 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     ),
     # ---------------------------------------------------------------- S12 ---
     _v(
+        "E-S11-05", "S11",
+        "Il dataset non ha controlli positivi utilizzabili: nessuna curva di "
+        "calibrazione.",
+        "Si prosegue con qc.min_reads_raw sulle letture grezze per tutti i "
+        "campioni, e 11_controls/soglia.json ne registra il motivo. Senza "
+        "controlli positivi, o senza la colonna delle cellule seminate "
+        "(katharoseq.cell_count_column), la profondita' minima non puo' essere "
+        "derivata dai dati: la soglia fissa e' una scelta, da dichiarare con i "
+        "risultati.",
+        _DEGRADA,
+    ),
+    _v(
         "E-S12-02", "S12",
         "I contaminanti individuati superano la quota attesa.",
         "La modalita' dichiarata in decontam.mode rimuoverebbe dai campioni "
@@ -644,6 +672,16 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "decontam.batch_column prima di accettare il risultato: una quota anomala "
         "indica piu' spesso un raggruppamento sbagliato che una contaminazione reale.",
         _UMANA,
+    ),
+    _v(
+        "E-S12-03", "S12",
+        "I controlli negativi non bastano: nessuna decontaminazione.",
+        "Si prosegue senza togliere alcuna variante: i controlli negativi con "
+        "letture sono meno di decontam.min_blanks, e la prevalenza nei negativi "
+        "non e' stimabile. I contaminanti da reagente restano nell'oggetto "
+        "finale: va dichiarato con i risultati. Se i controlli esistono ma non "
+        "sono stati riconosciuti, correggi ctrl.blank_values.",
+        _DEGRADA,
     ),
     # ---------------------------------------------------------------- S13 ---
     _v(
@@ -659,10 +697,11 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S13-02", "S13",
         "Il filtro di prevalenza lascia alcuni campioni senza varianti.",
-        "Abbassa prev.min_fraction o prev.min_count, oppure escludi quei "
-        "campioni consapevolmente: un campione vuoto non e' un campione a "
-        "prevalenza bassa. I campioni sono in 12_final/esclusioni.tsv.",
-        _UMANA,
+        "Si prosegue: i campioni contenevano solo varianti che il filtro di "
+        "prevalenza toglie, ed escono dall'oggetto finale con il motivo in "
+        "12_final/intermedi/esclusioni.tsv. Se sono molti, prev.min_fraction o "
+        "prev.min_count sono troppo severi per questo dataset: abbassali.",
+        _DEGRADA,
     ),
     _v(
         "E-S13-03", "S13",
@@ -670,8 +709,27 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "Si prosegue: i campioni contenevano solo letture senza phylum o dei taxa "
         "di filt.exclude_taxa (organelli, eucarioti), cioe' nessun segnale "
         "batterico, ed escono dall'oggetto finale con il motivo in "
-        "12_final/esclusioni.tsv. Se sono molti, verifica il campionamento e "
-        "filt.exclude_taxa.",
+        "12_final/intermedi/esclusioni.tsv. Se sono molti, verifica il "
+        "campionamento e filt.exclude_taxa.",
+        _DEGRADA,
+    ),
+    _v(
+        "E-S13-04", "S13",
+        "Nessun campione biologico resta nell'oggetto finale.",
+        "I filtri per profondita', tassonomico, di prevalenza e delle letture "
+        "finali hanno escluso tutti i campioni: i motivi, campione per campione, "
+        "sono in 12_final/intermedi/esclusioni.tsv. Rivedi la soglia di "
+        "profondita' (11_controls/soglia.json), prev.min_fraction e "
+        "qc.min_reads_final.",
+        _UMANA,
+    ),
+    _v(
+        "E-S13-05", "S13",
+        "La tassonomia non ha il rango Phylum: il filtro sulle varianti senza "
+        "phylum non e' stato applicato.",
+        "Si prosegue con il solo filtro sui taxa di filt.exclude_taxa. Con "
+        "filt.remove_na_phylum vero ci si attende una colonna Phylum nella "
+        "tassonomia: verifica i ranghi del riferimento in 08_taxonomy/riepilogo.json.",
         _DEGRADA,
     ),
     # ---------------------------------------------------------------- S14 ---

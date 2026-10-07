@@ -359,13 +359,15 @@ def test_la_sola_fase_facoltativa_e_la_filogenesi():
 def test_fasi_che_condividono_una_cartella():
     """
     **Obiettivo**: Verificare che le sole cartelle fisiche condivise da due fasi
-    distinte siano ``07_chimera`` (``S6, S7``), ``11_controls`` (``S11, S12``) e
-    ``12_final`` (``S13, S14``).
+    distinte siano ``07_chimera`` (``S6, S7``) e ``11_controls`` (``S11, S12``):
+    ``12_final`` e' della sola S14, perche' S13 scrive i suoi intermedi in
+    ``12_final/intermedi``.
 
-    **Razionale scientifico e sistemistico**: Poiché 15 fasi scrivono in 12
-    cartelle di output, individuare esplicitamente le 3 coppie che condividono la
+    **Razionale scientifico e sistemistico**: Poiché 15 fasi scrivono in 13
+    cartelle di output, individuare esplicitamente le 2 coppie che condividono la
     cartella giustifica l'adozione di manifesti atomici per-passo
-    (``manifest_<passo>.json``) anziché di un unico manifesto di directory.
+    (``manifest_<passo>.json``) anziché di un unico manifesto di directory; e
+    nella cartella consegnata non devono comparire file che non si consegnano.
     """
     per_cartella: dict[Fase, list[Passo]] = {}
     for nodo in GRAFO:
@@ -374,8 +376,9 @@ def test_fasi_che_condividono_una_cartella():
     assert condivise == {
         Fase.CHIMERA: [Passo.S6, Passo.S7],
         Fase.CONTROLS: [Passo.S11, Passo.S12],
-        Fase.FINAL: [Passo.S13, Passo.S14],
     }
+    assert per_cartella[Fase.FINAL] == [Passo.S14]
+    assert per_cartella[Fase.FINAL_INTERMEDI] == [Passo.S13]
 
 
 def _nodi_base() -> list[Nodo]:
@@ -437,7 +440,8 @@ def test_con_la_filogenesi_disattivata_s10_non_ne_dipende(scenario):
     """
     **Obiettivo**: Verificare che le dipendenze attive di ``S10`` siano
     ``(S0, S7, S8)`` con ``phylo.enabled`` falso come con ``phylo.enabled``
-    vero, e che ``S9`` attiva sia una dipendenza di ``S14``.
+    vero, e che ``S9`` attiva sia una dipendenza di ``S14``, che dipende anche
+    da ``S10`` perche' ne legge l'oggetto integrato per consegnare i controlli.
 
     **Razionale scientifico e sistemistico**: L'oggetto ``phyloseq`` costruito in
     ``S10`` assembla tabella ASV (``S7``), tassonomia (``S8``) e metadati (``S0``),
@@ -451,8 +455,8 @@ def test_con_la_filogenesi_disattivata_s10_non_ne_dipende(scenario):
 
     attiva = _variante(config, phylo__enabled=True)
     assert GRAFO.dipendenze_attive(Passo.S10, attiva) == (Passo.S0, Passo.S7, Passo.S8)
-    assert GRAFO.dipendenze_attive(Passo.S14, config) == (Passo.S13,)
-    assert GRAFO.dipendenze_attive(Passo.S14, attiva) == (Passo.S13, Passo.S9)
+    assert GRAFO.dipendenze_attive(Passo.S14, config) == (Passo.S10, Passo.S13)
+    assert GRAFO.dipendenze_attive(Passo.S14, attiva) == (Passo.S10, Passo.S13, Passo.S9)
 
 
 # --------------------------------------------------------------------------- #
@@ -1021,15 +1025,14 @@ def test_la_cartella_completa_non_rende_completa_la_fase_accanto(scenario, regis
     [
         (Passo.S6, Passo.S7, Fase.CHIMERA),
         (Passo.S11, Passo.S12, Fase.CONTROLS),
-        (Passo.S13, Passo.S14, Fase.FINAL),
     ],
 )
 def test_due_fasi_nella_stessa_cartella_si_concludono_separatamente(
     eseguita, registro, prima, dopo, cartella
 ):
     """
-    **Obiettivo**: Verificare che per tutte e tre le cartelle condivise
-    (``CHIMERA``, ``CONTROLS``, ``FINAL``) la cancellazione dell'artefatto della
+    **Obiettivo**: Verificare che per le due cartelle condivise
+    (``CHIMERA``, ``CONTROLS``) la cancellazione dell'artefatto della
     seconda fase (``dopo``) faccia rieseguire solo ``dopo`` lasciando ``prima``
     in stato ``COMPLETATA`` con impronta invariata.
 
@@ -1103,7 +1106,7 @@ def test_s13_prima_di_s12_e_rifiutata(eseguita):
     assert info.value.codice == "E-S13-01"
     assert info.value.contesto["mancanti"] == ["S12"]
     # Il rifiuto avviene prima di toccare alcunche'.
-    assert eseguita.albero.manifesto_passo(Passo.S13, Fase.FINAL) is not None
+    assert eseguita.albero.manifesto_passo(Passo.S13, Fase.FINAL_INTERMEDI) is not None
 
 
 def test_nessuna_fase_gira_prima_delle_sue_dipendenze(scenario, registro):
@@ -1272,7 +1275,7 @@ def test_esistono_tutte_le_fasi(scenario):
     S8, ``Passo.S11`` attende S2 e S10,
     ``Passo.S12`` attende S10 (non S11, di cui non legge artefatti),
     ``Passo.S13`` le fasi di cui legge gli
-    artefatti e ``Passo.S14`` attende S13; ``Passo.S9`` e' realizzata e
+    artefatti e ``Passo.S14`` attende S10 e S13; ``Passo.S9`` e' realizzata e
     disattivata per difetto.
 
     **Razionale scientifico e sistemistico**: Con tutte le fasi realizzate
@@ -1293,8 +1296,8 @@ def test_esistono_tutte_le_fasi(scenario):
     assert situazione[Passo.S10].motivo == "a monte da eseguire: S7, S8"
     assert situazione[Passo.S11].motivo == "a monte da eseguire: S2, S10"
     assert situazione[Passo.S12].motivo == "a monte da eseguire: S10"
-    assert situazione[Passo.S13].motivo == "a monte da eseguire: S2, S7, S10, S11, S12"
-    assert situazione[Passo.S14].motivo == "a monte da eseguire: S13"
+    assert situazione[Passo.S13].motivo == "a monte da eseguire: S2, S7, S8, S11, S12"
+    assert situazione[Passo.S14].motivo == "a monte da eseguire: S10, S13"
     assert situazione[Passo.S9].stato is StatoPasso.DISATTIVATA
     assert run.prossima() is Passo.S1
     assert not run.completa

@@ -25,10 +25,10 @@ Settimane 3 e 4 (W3/W4), Fase F1: schema di validazione della configurazione
   caricamento, segnalazione di tutti i problemi e non solo del primo;
 - errori di caricamento del file YAML (file vuoto, sintassi non valida) con
   indicazione del file;
-- Gate G15 (codici ``E-G15-01`` .. ``E-G15-09``): accettazione del file di
+- Gate G15 (codici ``E-G15-02`` .. ``E-G15-09``): accettazione del file di
   esempio, coerenza del registro dei controlli, rifiuto delle combinazioni
   incoerenti con raccolta di tutte le violazioni;
-- parametri derivati (``filter.minLen``, ``asv.len_min``, ``asv.len_max``):
+- parametri derivati (``asv.len_min``, ``asv.len_max``):
   valori attesi, dipendenza dai parametri di origine, rifiuto di un derivato
   impostato a mano; i parametri rimossi (``prev.min_samples``,
   ``qc.min_reads_filtered``) sono respinti come chiavi sconosciute;
@@ -966,17 +966,18 @@ def test_g15_raccoglie_tutte_le_violazioni(dati_esempio):
 def test_derivati_statici_assumono_i_valori_attesi(dati_esempio):
     """
     **Obiettivo**: Verificare che sulla configurazione predefinita di OSD-734
-    (``truncLen = 137``, ``trimLeft = 0``, ``len_tol = 0``) i tre parametri
+    (``truncLen = 137``, ``trimLeft = 0``, ``len_tol = 0``) i due parametri
     derivati statici assumano esattamente il valore ``137`` bp.
     **Razionale scientifico e sistemistico**: In una corsa single-end Illumina
     MiSeq troncata a 137 bp senza taglio in 5' (``trimLeft = 0``) e con tolleranza
     zero (``len_tol = 0``), ogni lettura e ogni ASV in uscita da DADA2 ha lunghezza
     attesa pari a 137 - 0 = 137 nt: derivare queste soglie per formula
     elimina il rischio che l'operatore aggiorni ``truncLen`` dimenticando di
-    aggiornare ``filter.minLen``, ``asv.len_min`` e ``asv.len_max``.
+    aggiornare ``asv.len_min`` e ``asv.len_max``. ``filter.minLen`` non esiste
+    piu': coincideva per costruzione con ``filter.truncLen``.
     """
     derivati = esegui_g15(dati_esempio).derivati
-    assert derivati.filter_minLen == 137
+    assert not hasattr(derivati, "filter_minLen")
     assert derivati.asv_len_min == 137
     assert derivati.asv_len_max == 137
 
@@ -985,8 +986,7 @@ def test_derivati_seguono_i_parametri_da_cui_discendono(dati_esempio):
     r"""
     **Obiettivo**: Verificare che al variare di ``truncLen = 150``,
     ``trimLeft = 10`` e ``len_tol = 2``, i derivati vengano ricalcolati
-    dinamicamente in ``filter_minLen = 150``, ``asv_len_min = 138`` e
-    ``asv_len_max = 142``.
+    dinamicamente in ``asv_len_min = 138`` e ``asv_len_max = 142``.
 
     **Razionale scientifico e sistemistico**: Dimostra che i parametri derivati
     non sono costanti cablate ma funzioni pure di ``truncLen``, ``trimLeft`` e
@@ -998,7 +998,6 @@ def test_derivati_seguono_i_parametri_da_cui_discendono(dati_esempio):
     dati_esempio["asv"]["len_tol"] = 2
 
     derivati = esegui_g15(dati_esempio).derivati
-    assert derivati.filter_minLen == 150
     assert derivati.asv_len_min == 138
     assert derivati.asv_len_max == 142
 
@@ -1012,7 +1011,7 @@ def test_la_risoluzione_e_utilizzabile_senza_il_gate(dati_esempio):
     risoluzione algebrica (`resolve.py`) dal registro dei gate (`g01_g15.py`).
     """
     risolta = risolvi(valida(dati_esempio))
-    assert risolta.derivati.filter_minLen == 137
+    assert risolta.derivati.asv_len_min == 137
 
 
 @pytest.mark.parametrize("chiave", ["prev.min_samples", "qc.min_reads_filtered"])
@@ -1043,10 +1042,10 @@ def test_i_parametri_rimossi_sono_respinti(chiave, dati_esempio):
 def test_derivato_impostato_a_mano_e_un_errore(chiave, dati_esempio):
     """
     **Obiettivo**: Verificare che la valorizzazione manuale nel file YAML di uno
-    qualsiasi dei 3 parametri derivati (``filter.minLen``, ``asv.len_min``,
-    ``asv.len_max``) venga bloccata da G15 con codice ``E-G15-08``.
+    qualsiasi dei 2 parametri derivati (``asv.len_min``, ``asv.len_max``)
+    venga bloccata da G15 con codice ``E-G15-08``.
 
-    **Razionale scientifico e sistemistico**: I 3 parametri derivati sono
+    **Razionale scientifico e sistemistico**: I 2 parametri derivati sono
     determinati univocamente dalle formule della pipeline; permettere all'utente
     di sovrascriverli a mano creerebbe contraddizioni interne tra il filtro
     ``filterAndTrim`` (S2) e il filtro di lunghezza ASV (S7).
@@ -1197,7 +1196,7 @@ def test_resolved_contiene_i_parametri_derivati(dati_esempio, tmp_path):
     )
 
     parametri = documento["parametri"]
-    assert parametri["filter"]["minLen"] == 137
+    assert "minLen" not in parametri["filter"]
     assert parametri["asv"]["len_min"] == 137
     assert parametri["asv"]["len_max"] == 137
     assert set(documento["derivati"]) == set(PARAMETRI_DERIVATI)

@@ -91,7 +91,7 @@ class InferenzaVarianti(PipelineStep):
     #: filtrate e i modelli d'errore arrivano da S2 e S3, la cui impronta entra
     #: in quella di S4; run.batch_size non vi entra, perche' non cambia il
     #: risultato (vedi sopra).
-    parametri: ClassVar[tuple[str, ...]] = ("dada",)
+    parametri: ClassVar[tuple[str, ...]] = ("dada", "err.error_function")
     aggiustamenti: ClassVar[dict[str, Aggiustamento]] = {
         "E-S4-02": dimezza("run.batch_size"),
     }
@@ -126,6 +126,7 @@ class InferenzaVarianti(PipelineStep):
                     "senza_letture": [a for a in accession if a not in con_letture],
                     "pool": config.dada.pool,
                     "omega_a": config.dada.omega_a,
+                    "funzione_errore": config.err.error_function,
                     "lotto": config.run.batch_size,
                     "processi": config.run.threads,
                 },

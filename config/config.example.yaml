@@ -128,6 +128,11 @@ filter:
 err:
   # Nota: in YAML l'esponente richiede il segno esplicito. Scritto "1e8" il
   # valore verrebbe letto come stringa, non come numero.
+  # La funzione che stima i tassi d'errore dalle transizioni osservate: loess
+  # (il loess standard di dada2) oppure loess_monotono, che impone tassi non
+  # crescenti con la qualita': serve quando le qualita' sono raggruppate in
+  # pochi valori (NovaSeq, NextSeq), e S1 lo segnala (E-S1-03).
+  error_function: loess
   nbases: 1.0e+8
   max_consist: 10
   randomize: true
@@ -260,9 +265,10 @@ katharoseq:
   # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
   # target_taxon: Variovorax
   # Colonna con le cellule di ciascun controllo positivo: il livello di
-  # diluizione. Deve essere fra le colonne portate nell'oggetto
-  # (out.batch_columns o out.study_columns, secondo la tabella che la
-  # contiene: E-G15-12). Senza, nessuna curva (E-S11-02).
+  # diluizione. Si cerca nel file di arricchimento e poi nella tabella di
+  # studio, ed entra nell'oggetto anche se out.batch_columns e
+  # out.study_columns non la nominano. Senza controlli positivi e' nulla, e
+  # nessuna curva viene adattata (E-S11-05).
   # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
   # cell_count_column: katharoseq_cell_count
   collapse_rank: Genus              # rango a cui si somma il taxon atteso
@@ -342,6 +348,11 @@ qc:
   # Perdita media massima ammessa (E-S2-02): oltre il 30% di letture scartate,
   # in media per campione, i parametri del filtro vanno rivisti.
   max_frac_lost_filter: 0.30
+  # Frazione massima di letture piu' corte di filter.truncLen, che il filtro
+  # scarterebbe, sui campioni biologici e sui controlli positivi: oltre, G09
+  # (sulle prime letture) e S1 (su tutte) fermano l'esecuzione. Poche letture
+  # corte non la fermano.
+  max_frac_short_reads: 0.05
   warn_frac_chimeric: 0.25
   stop_frac_chimeric: 0.50
   # Frazione minima di varianti con il phylum assegnato da S8 (E-S8-02).

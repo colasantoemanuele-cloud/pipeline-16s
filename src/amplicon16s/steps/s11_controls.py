@@ -18,10 +18,16 @@ S12.
 dopo il filtro di lunghezza.
 
 **Il livello di diluizione viene dai dati.** E' il numero di cellule seminate,
-nella colonna ``katharoseq.cell_count_column`` del file di arricchimento,
-portata nell'oggetto da S10 con ``out.batch_columns``; il nome che ha
-nell'oggetto si legge da ``colonne_metadati.tsv`` di S10. Senza la colonna la
-curva non si costruisce.
+nella colonna ``katharoseq.cell_count_column`` del file di arricchimento o
+della tabella di studio, che S10 porta nell'oggetto; il nome che ha
+nell'oggetto si legge da ``colonne_metadati.tsv`` di S10.
+
+**Senza controlli positivi**, o senza la colonna dei livelli, non c'e' nulla
+da stimare: nessuna curva, la soglia e' il ripiego per tutti i campioni, e la
+fase lo dichiara con ``E-S11-05``, distinto da ``E-S11-02`` (controlli
+presenti, curva non attendibile). Un controllo senza piastra entra nella sola
+curva aggregata; uno con una sola lettura in nessuna, perche' la curva e'
+definita sul logaritmo della profondita'.
 
 **La soglia e' un risultato, non un parametro.** Sta in ``soglia.json``, per
 piastra, e ogni valore porta lo stadio a cui si applica: la soglia derivata
@@ -59,7 +65,8 @@ from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s10_phyloseq import COLONNE_INVENTARIO, NOME_COLONNE, NOME_OGGETTO
+from amplicon16s.metadata.tabelle import COLONNE_INVENTARIO
+from amplicon16s.steps.s10_phyloseq import NOME_COLONNE, NOME_OGGETTO
 
 __all__ = ["NOME_SOGLIA", "ValidazioneControlli", "colonna_dei_livelli"]
 
@@ -94,7 +101,10 @@ class ValidazioneControlli(PipelineStep):
     passo: ClassVar[Passo] = Passo.S11
     #: 2: la colonna dei livelli si cerca fra tutte le colonne portate
     #: nell'oggetto, dal file di arricchimento o dalla tabella di studio.
-    versione: ClassVar[int] = 2
+    #: 3: senza controlli positivi o senza la colonna dei livelli dichiara
+    #: E-S11-05 e non adatta curve; un controllo senza piastra o con una sola
+    #: lettura non ferma la fase.
+    versione: ClassVar[int] = 3
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La curva (katharoseq), i controlli minimi, la frazione di conformi e il
     #: comportamento sotto di essa (ctrl), la regola e il valore del ripiego (qc).
@@ -122,9 +132,11 @@ class ValidazioneControlli(PipelineStep):
                 "oggetto": str(albero.cartella(Fase.PHYLOSEQ) / NOME_OGGETTO),
                 "colonna_cellule": colonna,
                 "motivo_colonna": (
+                    "katharoseq.cell_count_column non dichiarata"
+                    if katharoseq.cell_count_column is None else
                     f"la colonna {katharoseq.cell_count_column!r} "
                     "(katharoseq.cell_count_column) non e' fra le colonne dell'oggetto "
-                    "integrato: va indicata in out.batch_columns o in out.study_columns"
+                    "integrato"
                 ),
                 "rango": katharoseq.collapse_rank,
                 "taxon": katharoseq.target_taxon,
@@ -145,7 +157,19 @@ class ValidazioneControlli(PipelineStep):
         riepilogo = json.loads((cartella / NOME_RIEPILOGO).read_text(encoding="utf-8"))
         soglia = json.loads((cartella / NOME_SOGLIA).read_text(encoding="utf-8"))
 
-        if soglia["ripiego"]["degradazione"]:
+        # Senza controlli positivi, o senza la colonna dei livelli, la curva
+        # manca per costruzione e non per un difetto dei controlli: e' un'altra
+        # dichiarazione, perche' chi legge deve sapere che non c'era nulla da
+        # stimare. Il valore applicato e' lo stesso ripiego.
+        if riepilogo["positivi"] == 0 or colonna is None:
+            if config.qc.min_reads_mode != "fixed":
+                contesto.degrada(
+                    "E-S11-05",
+                    f"{riepilogo['motivo_scelta']}: qc.min_reads_raw "
+                    f"({config.qc.min_reads_raw}) sulle letture grezze per tutti i campioni",
+                    scelta=soglia["scelta"],
+                )
+        elif soglia["ripiego"]["degradazione"]:
             motivi = "; ".join(
                 f"{m['piastra']}: {m['motivo']}" for m in soglia["ripiego"]["motivi"]
             )

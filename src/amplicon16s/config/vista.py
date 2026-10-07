@@ -101,7 +101,6 @@ class VistaConfig:
 
 #: A quale parametro corrisponde ciascun derivato: si legge se quello si legge.
 _DERIVATI = {
-    "filter_minLen": "filter.minLen",
     "asv_len_min": "asv.len_min",
     "asv_len_max": "asv.len_max",
 }

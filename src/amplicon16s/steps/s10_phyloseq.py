@@ -70,6 +70,7 @@ from amplicon16s.metadata.tabelle import (
     intestazione,
     leggi_tsv,
     nome_nell_oggetto,
+    tabella_delle_cellule,
     tabella_di_studio,
 )
 from amplicon16s.metadata.models import Inventario
@@ -152,6 +153,11 @@ def colonne_metadati(config: Any) -> list[dict[str, str]]:
     usati = set(COLONNE_INVENTARIO)
     richieste = [("studio", c) for c in config.out.study_columns]
     richieste += [("lotto", c) for c in config.out.batch_columns]
+    # I livelli dei controlli positivi servono a S11: la colonna entra
+    # nell'oggetto anche se nessuno dei due elenchi la nomina.
+    cellule = tabella_delle_cellule(config)
+    if cellule is not None:
+        richieste.append((cellule, config.katharoseq.cell_count_column))
     intestazioni = {"studio": intestazione(tabella_di_studio(config)[0])}
     if io.batch_table is not None:
         intestazioni["lotto"] = intestazione(Path(io.batch_table))
@@ -249,7 +255,9 @@ class AssemblaggioOggetto(PipelineStep):
     passo: ClassVar[Passo] = Passo.S10
     #: 2: classe e variabili dalla tabella di assay quando io.study_table non
     #: e' indicata; chiave del file di arricchimento estratta con io.accession_regex.
-    versione: ClassVar[int] = 2
+    #: 3: la colonna dei livelli dei controlli positivi entra nell'oggetto
+    #: anche se out.batch_columns e out.study_columns non la nominano.
+    versione: ClassVar[int] = 3
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La forma dell'oggetto (orientamento, identificativi, colonne portate;
     #: serializzazione ed export sono di S14); le tabelle e le colonne da cui
@@ -260,7 +268,7 @@ class AssemblaggioOggetto(PipelineStep):
         "out.taxa_are_rows", "out.asv_id_scheme", "out.sample_id_source",
         "out.study_columns", "out.batch_columns", "meta", "ctrl.column",
         "io.assay_table", "io.study_table", "io.batch_table", "io.accession_regex",
-        "decontam.batch_column", "err.batch_column",
+        "decontam.batch_column", "err.batch_column", "katharoseq.cell_count_column",
     )
 
     def calcola(self, contesto: StepContext) -> Produzione:

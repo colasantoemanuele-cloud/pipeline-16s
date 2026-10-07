@@ -8,6 +8,8 @@
 #                      p75, p90: il profilo di qualita' per posizione
 #   letture_grezze.tsv il conteggio delle letture di ogni campione, nel formato
 #                      del tracciamento delle letture (R/lib/letture.R)
+#   valori_qualita.tsv qualita, basi: i valori di qualita' presenti nelle
+#                      letture e quante basi li portano
 #   riepilogo.json     lunghezza minima, massima e moda sull'intero insieme, e
 #                      per campione; profilo di qualita' aggregato
 #
@@ -151,6 +153,15 @@ esegui_fase(function(parametri, cartella) {
   mediane <- vapply(seq_len(nrow(totale_q)), function(i) {
     quantile_istogramma(totale_q[i, ], 0.5)
   }, integer(1))
+  # I valori di qualita' presenti, con le basi che li portano: dice se il
+  # sequenziatore raggruppa le qualita' in pochi valori.
+  basi_per_valore <- colSums(totale_q)
+  usati <- which(basi_per_valore > 0)
+  scrivi_atomico(
+    c("qualita\tbasi", sprintf("%d\t%.0f", usati - 1L, basi_per_valore[usati])),
+    file.path(cartella, "valori_qualita.tsv")
+  )
+
   scrivi_json(
     list(
       campioni = length(profili),
@@ -165,5 +176,5 @@ esegui_fase(function(parametri, cartella) {
     file.path(cartella, "riepilogo.json")
   )
 
-  c("lunghezze.tsv", "qualita.tsv", tracciamento, "riepilogo.json")
+  c("lunghezze.tsv", "qualita.tsv", "valori_qualita.tsv", tracciamento, "riepilogo.json")
 })

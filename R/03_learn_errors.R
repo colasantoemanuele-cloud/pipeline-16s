@@ -9,7 +9,8 @@
 # e convergenza.json, con l'esito dell'auto-consistenza di ogni modello.
 #
 # Parametri: modelli (nome -> file filtrati, gia' nell'ordine in cui usarli),
-# nbases, max_consist, seme, processi. L'ordine e la scelta dei campioni li
+# nbases, max_consist, funzione_errore (err.error_function: la stima dei tassi,
+# R/lib/errore_loess.R), seme, processi. L'ordine e la scelta dei campioni li
 # decide la fase Python: learnErrors riceve l'elenco gia' mescolato con il seme
 # di run.seed e randomize = FALSE, e usa i file nell'ordine dato finche' le
 # basi non superano nbases. Cosi' si sa esattamente su quali campioni e' stata
@@ -24,7 +25,7 @@
 # a parita' di ingresso e' identico byte per byte, come il modello. Un PDF non
 # lo sarebbe, perche' ne registra la data di creazione.
 
-for (f in c("io_json.R", "errors.R", "letture.R")) {
+for (f in c("io_json.R", "errors.R", "letture.R", "errore_loess.R")) {
   source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
 }
 
@@ -54,6 +55,7 @@ esegui_fase(function(parametri, cartella) {
       file,
       nbases = as.numeric(parametri$nbases),
       randomize = FALSE,
+      errorEstimationFunction = funzione_errore(parametri$funzione_errore),
       MAX_CONSIST = as.integer(parametri$max_consist),
       multithread = as.integer(parametri$processi),
       verbose = 0

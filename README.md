@@ -301,7 +301,7 @@ Sono realizzati:
   della riga di comando. Tutto questo avviene prima che venga
   allocato qualunque calcolo: è il gate che apre la sequenza di S0, perché un errore
   di configurazione va scoperto prima di aprire un solo file. I parametri derivati
-  (`filter.minLen`, `asv.len_min`, `asv.len_max`) discendono dalla sola
+  (`asv.len_min`, `asv.len_max`) discendono dalla sola
   configurazione; il numero minimo di campioni del filtro di prevalenza lo calcola
   S13 sui biologici che tiene;
 - l'inventario dei campioni: il crosswalk fra i file di letture, la tabella di assay
@@ -380,11 +380,12 @@ Sono realizzati:
   che leggono le sequenze, così un'etichetta non dichiarata è diagnosticata come tale
   e non come segnale assente. G02 e G08 verificano ogni colonna che la configurazione
   nomina, sulle tabelle di assay e di studio e sul file del lotto, comprese quelle da
-  portare nell'oggetto (`out.study_columns`, `out.batch_columns`), fra le quali deve
-  stare la colonna delle cellule dei controlli positivi, perché è dall'oggetto che la
-  calibrazione la legge (`E-G15-12`); due colonne richieste che nell'oggetto
-  prenderebbero lo stesso nome, o quello di una colonna dell'inventario, sono
-  respinte da G15 (`E-G15-13`) invece che da S10 a calcolo concluso; G08 respinge un file del lotto in cui un
+  portare nell'oggetto (`out.study_columns`, `out.batch_columns`) e la colonna delle
+  cellule dei controlli positivi, cercata nel file del lotto e poi nella tabella di
+  studio, che S10 porta nell'oggetto anche se quegli elenchi non la nominano; due
+  colonne richieste che nell'oggetto prenderebbero lo stesso nome, o quello di una
+  colonna dell'inventario, sono respinte da G15 (`E-G15-13`) invece che da S10 a
+  calcolo concluso; G08 respinge un file del lotto in cui un
   campione non ha riga, ne ha più d'una, o non ha la piastra o la corsa dichiarate.
   G07 riconosce le letture inverse dal marcatore che precede l'estensione; i FASTQ,
   compressi o no, si riconoscono dai primi byte, in S0 come nel controllo che S2 fa
@@ -411,7 +412,7 @@ Sono realizzati:
   manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
   in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
   lo stesso checksum fra due esecuzioni sugli stessi ingressi;
-- il catalogo degli errori (64 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (69 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -458,8 +459,8 @@ Sono realizzati:
   per ogni passo quante letture restano a ciascun campione, `risorse.R` per riportare
   nel log la memoria di picco del processo. Le usano gli script delle fasi e gli
   script doppioni dei test, in `tests/r_doppioni/`;
-- la gestione degli artefatti: l'albero delle quattordici cartelle di output sotto
-  `io.out_root` e, in ciascuna, un manifesto che registra ogni file scritto con il suo
+- la gestione degli artefatti: l'albero delle cartelle di output sotto
+  `io.out_root` (quattordici, più `12_final/intermedi`) e, in ciascuna, un manifesto che registra ogni file scritto con il suo
   checksum; gli artefatti scritti dai processi R vi si registrano allo stesso modo di
   quelli scritti da Python. Ogni scrittura, da Python come da R, passa per un file
   temporaneo nella stessa cartella (`.scrittura-*`) poi rinominato: un'interruzione
@@ -677,9 +678,18 @@ Sono realizzati:
   riepilogo sull'intero insieme. Sul dataset di riferimento, nel container, la
   lunghezza minima è 137, la moda 151, e la qualità mediana non scende sotto 25 in
   nessuna posizione; la fase impiega alcuni minuti. S1 chiude il limite noto di G09,
-  che stima la lunghezza minima dalle prime `qc.head_reads` letture: ricontrolla la
-  condizione sul minimo vero e, se `filter.truncLen` lo supera, si ferma con
-  `E-S1-02`. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
+  che misura le prime `qc.head_reads` letture: su tutte le letture calcola, per
+  classe, la frazione più corta di `filter.truncLen`, e si ferma con `E-S1-02` solo
+  se quella dei campioni biologici e dei controlli positivi supera
+  `qc.max_frac_short_reads` (0,05; i controlli negativi non contano). Una sola
+  lettura corta non ferma più né G09 né S1: in un dataset a lunghezza variabile ce
+  n'è quasi sempre qualcuna, e il filtro la toglie. S1 conta anche i valori di
+  qualità distinti (`valori_qualita.tsv`) e, se sono quattro o meno (qualità
+  raggruppate), lo dichiara con `E-S1-03`, perché la stima standard del modello di
+  errore vi è poco affidabile: `err.error_function` sceglie fra la funzione standard
+  di dada2 (`loess`) e una variante pesata e monotona (`loess_monotono`,
+  `R/lib/errore_loess.R`), usata da S3 e da S4. Una corsa senza letture filtrate
+  ferma S3 con `E-S3-03`. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
   `filter.truncLen_shortfall_warn`, che prima registrava S0 dalla stima;
 - **la fase S2, filtro e troncamento** (`steps/s02_filter.py`, `R/02_filter.R`), con
   `dada2::filterAndTrim` e i parametri del gruppo `filter`; scrive in `03_filtered/`
@@ -825,7 +835,7 @@ Sono realizzati:
   per un modello non lineare dice solo quanto la curva riduce l'errore rispetto alla
   media. La profondità minima è quella a cui la curva raggiunge
   `katharoseq.target_sensitivity` (0,90). Il livello di diluizione viene dai dati, la
-  colonna `katharoseq.cell_count_column` (una di quelle portate nell'oggetto), non dai nomi dei
+  colonna `katharoseq.cell_count_column` (del file del lotto o della tabella di studio), non dai nomi dei
   campioni. Si adattano la curva aggregata e una per piastra, e si sceglie il modello
   con la bontà maggiore fra quelli ammissibili; una curva vale se ha almeno
   `ctrl.min_positives` punti, R² non inferiore a `katharoseq.min_r2`, la soglia
@@ -885,17 +895,21 @@ Sono realizzati:
   nell'aggregata e, per piastra, nelle piastre 1 e 2; ASV1, un Pseudomonas con 4,1
   milioni di letture nei biologici, non è un contaminante (probabilità 1);
 - **la fase S13, i filtri finali** (`steps/s13_filtri.py`, `R/13_filtri.R`), in
-  `12_final/`, con i propri file del ponte e il proprio manifesto. Dall'oggetto
+  `12_final/intermedi/`: l'oggetto filtrato e le tabelle dei filtri sono intermedi di
+  calcolo, e in `12_final/` stanno solo i file consegnati da S14. Dall'oggetto
   decontaminato ricava l'oggetto dei soli campioni biologici: un controllo
   nell'oggetto finale sarebbe trattato come un campione ambientale. I controlli
-  positivi e negativi restano, dall'oggetto integrato di S10, in `ps_controlli.rds`.
+  positivi e negativi li consegna S14, dall'oggetto integrato di S10, in
+  `ps_controlli.rds`.
   I filtri, in quest'ordine: (1) **profondità**, sui campioni: ogni biologico si
   confronta con la soglia della sua piastra in `soglia.json` di S11, allo stadio che
   la soglia dichiara, con le letture del tracciamento (senza chimere da S7, o grezze
   da S2 per il ripiego), non con la profondità dell'oggetto decontaminato, che non è
   la grandezza su cui la soglia è stata stimata; (2) **tassonomico**, sulle varianti:
   senza phylum (`filt.remove_na_phylum`) e i taxa di `filt.exclude_taxa` cercati in
-  ogni rango; (3) **prevalenza**, sulle varianti: resta una variante con almeno
+  ogni rango, confrontati senza il prefisso di rango che alcuni riferimenti portano
+  (`p__`, `o__`); se la tassonomia non ha il rango Phylum il primo non si applica, e
+  la fase lo dichiara con `E-S13-05`; (3) **prevalenza**, sulle varianti: resta una variante con almeno
   `prev.min_count` letture in almeno `ceil(prev.min_fraction × n)` campioni, dove
   `n` sono i biologici tenuti dopo i filtri 1 e 2, perché numeratore e denominatore
   si riferiscono allo stesso insieme e un campione sotto soglia di profondità ha una
@@ -903,19 +917,24 @@ Sono realizzati:
   `qc.min_reads_final` il campione esce, senza fermare l'esecuzione. I due filtri
   sulle varianti commutano. Un campione svuotato dal filtro tassonomico non ha
   segnale batterico ed esce con la degradazione `E-S13-03`; uno svuotato dal filtro
-  di prevalenza ferma la fase con `E-S13-02`, a revisione umana, perché aveva letture
-  batteriche e toglierlo dipende dalle soglie. Gli identificativi delle varianti non
+  di prevalenza esce anch'esso con il motivo, e la fase lo dichiara con la
+  degradazione `E-S13-02`: aveva letture batteriche, solo rare, e chi legge il
+  manifesto deve sapere che la soglia lo ha tolto. Se nessun campione supera i filtri
+  la fase si ferma con `E-S13-04`. Gli identificativi delle varianti non
   si rinumerano. I campioni esclusi, con il filtro e il motivo, sono in
   `esclusioni.tsv`; le varianti rimosse in `varianti_rimosse.tsv`; l'ordine, il
   denominatore e ciò che ciascun filtro ha tolto, per classe, in
   `filtri_riepilogo.json`;
 - **la fase S14, la serializzazione** (`steps/s14_finale.py`, `R/14_finale.R`,
-  `R/lib/export.R`), in `12_final/` accanto a S13: `ps_final.rds`
+  `R/lib/export.R`), in `12_final/`: `ps_final.rds`
   (`out.serialization`) e, con `out.export_flat`, gli export piatti `conteggi.tsv`,
   `tassonomia.tsv`, `metadati.tsv` e `sequenze.fasta` (e `albero.nwk` con la
   filogenesi attiva), scritti senza numeri decimali,
-  in UTF-8, con valori mancanti come campo vuoto; `checksum.sha256` riporta
-  l'impronta di ogni file consegnato, nella forma di `sha256sum`. La validazione,
+  in UTF-8, con valori mancanti come campo vuoto; se l'inventario ha controlli,
+  `ps_controlli.rds`; `checksum.sha256` riporta l'impronta di ogni file consegnato,
+  `ps_controlli.rds` compreso, nella forma di `sha256sum`. Prima del calcolo S14
+  toglie dalla cartella i file consegnati di un'esecuzione precedente (un albero o
+  degli export che la configurazione non produce più). La validazione,
   `E-S14-01`: componenti allineati, solo biologici, nessun campione e nessuna variante
   senza letture, l'oggetto riletto e quello ricostruito dai soli export identici a
   quello serializzato, `ps_filtrato.rds` di S13 integro rispetto al suo manifesto, la

@@ -62,7 +62,7 @@
 # Un campione solo non attiva il pseudo-pooling (dada: length(derep) <= 1
 # implica pool = FALSE), e cosi' qui.
 
-for (f in c("io_json.R", "errors.R", "letture.R", "risorse.R")) {
+for (f in c("io_json.R", "errors.R", "letture.R", "risorse.R", "errore_loess.R")) {
   source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
 }
 
@@ -177,11 +177,13 @@ esegui_fase(function(parametri, cartella) {
     artefatti <- c(artefatti, "priori.tsv")
 
     # Il modello della seconda passata, come in dada: errorEstimationFunction
-    # (loessErrfun) sulle transizioni accumulate della prima.
+    # (la stessa di S3, err.error_function) sulle transizioni accumulate della
+    # prima.
+    stima_errori <- funzione_errore(parametri$funzione_errore)
     seconda <- list()
     for (file_modello in names(errori)) {
       stimato <- tryCatch(
-        suppressWarnings(dada2::loessErrfun(transizioni[[file_modello]])),
+        suppressWarnings(stima_errori(transizioni[[file_modello]])),
         error = function(e) NULL
       )
       if (is.null(stimato)) {

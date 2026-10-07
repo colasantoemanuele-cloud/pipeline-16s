@@ -32,6 +32,12 @@ negativi. Se la modalita' dichiarata rimuove dai biologici una frazione
 delle letture oltre ``qc.max_frac_contaminant``, la fase si ferma con
 ``E-S12-02``.
 
+**Senza abbastanza negativi.** Con meno di ``decontam.min_blanks`` controlli
+negativi con letture in tutto il dataset la prevalenza nei negativi non e'
+stimabile: nessuna variante viene rimossa, e la fase lo dichiara con
+``E-S12-03``. L'oggetto prosegue con i suoi contaminanti: e' un risultato non
+decontaminato, e il manifesto lo dice.
+
 **La rimozione.** I contaminanti della modalita' dichiarata escono dall'oggetto in
 tutti i campioni; le altre varianti tengono il loro identificativo, senza
 rinumerazione. L'oggetto ripulito e' ``ps_decontaminato.rds``.
@@ -65,7 +71,9 @@ class Decontaminazione(PipelineStep):
     """S12: i contaminanti da reagente, identificati e rimossi."""
 
     passo: ClassVar[Passo] = Passo.S12
-    versione: ClassVar[int] = 2
+    #: 3: con meno di decontam.min_blanks negativi con letture non toglie
+    #: nulla e lo dichiara (E-S12-03).
+    versione: ClassVar[int] = 3
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("decontaminate",)
     #: Il gruppo decontam (metodo, modalita', soglia, negativi minimi, colonna e
@@ -103,6 +111,11 @@ class Decontaminazione(PipelineStep):
         riepilogo = json.loads(
             (albero.cartella(self.cartella) / NOME_RIEPILOGO).read_text(encoding="utf-8")
         )
+        # Senza abbastanza negativi non c'e' stata decontaminazione: l'oggetto
+        # passa a S13 con i suoi contaminanti, e va detto.
+        if riepilogo["confronto"]["negativi"] < decontam.min_blanks:
+            contesto.degrada("E-S12-03", riepilogo["esito"],
+                             negativi=riepilogo["confronto"]["negativi"])
         if not riepilogo["entro_max_frazione"]:
             raise errore("E-S12-02", riepilogo["esito"], modalita=riepilogo["modalita"])
         metriche: dict[str, Any] = {

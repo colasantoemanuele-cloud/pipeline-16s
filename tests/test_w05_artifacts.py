@@ -95,7 +95,7 @@ CARTELLE_ATTESE = (
     "00_config", "01_input_validation", "02_qc_profiles", "03_filtered",
     "04_error_models", "05_asv_inference", "06_seqtab", "07_chimera",
     "08_taxonomy", "09_phylogeny", "10_phyloseq", "11_controls", "12_final",
-    "99_logs",
+    "12_final/intermedi", "99_logs",
 )
 
 
@@ -194,20 +194,24 @@ def test_un_file_assente_non_corrisponde(tmp_path):
 def test_le_fasi_sono_quattordici():
     """
     **Obiettivo**: Verificare che l'enumerazione ``Fase`` contenga esattamente
-    le 14 directory di output previste dall'architettura.
+    le 15 directory di output previste dall'architettura: 14 alla radice e
+    ``12_final/intermedi``, sotto la cartella consegnata.
 
     **Razionale scientifico e sistemistico**: Blocca regressioni strutturali
-    nell'albero di output: mentre i passi logici sono 15 (`S0..S14`), le cartelle
-    fisiche sono 14 perché `07_chimera` (S6, S7), `11_controls` (S11, S12) e
-    `12_final` (S13, S14) aggregano fasi contigue più `00_config` e `99_logs`.
+    nell'albero di output: i passi logici sono 15 (`S0..S14`); `07_chimera`
+    (S6, S7) e `11_controls` (S11, S12) aggregano fasi contigue, S13 scrive i
+    suoi intermedi in `12_final/intermedi` perché in `12_final` restino i soli
+    file consegnati da S14, e si aggiungono `00_config` e `99_logs`.
     """
-    assert len(list(Fase)) == 14
+    assert len(list(Fase)) == 15
+    assert len([f for f in Fase if "/" not in f.value]) == 14
 
 
 def test_i_nomi_delle_cartelle_sono_quelli_previsti():
     """
-    **Obiettivo**: Verificare che i nomi delle 14 directory corrispondano
-    esattamente alla nomenclatura numerata (``00_config`` .. ``12_final``, ``99_logs``).
+    **Obiettivo**: Verificare che i nomi delle directory corrispondano
+    esattamente alla nomenclatura numerata (``00_config`` .. ``12_final``,
+    ``12_final/intermedi``, ``99_logs``).
 
     **Razionale scientifico e sistemistico**: Gli script R a valle, i moduli di
     analisi ecologica (`amplicon16s_eco`) e il generatore di report si aspettano
@@ -227,7 +231,7 @@ def test_creare_l_albero_produce_tutte_le_cartelle(albero, tmp_path):
     di log strutturato ``99_logs/pipeline.jsonl`` siano pronte e scrivibili.
     """
     albero.crea()
-    presenti = sorted(p.name for p in tmp_path.iterdir() if p.is_dir())
+    presenti = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*") if p.is_dir())
     assert presenti == sorted(CARTELLE_ATTESE)
 
 

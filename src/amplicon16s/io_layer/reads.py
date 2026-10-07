@@ -97,6 +97,14 @@ class StatisticheFile:
     #: Vero se il file è finito prima di raggiungere il numero richiesto: non
     #: è un problema, ma dice che le statistiche coprono tutto il file.
     esaurito: bool = False
+    #: Letture esaminate piu' corte della lunghezza richiesta alla scansione
+    #: (``filter.truncLen``): il filtro le scarterebbe.
+    piu_corte: int = 0
+
+    @property
+    def frazione_corte(self) -> float:
+        """La frazione delle letture esaminate piu' corte della lunghezza richiesta."""
+        return self.piu_corte / self.letture_esaminate if self.letture_esaminate else 0.0
 
     @property
     def valido(self) -> bool:
@@ -124,8 +132,12 @@ def scansiona_file(
     primer: str | None,
     motivo: str | None,
     inizio_motivo: int = 0,
+    lunghezza_richiesta: int = 0,
 ) -> StatisticheFile:
     """Legge le prime ``head_reads`` letture e ne ricava tutte le statistiche.
+
+    ``lunghezza_richiesta`` e' la lunghezza sotto la quale una lettura si conta
+    fra le piu' corte (``filter.truncLen``); zero non ne conta nessuna.
 
     ``primer`` e ``motivo`` sono espressioni regolari. Il primer si cerca
     **ancorato a inizio lettura**: starebbe in testa se non fosse stato tolto.
@@ -139,7 +151,7 @@ def scansiona_file(
     espressione_primer = re.compile(primer) if primer is not None else None
     espressione_motivo = re.compile(motivo) if motivo is not None else None
 
-    letture = con_primer = con_motivo = 0
+    letture = con_primer = con_motivo = corte = 0
     minima: int | None = None
     massima: int | None = None
     esaurito = True
@@ -185,6 +197,8 @@ def scansiona_file(
                 lunghezza = len(sequenza)
                 minima = lunghezza if minima is None else min(minima, lunghezza)
                 massima = lunghezza if massima is None else max(massima, lunghezza)
+                if lunghezza < lunghezza_richiesta:
+                    corte += 1
                 if espressione_primer is not None and espressione_primer.match(sequenza):
                     con_primer += 1
                 # Sulla lettura tagliata, non dalla posizione del taglio: un
@@ -209,7 +223,7 @@ def scansiona_file(
 
     return StatisticheFile(
         percorso.name, letture, minima, massima, con_primer, con_motivo,
-        esaurito=esaurito,
+        esaurito=esaurito, piu_corte=corte,
     )
 
 
@@ -219,9 +233,11 @@ def scansiona(
     primer: str | None,
     motivo: str | None,
     inizio_motivo: int = 0,
+    lunghezza_richiesta: int = 0,
 ) -> dict[str, StatisticheFile]:
     """Scansiona i file indicati e restituisce le statistiche di ciascuno."""
     return {
-        chiave: scansiona_file(percorso, head_reads, primer, motivo, inizio_motivo)
+        chiave: scansiona_file(percorso, head_reads, primer, motivo, inizio_motivo,
+                               lunghezza_richiesta)
         for chiave, percorso in percorsi.items()
     }

@@ -40,6 +40,13 @@
 # e una piastra senza curva valida ripiega su qc.min_reads_raw. Se nessun
 # modello e' ammissibile, ripiegano tutte.
 #
+# SENZA CONTROLLI POSITIVI, o senza la colonna dei livelli, non si adatta
+# alcuna curva: la scelta e' "nessuno" con il motivo, e la fase Python lo
+# dichiara (E-S11-05). Un controllo senza piastra entra nella sola curva
+# aggregata; uno con una sola lettura non entra in alcuna curva, perche' la
+# curva e' definita sul logaritmo della profondita', che per una lettura e'
+# zero.
+#
 # GLI STADI. La soglia derivata vale sulle letture dell'oggetto integrato
 # (katharoseq.read_stage, "nonchimeric"); il ripiego qc.min_reads_raw vale sulle
 # letture grezze ("raw"). Le due grandezze non sono confrontabili, e ogni
@@ -84,19 +91,27 @@ esegui_fase(function(parametri, cartella) {
   # ---- Fedelta' dei controlli positivi -------------------------------------
   motivo_globale <- character()
   rango <- parametri$rango
-  if (rango %in% colnames(tax)) {
+  positivi <- which(dati$classe == "controllo_positivo")
+  if (length(positivi) == 0L) {
+    bersaglio <- rep(FALSE, nrow(tax))
+    motivo_globale <- "nessun controllo positivo nell'inventario"
+  } else if (is.null(parametri$taxon)) {
+    bersaglio <- rep(FALSE, nrow(tax))
+    motivo_globale <- "katharoseq.target_taxon non dichiarato"
+  } else if (rango %in% colnames(tax)) {
     bersaglio <- !is.na(tax[, rango]) & tax[, rango] == parametri$taxon
   } else {
     bersaglio <- rep(FALSE, nrow(tax))
     motivo_globale <- c(motivo_globale, sprintf("rango %s assente nella tassonomia", rango))
   }
-  positivi <- which(dati$classe == "controllo_positivo")
   n_pos <- profondita[positivi]
   target <- colSums(conteggi[bersaglio, positivi, drop = FALSE])
   fedelta <- ifelse(n_pos > 0, target / pmax(n_pos, 1), NA_real_)
 
   colonna <- parametri$colonna_cellule
-  if (is.null(colonna)) {
+  if (length(positivi) == 0L) {
+    cellule <- numeric()
+  } else if (is.null(colonna)) {
     cellule <- rep(NA_real_, length(positivi))
     motivo_globale <- c(motivo_globale, parametri$motivo_colonna)
   } else {
@@ -109,7 +124,7 @@ esegui_fase(function(parametri, cartella) {
   }
 
   conf <- conformita(cellule, fedelta, n_pos, min_positivi)
-  nella_curva <- !is.na(cellule) & n_pos >= 1 & !is.na(fedelta) & conf$esito != "non conforme"
+  nella_curva <- !is.na(cellule) & n_pos > 1 & !is.na(fedelta) & conf$esito != "non conforme"
   if (length(motivo_globale) == 0L && sum(nella_curva) < min_positivi) {
     motivo_globale <- sprintf(
       "%d controlli positivi utilizzabili per la curva, meno di ctrl.min_positives (%d)",
@@ -148,7 +163,7 @@ esegui_fase(function(parametri, cartella) {
     curve[["aggregato"]] <- valuta("aggregato", punti)
     for (p in sort(unique(piastra[positivi][punti]), method = "radix")) {
       curve[[paste0("piastra ", p)]] <- valuta(
-        paste0("piastra ", p), punti[piastra[positivi][punti] == p])
+        paste0("piastra ", p), punti[piastra[positivi][punti] %in% p])
     }
   }
   per_piastra <- Filter(function(cv) cv$modello != "aggregato" && cv$converge, curve)

@@ -382,7 +382,8 @@ def test_s1_scrive_i_profili_con_il_proprio_manifesto(bioconductor, eseguita):
 
     manifesto_s1 = run.albero.manifesto_passo(Passo.S1, Fase.QC_PROFILES)
     assert set(manifesto_s1.nomi) == {
-        "lunghezze.tsv", "qualita.tsv", "letture_grezze.tsv", "riepilogo.json"
+        "lunghezze.tsv", "qualita.tsv", "letture_grezze.tsv", "riepilogo.json",
+        "valori_qualita.tsv",
     }
     assert run.valuta().situazioni[Passo.S1].stato.value == "completata"
 
@@ -534,7 +535,10 @@ def test_s1_ferma_se_il_troncamento_supera_il_minimo_vero(bioconductor, tmp_path
 
     stima = min(min(prime(p, 20)) for p in (RIDOTTO / "fastq").iterdir())
     assert stima > 137
-    config = config_ridotta(tmp_path, qc={"head_reads": 20}, filter={"truncLen": stima})
+    # Dalla settimana 28 S1 giudica la frazione di letture piu' corte: con la
+    # frazione ammessa a zero, una sola lettura corta oltre la testa ferma.
+    config = config_ridotta(tmp_path, qc={"head_reads": 20, "max_frac_short_reads": 0.0},
+                            filter={"truncLen": stima})
     run, esito = _fino_a_s1(config)
 
     assert esito.conclusione is Conclusione.ARRESTATA

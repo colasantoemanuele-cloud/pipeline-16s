@@ -115,7 +115,6 @@ SequenzaIupac = Annotated[str, Field(min_length=1), AfterValidator(_iupac_valido
 #: in :mod:`amplicon16s.config.resolve`; qui servono i soli nomi, per poter
 #: spiegare il rifiuto invece di limitarsi a segnalare una chiave sconosciuta.
 PARAMETRI_DERIVATI: Final[tuple[str, ...]] = (
-    "filter.minLen",
     "asv.len_min",
     "asv.len_max",
 )
@@ -241,6 +240,7 @@ class Filter(_Gruppo):
 class Err(_Gruppo):
     """Apprendimento del modello di errore di sequenziamento."""
 
+    error_function: Literal["loess", "loess_monotono"] = d.ERR_ERROR_FUNCTION
     nbases: RealePositivo = d.ERR_NBASES
     max_consist: InteroPositivo = d.ERR_MAX_CONSIST
     randomize: StrictBool = d.ERR_RANDOMIZE
@@ -298,6 +298,18 @@ class Tax(_Gruppo):
     min_boot: Annotated[int, Field(ge=0, le=100)] = d.TAX_MIN_BOOT
     try_rc: StrictBool = d.TAX_TRY_RC
     assign_species: StrictBool = d.TAX_ASSIGN_SPECIES
+
+    @model_validator(mode="after")
+    def _specie_non_realizzata(self) -> Tax:
+        """Respinge ``assign_species`` vero: l'assegnazione della specie non e'
+        realizzata, e accettare il parametro farebbe credere il contrario.
+        """
+        if self.assign_species:
+            raise ValueError(
+                "assign_species: true non e' realizzato: la pipeline assegna la "
+                "tassonomia fino al genere. Imposta false"
+            )
+        return self
     # Elenco dei taxa con un difetto noto del riferimento, nella forma
     # rank,name,path,ranks_present,ranks_expected: S8 marca le assegnazioni che
     # vi ricadono. Facoltativo: non tutti i riferimenti ne hanno uno.
@@ -394,8 +406,8 @@ class Katharoseq(_Gruppo):
     # che non lo siano quando ctrl.positive_values non e' vuoto).
     target_taxon: StringaNonVuota | None
     # Colonna con le cellule di ciascun controllo positivo, il livello di
-    # diluizione; nome originale della colonna, che deve essere fra quelle
-    # portate nell'oggetto (out.batch_columns o out.study_columns).
+    # diluizione; nome originale della colonna, cercata nel file di
+    # arricchimento e poi nella tabella di studio (S10 la porta nell'oggetto).
     cell_count_column: StringaNonVuota | None
     collapse_rank: Literal["Phylum", "Class", "Order", "Family", "Genus"] = (
         d.KATHAROSEQ_COLLAPSE_RANK
@@ -455,6 +467,7 @@ class Qc(_Gruppo):
     # e ai controlli positivi, non ai negativi: vedi steps/s02_filter.py.
     max_zeroed_samples: InteroNonNegativo = d.QC_MAX_ZEROED_SAMPLES
     max_frac_lost_filter: Frazione = d.QC_MAX_FRAC_LOST_FILTER
+    max_frac_short_reads: Frazione = d.QC_MAX_FRAC_SHORT_READS
     warn_frac_chimeric: Frazione = d.QC_WARN_FRAC_CHIMERIC
     stop_frac_chimeric: Frazione = d.QC_STOP_FRAC_CHIMERIC
     # Frazione minima di varianti con il phylum assegnato (S8, E-S8-02): vedi

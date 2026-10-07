@@ -23,7 +23,7 @@ prevalenza S13; serializzazione, export e validazione S14; ``12_final/``).
   di S14; il manifesto dei checksum e' completo; gli artefatti sono identici
   fra due esecuzioni e con impostazioni locali diverse;
 - un campione svuotato dal filtro tassonomico esce con ``E-S13-03``; uno
-  svuotato dal filtro di prevalenza ferma con ``E-S13-02``; i campioni con
+  svuotato dal filtro di prevalenza esce con ``E-S13-02``; i campioni con
   poche letture finali escono senza fermare; una frazione trattenuta sotto
   ``qc.min_frac_reads_retained`` ferma con ``E-S14-01``;
 - i test sui dati reali girano tutti sullo stesso processo di pytest-xdist;
@@ -154,13 +154,14 @@ def _impronte(cartella: Path) -> dict[str, str]:
     return {
         p.name: hashlib.md5(p.read_bytes()).hexdigest()
         for p in sorted(cartella.iterdir())
-        if not p.name.startswith((PREFISSO, "manifest"))
+        if p.is_file() and not p.name.startswith((PREFISSO, "manifest"))
     }
 
 
 def _riepilogo(run) -> dict:
     """``filtri_riepilogo.json`` di S13."""
-    return json.loads((run.albero.cartella(Fase.FINAL) / "filtri_riepilogo.json").read_text())
+    return json.loads(
+        (run.albero.cartella(Fase.FINAL_INTERMEDI) / "filtri_riepilogo.json").read_text())
 
 
 # --------------------------------------------------------------------------- #
@@ -244,8 +245,8 @@ def test_l_oggetto_finale_ha_solo_i_biologici_e_i_controlli_stanno_a_parte(
     """
     **Obiettivo**: Verificare che S13 e S14 si concludano dopo S12, che
     ``ps_final.rds`` contenga solo campioni biologici, quelli dell'inventario
-    meno gli esclusi di ``esclusioni.tsv``, che ``ps_controlli.rds`` contenga
-    tutti i controlli positivi e negativi, e che gli identificativi delle
+    meno gli esclusi di ``esclusioni.tsv``, che ``ps_controlli.rds``, consegnato
+    da S14, contenga tutti i controlli positivi e negativi, e che gli identificativi delle
     varianti finali siano un sottoinsieme ordinato di quelli di S10.
 
     **Razionale scientifico e sistemistico**: Un controllo nell'oggetto finale
@@ -267,7 +268,8 @@ jsonlite::write_json(list(
   controlli = sample_names(c), varianti = taxa_names(f), iniziali = taxa_names(i)
 ), uscita)
 """, tmp_path)
-    esclusi = [e["accession"] for e in _tsv(cartella / "esclusioni.tsv")]
+    intermedi = run.albero.cartella(Fase.FINAL_INTERMEDI)
+    esclusi = [e["accession"] for e in _tsv(intermedi / "esclusioni.tsv")]
     biologici = [c.accession for c in inventario.di_classe(ClasseCampione.BIOLOGICO)]
     assert letti["classi"] == ["biologico"]
     assert letti["finale"] == [a for a in biologici if a not in set(esclusi)]
@@ -275,7 +277,7 @@ jsonlite::write_json(list(
     assert set(letti["controlli"]) == {c.accession for c in inventario if c.classe.e_controllo}
     posizioni = [letti["iniziali"].index(v) for v in letti["varianti"]]
     assert posizioni == sorted(posizioni)
-    for e in _tsv(cartella / "esclusioni.tsv"):
+    for e in _tsv(intermedi / "esclusioni.tsv"):
         assert e["filtro"] and e["motivo"]
     print(f"\nS13: {dict(esito.eseguite[0].metriche)}\nS14: {dict(esito.eseguite[1].metriche)}")
 
@@ -303,7 +305,7 @@ def test_il_filtro_per_profondita_usa_le_letture_del_tracciamento(bioc, finale_c
         voce = soglia["per_piastra"][c.piastra]
         if letture[voce["stadio"]][c.accession] < voce["valore"]:
             attesi.add(c.accession)
-    esclusi = {e["accession"] for e in _tsv(run.albero.cartella(Fase.FINAL) / "esclusioni.tsv")
+    esclusi = {e["accession"] for e in _tsv(run.albero.cartella(Fase.FINAL_INTERMEDI) / "esclusioni.tsv")
                if e["filtro"] == "profondita"}
     assert esclusi == attesi
 
@@ -334,7 +336,8 @@ f <- readRDS({json.dumps(str(cartella / 'ps_final.rds'))})
 jsonlite::write_json(as.list(rowSums(as(otu_table(f), "matrix") >= 2)), uscita, auto_unbox = TRUE)
 """, tmp_path)
     assert min(presenze.values()) >= prevalenza["min_campioni"]
-    rimosse = [r for r in _tsv(cartella / "varianti_rimosse.tsv") if r["filtro"] == "prevalenza"]
+    rimosse = [r for r in _tsv(run.albero.cartella(Fase.FINAL_INTERMEDI) / "varianti_rimosse.tsv")
+               if r["filtro"] == "prevalenza"]
     assert rimosse and all("campioni su" in r["motivo"] or "nessuna lettura" in r["motivo"]
                            for r in rimosse)
 
@@ -390,27 +393,30 @@ def test_gli_export_ricostruiscono_l_oggetto_finale(bioc, finale_calcolata, tmp_
 
 def test_il_manifesto_dei_checksum_e_completo(bioc, finale_calcolata):
     """
-    **Obiettivo**: Verificare che ogni file di ``12_final``, salvo i file del
-    ponte e i manifesti, sia registrato nel manifesto di S13 o di S14 con il
-    suo checksum, e che ``checksum.sha256`` dia l'impronta di ogni file
-    consegnato da S14.
+    **Obiettivo**: Verificare che ogni file di ``12_final`` e di
+    ``12_final/intermedi``, salvo i file del ponte e i manifesti, sia
+    registrato nel manifesto della sua fase (S14, S13) con il suo checksum;
+    che in ``12_final`` stiano solo i file consegnati; e che
+    ``checksum.sha256`` dia l'impronta di ogni file consegnato da S14,
+    ``ps_controlli.rds`` compreso.
 
     **Razionale scientifico e sistemistico**: Un file consegnato senza
-    checksum non si puo' verificare dopo il trasferimento.
+    checksum non si puo' verificare dopo il trasferimento, e un intermedio
+    nella cartella consegnata si scambia per un risultato.
     """
     run, _ = finale_calcolata
+    for passo, fase in ((Passo.S13, Fase.FINAL_INTERMEDI), (Passo.S14, Fase.FINAL)):
+        cartella = run.albero.cartella(fase)
+        registrati = {v["nome"]: v["checksum"]
+                      for v in run.albero.manifesto_passo(passo, fase).artefatti}
+        assert set(_impronte(cartella)) == set(registrati)
+        for nome, checksum in registrati.items():
+            assert checksum == "sha256:" + hashlib.sha256((cartella / nome).read_bytes()).hexdigest()
     cartella = run.albero.cartella(Fase.FINAL)
-    registrati = {}
-    for passo in (Passo.S13, Passo.S14):
-        for voce in run.albero.manifesto_passo(passo, Fase.FINAL).artefatti:
-            registrati[voce["nome"]] = voce["checksum"]
-    presenti = {p.name for p in cartella.iterdir() if not p.name.startswith((PREFISSO, "manifest"))}
-    assert presenti == set(registrati)
-    for nome, checksum in registrati.items():
-        assert checksum == "sha256:" + hashlib.sha256((cartella / nome).read_bytes()).hexdigest()
     somme = dict(reversed(r.split("  ")) for r in (cartella / "checksum.sha256").read_text().splitlines())
     assert set(somme) == {"ps_final.rds", "conteggi.tsv", "tassonomia.tsv", "metadati.tsv",
-                          "sequenze.fasta"}
+                          "sequenze.fasta", "ps_controlli.rds"}
+    assert set(_impronte(cartella)) == set(somme) | {"checksum.sha256"}
     for nome, impronta in somme.items():
         assert impronta == hashlib.sha256((cartella / nome).read_bytes()).hexdigest()
 
@@ -428,14 +434,15 @@ def test_stessi_byte_in_due_esecuzioni_e_con_impostazioni_locali_diverse(
     ordinamento dipendono dalle impostazioni locali: gli export non devono.
     """
     run, _ = finale_calcolata
-    attese = _impronte(run.albero.cartella(Fase.FINAL))
+    cartelle = (Fase.FINAL_INTERMEDI, Fase.FINAL)
+    attese = [_impronte(run.albero.cartella(f)) for f in cartelle]
     copia = copia_esecuzione(finale_calcolata, tmp_path)
-    for passo in (Passo.S14, Passo.S13):
-        copia.albero.rimuovi_manifesto_passo(passo, Fase.FINAL)
+    for passo, fase in ((Passo.S14, Fase.FINAL), (Passo.S13, Fase.FINAL_INTERMEDI)):
+        copia.albero.rimuovi_manifesto_passo(passo, fase)
     monkeypatch.setenv("LC_ALL", lingua)
     esito = Esecutore(copia, fino_a=Passo.S14).esegui()
     assert [r.passo for r in esito.eseguite] == [Passo.S13, Passo.S14]
-    assert _impronte(copia.albero.cartella(Fase.FINAL)) == attese
+    assert [_impronte(copia.albero.cartella(f)) for f in cartelle] == attese
 
 
 # --------------------------------------------------------------------------- #
@@ -502,23 +509,24 @@ def test_un_campione_svuotato_dal_filtro_tassonomico_esce_con_e_s13_03(
     )
     fase.calcola(contesto)
     assert [d.codice for d in contesto.degradazioni] == ["E-S13-03"]
-    esclusione = [e for e in _tsv(run.albero.cartella(Fase.FINAL) / "esclusioni.tsv")
+    esclusione = [e for e in _tsv(run.albero.cartella(Fase.FINAL_INTERMEDI) / "esclusioni.tsv")
                   if e["accession"] == scelta["campione"]]
     assert [e["filtro"] for e in esclusione] == ["tassonomico"]
 
 
-def test_un_campione_svuotato_dal_filtro_di_prevalenza_ferma_con_e_s13_02(
+def test_un_campione_svuotato_dal_filtro_di_prevalenza_esce_con_e_s13_02(
     bioc, finale_calcolata, decontam_calcolata, tmp_path
 ):
     """
     **Obiettivo**: Verificare che un campione la cui sola variante non e'
     presente con almeno ``prev.min_count`` letture in nessun campione tenuto
-    resti vuoto dopo il filtro di prevalenza, e che S13 si fermi con
-    ``E-S13-02``, di revisione umana, lasciando ``esclusioni.tsv``.
+    resti vuoto dopo il filtro di prevalenza ed esca dall'oggetto finale con
+    il filtro ``prevalenza`` in ``esclusioni.tsv``, e che S13 registri
+    ``E-S13-02`` come degradazione dichiarata e prosegua.
 
     **Razionale scientifico e sistemistico**: Il campione aveva letture
-    batteriche, solo rare: toglierlo dipende dalle soglie, e la decisione non
-    e' automatica.
+    batteriche, solo rare: un solo campione non deve fermare un dataset, ma
+    toglierlo dipende dalle soglie e chi legge il manifesto deve saperlo.
     """
     scelta = _campione_e_varianti(finale_calcolata[0], tmp_path)
     run, fase, contesto = _s13_su_decontaminato_modificato(
@@ -526,12 +534,12 @@ def test_un_campione_svuotato_dal_filtro_di_prevalenza_ferma_con_e_s13_02(
         f"m <- otu_table(ps); m[, {json.dumps(scelta['campione'])}] <- 0L; "
         f"m[{json.dumps(scelta['assente'])}, {json.dumps(scelta['campione'])}] <- 1L; otu_table(ps) <- m",
     )
-    with pytest.raises(ErrorePipeline) as info:
-        fase.calcola(contesto)
-    assert info.value.codice == "E-S13-02"
-    assert info.value.categoria.value == "revisione_umana"
-    assert scelta["campione"] in info.value.dettaglio
-    righe = _tsv(run.albero.cartella(Fase.FINAL) / "esclusioni.tsv")
+    fase.calcola(contesto)
+    (degradazione,) = contesto.degradazioni
+    assert degradazione.codice == "E-S13-02"
+    assert degradazione.categoria.value == "degradazione_automatica"
+    assert scelta["campione"] in degradazione.dettaglio
+    righe = _tsv(run.albero.cartella(Fase.FINAL_INTERMEDI) / "esclusioni.tsv")
     assert [e["filtro"] for e in righe if e["accession"] == scelta["campione"]] == ["prevalenza"]
 
 
@@ -546,14 +554,14 @@ def test_i_campioni_con_poche_letture_finali_escono_senza_fermare(bioc, finale_c
     gestisce come filtro, per campione.
     """
     run, _ = finale_calcolata
-    finali = sorted(int(r["letture"]) for r in _tsv(run.albero.cartella(Fase.FINAL) / "letture_finali.tsv")
+    finali = sorted(int(r["letture"]) for r in _tsv(run.albero.cartella(Fase.FINAL_INTERMEDI) / "letture_finali.tsv")
                     if int(r["letture"]) > 0)
     mediana = finali[len(finali) // 2]
     copia = copia_esecuzione(finale_calcolata, tmp_path, qc={"min_reads_final": mediana})
     assert copia.valuta().situazioni[Passo.S13].stato is StatoPasso.DA_ESEGUIRE
     esito = Esecutore(copia, fino_a=Passo.S14).esegui()
     assert esito.conclusione is Conclusione.COMPLETATA
-    poveri = [e for e in _tsv(copia.albero.cartella(Fase.FINAL) / "esclusioni.tsv")
+    poveri = [e for e in _tsv(copia.albero.cartella(Fase.FINAL_INTERMEDI) / "esclusioni.tsv")
               if e["filtro"] == "letture_finali"]
     assert len(poveri) == sum(1 for n in finali if n < mediana)
     assert all("qc.min_reads_final" in e["motivo"] for e in poveri)
@@ -587,7 +595,7 @@ def test_un_oggetto_filtrato_alterato_ferma_s14_con_e_s14_01(bioc, finale_calcol
     prodotto e registrato, non un file qualunque con lo stesso nome.
     """
     copia = copia_esecuzione(finale_calcolata, tmp_path)
-    filtrato = copia.albero.cartella(Fase.FINAL) / "ps_filtrato.rds"
+    filtrato = copia.albero.cartella(Fase.FINAL_INTERMEDI) / "ps_filtrato.rds"
     filtrato.write_bytes(filtrato.read_bytes() + b"\0")
     fase = copia.fase(Passo.S14)
     contesto = copia.contesto(Passo.S14, copia.valuta()).ristretto(fase.parametri)

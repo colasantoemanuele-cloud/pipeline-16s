@@ -46,6 +46,10 @@ FILTER_MAXN: Final = 0
 FILTER_RM_PHIX: Final = True
 
 # err: apprendimento del modello di errore
+# La funzione che stima i tassi d'errore dalle transizioni osservate: il loess
+# standard di dada2, oppure la variante monotona, per le qualita' raggruppate
+# in pochi valori (NovaSeq, NextSeq).
+ERR_ERROR_FUNCTION: Final = "loess"
 ERR_NBASES: Final = 1.0e8
 ERR_MAX_CONSIST: Final = 10
 ERR_RANDOMIZE: Final = True
@@ -114,6 +118,10 @@ QC_MIN_FRAC_READS_RETAINED: Final = 0.40
 QC_MAX_ASV_COUNT: Final = 300000
 QC_MAX_ZEROED_SAMPLES: Final = 0
 QC_MAX_FRAC_LOST_FILTER: Final = 0.30
+# Frazione massima di letture piu' corte di filter.truncLen, che il filtro
+# scarterebbe: sui campioni biologici e sui controlli positivi. Oltre, G09
+# (sulle prime letture) e S1 (su tutte) fermano l'esecuzione.
+QC_MAX_FRAC_SHORT_READS: Final = 0.05
 QC_WARN_FRAC_CHIMERIC: Final = 0.25
 QC_STOP_FRAC_CHIMERIC: Final = 0.50
 QC_MIN_FRAC_PHYLUM: Final = 0.80

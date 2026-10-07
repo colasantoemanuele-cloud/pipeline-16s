@@ -328,6 +328,7 @@ def test_il_pseudo_pooling_a_lotti_e_quello_di_dada2(dada2, ridotta_calcolata, t
         {
             "campioni": campioni, "modelli": {a: str(modello) for a in gruppo},
             "senza_letture": [], "pool": "pseudo", "omega_a": 1e-40, "lotto": 3, "processi": 2,
+            "funzione_errore": "loess",
         },
         albero, Fase.ASV_INFERENCE,
         passo="S4",

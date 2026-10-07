@@ -26,6 +26,7 @@ __all__ = [
     "nome_nell_oggetto",
     "nomi_in_collisione",
     "pulisci",
+    "tabella_delle_cellule",
     "tabella_di_studio",
 ]
 
@@ -123,3 +124,24 @@ def nomi_in_collisione(originali: list[str]) -> list[tuple[str, str]]:
             collisioni.append((originale, nome))
         usati.add(nome)
     return collisioni
+
+
+def tabella_delle_cellule(config: Config) -> str | None:
+    """Da quale tabella si porta nell'oggetto la colonna dei livelli dei
+    controlli positivi (``katharoseq.cell_count_column``) quando non e' gia'
+    fra le colonne richieste: ``"lotto"``, ``"studio"`` o ``None``.
+
+    ``None`` se la colonna non e' dichiarata, se ``out.batch_columns`` o
+    ``out.study_columns`` la portano gia', o se nessuna delle due tabelle la
+    contiene (lo segnala G02). Si cerca prima nel file di arricchimento e poi
+    nella tabella di studio: la calibrazione non deve dipendere dal fatto che
+    la colonna sia stata anche elencata fra quelle da portare nell'oggetto.
+    """
+    colonna = config.katharoseq.cell_count_column
+    if colonna is None or colonna in (*config.out.batch_columns, *config.out.study_columns):
+        return None
+    if config.io.batch_table is not None and colonna in intestazione(Path(config.io.batch_table)):
+        return "lotto"
+    if colonna in intestazione(tabella_di_studio(config)[0]):
+        return "studio"
+    return None

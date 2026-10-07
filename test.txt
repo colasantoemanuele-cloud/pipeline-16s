@@ -1,14 +1,14 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W27 (Fasi F0-F8, con l'anticipazione di attivita'
+Piano Operativo: Settimane W1 - W28 (Fasi F0-F8, con l'anticipazione di attivita'
 della fase F9 sulla riproducibilita')
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W27 del Piano Operativo.
+W1 - W28 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -42,12 +42,12 @@ sequenza:
 
     pytest tests/ -n 0
 
-Totale complessivo della suite: 1128 test su 31 moduli:
-  * 995 passed e 133 skipped in ambiente locale standard (R base + jsonlite, senza
+Totale complessivo della suite: 1172 test su 32 moduli:
+  * 1024 passed e 148 skipped in ambiente locale standard (R base + jsonlite, senza
     Bioconductor e senza dati reali), in circa un minuto; lo stesso esito su un
     solo processore ('taskset -c 0 pytest tests/'), in circa 9 minuti;
   * nel container CI standard (senza dati reali OSD-734), su quattro processi:
-    1073 passed e 47 skipped in circa 8 minuti, nell'immagine costruita dal
+    1117 passed e 47 skipped in circa 9 minuti, nell'immagine costruita dal
     Dockerfile come nella CI (l'ultima esecuzione della CI, run 37447520163
     sulla suite precedente di 1007 test, ha dato 956 passed e 43 skipped in
     circa 11 minuti). I
@@ -210,7 +210,7 @@ predisporre i seguenti 5 blocchi funzionali di file:
 
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W27)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W28)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -277,8 +277,8 @@ SETTIMANA 3 (W3) : SCHEMA DI CONFIGURAZIONE PYDANTIC
     pytest tests/test_w03_w04_config_schema.py -k "not g15 and not derivati" -v
 
   * RISULTATO ATTESO:
-    91 passed in ~0.25s (Totale complessivo di tests/test_w03_w04_config_schema.py:
-    108 passed in ~0.45s)
+    90 passed in ~0.25s (Totale complessivo di tests/test_w03_w04_config_schema.py:
+    107 passed in ~0.45s)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Protezione dai refusi di battitura ('extra="forbid"'): nelle pipeline
@@ -304,9 +304,9 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
     tests/test_w03_w04_config_schema.py (Sezione Gate G15, parametri derivati e digest)
 
   * COSA VALUTA:
-    Verifica tutti i 9 controlli incrociati del Gate G15 (codici da 'E-G15-01'
+    Verifica tutti i 9 controlli incrociati del Gate G15 (codici da 'E-G15-02'
     a 'E-G15-09'), il calcolo deterministico dei parametri derivati statici
-    ('filter.minLen', 'asv.len_min' e 'asv.len_max', derivati da 'asv.len_tol'
+    ('asv.len_min' e 'asv.len_max', derivati da 'asv.len_tol'
     e 'filter.truncLen' e pari a 137 bp su OSD-734), il rifiuto dei parametri
     rimossi ('prev.min_samples', che contraddiceva il minimo calcolato da S13
     sui biologici tenuti, e 'qc.min_reads_filtered', che nessuna fase leggeva),
@@ -319,7 +319,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 
   * RISULTATO ATTESO:
     26 passed in ~0.25s (Totale complessivo di tests/test_w03_w04_config_schema.py:
-    108 passed in ~0.45s)
+    107 passed in ~0.45s)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Coerenza tra parametri (Gate G15): due parametri possono essere validi
@@ -340,7 +340,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
 --------------------------------------------------------------------------------
 
-5.1 Catalogo centralizzato degli errori (64 codici catalogati)
+5.1 Catalogo centralizzato degli errori (69 codici catalogati)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   * SETTIMANA E FASE:
     Settimana W5 (esteso in W11 e W13), Fase F1/F4 (Tassonomia formale degli
@@ -350,9 +350,9 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     tests/test_w05_errors_catalog.py
 
   * COSA VALUTA:
-    Ispeziona sistematicamente tutti i 64 codici del catalogo ('CATALOGO': 43
+    Ispeziona sistematicamente tutti i 69 codici del catalogo ('CATALOGO': 49
     codici di fase S0-S14 inclusi 'E-S0-16', 'E-S0-17', 'E-S0-18', 'E-S1-02',
-    'E-S3-02', 'E-S10-02', 'E-S11-04' ed 'E-S13-03', 13 codici di
+    'E-S3-02', 'E-S10-02', 'E-S11-04' ed 'E-S13-03', 12 codici di
     configurazione G15, 4 codici del ponte verso R 'E-R-01..04', 1 codice del
     grafo 'E-GRAFO-01' e 3 codici della regola rigorosa sulla provenienza
     'E-PROV-01..03'). Verifica che ogni codice appartenga a una delle 4
@@ -368,7 +368,7 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     pytest tests/test_w05_errors_catalog.py -v
 
   * RISULTATO ATTESO:
-    355 passed in ~0.35s
+    380 passed in ~0.35s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
@@ -680,7 +680,7 @@ SETTIMANE 8 E 9 (W8-W9) : GRAFO DAG, PROPAGAZIONE INVALIDITA' E RIPRESA
     pytest tests/test_w08_w09_graph_resume.py -v
 
   * RISULTATO ATTESO:
-    53 passed in ~1.10s
+    52 passed in ~1.10s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Perché S12 (decontam) deve precedere obbligatoriamente S13 (filtro di
@@ -1010,8 +1010,8 @@ SETTIMANA 15 (W15) : CONSOLIDAMENTO DELLE FASI S0 - S7 (COPERTURA CODICI, DIPEND
     pytest tests/test_w15_consolidamento.py -v
 
   * RISULTATO ATTESO:
-    15 test (5 passed, 10 skipped in ambiente locale senza Bioconductor in
-    ~0.50s; 15 passed nel container CI e con dati reali).
+    14 test (4 passed, 10 skipped in ambiente locale senza Bioconductor in
+    ~0.50s; 14 passed nel container CI e con dati reali).
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     Garantisce che ogni codice di errore catalogato corrisponda a un
@@ -1643,8 +1643,9 @@ SETTIMANA 27 (W27) : GENERALITA' DEGLI INGRESSI, CONFIGURAZIONE E FASE S0
     configurazione che non li dichiara e' respinta da G15 con 'E-G15-10' e
     l'elenco completo dei mancanti, anche dalla riga di comando; che un
     parametro dichiarato nullo o vuoto sia dichiarato; che G15 respinga le
-    colonne del lotto senza il file ('E-G15-11', in S0 e non in S10) e i
-    controlli positivi senza taxon o colonna delle cellule ('E-G15-12'). Che
+    colonne del lotto senza il file ('E-G15-11', in S0 e non in S10), i
+    controlli positivi senza taxon o colonna delle cellule ('E-G15-12') e due
+    colonne che nell'oggetto prenderebbero lo stesso nome ('E-G15-13'). Che
     i gate seguano l'ordine delle dipendenze e un'etichetta non dichiarata
     sia diagnosticata da G11 e non da G10. Che G10 cerchi il primer solo con
     'filter.trimLeft' a zero e il motivo alla posizione del taglio (con il
@@ -1681,6 +1682,61 @@ SETTIMANA 27 (W27) : GENERALITA' DEGLI INGRESSI, CONFIGURAZIONE E FASE S0
        in G10 con la diagnosi sbagliata e in S10 dopo dodici minuti di
        calcolo: ciascuno dei tre arresti ha un test che lo riproduce su uno
        scenario sintetico.
+
+
+--------------------------------------------------------------------------------
+SETTIMANA 28 (W28) : GENERALITA' DELLE FASI DI CALCOLO E DEL REPORT
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W28, Fase F8 (un dataset 16S single-end diverso da OSD-734
+    attraversa le fasi di calcolo e il report, o si ferma con un codice del
+    catalogo e mai con un errore generico di R).
+
+  * FILE DI TEST:
+    tests/test_w28_calcolo.py
+
+  * COSA VALUTA:
+    Che il troncamento si giudichi sulla frazione di letture piu' corte dei
+    campioni biologici e dei controlli positivi ('qc.max_frac_short_reads'):
+    poche letture corte non fermano G09 ne' S1, una quota rilevante si'
+    ('E-S0-09', 'E-S1-02'), e i controlli negativi non contano; che
+    'filter.minLen' ed 'E-G15-01' non esistano piu' e 'tax.assign_species'
+    vero sia respinto. Che 'err.error_function' scelga fra 'loess' e
+    'loess_monotono', che la variante monotona dia tassi non crescenti con la
+    qualita', che S1 dichiari le qualita' raggruppate ('E-S1-03') e che una
+    corsa senza letture filtrate fermi S3 con 'E-S3-03'. Che S11 senza
+    controlli positivi dichiari 'E-S11-05' e non adatti curve, e non si fermi
+    per un controllo senza piastra o con una sola lettura; che S12 con pochi
+    negativi dichiari 'E-S12-03' e non tolga nulla; che la colonna dei
+    livelli entri nell'oggetto da sola, dal file del lotto o dalla tabella di
+    studio; che 'decontam.mode: batch' senza colonna della piastra sia
+    respinto ('E-G15-11'). Che S13 confronti i taxa senza il prefisso di
+    rango, dichiari la tassonomia senza Phylum ('E-S13-05') e si fermi con
+    'E-S13-04' se nessun campione supera i filtri; che S14 tolga i file
+    consegnati di un'esecuzione precedente. Che il report dia il troncamento
+    suggerito e regga le classi di controllo vuote. Che la catena intera, su
+    quattro insiemi ricavati dal sottoinsieme ridotto (senza positivi, senza
+    negativi, senza file del lotto, con una sola piastra), si concluda o si
+    fermi con un codice del catalogo che non e' del ponte verso R, e che il
+    report si generi in ogni caso.
+
+  * COMANDO BASH:
+    pytest tests/test_w28_calcolo.py -v
+
+  * RISULTATO ATTESO:
+    22 test (7 passed e 15 skipped in ambiente locale senza Bioconductor; 22
+    passed nel container)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. Una fase che presuppone la struttura di OSD-734 (controlli positivi e
+       negativi, piastre, letture tutte piu' lunghe del troncamento) si ferma
+       su un altro dataset con un errore di R che non dice che cosa manca:
+       ogni assenza dev'essere una condizione dichiarata, con il suo codice.
+    2. Un ripiego silenzioso (nessuna decontaminazione, nessuna curva) da' un
+       risultato plausibile e non confrontabile: resta nel manifesto e nel
+       report.
+    3. Nella cartella consegnata stanno solo i file che si consegnano, tutti
+       coperti da un checksum.
 
 
 --------------------------------------------------------------------------------
@@ -1749,8 +1805,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   Settimana | File di test                          | Test | Comando di verifica rapida
   ----------+---------------------------------------+------+-------------------------------------------------
   W1 - W2   | tests/test_w01_w02_import.py          |   10 | pytest tests/test_w01_w02_import.py -v
-  W3 - W4   | tests/test_w03_w04_config_schema.py   |  108 | pytest tests/test_w03_w04_config_schema.py -v
-  W5        | tests/test_w05_errors_catalog.py      |  355 | pytest tests/test_w05_errors_catalog.py -v
+  W3 - W4   | tests/test_w03_w04_config_schema.py   |  107 | pytest tests/test_w03_w04_config_schema.py -v
+  W5        | tests/test_w05_errors_catalog.py      |  380 | pytest tests/test_w05_errors_catalog.py -v
   W5        | tests/test_w05_artifacts.py           |   25 | pytest tests/test_w05_artifacts.py -v
   W5        | tests/test_w05_logging.py             |   14 | pytest tests/test_w05_logging.py -v
   W6        | tests/test_w06_crosswalk.py           |   43 | pytest tests/test_w06_crosswalk.py -v
@@ -1758,13 +1814,13 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W7        | tests/test_w07_gates.py               |   44 | pytest tests/test_w07_gates.py -v
   W7 (Real) | tests/test_w07_dati_reali.py          |   22 | pytest tests/test_w07_dati_reali.py -v
   W8        | tests/test_w08_rbridge.py             |   63 | pytest tests/test_w08_rbridge.py -v
-  W8 - W9   | tests/test_w08_w09_graph_resume.py    |   53 | pytest tests/test_w08_w09_graph_resume.py -v
+  W8 - W9   | tests/test_w08_w09_graph_resume.py    |   52 | pytest tests/test_w08_w09_graph_resume.py -v
   W9 - W10  | tests/test_w09_w10_retry_policy.py    |   49 | pytest tests/test_w09_w10_retry_policy.py -v
   W11       | tests/test_w11_s01_profile.py         |   16 | pytest tests/test_w11_s01_profile.py -v
   W12       | tests/test_w12_s02_filter.py          |   25 | pytest tests/test_w12_s02_filter.py -v
   W13       | tests/test_w13_s03_batch.py           |   19 | pytest tests/test_w13_s03_batch.py -v
   W14       | tests/test_w14_s04_s07_denoising.py   |   16 | pytest tests/test_w14_s04_s07_denoising.py -v
-  W15       | tests/test_w15_consolidamento.py      |   15 | pytest tests/test_w15_consolidamento.py -v
+  W15       | tests/test_w15_consolidamento.py      |   14 | pytest tests/test_w15_consolidamento.py -v
   W16       | tests/test_w16_recupero.py            |    9 | pytest tests/test_w16_recupero.py -v
   W17       | tests/test_w17_tassonomia.py          |   23 | pytest tests/test_w17_tassonomia.py -v
   W18       | tests/test_w18_oggetto.py             |   30 | pytest tests/test_w18_oggetto.py -v
@@ -1778,7 +1834,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W25       | tests/test_w25_immagine.py            |    5 | pytest tests/test_w25_immagine.py -v
   W26       | tests/test_w26_congelamento.py        |   20 | pytest tests/test_w26_congelamento.py -v
   W27       | tests/test_w27_ingressi.py            |   29 | pytest tests/test_w27_ingressi.py -v
+  W28       | tests/test_w28_calcolo.py             |   22 | pytest tests/test_w28_calcolo.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (31 moduli)              | 1128 | pytest tests/ -v
+  TOTALE    | Intera suite (32 moduli)              | 1172 | pytest tests/ -v
 ================================================================================

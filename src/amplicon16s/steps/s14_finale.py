@@ -1,13 +1,22 @@
 """Fase S14: la serializzazione, gli export e la validazione dell'oggetto finale.
 
 Da S14 esce il risultato dell'intera pipeline: ``ps_final.rds``
-(``out.serialization`` = ``rds``) in ``12_final/``, condivisa con S13, con
-file del ponte e manifesto propri. Con ``out.export_flat`` anche gli export
-piatti, per chi non usa lo stesso ambiente di calcolo: ``conteggi.tsv``,
-``tassonomia.tsv``, ``metadati.tsv`` e ``sequenze.fasta``. Sono identici byte
-per byte fra due esecuzioni e indipendenti dalle impostazioni locali
-(``R/14_finale.R``). ``checksum.sha256`` elenca l'impronta di ogni file
-consegnato, nella forma di ``sha256sum``.
+(``out.serialization`` = ``rds``) in ``12_final/``, dove stanno i soli file
+consegnati (gli intermedi dei filtri di S13 sono in ``12_final/intermedi/``).
+Con ``out.export_flat`` anche gli export piatti, per chi non usa lo stesso
+ambiente di calcolo: ``conteggi.tsv``, ``tassonomia.tsv``, ``metadati.tsv`` e
+``sequenze.fasta``. Sono identici byte per byte fra due esecuzioni e
+indipendenti dalle impostazioni locali (``R/14_finale.R``). Se l'inventario
+ha controlli, ``ps_controlli.rds`` li consegna a parte, dall'oggetto integrato
+di S10: senza controlli il file non esiste. ``checksum.sha256`` elenca
+l'impronta di ogni file consegnato, ``ps_controlli.rds`` compreso, nella forma
+di ``sha256sum``.
+
+**I file di un'esecuzione precedente.** Prima del calcolo S14 toglie da
+``12_final/`` i file consegnati che potrebbero non essere piu' prodotti (un
+albero dopo aver disattivato la filogenesi, gli export dopo aver disattivato
+``out.export_flat``, i controlli di un altro inventario): nella cartella
+consegnata resta solo cio' che ``checksum.sha256`` elenca.
 
 **L'albero filogenetico.** Con ``phylo.enabled`` vero S14 dipende anche da S9:
 legge ``albero.nwk`` da ``09_phylogeny/``, verificato contro il manifesto di
@@ -39,21 +48,30 @@ import json
 from typing import ClassVar, Final
 
 from amplicon16s.errors.exceptions import errore
-from amplicon16s.io_layer.artifacts import Fase
+from amplicon16s.io_layer.artifacts import NOME_MANIFESTO, Fase
 from amplicon16s.io_layer.checksums import checksum_file
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 from amplicon16s.steps.s09_phylogeny import NOME_ALBERO
+from amplicon16s.steps.s10_phyloseq import NOME_OGGETTO
 from amplicon16s.steps.s13_filtri import NOME_FILTRATO, NOME_RIEPILOGO
 
-__all__ = ["NOME_CHECKSUM", "NOME_FINALE", "Serializzazione"]
+__all__ = ["CONSEGNATI", "NOME_CHECKSUM", "NOME_CONTROLLI", "NOME_FINALE", "Serializzazione"]
 
 NOME_SCRIPT: Final = "14_finale.R"
 #: L'oggetto finale della pipeline.
 NOME_FINALE: Final = "ps_final.rds"
 #: Le impronte dei file consegnati, nella forma di sha256sum.
 NOME_CHECKSUM: Final = "checksum.sha256"
+#: I controlli positivi e negativi, consegnati a parte.
+NOME_CONTROLLI: Final = "ps_controlli.rds"
+#: Ogni file che S14 puo' consegnare: quelli di un'esecuzione precedente si
+#: tolgono prima del calcolo, perche' la configurazione puo' non produrli piu'.
+CONSEGNATI: Final = (
+    NOME_FINALE, "conteggi.tsv", "tassonomia.tsv", "metadati.tsv", "sequenze.fasta",
+    NOME_ALBERO, NOME_CONTROLLI, NOME_CHECKSUM,
+)
 
 
 class Serializzazione(PipelineStep):
@@ -61,8 +79,9 @@ class Serializzazione(PipelineStep):
 
     passo: ClassVar[Passo] = Passo.S14
     #: 2: con la filogenesi attiva aggiunge l'albero di S9 all'oggetto finale,
-    #: ne verifica le foglie e lo esporta.
-    versione: ClassVar[int] = 2
+    #: ne verifica le foglie e lo esporta. 3: consegna ps_controlli.rds, lo
+    #: elenca in checksum.sha256 e toglie i file di un'esecuzione precedente.
+    versione: ClassVar[int] = 3
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La serializzazione, l'orientamento verificato, gli export, la frazione
     #: minima delle letture trattenute dall'insieme dei campioni finali, e se
@@ -82,11 +101,18 @@ class Serializzazione(PipelineStep):
         if config.out.serialization != "rds":
             raise RuntimeError(f"out.serialization {config.out.serialization!r} non e' realizzata")
 
-        s13 = albero.manifesto_passo(Passo.S13, self.cartella)
+        intermedi = albero.cartella(Fase.FINAL_INTERMEDI)
+        s13 = albero.manifesto_passo(Passo.S13, Fase.FINAL_INTERMEDI)
         voce = None if s13 is None else next(
             (v for v in s13.artefatti if v["nome"] == NOME_FILTRATO), None)
-        if voce is None or checksum_file(cartella / NOME_FILTRATO) != voce["checksum"]:
+        if voce is None or checksum_file(intermedi / NOME_FILTRATO) != voce["checksum"]:
             raise errore("E-S14-01", f"{NOME_FILTRATO} di S13 manca o non corrisponde al suo manifesto")
+
+        # Nella cartella consegnata resta solo cio' che questa esecuzione
+        # produce: un file di una configurazione precedente non e' un risultato.
+        # Con loro il manifesto della cartella, che le scritture ricostruiscono.
+        for nome in (*CONSEGNATI, NOME_MANIFESTO):
+            (cartella / nome).unlink(missing_ok=True)
 
         # L'albero c'e' solo con la filogenesi attiva, e viene da S9: come per
         # l'oggetto filtrato, vale se corrisponde al manifesto di chi l'ha scritto.
@@ -102,7 +128,8 @@ class Serializzazione(PipelineStep):
         esito = esegui_script(
             cartella_r() / NOME_SCRIPT,
             {
-                "filtrato": str(cartella / NOME_FILTRATO),
+                "filtrato": str(intermedi / NOME_FILTRATO),
+                "integrato": str(albero.cartella(Fase.PHYLOSEQ) / NOME_OGGETTO),
                 "albero": None if filogenesi is None else str(filogenesi),
                 "taxa_are_rows": config.out.taxa_are_rows,
                 "export": config.out.export_flat,
@@ -113,7 +140,7 @@ class Serializzazione(PipelineStep):
             logger=contesto.logger,
         )
 
-        riepilogo = json.loads((cartella / NOME_RIEPILOGO).read_text(encoding="utf-8"))
+        riepilogo = json.loads((intermedi / NOME_RIEPILOGO).read_text(encoding="utf-8"))
         letture = riepilogo["letture"]
         frazione = (
             letture["finali"] / letture["nonchimeric_finali"]
@@ -142,5 +169,6 @@ class Serializzazione(PipelineStep):
             "campioni": riepilogo["campioni"]["finali"],
             "varianti": riepilogo["varianti"]["finali"],
             "albero": filogenesi is not None,
+            "controlli": any(a.nome == NOME_CONTROLLI for a in esito.artefatti),
         }
         return Produzione(esito.artefatti + (somme,), metriche)

@@ -258,11 +258,12 @@ GRAFO: Final = Grafo(
             Passo.S12, "decontaminazione", Fase.CONTROLS, (Passo.S10,),
         ),
         Nodo(
-            Passo.S13, "filtri per profondita', tassonomici e di prevalenza", Fase.FINAL,
+            Passo.S13, "filtri per profondita', tassonomici e di prevalenza",
+            Fase.FINAL_INTERMEDI,
             # S2 e S7 per le letture grezze e senza chimere del tracciamento, a
-            # cui si applicano le soglie di S11; S10 per i controlli, che
-            # S13 conserva a parte; S12 per l'oggetto decontaminato.
-            (Passo.S0, Passo.S2, Passo.S7, Passo.S10, Passo.S11, Passo.S12),
+            # cui si applicano le soglie di S11; S8 per i ranghi della
+            # tassonomia; S12 per l'oggetto decontaminato.
+            (Passo.S0, Passo.S2, Passo.S7, Passo.S8, Passo.S11, Passo.S12),
         ),
         Nodo(
             # Dopo S13 e prima di S14: l'albero delle varianti finali.
@@ -273,7 +274,8 @@ GRAFO: Final = Grafo(
         Nodo(
             Passo.S14, "serializzazione e validazione finale", Fase.FINAL,
             # S9 solo se attiva: e' S14 ad aggiungere l'albero all'oggetto finale.
-            (Passo.S13, Passo.S9),
+            # S10 per i controlli, che S14 consegna a parte dall'oggetto integrato.
+            (Passo.S10, Passo.S13, Passo.S9),
         ),
     ]
 )

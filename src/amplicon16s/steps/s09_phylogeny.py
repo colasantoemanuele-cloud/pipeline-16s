@@ -81,7 +81,7 @@ class Filogenesi(PipelineStep):
         """
         config = contesto.config
         albero = contesto.albero
-        finale = albero.cartella(Fase.FINAL)
+        finale = albero.cartella(Fase.FINAL_INTERMEDI)
         varianti = json.loads(
             (finale / NOME_RIEPILOGO).read_text(encoding="utf-8")
         )["varianti"]["finali"]

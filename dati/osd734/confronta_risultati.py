@@ -76,7 +76,8 @@ def artefatti_dei_manifesti(uscita: Path) -> list[dict[str, str]]:
     manifesto. L'impronta non si prende dal manifesto: si ricalcola dal file.
     """
     per_fase: dict[str, tuple[str, list[dict[str, object]]]] = {}
-    for manifesto in sorted(uscita.glob("*/manifest_S*.json")):
+    # Anche nelle sottocartelle: S13 scrive i suoi intermedi in 12_final/intermedi.
+    for manifesto in sorted(uscita.glob("**/manifest_S*.json")):
         documento = json.loads(manifesto.read_text(encoding="utf-8"))
         per_fase[documento["passo"]] = (documento["cartella"], documento["artefatti"])
     sconosciute = sorted(set(per_fase) - set(ORDINE))

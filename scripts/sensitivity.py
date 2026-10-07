@@ -195,7 +195,7 @@ def misura(uscita: Path, esito: str) -> dict[str, Any]:
     decontam = json.loads((controlli / "decontam_riepilogo.json").read_text(encoding="utf-8"))
     misure["contaminanti"] = decontam["contaminanti_rimossi"]
     misure["letture_rimosse_biologici"] = decontam["letture_rimosse"]["biologico"]
-    finale = uscita / "12_final"
+    finale = uscita / "12_final" / "intermedi"
     filtri = json.loads((finale / "filtri_riepilogo.json").read_text(encoding="utf-8"))
     misure["varianti"] = [r["asv_id"] for r in _tsv(finale / "tassonomia.tsv")]
     intestazione = (finale / "conteggi.tsv").read_text(encoding="utf-8").split("\n", 1)[0]

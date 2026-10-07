@@ -1,8 +1,11 @@
 # S14 - serializzazione, export e validazione dell'oggetto finale.
 #
-# Scrive in 12_final/, condivisa con S13:
+# Scrive in 12_final/, dove stanno i soli file consegnati:
 #
 #   ps_final.rds       l'oggetto finale (out.serialization = rds)
+#   ps_controlli.rds   i controlli positivi e negativi, dall'oggetto integrato
+#                      di S10, per il controllo di qualita'; solo se
+#                      l'inventario ha controlli
 #   conteggi.tsv       con out.export_flat: varianti sulle righe, campioni sulle
 #                      colonne, conteggi interi
 #   tassonomia.tsv     varianti sulle righe, un rango per colonna, vuoto se non
@@ -12,8 +15,9 @@
 #   albero.nwk         con la filogenesi attiva: l'albero radicato, le foglie
 #                      sono gli identificativi delle varianti
 #
-# Parametri: filtrato (ps_filtrato.rds di S13), albero (albero.nwk di S9, o
-# nullo con la filogenesi disattivata), taxa_are_rows, export.
+# Parametri: filtrato (ps_filtrato.rds di S13), integrato (ps_integrato.rds
+# di S10), albero (albero.nwk di S9, o nullo con la filogenesi disattivata),
+# taxa_are_rows, export.
 #
 # L'ALBERO. Con la filogenesi attiva l'albero di S9 entra qui nell'oggetto
 # finale: S10 assembla l'oggetto integrato sempre senza albero. Prima di unirlo
@@ -113,7 +117,18 @@ esegui_fase(function(parametri, cartella) {
     errore_catalogo("E-S14-01", "ps_final.rds riletto non ha gli stessi componenti dell'oggetto")
   }
   scritti <- "ps_final.rds"
-  if (!isTRUE(parametri$export)) return(scritti)
+
+  # I controlli, a parte: un dataset senza controlli non ha il file, e
+  # prune_samples su un insieme vuoto sarebbe un errore.
+  integrato <- readRDS(parametri$integrato)
+  classi <- methods::as(phyloseq::sample_data(integrato), "data.frame")$classe
+  controlli <- NULL
+  if (any(classi != "biologico")) {
+    salva_rds(phyloseq::prune_samples(phyloseq::sample_names(integrato)[classi != "biologico"], integrato),
+              file.path(cartella, "ps_controlli.rds"))
+    controlli <- "ps_controlli.rds"
+  }
+  if (!isTRUE(parametri$export)) return(c(scritti, controlli))
 
   # ---- Gli export piatti ----------------------------------------------------
   m <- k$conteggi
@@ -158,5 +173,5 @@ esegui_fase(function(parametri, cartella) {
       errore_catalogo("E-S14-01", sprintf("gli export non ricostruiscono l'oggetto: %s", nome))
     }
   }
-  scritti
+  c(scritti, controlli)
 })

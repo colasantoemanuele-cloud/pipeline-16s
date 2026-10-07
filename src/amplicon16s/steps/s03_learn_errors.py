@@ -198,7 +198,15 @@ class ModelloErrore(PipelineStep):
         modelli = pianifica(contesto.inventario, letture, lunghezza, config)
         vuoti = [m.nome for m in modelli if not m.ordine]
         if vuoti:
-            raise RuntimeError(f"nessuna lettura filtrata per il modello {', '.join(vuoti)}")
+            # Una corsa i cui campioni non hanno letture dopo il filtro non ha
+            # dati su cui stimare il proprio modello: e' una condizione dei
+            # dati, e ha il suo codice.
+            raise errore(
+                "E-S3-03",
+                f"nessuna lettura filtrata per {'la corsa' if len(vuoti) == 1 else 'le corse'} "
+                f"{', '.join(vuoti)}",
+                modelli=vuoti,
+            )
 
         esito = esegui_script(
             cartella_r() / NOME_SCRIPT,
@@ -209,6 +217,7 @@ class ModelloErrore(PipelineStep):
                 },
                 "nbases": config.err.nbases,
                 "max_consist": config.err.max_consist,
+                "funzione_errore": config.err.error_function,
                 "seme": config.run.seed,
                 "processi": config.run.threads,
             },

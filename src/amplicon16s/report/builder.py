@@ -34,6 +34,7 @@ import html
 import io
 import json
 import statistics
+from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -56,7 +57,7 @@ from amplicon16s.io_layer.artifacts import (
 from amplicon16s.io_layer.checksums import corrisponde
 from amplicon16s.logging.logger import NOME_FILE_AVVII
 from amplicon16s.metadata.lettura_inventario import NOME_CROSSWALK
-from amplicon16s.metadata.models import ClasseCampione
+from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r
 from amplicon16s.runner.executor import (
     EVENTO_CONCLUSIONE,
@@ -70,6 +71,7 @@ from amplicon16s.runner.project import avviso_di_provenienza, passi_realizzati
 from amplicon16s.runner.provenienza import file_del_sorgente, impronta_sorgente
 from amplicon16s.runner.tracciamento import PREFISSO, Tracciamento, componi
 from amplicon16s.steps.base import PipelineStep
+from amplicon16s.steps.s01_profile import NOME_LUNGHEZZE, NOME_QUALITA
 
 __all__ = [
     "CARTELLA_REPORT",
@@ -80,6 +82,7 @@ __all__ = [
     "costruisci",
     "genera",
     "scrivi",
+    "troncamento_suggerito",
 ]
 
 #: La cartella del report sotto ``io.out_root``. Non è una cartella di fase:
@@ -91,6 +94,11 @@ CARTELLA_TABELLE: Final = "tabelle"
 
 _MODELLI: Final = Path(__file__).resolve().parent / "templates"
 _CLASSI: Final = tuple(c.value for c in ClasseCampione)
+#: Le due regole del troncamento suggerito: la quota di letture che un
+#: troncamento puo' scartare perche' piu' corte, e la qualita' mediana sotto
+#: la quale una posizione non conviene tenerla.
+QUOTA_CORTE_SUGGERITA: Final = 0.05
+QUALITA_MINIMA_SUGGERITA: Final = 30
 
 
 # --------------------------------------------------------------------------- #
@@ -123,7 +131,12 @@ def _ordine_piastre(piastra: str) -> tuple[bool, int, str]:
 
 
 def _pct(frazione: Any) -> str:
-    """Una frazione come percentuale con una cifra decimale e la virgola."""
+    """Una frazione come percentuale con una cifra decimale e la virgola; un
+    trattino se la frazione non esiste (una classe senza campioni o senza
+    letture: un dataset senza controlli non ha la loro quota).
+    """
+    if frazione is None:
+        return "-"
     return f"{100 * float(frazione):.1f}%".replace(".", ",")
 
 
@@ -820,8 +833,10 @@ def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
             "Le due modalità a confronto: una decide, l'altra è diagnostica "
             "(11_controls/decontam_riepilogo.json)",
             ("modalità", "contaminanti", *(f"letture rimosse: {c}" for c in _CLASSI)),
-            ((nome, m["contaminanti"], *(_pct(m["letture_rimosse"].get(c, 0)) for c in _CLASSI))
-             for nome, m in decontam.get("modalita", {}).items()),
+            # Una modalita' non calcolata (senza negativi a sufficienza) e' nulla;
+            # una classe senza campioni non ha la sua quota.
+            ((nome, m["contaminanti"], *(_pct(m["letture_rimosse"].get(c)) for c in _CLASSI))
+             for nome, m in decontam.get("modalita", {}).items() if m is not None),
         ))
 
 
@@ -866,7 +881,7 @@ def _decisioni_campioni(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
     sezione.sottotitolo("Campioni e varianti esclusi dai filtri finali (S13)")
     ordine = filtri["ordine"]
     sezione.tabella(_tabella(
-        "filtri_finali", "Esclusioni per filtro, nell'ordine di applicazione (12_final/filtri_riepilogo.json)",
+        "filtri_finali", "Esclusioni per filtro, nell'ordine di applicazione (12_final/intermedi/filtri_riepilogo.json)",
         ("filtro", "campioni biologici esclusi", "varianti rimosse"),
         ((f, filtri["campioni"]["esclusi"].get(f, 0),
           filtri["varianti"]["rimosse"].get(f, "non si applica"))
@@ -885,18 +900,99 @@ def _decisioni_campioni(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
     )
     if esclusi:
         sezione.tabella(_tabella(
-            "campioni_esclusi", "Campioni esclusi, con il motivo (12_final/esclusioni.tsv)",
+            "campioni_esclusi", "Campioni esclusi, con il motivo (12_final/intermedi/esclusioni.tsv)",
             ("accession", "campione", "piastra", "filtro", "motivo"),
             ((r["accession"], r["sample_name"], r["piastra"], r["filtro"], r["motivo"]) for r in esclusi),
             ripiegata=True,
         ))
     if rimosse:
         sezione.tabella(_tabella(
-            "varianti_rimosse", "Varianti rimosse, con il motivo (12_final/varianti_rimosse.tsv)",
+            "varianti_rimosse", "Varianti rimosse, con il motivo (12_final/intermedi/varianti_rimosse.tsv)",
             ("variante", "filtro", "motivo", "letture nei biologici tenuti"),
             ((r["asv_id"], r["filtro"], r["motivo"], r["letture_biologici_tenuti"]) for r in rimosse),
             ripiegata=True, limite=50,
         ))
+
+
+def troncamento_suggerito(
+    lunghezze: Iterable[Mapping[str, str]],
+    qualita: Iterable[Mapping[str, str]],
+    classi: Mapping[str, str],
+) -> dict[str, int | None]:
+    """Il troncamento che le letture suggeriscono: un'indicazione, non una scelta.
+
+    E' il minore fra due valori. ``per_lunghezza``: il troncamento piu' lungo
+    che scarta, perche' piu' corte, non oltre ``QUOTA_CORTE_SUGGERITA`` delle
+    letture dei campioni biologici e dei controlli positivi (i negativi non
+    contano: le loro poche letture sono spesso dimeri corti). ``per_qualita``:
+    l'ultima posizione prima che la qualita' mediana dei campioni biologici (la
+    mediana, fra i campioni, della mediana di ciascuno) scenda sotto
+    ``QUALITA_MINIMA_SUGGERITA``; la lunghezza massima se non scende mai.
+    ``lunghezze`` e ``qualita`` sono le righe delle tabelle di S1, ``classi``
+    la classe di ogni campione. Un valore e' ``None`` se mancano le letture
+    per calcolarlo.
+    """
+    controllate = {c.value for c in CLASSI_CONTROLLATE}
+    per_lunghezza: dict[int, int] = defaultdict(int)
+    for riga in lunghezze:
+        if classi.get(riga["campione"]) in controllate:
+            per_lunghezza[int(riga["lunghezza"])] += int(riga["letture"])
+    totale = sum(per_lunghezza.values())
+    da_lunghezza = None
+    piu_corte = 0
+    for lunghezza in sorted(per_lunghezza):
+        # Troncare a questa lunghezza scarta le letture piu' corte di essa.
+        if piu_corte > QUOTA_CORTE_SUGGERITA * totale:
+            break
+        da_lunghezza = lunghezza
+        piu_corte += per_lunghezza[lunghezza]
+
+    mediane: dict[int, list[float]] = defaultdict(list)
+    for riga in qualita:
+        if classi.get(riga["campione"]) == ClasseCampione.BIOLOGICO.value:
+            mediane[int(riga["posizione"])].append(float(riga["mediana"]))
+    da_qualita = None
+    for posizione in sorted(mediane):
+        if statistics.median(mediane[posizione]) < QUALITA_MINIMA_SUGGERITA:
+            break
+        da_qualita = posizione
+
+    presenti = [v for v in (da_lunghezza, da_qualita) if v is not None]
+    return {
+        "per_lunghezza": da_lunghezza,
+        "per_qualita": da_qualita,
+        "suggerito": min(presenti) if len(presenti) == 2 else None,
+    }
+
+
+def _decisioni_troncamento(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
+    """Il troncamento suggerito dalle letture (S1), accanto a quello dichiarato."""
+    lunghezze = esecuzione.tsv(Passo.S1, NOME_LUNGHEZZE)
+    qualita = esecuzione.tsv(Passo.S1, NOME_QUALITA)
+    inventario = esecuzione.tsv(Passo.S0, NOME_CROSSWALK)
+    if lunghezze is None or qualita is None or inventario is None:
+        return
+    esito = troncamento_suggerito(
+        lunghezze, qualita, {r["accession"]: r["classe"] for r in inventario}
+    )
+    sezione.sottotitolo("Troncamento suggerito dalle letture (S1)")
+    sezione.sintesi((
+        ("troncamento dichiarato (filter.truncLen)",
+         _valore(esecuzione.parametri.get("filter.truncLen"))),
+        ("troncamento suggerito", _e(esito["suggerito"] if esito["suggerito"] is not None
+                                     else "non calcolabile")),
+        (f"per lunghezza: il più lungo che scarta non oltre "
+         f"{_pct(QUOTA_CORTE_SUGGERITA)} delle letture di biologici e positivi",
+         _e(esito["per_lunghezza"] if esito["per_lunghezza"] is not None else "non calcolabile")),
+        (f"per qualità: l'ultima posizione con qualità mediana dei biologici almeno "
+         f"{QUALITA_MINIMA_SUGGERITA}",
+         _e(esito["per_qualita"] if esito["per_qualita"] is not None else "non calcolabile")),
+    ))
+    sezione.testo(
+        "Il valore suggerito è un'indicazione ricavata da 02_qc_profiles/lunghezze.tsv e "
+        "qualita.tsv: il troncamento applicato resta quello dichiarato in "
+        "<code>filter.truncLen</code>, che è una scelta di chi conduce l'analisi."
+    )
 
 
 def _sezione_decisioni(esecuzione: _Esecuzione) -> tuple[_Sezione, int, int]:
@@ -936,6 +1032,7 @@ def _sezione_decisioni(esecuzione: _Esecuzione) -> tuple[_Sezione, int, int]:
     else:
         sezione.testo("Nessuna fase conclusa ha registrato una degradazione.")
 
+    _decisioni_troncamento(esecuzione, sezione)
     _decisioni_controlli(esecuzione, sezione)
     _decisioni_campioni(esecuzione, sezione)
     return sezione, len(tentativi), len(degradazioni)
@@ -1011,7 +1108,9 @@ def _sezione_risultato(
         ))
         sezione.testo(
             "L'oggetto finale contiene i soli campioni biologici che hanno superato i filtri; "
-            "i controlli sono conservati in <code>ps_controlli.rds</code>."
+            + ("i controlli sono consegnati a parte in <code>ps_controlli.rds</code>."
+               if metriche.get("controlli", True) else
+               "l'inventario non ha controlli, e <code>ps_controlli.rds</code> non esiste.")
         )
         checksum = esecuzione.byte(Passo.S14, "checksum.sha256")
         if checksum is not None:

@@ -543,11 +543,11 @@ def test_g02_verifica_ogni_colonna_dichiarata_delle_tabelle(tmp_path):
     **Obiettivo**: Verificare che G02 respinga con ``E-S0-02``, nominando
     parametro e colonna, una colonna di ``out.study_columns`` e la colonna di
     ``ctrl.blank_override_column`` assenti dalla tabella di studio; che la
-    colonna di ``katharoseq.cell_count_column`` debba essere fra quelle portate
-    nell'oggetto (``E-G15-12``) e sia quindi verificata con esse; e che una
-    colonna ripetuta nell'intestazione sia respinta allo stesso modo; e che
-    due colonne richieste che nell'oggetto prenderebbero lo stesso nome, o
-    quello di una colonna dell'inventario, siano respinte da G15 con
+    colonna di ``katharoseq.cell_count_column``, anche se non e' fra quelle
+    richieste per l'oggetto, sia cercata nelle tabelle e respinta se manca da
+    tutte; che una colonna ripetuta nell'intestazione sia respinta allo stesso
+    modo; e che due colonne richieste che nell'oggetto prenderebbero lo stesso
+    nome, o quello di una colonna dell'inventario, siano respinte da G15 con
     ``E-G15-13`` (prima le scopriva S10, a calcolo concluso).
 
     **Razionale scientifico e sistemistico**: Ogni colonna che la
@@ -561,9 +561,10 @@ def test_g02_verifica_ogni_colonna_dichiarata_delle_tabelle(tmp_path):
         "ctrl.blank_override_column": {"ctrl": {"blank_override_column": "Altra colonna"}},
     }
     non_portata = _con(scenario.config, katharoseq={"cell_count_column": "cellule"})
-    esito = esegui_gate("G15", Contesto(non_portata))
-    assert [v.codice for v in esito.violazioni] == ["E-G15-12"]
-    assert "out.batch_columns o in out.study_columns" in esito.violazioni[0].dettaglio
+    assert esegui_gate("G15", Contesto(non_portata)).superato
+    esito = _esiti(non_portata)["G02"]
+    assert {v.codice for v in esito.violazioni} == {"E-S0-02"}
+    assert "katharoseq.cell_count_column" in esito.violazioni[0].dettaglio
     portata = _con(scenario.config, katharoseq={"cell_count_column": "cellule"},
                    out={"study_columns": ["cellule"]})
     assert esegui_gate("G15", Contesto(portata)).superato

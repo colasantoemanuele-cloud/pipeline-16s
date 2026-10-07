@@ -12,8 +12,8 @@ funzionalita' nuova, si chiude il lavoro aperto sulle fasi gia' realizzate.
 * ``src/amplicon16s/runner/executor.py``, ``src/amplicon16s/runner/project.py``
   (ripresa, valutazione dello stato)
 * ``src/amplicon16s/errors/catalog.py`` (copertura dei codici), e per i codici
-  che nessun test provocava ``src/amplicon16s/gates/g01_g15.py`` (E-G15-01,
-  E-G15-99), ``src/amplicon16s/steps/s02_filter.py`` (E-S2-01) e
+  che nessun test provocava ``src/amplicon16s/gates/g01_g15.py``
+  (E-G15-99), ``src/amplicon16s/steps/s02_filter.py`` (E-S2-01) e
   ``src/amplicon16s/steps/s06_chimera.py`` (E-S6-01, E-S6-02)
 
 3. Cosa valuta questo file
@@ -317,31 +317,6 @@ def test_s6_oltre_l_arresto_si_ferma_per_la_revisione(dada2, catena_calcolata, t
 # --------------------------------------------------------------------------- #
 
 
-def test_g15_sorveglia_la_regola_di_derivazione(tmp_path):
-    """
-    **Obiettivo**: Verificare che G15 respinga con E-G15-01, di revisione
-    umana, una configurazione risolta in cui ``filter.minLen`` supera
-    ``filter.truncLen``.
-
-    **Razionale scientifico e sistemistico**: ``filter.minLen`` discende da
-    ``filter.truncLen``, quindi nessuna configurazione puo' violare la
-    disuguaglianza: il controllo sorveglia la regola di derivazione. Si
-    provoca costruendo a mano i derivati incoerenti, come li produrrebbe una
-    regola cambiata per errore.
-    """
-    from dataclasses import replace
-
-    from amplicon16s.config.resolve import risolvi
-    from amplicon16s.errors.catalog import Categoria
-    from amplicon16s.gates.g01_g15 import _controlla_coerenza
-
-    risolta = risolvi(config_ridotta(tmp_path))
-    derivati = replace(risolta.derivati, filter_minLen=risolta.config.filter.truncLen + 1)
-    (violazione,) = _controlla_coerenza(replace(risolta, derivati=derivati))
-    assert violazione.codice == "E-G15-01"
-    assert violazione.voce.categoria is Categoria.REVISIONE_UMANA
-
-
 def test_un_problema_di_schema_non_attribuito_e_e_g15_99(tmp_path):
     """
     **Obiettivo**: Verificare che una chiave sconosciuta, che lo schema
@@ -407,7 +382,6 @@ _REALIZZATE = frozenset({str(p) for p in passi_realizzati()} | {"G15", "GRAFO", 
 #: l'intera suite nel container, ogni codice creato con il test e il punto del
 #: codice di produzione che lo ha sollevato.
 COPERTURA: dict[str, str] = {
-    "E-G15-01": "test_w15_consolidamento.py::test_g15_sorveglia_la_regola_di_derivazione",
     "E-G15-02": "test_w03_w04_config_schema.py::test_g15_respinge_le_configurazioni_incoerenti",
     "E-G15-03": "test_w03_w04_config_schema.py::test_g15_respinge_le_configurazioni_incoerenti",
     "E-G15-04": "test_w03_w04_config_schema.py::test_g15_respinge_le_configurazioni_incoerenti",
@@ -445,11 +419,13 @@ COPERTURA: dict[str, str] = {
     "E-S0-18": "test_w27_ingressi.py::test_senza_motivo_conservato_g10_verifica_il_solo_primer",
     "E-S1-01": "test_w11_s01_profile.py::test_con_truncLen_120_lo_scarto_e_registrato_da_s1_non_da_s0",
     "E-S1-02": "test_w11_s01_profile.py::test_s1_ferma_se_il_troncamento_supera_il_minimo_vero",
+    "E-S1-03": "test_w28_calcolo.py::test_con_poche_qualita_distinte_s1_avvisa_con_e_s1_03",
     "E-S2-01": "test_w15_consolidamento.py::test_s2_ferma_su_un_biologico_azzerato_e_non_su_un_negativo",
     "E-S2-02": "test_w12_s02_filter.py::test_una_perdita_media_oltre_il_30_per_cento_ferma",
     "E-S2-03": "test_w12_s02_filter.py::test_un_archivio_corrotto_si_ferma_dopo_i_tentativi",
     "E-S3-01": "test_w13_s03_batch.py::test_la_mancata_convergenza_con_basi_in_piu_si_ritenta",
     "E-S3-02": "test_w13_s03_batch.py::test_un_campione_senza_corsa_con_la_colonna_attiva_ferma",
+    "E-S3-03": "test_w28_calcolo.py::test_una_corsa_senza_letture_filtrate_ferma_con_e_s3_03",
     "E-S4-02": "test_w14_s04_s07_denoising.py::test_con_memoria_ridotta_scatta_e_s4_02_e_il_retry_dimezza_il_lotto",
     "E-S5-01": "test_w14_s04_s07_denoising.py::test_oltre_qc_max_asv_count_s5_si_ferma_prima_della_tabella",
     "E-S6-01": "test_w15_consolidamento.py::test_s6_oltre_l_arresto_si_ferma_per_la_revisione",
@@ -461,10 +437,14 @@ COPERTURA: dict[str, str] = {
     "E-S11-02": "test_w19_controlli.py::test_il_ripiego_e_registrato_con_il_motivo",
     "E-S11-03": "test_w19_controlli.py::test_controlli_non_conformi_fanno_scattare_e_s11_03_o_l_avviso",
     "E-S11-04": "test_w19_controlli.py::test_controlli_non_conformi_fanno_scattare_e_s11_03_o_l_avviso",
+    "E-S11-05": "test_w28_calcolo.py::test_senza_controlli_positivi_s11_dichiara_e_s11_05",
     "E-S12-02": "test_w20_decontam.py::test_oltre_la_frazione_massima_la_modalita_dichiarata_si_ferma",
+    "E-S12-03": "test_w28_calcolo.py::test_con_pochi_negativi_s12_dichiara_e_s12_03",
     "E-S13-01": "test_w20_decontam.py::test_il_filtro_prima_della_decontaminazione_fallisce_con_e_s13_01",
-    "E-S13-02": "test_w21_finale.py::test_un_campione_svuotato_dal_filtro_di_prevalenza_ferma_con_e_s13_02",
+    "E-S13-02": "test_w21_finale.py::test_un_campione_svuotato_dal_filtro_di_prevalenza_esce_con_e_s13_02",
     "E-S13-03": "test_w21_finale.py::test_un_campione_svuotato_dal_filtro_tassonomico_esce_con_e_s13_03",
+    "E-S13-04": "test_w28_calcolo.py::test_se_nessun_campione_supera_i_filtri_s13_ferma_con_e_s13_04",
+    "E-S13-05": "test_w28_calcolo.py::test_senza_il_rango_phylum_s13_dichiara_e_s13_05",
     "E-S14-01": "test_w21_finale.py::test_una_frazione_trattenuta_sotto_la_soglia_ferma_con_e_s14_01",
     "E-S9-01": "test_w23_filogenesi.py::test_e_s9_01_ferma_prima_di_avviare_il_calcolo",
     "E-S9-02": "test_w23_filogenesi.py::test_e_s9_02_ferma_con_troppo_poche_varianti",

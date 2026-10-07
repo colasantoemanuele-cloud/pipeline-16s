@@ -5,9 +5,8 @@ l'unico modo di garantire che restino coerenti. Scriverli nella configurazione
 significherebbe poterli mettere in contraddizione con i parametri da cui
 dipendono, ed è per questo che tentarlo è un errore.
 
-:func:`risolvi` calcola ``filter.minLen``, ``asv.len_min`` e
-``asv.len_max``, che discendono dalla sola configurazione: la risoluzione può
-avvenire prima di toccare qualunque dato, ed è quello che serve al gate G15.
+:func:`risolvi` calcola ``asv.len_min`` e ``asv.len_max``, che discendono
+dalla sola configurazione: la risoluzione può avvenire prima di toccare qualunque dato, ed è quello che serve al gate G15.
 Il numero minimo di campioni del filtro di prevalenza non è un derivato: S13 lo
 calcola sui campioni biologici che tiene, un dato che esiste solo dentro la
 fase (``R/13_filtri.R``).
@@ -101,14 +100,12 @@ PARAMETRI_SENZA_EFFETTO: Final[tuple[str, ...]] = (
 class Derivati:
     """Parametri calcolati dalla configurazione, non letti da essa."""
 
-    filter_minLen: int
     asv_len_min: int
     asv_len_max: int
 
     def come_chiavi(self) -> dict[str, Any]:
         """I derivati nella forma ``gruppo.parametro``, per confronti e report."""
         return {
-            "filter.minLen": self.filter_minLen,
             "asv.len_min": self.asv_len_min,
             "asv.len_max": self.asv_len_max,
         }
@@ -116,17 +113,13 @@ class Derivati:
 
 def _deriva_statici(config: Config) -> Derivati:
     """Calcola i derivati che discendono dalla sola configurazione."""
-    # La lunghezza minima accettata coincide con quella di troncamento: una
-    # lettura piu' corta non ha superato il troncamento.
-    minLen = config.filter.truncLen
-
     # Le ASV attese hanno la lunghezza delle letture troncate, meno quanto e'
     # stato tagliato in testa. La tolleranza allarga l'intervallo nei due versi.
     base = config.filter.truncLen - config.filter.trimLeft
     len_min = base - config.asv.len_tol
     len_max = base + config.asv.len_tol
 
-    return Derivati(filter_minLen=minLen, asv_len_min=len_min, asv_len_max=len_max)
+    return Derivati(asv_len_min=len_min, asv_len_max=len_max)
 
 
 def _digest(

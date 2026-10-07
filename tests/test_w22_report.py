@@ -528,8 +528,8 @@ def test_l_origine_dei_parametri_e_i_valori_di_osd734(scenario, file_config, fas
     parametri = {r["parametro"]: r for r in _tabella(radice, "parametri")}
     assert parametri["filter.truncLen"]["origine"] == "dichiarato"
     assert parametri["prev.min_fraction"]["origine"] == "predefinito"
-    assert parametri["filter.minLen"]["origine"] == "derivato"
-    assert parametri["filter.minLen"]["valore"] == "120"
+    assert parametri["asv.len_min"]["origine"] == "derivato"
+    assert parametri["asv.len_min"]["valore"] == "120"
     assert parametri["run.batch_size"]["origine"] == "predefinito"
     assert parametri["run.batch_size"]["valore"] == "24"
     assert parametri["run.batch_size"]["aggiustamento"] == "S4: 24 -> 12 dopo E-S4-02"
@@ -886,7 +886,7 @@ def test_il_report_della_catena_completa_sul_sottoinsieme(catena, capsys):
     finale = run.albero.manifesto_passo(Passo.S14, Fase.FINAL)
     assert f"{finale.metriche['campioni']} campioni x {finale.metriche['varianti']} varianti" in documento
     assert [r["file"] for r in _tabella(radice, "file_finali")] == finale.metriche["file"]
-    filtri = json.loads((radice / Fase.FINAL.value / "filtri_riepilogo.json").read_text())
+    filtri = json.loads((radice / Fase.FINAL_INTERMEDI.value / "filtri_riepilogo.json").read_text())
     assert [r["filtro"] for r in _tabella(radice, "filtri_finali")] == filtri["ordine"]
     assert int(totali["finali"]) == filtri["letture"]["finali"]
     soglia = json.loads((radice / Fase.CONTROLS.value / "soglia.json").read_text())

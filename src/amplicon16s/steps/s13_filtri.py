@@ -3,12 +3,12 @@
 Dall'oggetto decontaminato di S12 ricava l'oggetto finale: **solo i campioni
 biologici**, perche' e' il risultato destinato alle analisi ecologiche, e un
 controllo al suo interno rischierebbe di essere trattato come un campione
-ambientale. I controlli positivi e negativi non si perdono: restano in
-``ps_controlli.rds``, dall'oggetto integrato di S10, per il controllo di
-qualita'. Scrive in ``12_final/``, condivisa con S14, con file del ponte e
-manifesto propri. Il calcolo dei filtri sulle varianti e' in
-``R/13_filtri.R``, che dichiara l'ordine dei filtri e il denominatore della
-prevalenza.
+ambientale. I controlli positivi e negativi non si perdono: S14 li consegna
+in ``ps_controlli.rds``, dall'oggetto integrato di S10. Scrive in
+``12_final/intermedi/``: l'oggetto filtrato e le tabelle dei filtri sono
+intermedi di calcolo, e in ``12_final/`` stanno solo i file consegnati da
+S14. Il calcolo dei filtri sulle varianti e' in ``R/13_filtri.R``, che
+dichiara l'ordine dei filtri e il denominatore della prevalenza.
 
 **Il filtro per profondita'**, che il piano di S13 non nomina, viene per primo
 ed e' deciso qui. S11 scrive in ``soglia.json`` la soglia di ogni piastra con
@@ -26,9 +26,17 @@ filtri sono attesi.
 **I campioni esclusi**, con il filtro e il motivo di ciascuno, sono in
 ``esclusioni.tsv``; le varianti rimosse in ``varianti_rimosse.tsv``. Un
 campione svuotato dal filtro tassonomico non ha segnale batterico: esce, e la
-fase registra ``E-S13-03`` e prosegue. Uno svuotato dal filtro di prevalenza
-ferma la fase con ``E-S13-02``: aveva letture batteriche, solo rare, e
-toglierlo e' una scelta sulle soglie.
+fase registra ``E-S13-03`` e prosegue. Anche uno svuotato dal filtro di
+prevalenza esce con il motivo, e la fase registra ``E-S13-02`` come
+degradazione dichiarata: aveva letture batteriche, solo rare, e chi legge il
+manifesto deve sapere che la soglia di prevalenza lo ha tolto. Se nessun
+campione biologico supera i filtri la fase si ferma con ``E-S13-04``: un
+oggetto finale vuoto non e' un risultato.
+
+**I nomi dei taxa** si confrontano senza il prefisso di rango (``p__``,
+``o__``) che alcuni riferimenti portano. Se la tassonomia non ha il rango
+Phylum, ``filt.remove_na_phylum`` non ha su che cosa operare: la fase lo
+dichiara con ``E-S13-05`` e applica i soli ``filt.exclude_taxa``.
 """
 
 from __future__ import annotations
@@ -36,7 +44,6 @@ from __future__ import annotations
 import json
 from typing import Any, ClassVar, Final
 
-from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.io_layer.conteggi import leggi_conteggi
 from amplicon16s.metadata.models import ClasseCampione
@@ -44,11 +51,10 @@ from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 from amplicon16s.steps.s02_filter import NOME_PREFILTRO
-from amplicon16s.steps.s10_phyloseq import NOME_OGGETTO
 from amplicon16s.steps.s11_controls import NOME_SOGLIA
 from amplicon16s.steps.s12_decontam import NOME_OGGETTO_DECONTAMINATO
 
-__all__ = ["FiltriFinali", "NOME_FILTRATO", "esclusi_per_profondita"]
+__all__ = ["FiltriFinali", "NOME_FILTRATO", "NOME_RIEPILOGO", "esclusi_per_profondita"]
 
 NOME_SCRIPT: Final = "13_filtri.R"
 #: L'oggetto filtrato che S14 serializza.
@@ -56,6 +62,8 @@ NOME_FILTRATO: Final = "ps_filtrato.rds"
 NOME_RIEPILOGO: Final = "filtri_riepilogo.json"
 #: Le letture senza chimere dopo il filtro di lunghezza, scritte da S7.
 NOME_LUNGHEZZA: Final = "letture_lunghezza.tsv"
+#: Il riepilogo di S8, con i ranghi della tassonomia assegnata.
+NOME_RIEPILOGO_TASSONOMIA: Final = "riepilogo.json"
 
 
 def esclusi_per_profondita(
@@ -99,7 +107,10 @@ class FiltriFinali(PipelineStep):
     """S13: l'oggetto dei soli biologici, filtrato per profondita', taxa e prevalenza."""
 
     passo: ClassVar[Passo] = Passo.S13
-    versione: ClassVar[int] = 1
+    #: 2: scrive in 12_final/intermedi/ e non produce piu' ps_controlli.rds
+    #: (lo consegna S14); confronta i taxa senza il prefisso di rango; un
+    #: campione svuotato dalla prevalenza esce invece di fermare la fase.
+    versione: ClassVar[int] = 2
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("finali",)
     #: I filtri tassonomici (filt), quello di prevalenza (prev) e le letture
@@ -125,11 +136,20 @@ class FiltriFinali(PipelineStep):
                      if c.classe is ClasseCampione.BIOLOGICO]
         tenuti, esclusi = esclusi_per_profondita(biologici, soglia, letture)
 
+        ranghi = json.loads(
+            (albero.cartella(Fase.TAXONOMY) / NOME_RIEPILOGO_TASSONOMIA).read_text(encoding="utf-8")
+        )["ranghi"]
+        if config.filt.remove_na_phylum and "Phylum" not in ranghi:
+            contesto.degrada(
+                "E-S13-05",
+                f"la tassonomia ha i ranghi {', '.join(ranghi)}, senza Phylum: "
+                "filt.remove_na_phylum non applicato",
+            )
+
         esito = esegui_script(
             cartella_r() / NOME_SCRIPT,
             {
                 "decontaminato": str(albero.cartella(Fase.CONTROLS) / NOME_OGGETTO_DECONTAMINATO),
-                "integrato": str(albero.cartella(Fase.PHYLOSEQ) / NOME_OGGETTO),
                 "tenuti": tenuti,
                 "esclusi_profondita": esclusi,
                 "senza_phylum": config.filt.remove_na_phylum,
@@ -157,7 +177,7 @@ class FiltriFinali(PipelineStep):
                 campioni=svuotati["tassonomico"],
             )
         if svuotati["prevalenza"]:
-            raise errore(
+            contesto.degrada(
                 "E-S13-02",
                 f"{len(svuotati['prevalenza'])} campioni senza letture dopo il filtro di "
                 f"prevalenza: {', '.join(svuotati['prevalenza'])}",

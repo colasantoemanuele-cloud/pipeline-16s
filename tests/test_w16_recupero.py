@@ -297,7 +297,7 @@ def test_i_file_del_ponte_portano_il_nome_della_fase():
 def test_le_fasi_che_condividono_una_cartella_non_condividono_file_di_servizio():
     """
     **Obiettivo**: Verificare, per ogni cartella del grafo in cui scrivono piu'
-    fasi (oggi ``07_chimera``, ``11_controls`` e ``12_final``), che i file del
+    fasi (oggi ``07_chimera`` e ``11_controls``), che i file del
     ponte e i manifesti di fase abbiano nomi distinti per ciascuna fase.
 
     **Razionale scientifico e sistemistico**: Lo stesso problema di S6 e S7 si
@@ -308,7 +308,7 @@ def test_le_fasi_che_condividono_una_cartella_non_condividono_file_di_servizio()
     for passo in GRAFO.ordine():
         per_cartella.setdefault(GRAFO.nodo(passo).cartella, []).append(passo)
     condivise = {c: p for c, p in per_cartella.items() if len(p) > 1}
-    assert {c.value for c in condivise} == {"07_chimera", "11_controls", "12_final"}
+    assert {c.value for c in condivise} == {"07_chimera", "11_controls"}
     for cartella, passi in condivise.items():
         nomi = [n for p in passi for n in (*nomi_del_contratto(str(p)), nome_manifesto_passo(str(p)))]
         assert len(nomi) == len(set(nomi)), cartella

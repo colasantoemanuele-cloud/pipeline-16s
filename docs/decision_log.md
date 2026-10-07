@@ -638,3 +638,65 @@ in cui le verifiche dipendono l'una dall'altra.**
   negativi, viene dichiarato tale subito.
 - Motivazione: la diagnosi deve nominare l'errore vero. Un controllo eseguito prima di
   ciò da cui dipende fallisce con il messaggio di un altro problema.
+
+### 3.16 Generalità delle fasi di calcolo: ciò che un dataset può non avere
+
+**Il troncamento si giudica sulla frazione di letture più corte, non sulla più corta.**
+- Decisione: G09 (sulle prime letture) e S1 (su tutte) si fermano solo se le letture
+  più corte di `filter.truncLen` superano `qc.max_frac_short_reads` (0,05) delle
+  letture dei campioni biologici e dei controlli positivi; i controlli negativi non
+  contano. `filter.minLen`, che coincideva per costruzione con `filter.truncLen`, e il
+  controllo che lo sorvegliava (`E-G15-01`) sono rimossi. Il report indica un
+  troncamento suggerito: il minore fra il più lungo che scarta non oltre il 5% delle
+  letture e l'ultima posizione con qualità mediana dei biologici almeno 30. È
+  un'indicazione: il valore applicato resta quello dichiarato.
+- Motivazione: in un dataset a lunghezza variabile una lettura corta c'è sempre, e il
+  filtro la toglie senza danno; fermarsi per quella rendeva la pipeline inutilizzabile
+  fuori dal dataset di riferimento, le cui letture sono tutte più lunghe del
+  troncamento. Un bianco amplifica poco e male, spesso solo dimeri: non dice nulla sul
+  troncamento adatto ai campioni.
+- Misure: sul dataset di riferimento nessuna lettura è più corta di 137 basi, e la
+  frazione è zero.
+
+**Il modello di errore ha una variante per le qualità raggruppate, e S1 dice quando
+serve.**
+- Decisione: `err.error_function` vale `loess` (la funzione standard di dada2,
+  predefinita) o `loess_monotono` (loess pesato sui conteggi, reso non crescente con
+  la qualità). S1 conta i valori di qualità distinti e con quattro o meno lo dichiara
+  (`E-S1-03`). Una corsa senza letture filtrate ferma S3 con un codice proprio
+  (`E-S3-03`).
+- Motivazione: con pochi valori di qualità la stima standard può dare un tasso di
+  errore che cresce con la qualità, e l'inferenza tratterebbe come più affidabili le
+  basi peggiori. La scelta resta di chi conduce l'analisi: la pipeline segnala, non
+  sostituisce il modello da sé.
+
+**L'assenza di una classe di controlli è una condizione dichiarata, non un errore.**
+- Decisione: senza controlli positivi, o senza la colonna dei livelli, S11 non adatta
+  alcuna curva e lo dichiara (`E-S11-05`), distinto dal ripiego di una curva non
+  attendibile (`E-S11-02`); un controllo senza piastra entra nella sola curva
+  aggregata e uno con una sola lettura in nessuna. Con meno di `decontam.min_blanks`
+  controlli negativi con letture S12 non toglie nulla e lo dichiara (`E-S12-03`).
+  La colonna dei livelli si cerca nel file del lotto e poi nella tabella di studio, ed
+  entra nell'oggetto anche se non è fra le colonne richieste. Il valore del ripiego
+  della soglia di profondità non cambia.
+- Motivazione: un ripiego silenzioso (nessuna decontaminazione, nessuna curva) dà un
+  risultato plausibile e non confrontabile con uno decontaminato e calibrato; un
+  errore di R senza codice non dice che cosa manca.
+
+**Nei filtri finali un campione esce con il motivo; la cartella consegnata contiene
+solo ciò che si consegna.**
+- Decisione: un campione svuotato dal filtro di prevalenza esce, e la fase lo
+  dichiara (`E-S13-02`, da arresto a degradazione); se nessun campione supera i
+  filtri la fase si ferma (`E-S13-04`). I nomi dei taxa si confrontano senza il
+  prefisso di rango (`p__`, `o__`), e una tassonomia senza il rango Phylum è
+  dichiarata (`E-S13-05`). `tax.assign_species` vero è respinto dallo schema, perché
+  non è realizzato. S13 scrive in `12_final/intermedi/`; S14 consegna in `12_final/`
+  l'oggetto finale, gli export e i controlli (`ps_controlli.rds`, solo se ci sono
+  controlli), toglie prima i file di un'esecuzione precedente, e `checksum.sha256`
+  li elenca tutti.
+- Motivazione: un solo campione di sole varianti rare non deve fermare un dataset; un
+  intermedio o un file di una configurazione precedente nella cartella consegnata si
+  scambia per un risultato che nessun checksum copre.
+- Misure: sul dataset di riferimento l'oggetto finale, gli export e le tabelle di
+  calcolo restano identici byte per byte; cambiano la collocazione degli intermedi di
+  S13, la fase che scrive `ps_controlli.rds` e l'elenco di `checksum.sha256`.

@@ -1,11 +1,10 @@
 # S13 - filtri finali: tassonomico e di prevalenza, dopo quello per profondita'.
 #
-# Scrive in 12_final/, condivisa con S14:
+# Scrive in 12_final/intermedi/: sono gli intermedi dei filtri, non i file
+# consegnati, che S14 scrive in 12_final/.
 #
 #   ps_filtrato.rds          l'oggetto dei soli campioni biologici tenuti, con le
 #                            sole varianti tenute; gli identificativi non cambiano
-#   ps_controlli.rds         i controlli positivi e negativi, dall'oggetto integrato
-#                            di S10, per il controllo di qualita'
 #   esclusioni.tsv           i campioni biologici esclusi, con il filtro e il motivo
 #   varianti_rimosse.tsv     le varianti rimosse, con il filtro e il motivo
 #   filtri_riepilogo.json    l'ordine dei filtri, il denominatore della prevalenza
@@ -13,8 +12,8 @@
 #   letture_finali.tsv       letture per campione nell'oggetto finale (tracciamento;
 #                            zero per i controlli e per i campioni esclusi)
 #
-# Parametri: decontaminato (ps_decontaminato.rds di S12), integrato
-# (ps_integrato.rds di S10), tenuti (accession dei biologici sopra la soglia di
+# Parametri: decontaminato (ps_decontaminato.rds di S12), tenuti (accession dei
+# biologici sopra la soglia di
 # profondita'), esclusi_profondita (le esclusioni per profondita', gia' decise),
 # senza_phylum (filt.remove_na_phylum), taxa_esclusi (filt.exclude_taxa),
 # prevalenza (prev.apply), frazione (prev.min_fraction), minimo_conteggio
@@ -26,10 +25,13 @@
 #      di tutto, perche' definisce i campioni dell'oggetto finale;
 #   2. tassonomico (varianti): senza phylum, se filt.remove_na_phylum, e i taxa
 #      di filt.exclude_taxa cercati in ogni rango; un campione che ne resta
-#      vuoto non ha segnale batterico ed esce (E-S13-03);
+#      vuoto non ha segnale batterico ed esce (E-S13-03). I nomi dei taxa si
+#      confrontano senza il prefisso di rango che alcuni riferimenti portano
+#      ("p__Proteobacteria", "o__Chloroplast"): un nome fatto del solo
+#      prefisso e' un rango non assegnato;
 #   3. prevalenza (varianti): una variante resta se ha almeno prev.min_count
 #      letture in almeno min_campioni dei campioni tenuti; un campione che ne
-#      resta vuoto ferma la fase (E-S13-02);
+#      resta vuoto esce con il motivo (E-S13-02);
 #   4. letture finali (campioni): sotto qc.min_reads_final il campione esce.
 # I due filtri sulle varianti commutano: la prevalenza di una variante non
 # dipende dalle altre. Una variante rimasta senza letture nei campioni finali
@@ -74,13 +76,20 @@ esegui_fase(function(parametri, cartella) {
   varianti <- rownames(conteggi)
 
   # ---- 2. Tassonomico --------------------------------------------------------
+  # Senza il prefisso di rango ("p__", "o__"): il confronto con
+  # filt.exclude_taxa e il riconoscimento del phylum non assegnato non devono
+  # dipendere da come il riferimento scrive i nomi.
+  senza_prefisso <- sub("^[A-Za-z]__", "", tax)
+  dim(senza_prefisso) <- dim(tax)
+  dimnames(senza_prefisso) <- dimnames(tax)
+  senza_prefisso[!is.na(senza_prefisso) & !nzchar(senza_prefisso)] <- NA
   motivo_tax <- rep("", length(varianti))
-  if (isTRUE(parametri$senza_phylum)) {
-    motivo_tax[is.na(tax[varianti, "Phylum"])] <- "phylum non assegnato"
+  if (isTRUE(parametri$senza_phylum) && "Phylum" %in% colnames(tax)) {
+    motivo_tax[is.na(senza_prefisso[varianti, "Phylum"])] <- "phylum non assegnato"
   }
-  esclusi_taxa <- as.character(unlist(parametri$taxa_esclusi))
+  esclusi_taxa <- sub("^[A-Za-z]__", "", as.character(unlist(parametri$taxa_esclusi)))
   for (i in seq_along(varianti)) {
-    ranghi <- tax[varianti[i], ]
+    ranghi <- senza_prefisso[varianti[i], ]
     trovato <- which(!is.na(ranghi) & ranghi %in% esclusi_taxa)
     if (length(trovato)) {
       voce <- sprintf("%s = %s, in filt.exclude_taxa", names(ranghi)[trovato[1]], ranghi[trovato[1]])
@@ -135,7 +144,13 @@ esegui_fase(function(parametri, cartella) {
                        sum(conteggi[, a]), minime))
   }
   conteggi <- conteggi[, setdiff(colnames(conteggi), pochi), drop = FALSE]
-  if (ncol(conteggi) == 0L) stop("nessun campione biologico resta nell'oggetto finale")
+  if (ncol(conteggi) == 0L) {
+    errore_catalogo("E-S13-04", sprintf(
+      "%d campioni biologici, tutti esclusi: %s", sum(dati$classe == "biologico"),
+      paste(vapply(c("profondita", "tassonomico", "prevalenza", "letture_finali"), function(f) {
+        sprintf("%s %d", f, sum(vapply(esclusioni, function(e) e[["filtro"]] == f, logical(1))))
+      }, character(1)), collapse = ", ")))
+  }
   orfane <- rowSums(conteggi) == 0
   rimosse$letture_finali <- data.frame(
     asv_id = rownames(conteggi)[orfane], letture = rep(0, sum(orfane)),
@@ -143,7 +158,7 @@ esegui_fase(function(parametri, cartella) {
                  sum(orfane)))
   conteggi <- conteggi[!orfane, , drop = FALSE]
 
-  # ---- L'oggetto finale e i controlli ---------------------------------------
+  # ---- L'oggetto filtrato ---------------------------------------------------
   finale <- phyloseq::prune_samples(colnames(conteggi), ps)
   finale <- phyloseq::prune_taxa(rownames(conteggi), finale)
   if (!identical(phyloseq::taxa_names(finale), rownames(conteggi)) ||
@@ -151,10 +166,6 @@ esegui_fase(function(parametri, cartella) {
     stop("l'oggetto finale non corrisponde alla tabella filtrata")
   }
   salva_rds(finale, file.path(cartella, "ps_filtrato.rds"))
-  integrato <- readRDS(parametri$integrato)
-  classi <- methods::as(phyloseq::sample_data(integrato), "data.frame")$classe
-  controlli <- phyloseq::prune_samples(phyloseq::sample_names(integrato)[classi != "biologico"], integrato)
-  salva_rds(controlli, file.path(cartella, "ps_controlli.rds"))
 
   # ---- Esclusioni, varianti rimosse, tracciamento ---------------------------
   esclusioni <- if (length(esclusioni)) do.call(rbind, esclusioni) else
@@ -223,6 +234,6 @@ esegui_fase(function(parametri, cartella) {
     ),
     file.path(cartella, "filtri_riepilogo.json")
   )
-  c("ps_filtrato.rds", "ps_controlli.rds", "esclusioni.tsv", "varianti_rimosse.tsv",
+  c("ps_filtrato.rds", "esclusioni.tsv", "varianti_rimosse.tsv",
     "filtri_riepilogo.json", traccia_letture(finali, "finali", cartella))
 })

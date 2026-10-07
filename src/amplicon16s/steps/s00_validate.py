@@ -204,7 +204,7 @@ class ValidazioneIngressi(PipelineStep):
     """
 
     passo: ClassVar[Passo] = Passo.S0
-    versione: ClassVar[int] = 4
+    versione: ClassVar[int] = 5
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre
@@ -234,7 +234,7 @@ class ValidazioneIngressi(PipelineStep):
         "ctrl.column", "ctrl.blank_values", "ctrl.positive_values", "ctrl.biological_values",
         "ctrl.blank_override_column", "ctrl.blank_override_values",
         "qc.primer_sequence", "qc.conserved_motif", "qc.head_reads",
-        "qc.max_primer_hit_frac", "qc.min_motif_frac",
+        "qc.max_primer_hit_frac", "qc.min_motif_frac", "qc.max_frac_short_reads",
         "decontam.batch_column", "decontam.min_blanks", "err.batch_column",
         "filter.truncLen", "filter.trimLeft",
         "out.study_columns", "out.batch_columns", "katharoseq.cell_count_column",

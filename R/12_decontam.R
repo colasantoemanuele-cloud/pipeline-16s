@@ -75,11 +75,17 @@ esegui_fase(function(parametri, cartella) {
   nel_confronto <- (negativo | biologico) & con_letture
 
   # ---- Aggregata ------------------------------------------------------------
+  # Con meno di decontam.min_blanks negativi con letture in tutto il dataset la
+  # prevalenza nei negativi non e' stimabile: nessuna probabilita', nessuna
+  # variante rimossa, e la fase Python lo dichiara (E-S12-03).
+  insufficienti <- sum(nel_confronto & negativo) < min_negativi
   righe <- which(nel_confronto)
-  p_aggregata <- probabilita_prevalenza(conteggi[righe, , drop = FALSE], negativo[righe])
+  p_aggregata <- if (insufficienti) stats::setNames(rep(NA_real_, length(varianti)), varianti) else
+    probabilita_prevalenza(conteggi[righe, , drop = FALSE], negativo[righe])
 
   # ---- Per piastra ----------------------------------------------------------
-  piastre <- sort(unique(piastra[nel_confronto & !is.na(piastra)]), method = "radix")
+  piastre <- if (insufficienti) character() else
+    sort(unique(piastra[nel_confronto & !is.na(piastra)]), method = "radix")
   confronti <- list()
   descrizione <- list()
   for (p in piastre) {
@@ -99,7 +105,7 @@ esegui_fase(function(parametri, cartella) {
     descrizione[[p]] <- list(negativi = sum(negativo[quali]), biologici = n_bio, confronto = come)
   }
   senza_piastra <- nel_confronto & biologico & is.na(piastra)
-  if (any(senza_piastra)) {
+  if (any(senza_piastra) && !insufficienti) {
     quali <- which(senza_piastra | (nel_confronto & negativo))
     confronti[["senza piastra"]] <- probabilita_prevalenza(conteggi[quali, , drop = FALSE],
                                                            negativo[quali])
@@ -133,9 +139,9 @@ esegui_fase(function(parametri, cartella) {
   }
   m_aggregata <- misura(c_aggregata)
   m_per_piastra <- if (per_piastra_disponibile) misura(c_per_piastra) else NULL
-  dichiarata <- if (modalita == "batch") m_per_piastra else m_aggregata
+  dichiarata <- if (modalita == "batch" && !insufficienti) m_per_piastra else m_aggregata
   if (is.null(dichiarata)) {
-    stop("decontam.mode e' batch ma nessun campione ha una piastra")
+    stop("decontam.mode e' batch ma nessun campione biologico ha letture")
   }
   rimossa_bio <- dichiarata$letture_rimosse$biologico
   entro <- !is.na(rimossa_bio) && rimossa_bio <= max_frazione
@@ -143,6 +149,12 @@ esegui_fase(function(parametri, cartella) {
     "%s: rimuove %.4f delle letture dei biologici, %s qc.max_frac_contaminant (%s)",
     if (modalita == "batch") "per piastra" else "aggregata", rimossa_bio,
     if (entro) "entro" else "oltre", format(max_frazione))
+  if (insufficienti) {
+    entro <- TRUE
+    esito <- sprintf(
+      "nessuna decontaminazione: %d controlli negativi con letture, meno di decontam.min_blanks (%d)",
+      sum(nel_confronto & negativo), min_negativi)
+  }
   rimuovere <- if (!entro) rep(FALSE, length(varianti)) else
     if (modalita == "batch") c_per_piastra else c_aggregata
 

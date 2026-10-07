@@ -57,7 +57,11 @@ from amplicon16s.io_layer.reads import StatisticheFile, espandi_iupac, scansiona
 from amplicon16s.metadata.crosswalk import Analisi, analizza
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione, Inventario
 from amplicon16s.metadata.tabelle import intestazione as _intestazione
-from amplicon16s.metadata.tabelle import nomi_in_collisione, tabella_di_studio
+from amplicon16s.metadata.tabelle import (
+    nomi_in_collisione,
+    tabella_delle_cellule,
+    tabella_di_studio,
+)
 
 __all__ = [
     "Avviso",
@@ -108,11 +112,6 @@ class Controllo:
 
 CONTROLLI: Final[tuple[Controllo, ...]] = (
     Controllo(
-        "E-G15-01",
-        ("filter.minLen", "filter.truncLen"),
-        "gate",
-    ),
-    Controllo(
         "E-G15-02",
         ("decontam.threshold",),
         "gate",
@@ -139,7 +138,7 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
     ),
     Controllo(
         "E-G15-08",
-        ("filter.minLen", "asv.len_min", "asv.len_max"),
+        ("asv.len_min", "asv.len_max"),
         "schema",
     ),
     Controllo(
@@ -155,13 +154,12 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
     Controllo(
         "E-G15-11",
         ("io.batch_table", "out.batch_columns", "err.batch_column", "decontam.batch_column",
-         "meta.batch_key_column", "meta.batch_module_column"),
+         "decontam.mode", "meta.batch_key_column", "meta.batch_module_column"),
         "gate",
     ),
     Controllo(
         "E-G15-12",
-        ("ctrl.positive_values", "katharoseq.target_taxon", "katharoseq.cell_count_column",
-         "out.batch_columns", "out.study_columns"),
+        ("ctrl.positive_values", "katharoseq.target_taxon", "katharoseq.cell_count_column"),
         "gate",
     ),
     Controllo(
@@ -328,20 +326,6 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
     derivati = risolta.derivati
     violazioni: list[Violazione] = []
 
-    # E-G15-01 : invariante sulla derivazione: minLen discende da truncLen,
-    # quindi la disuguaglianza non puo' essere violata da una configurazione.
-    # Il controllo resta perche' sorveglia la regola di derivazione, non
-    # l'utente: se quella regola cambiasse in modo incoerente, fallirebbe qui.
-    if derivati.filter_minLen > config.filter.truncLen:
-        violazioni.append(
-            Violazione(
-                "E-G15-01",
-                f"filter.minLen ({derivati.filter_minLen}) supera filter.truncLen "
-                f"({config.filter.truncLen}): la lunghezza minima accettata non puo' "
-                f"eccedere quella di troncamento",
-            )
-        )
-
     # E-G15-02 : lo schema ammette [0, 1]; agli estremi la soglia e' degenere.
     soglia = config.decontam.threshold
     if not (0.0 < soglia < 1.0):
@@ -427,6 +411,18 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
             )
         )
 
+    # La decontaminazione per piastra confronta ogni campione con i negativi
+    # della sua piastra: senza la colonna della piastra non c'e' raggruppamento.
+    if config.decontam.mode == "batch" and config.decontam.batch_column is None:
+        violazioni.append(
+            Violazione(
+                "E-G15-11",
+                "decontam.mode e' batch ma decontam.batch_column e' nullo: senza la "
+                "colonna della piastra la decontaminazione per piastra non ha gruppi; "
+                "dichiara decontam.mode aggregate",
+            )
+        )
+
     # E-G15-12 : controlli positivi dichiarati, ma non valutabili.
     if config.ctrl.positive_values:
         nulli = [
@@ -446,21 +442,6 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
                     ),
                 )
             )
-    # La calibrazione legge le cellule dall'oggetto integrato: la colonna deve
-    # essere fra quelle che S10 vi porta, altrimenti S11 non la troverebbe e
-    # ripiegherebbe sulla soglia fissa a calcolo concluso.
-    cellule = config.katharoseq.cell_count_column
-    if cellule is not None and cellule not in (
-        *config.out.batch_columns, *config.out.study_columns
-    ):
-        violazioni.append(
-            Violazione(
-                "E-G15-12",
-                f"katharoseq.cell_count_column ({cellule!r}) non e' fra le colonne portate "
-                f"nell'oggetto: va elencata in out.batch_columns o in out.study_columns, "
-                f"secondo la tabella che la contiene",
-            )
-        )
 
     # E-G15-13 : due colonne richieste non possono avere lo stesso nome
     # nell'oggetto, ne' quello di una colonna dell'inventario.
@@ -774,6 +755,7 @@ class Contesto:
                 primer=espandi_iupac(self.config.qc.primer_sequence) if taglio == 0 else None,
                 motivo=self.config.qc.conserved_motif,
                 inizio_motivo=taglio,
+                lunghezza_richiesta=self.config.filter.truncLen,
             )
         return self._scansione
 
@@ -881,9 +863,26 @@ def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Av
     if config.ctrl.blank_override_column is not None:
         di_studio.append(("ctrl.blank_override_column", config.ctrl.blank_override_column))
     di_studio += [("out.study_columns", c) for c in config.out.study_columns]
-    # Le cellule dei controlli positivi sono una delle colonne portate
-    # nell'oggetto (lo impone G15): se sta fra out.study_columns e' verificata
-    # qui sopra con le altre, se sta fra out.batch_columns la verifica G08.
+    # I livelli dei controlli positivi: se la colonna e' fra quelle richieste
+    # e' gia' verificata (qui o in G08); altrimenti si cerca nel file di
+    # arricchimento e nella tabella di studio, e S10 la porta nell'oggetto da
+    # dove la trova. Assente da entrambe, S11 non avrebbe i livelli.
+    cellule = config.katharoseq.cell_count_column
+    if cellule is not None and cellule not in (
+        *config.out.batch_columns, *config.out.study_columns
+    ):
+        try:
+            origine = tabella_delle_cellule(config)
+        except (OSError, UnicodeDecodeError, csv.Error):
+            origine = "illeggibile"  # la tabella che non si apre e' gia' una violazione
+        if origine == "studio":
+            di_studio.append(("katharoseq.cell_count_column", cellule))
+        elif origine is None:
+            violazioni.append(Violazione(
+                "E-S0-02",
+                f"la colonna {cellule!r}, dichiarata in katharoseq.cell_count_column, non "
+                f"compare ne' nel file di arricchimento (io.batch_table) ne' in {studio.name}",
+            ))
 
     if config.io.study_table is None:
         attese = [("io.assay_table", Path(config.io.assay_table), assay + di_studio[1:])]
@@ -1054,35 +1053,50 @@ def _g13_archivi_validi(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
 
 
 def _g09_troncamento_compatibile(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
-    """filter.truncLen non puo' superare la lunghezza minima osservata.
+    """Le letture piu' corte di filter.truncLen sono poche.
 
     Le letture piu' corte del troncamento vengono scartate, non accorciate: un
-    valore troppo alto azzera interi campioni senza che nulla lo segnali.
+    valore troppo alto azzera interi campioni senza che nulla lo segnali. Una
+    sola lettura corta, pero', non e' un motivo per fermarsi: in un dataset a
+    lunghezza variabile ce n'e' quasi sempre qualcuna, e il filtro la toglie
+    senza danno. Il gate misura la **frazione** di letture piu' corte, sui
+    campioni biologici e sui controlli positivi (i controlli negativi, che
+    amplificano poco e male, non contano), e si ferma oltre
+    ``qc.max_frac_short_reads``.
 
-    La lunghezza minima e' quella delle prime qc.head_reads letture, non di
-    tutto il file: una stima per eccesso del vero minimo, con cui il gate puo'
-    passare quando non dovrebbe. Il limite e' chiuso da S1, che legge tutte le
-    letture e ricontrolla la stessa condizione sul minimo vero (E-S1-02).
+    La misura e' sulle prime qc.head_reads letture di ogni file, non su tutto
+    il file: il limite e' chiuso da S1, che legge tutte le letture e ripete la
+    stessa verifica (E-S1-02).
     """
     config = contesto.config
     troncamento = config.filter.truncLen
+    massima = config.qc.max_frac_short_reads
+    classi = {c.accession: c.classe for c in contesto.inventario}
 
-    corti = {
-        accession: s
-        for accession, s in contesto.scansione.items()
-        if s.valido and s.lunghezza_minima is not None and s.lunghezza_minima < troncamento
-    }
-    if corti:
-        peggiori = sorted(corti.items(), key=lambda voce: voce[1].lunghezza_minima)
+    esaminate = corte = 0
+    con_corte: dict[str, StatisticheFile] = {}
+    for accession, s in contesto.scansione.items():
+        if not s.valido or classi.get(accession) not in CLASSI_CONTROLLATE:
+            continue
+        esaminate += s.letture_esaminate
+        corte += s.piu_corte
+        if s.piu_corte:
+            con_corte[accession] = s
+    frazione = corte / esaminate if esaminate else 0.0
+    if frazione > massima:
+        peggiori = sorted(con_corte.values(), key=lambda s: -s.frazione_corte)
         dettaglio = ", ".join(
-            f"{s.nome} ({s.lunghezza_minima} bp)" for _, s in peggiori[:5]
+            f"{s.nome} ({s.frazione_corte:.1%}, minima {s.lunghezza_minima} bp)"
+            for s in peggiori[:5]
         )
         return [
             Violazione(
                 "E-S0-09",
-                f"filter.truncLen vale {troncamento} ma {len(corti)} file hanno "
-                f"letture piu' corte: {dettaglio}. Le letture piu' corte del "
-                f"troncamento vengono scartate, non accorciate",
+                f"filter.truncLen vale {troncamento} e il {frazione:.1%} delle prime "
+                f"letture dei campioni biologici e dei controlli positivi e' piu' corto "
+                f"({corte} su {esaminate}), oltre il {massima:.0%} di "
+                f"qc.max_frac_short_reads; {len(con_corte)} file ne hanno: {dettaglio}. "
+                f"Le letture piu' corte del troncamento vengono scartate, non accorciate",
             )
         ], []
 
@@ -1243,6 +1257,8 @@ def _g08_lotto_coerente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
             ) if nome is not None
         ]
         colonne += [("out.batch_columns", c) for c in config.out.batch_columns]
+        if tabella_delle_cellule(config) == "lotto":
+            colonne.append(("katharoseq.cell_count_column", config.katharoseq.cell_count_column))
         uniche = list(dict((nome, (dichiarata, nome)) for dichiarata, nome in colonne).values())
         violazioni += _colonne_mancanti(
             intestazione, uniche, f"{percorso.name} (io.batch_table)", "E-S0-08"

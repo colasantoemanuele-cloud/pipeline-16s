@@ -529,9 +529,9 @@ def test_s11_da_gli_stessi_byte_in_due_esecuzioni(bioc, controlli_calcolati, tmp
 
 def test_la_colonna_dei_livelli_assente_e_respinta_in_s0(tmp_path):
     """
-    **Obiettivo**: Verificare che una ``katharoseq.cell_count_column`` che non
-    e' fra le colonne portate nell'oggetto sia respinta da G15 con
-    ``E-G15-12``; che, elencata in ``out.batch_columns`` ma assente dal file
+    **Obiettivo**: Verificare che una ``katharoseq.cell_count_column`` assente
+    sia dal file del lotto sia dalla tabella di studio sia respinta da G02 con
+    ``E-S0-02``; che, elencata in ``out.batch_columns`` ma assente dal file
     del lotto, sia respinta da G08 con ``E-S0-08``; e che la colonna si trovi
     nell'oggetto da qualunque delle due tabelle venga.
 
@@ -541,8 +541,9 @@ def test_la_colonna_dei_livelli_assente_e_respinta_in_s0(tmp_path):
     leggendo le intestazioni.
     """
     config = config_ridotta(tmp_path, katharoseq={"cell_count_column": "cellule_inesistenti"})
-    esito = esegui_gate("G15", Contesto(config))
-    assert not esito.superato and {v.codice for v in esito.violazioni} == {"E-G15-12"}
+    assert esegui_gate("G15", Contesto(config)).superato
+    esito = esegui_gate("G02", Contesto(config))
+    assert not esito.superato and {v.codice for v in esito.violazioni} == {"E-S0-02"}
     assert "katharoseq.cell_count_column" in esito.violazioni[0].dettaglio
     assert "cellule_inesistenti" in esito.violazioni[0].dettaglio
 
