@@ -887,6 +887,12 @@ INCOERENTI = [
         ("ctrl.positive_values", "katharoseq.target_taxon"),
         id="positivi-senza-taxon-atteso",
     ),
+    pytest.param(
+        lambda d: d["out"]["study_columns"].append("Classe"),
+        "E-G15-13",
+        ("out.study_columns", "out.batch_columns"),
+        id="colonna-con-il-nome-di-una-dell-inventario",
+    ),
 ]
 
 

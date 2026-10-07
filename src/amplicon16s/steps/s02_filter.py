@@ -138,7 +138,9 @@ class FiltroLetture(PipelineStep):
     """S2: filtro e troncamento."""
 
     passo: ClassVar[Passo] = Passo.S2
-    versione: ClassVar[int] = 1
+    #: 2: riconosce dai primi byte un FASTQ non compresso, che non ha un
+    #: archivio da verificare.
+    versione: ClassVar[int] = 2
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("prefiltro", "filtrate")
     #: Tutto il gruppo filter e le due soglie dei controlli sul risultato.

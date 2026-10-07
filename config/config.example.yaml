@@ -259,8 +259,10 @@ ctrl:
 katharoseq:
   # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
   # target_taxon: Variovorax
-  # Colonna del file di arricchimento con le cellule di ciascun controllo
-  # positivo: il livello di diluizione. Senza, nessuna curva (E-S11-02).
+  # Colonna con le cellule di ciascun controllo positivo: il livello di
+  # diluizione. Deve essere fra le colonne portate nell'oggetto
+  # (out.batch_columns o out.study_columns, secondo la tabella che la
+  # contiene: E-G15-12). Senza, nessuna curva (E-S11-02).
   # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
   # cell_count_column: katharoseq_cell_count
   collapse_rank: Genus              # rango a cui si somma il taxon atteso

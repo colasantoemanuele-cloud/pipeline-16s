@@ -382,7 +382,9 @@ Sono realizzati:
   nomina, sulle tabelle di assay e di studio e sul file del lotto, comprese quelle da
   portare nell'oggetto (`out.study_columns`, `out.batch_columns`), fra le quali deve
   stare la colonna delle cellule dei controlli positivi, perché è dall'oggetto che la
-  calibrazione la legge (`E-G15-12`); G08 respinge un file del lotto in cui un
+  calibrazione la legge (`E-G15-12`); due colonne richieste che nell'oggetto
+  prenderebbero lo stesso nome, o quello di una colonna dell'inventario, sono
+  respinte da G15 (`E-G15-13`) invece che da S10 a calcolo concluso; G08 respinge un file del lotto in cui un
   campione non ha riga, ne ha più d'una, o non ha la piastra o la corsa dichiarate.
   G07 riconosce le letture inverse dal marcatore che precede l'estensione; i FASTQ,
   compressi o no, si riconoscono dai primi byte, in S0 come nel controllo che S2 fa
@@ -409,7 +411,7 @@ Sono realizzati:
   manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
   in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
   lo stesso checksum fra due esecuzioni sugli stessi ingressi;
-- il catalogo degli errori (63 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (64 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -823,7 +825,7 @@ Sono realizzati:
   per un modello non lineare dice solo quanto la curva riduce l'errore rispetto alla
   media. La profondità minima è quella a cui la curva raggiunge
   `katharoseq.target_sensitivity` (0,90). Il livello di diluizione viene dai dati, la
-  colonna `katharoseq.cell_count_column` del file di arricchimento, non dai nomi dei
+  colonna `katharoseq.cell_count_column` (una di quelle portate nell'oggetto), non dai nomi dei
   campioni. Si adattano la curva aggregata e una per piastra, e si sceglie il modello
   con la bontà maggiore fra quelli ammissibili; una curva vale se ha almeno
   `ctrl.min_positives` punti, R² non inferiore a `katharoseq.min_r2`, la soglia

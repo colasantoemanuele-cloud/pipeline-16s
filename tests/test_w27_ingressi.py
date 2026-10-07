@@ -461,8 +461,8 @@ def test_con_il_primer_nelle_letture_e_trimleft_pari_alla_sua_lunghezza_g10_pass
     **Obiettivo**: Verificare che con il primer in testa alle letture e
     ``filter.trimLeft`` a zero G10 fallisca con il solo ``E-S0-10``, indicando
     di impostare ``filter.trimLeft`` a 19; che applicata quella correzione G10
-    passi, con il motivo conservato trovato alla posizione 19; e che l'intera
-    S0 sia superata.
+    passi, con il motivo conservato trovato alla posizione 19, anche quando
+    il motivo e' ancorato all'inizio con ``^``; e che l'intera S0 sia superata.
 
     **Razionale scientifico e sistemistico**: La correzione che il gate indica
     deve farlo superare: prima cercava primer e motivo sempre all'inizio della
@@ -480,6 +480,8 @@ def test_con_il_primer_nelle_letture_e_trimleft_pari_alla_sua_lunghezza_g10_pass
     assert esito.superato and not esito.avvisi
     assert all(s.frazione_motivo == 1.0 and s.con_primer == 0 for s in contesto.scansione.values())
     assert esegui_s0(con_taglio).superata
+    ancorato = _con(con_taglio, qc={"conserved_motif": "^" + con_taglio.qc.conserved_motif})
+    assert esegui_gate("G10", Contesto(ancorato)).superato
 
 
 def test_primer_presente_e_segnale_assente_hanno_codici_distinti(tmp_path):
@@ -543,7 +545,10 @@ def test_g02_verifica_ogni_colonna_dichiarata_delle_tabelle(tmp_path):
     ``ctrl.blank_override_column`` assenti dalla tabella di studio; che la
     colonna di ``katharoseq.cell_count_column`` debba essere fra quelle portate
     nell'oggetto (``E-G15-12``) e sia quindi verificata con esse; e che una
-    colonna ripetuta nell'intestazione sia respinta allo stesso modo.
+    colonna ripetuta nell'intestazione sia respinta allo stesso modo; e che
+    due colonne richieste che nell'oggetto prenderebbero lo stesso nome, o
+    quello di una colonna dell'inventario, siano respinte da G15 con
+    ``E-G15-13`` (prima le scopriva S10, a calcolo concluso).
 
     **Razionale scientifico e sistemistico**: Ogni colonna che la
     configurazione nomina va cercata prima del calcolo: scoperta assente da
@@ -579,6 +584,13 @@ def test_g02_verifica_ogni_colonna_dichiarata_delle_tabelle(tmp_path):
     esito = _esiti(_con(scenario.config,
                         out={"study_columns": ["katharoseq_cell_count", "nota"]}))["G02"]
     assert "compare 2 volte" in esito.violazioni[0].dettaglio
+
+    for colonne in ({"study_columns": ["katharoseq_cell_count", "Classe"]},
+                    {"study_columns": ["katharoseq_cell_count", "Var Uno", "Var-Uno"]},
+                    {"study_columns": ["katharoseq_cell_count"],
+                     "batch_columns": ["katharoseq_cell_count"]}):
+        esito = esegui_gate("G15", Contesto(_con(scenario.config, out=colonne)))
+        assert "E-G15-13" in [v.codice for v in esito.violazioni], colonne
 
 
 def test_g08_verifica_le_colonne_e_la_completezza_del_file_del_lotto(tmp_path):
@@ -1005,7 +1017,7 @@ def test_s0_dichiara_i_parametri_che_i_suoi_gate_leggono(tmp_path):
     **Obiettivo**: Verificare che S0 dichiari fra i propri parametri quelli che
     i gate leggono dopo questa settimana (``filter.trimLeft``,
     ``out.study_columns``, ``out.batch_columns``,
-    ``katharoseq.cell_count_column``), che la sua versione sia 3, e che
+    ``katharoseq.cell_count_column``), che la sua versione sia almeno 3, e che
     cambiare ``filter.trimLeft`` cambi l'impronta su cui S0 e' calcolata.
 
     **Razionale scientifico e sistemistico**: Un parametro letto e non
@@ -1013,7 +1025,7 @@ def test_s0_dichiara_i_parametri_che_i_suoi_gate_leggono(tmp_path):
     conclusa con gli esiti dei gate calcolati sul valore vecchio.
     """
     fase = ValidazioneIngressi()
-    assert fase.versione == 3 and fase.passo is Passo.S0
+    assert fase.versione >= 3 and fase.passo is Passo.S0
     assert {"filter.trimLeft", "out.study_columns", "out.batch_columns",
             "katharoseq.cell_count_column"} <= set(fase.parametri)
     scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)

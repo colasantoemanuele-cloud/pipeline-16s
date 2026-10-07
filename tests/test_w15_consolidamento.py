@@ -418,6 +418,7 @@ COPERTURA: dict[str, str] = {
     "E-G15-10": "test_w27_ingressi.py::test_senza_i_parametri_obbligatori_g15_respinge_con_l_elenco_dei_mancanti",
     "E-G15-11": "test_w03_w04_config_schema.py::test_g15_respinge_le_configurazioni_incoerenti",
     "E-G15-12": "test_w03_w04_config_schema.py::test_g15_respinge_le_configurazioni_incoerenti",
+    "E-G15-13": "test_w03_w04_config_schema.py::test_g15_respinge_le_configurazioni_incoerenti",
     "E-G15-99": "test_w15_consolidamento.py::test_un_problema_di_schema_non_attribuito_e_e_g15_99",
     "E-GRAFO-01": "test_w08_w09_graph_resume.py::test_nessuna_fase_gira_prima_delle_sue_dipendenze",
     "E-R-01": "test_w08_rbridge.py::test_senza_interprete_l_errore_e_del_catalogo",

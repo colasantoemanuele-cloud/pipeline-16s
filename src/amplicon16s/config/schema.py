@@ -393,8 +393,9 @@ class Katharoseq(_Gruppo):
     # Obbligatori; nulli se il dataset non ha controlli positivi (G15 verifica
     # che non lo siano quando ctrl.positive_values non e' vuoto).
     target_taxon: StringaNonVuota | None
-    # Colonna del file di arricchimento con le cellule di ciascun controllo
-    # positivo, il livello di diluizione; nome originale della colonna.
+    # Colonna con le cellule di ciascun controllo positivo, il livello di
+    # diluizione; nome originale della colonna, che deve essere fra quelle
+    # portate nell'oggetto (out.batch_columns o out.study_columns).
     cell_count_column: StringaNonVuota | None
     collapse_rank: Literal["Phylum", "Class", "Order", "Family", "Genus"] = (
         d.KATHAROSEQ_COLLAPSE_RANK

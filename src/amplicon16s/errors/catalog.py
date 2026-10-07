@@ -246,6 +246,18 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "parametri nulli.",
         _UMANA,
     ),
+    _v(
+        "E-G15-13", "G15",
+        "Due colonne dei metadati prenderebbero lo stesso nome nell'oggetto.",
+        "Le colonne di out.study_columns e out.batch_columns entrano "
+        "nell'oggetto con un nome sintattico (minuscole, trattini bassi): due "
+        "colonne diverse possono dare lo stesso nome, o quello di una colonna "
+        "dell'inventario (accession, sample_name, classe, materiale, posizione, "
+        "modulo, piastra, corsa). Togli una delle due dagli elenchi, o "
+        "rinominala nella tabella: scoperta da S10, la collisione costerebbe "
+        "tutto il calcolo che la precede.",
+        _UMANA,
+    ),
     # ----------------------------------------------------------------- S0 ---
     _v(
         "E-S0-01", "S0",

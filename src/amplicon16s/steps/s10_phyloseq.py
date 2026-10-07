@@ -65,7 +65,13 @@ from typing import Any, ClassVar, Final
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Artefatto, Fase
 from amplicon16s.metadata.crosswalk import chiave_dalla_tabella
-from amplicon16s.metadata.tabelle import intestazione, leggi_tsv, tabella_di_studio
+from amplicon16s.metadata.tabelle import (
+    COLONNE_INVENTARIO,
+    intestazione,
+    leggi_tsv,
+    nome_nell_oggetto,
+    tabella_di_studio,
+)
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
@@ -88,43 +94,9 @@ NOME_METADATI: Final = "metadati_campioni.tsv"
 NOME_COLONNE: Final = "colonne_metadati.tsv"
 NOME_RIEPILOGO: Final = "riepilogo.json"
 
-#: Le colonne dell'inventario nell'oggetto, con i nomi del crosswalk di S0.
 #: Le origini registrate in colonne_metadati.tsv.
 ORIGINE_LOTTO: Final = "file di arricchimento (io.batch_table)"
 ORIGINE_ASSAY: Final = "tabella di assay (io.assay_table)"
-
-COLONNE_INVENTARIO: Final = (
-    "accession", "sample_name", "classe", "materiale",
-    "posizione", "modulo", "piastra", "corsa",
-)
-
-#: Un nome che R conserva cosi' com'e': make.names lo lascia invariato, e non
-#: e' una parola riservata (nessuna delle riservate ha questa forma minuscola
-#: con trattini bassi, salvo quelle escluse sotto).
-_SINTATTICO: Final = re.compile(r"^[a-z][a-z0-9_]*$")
-_RISERVATE: Final = frozenset({
-    "if", "else", "repeat", "while", "function", "for", "next", "break",
-    "in", "true", "false", "null", "inf", "nan", "na",
-})
-
-
-def nome_nell_oggetto(originale: str) -> str:
-    """Il nome sintattico di una colonna dei metadati nell'oggetto.
-
-    Minuscole, e ogni sequenza di caratteri diversi da lettere e cifre
-    diventa un trattino basso: ``Factor Value[Spaceflight]`` diventa
-    ``factor_value_spaceflight``. Un nome che non comincia con una lettera
-    prende il prefisso ``x_``. Il risultato e' un nome che R non altera.
-    """
-    nome = re.sub(r"[^a-z0-9]+", "_", originale.casefold()).strip("_")
-    if not nome or not nome[0].isalpha():
-        nome = f"x_{nome}"
-    if nome in _RISERVATE:
-        nome = f"{nome}_"
-    if not _SINTATTICO.match(nome):
-        raise ValueError(f"nome non sintattico per la colonna {originale!r}: {nome!r}")
-    return nome
-
 
 def colonne_metadati(config: Any) -> list[dict[str, str]]:
     """Le colonne dei metadati dell'oggetto, con l'origine di ciascuna.
@@ -157,7 +129,8 @@ def colonne_metadati(config: Any) -> list[dict[str, str]]:
          "valore": "valore originale; vuoto se non applicabile" if meta.module_column else
                    "vuoto: meta.module_column nullo"},
         {"colonna": "modulo",
-         "origine": f"{lotto}, oppure tabella campioni di studio",
+         "origine": f"{lotto}, oppure tabella campioni di studio"
+                    if io.batch_table is not None or io.study_table is not None else studio,
          "colonna_originale": ", oppure ".join(
              c for c in (meta.batch_module_column, meta.module_column) if c),
          "valore": "dal file di arricchimento se c'e', altrimenti derivato dalla posizione "
@@ -274,7 +247,9 @@ class AssemblaggioOggetto(PipelineStep):
     """S10: l'oggetto integrato, con tutti i campioni dell'inventario."""
 
     passo: ClassVar[Passo] = Passo.S10
-    versione: ClassVar[int] = 1
+    #: 2: classe e variabili dalla tabella di assay quando io.study_table non
+    #: e' indicata; chiave del file di arricchimento estratta con io.accession_regex.
+    versione: ClassVar[int] = 2
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La forma dell'oggetto (orientamento, identificativi, colonne portate;
     #: serializzazione ed export sono di S14); le tabelle e le colonne da cui

@@ -92,7 +92,9 @@ class ValidazioneControlli(PipelineStep):
     """S11: la curva KatharoSeq, la soglia di profondita' e la conformita' dei positivi."""
 
     passo: ClassVar[Passo] = Passo.S11
-    versione: ClassVar[int] = 1
+    #: 2: la colonna dei livelli si cerca fra tutte le colonne portate
+    #: nell'oggetto, dal file di arricchimento o dalla tabella di studio.
+    versione: ClassVar[int] = 2
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La curva (katharoseq), i controlli minimi, la frazione di conformi e il
     #: comportamento sotto di essa (ctrl), la regola e il valore del ripiego (qc).

@@ -204,7 +204,7 @@ class ValidazioneIngressi(PipelineStep):
     """
 
     passo: ClassVar[Passo] = Passo.S0
-    versione: ClassVar[int] = 3
+    versione: ClassVar[int] = 4
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre

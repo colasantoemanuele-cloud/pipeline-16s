@@ -34,6 +34,9 @@ htmlcov/
 dati/osd734/fastq/
 dati/osd734/riferimento/
 dati/osd734/lotto/
+# Le letture di OSD-276 scaricate in dati/osd276/.
+dati/osd276/ena/
+dati/osd276/fastq/
 results/
 output/
 outputs/

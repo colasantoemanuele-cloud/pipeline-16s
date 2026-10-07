@@ -187,8 +187,10 @@ def scansiona_file(
                 massima = lunghezza if massima is None else max(massima, lunghezza)
                 if espressione_primer is not None and espressione_primer.match(sequenza):
                     con_primer += 1
+                # Sulla lettura tagliata, non dalla posizione del taglio: un
+                # motivo ancorato con ^ deve valere all'inizio di cio' che resta.
                 if espressione_motivo is not None and espressione_motivo.match(
-                    sequenza, inizio_motivo
+                    sequenza[inizio_motivo:]
                 ):
                     con_motivo += 1
             else:

@@ -12,13 +12,22 @@ colonna dichiarata in configurazione si confronta sempre con lo stesso nome.
 from __future__ import annotations
 
 import csv
+import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from amplicon16s.config.schema import Config
 
-__all__ = ["intestazione", "leggi_tsv", "pulisci", "tabella_di_studio"]
+__all__ = [
+    "COLONNE_INVENTARIO",
+    "intestazione",
+    "leggi_tsv",
+    "nome_nell_oggetto",
+    "nomi_in_collisione",
+    "pulisci",
+    "tabella_di_studio",
+]
 
 #: UTF-8 con o senza BOM: con "utf-8-sig" il segno, se c'e', non finisce nel
 #: nome della prima colonna.
@@ -60,3 +69,57 @@ def tabella_di_studio(config: Config) -> tuple[Path, str]:
     if config.io.study_table is not None:
         return Path(config.io.study_table), config.meta.colonna_id_studio
     return Path(config.io.assay_table), config.meta.sample_id_column
+
+
+#: Le colonne dell'inventario nell'oggetto integrato, con i nomi del crosswalk
+#: di S0: una colonna richiesta non puo' prenderne il nome.
+COLONNE_INVENTARIO: Final = (
+    "accession", "sample_name", "classe", "materiale",
+    "posizione", "modulo", "piastra", "corsa",
+)
+
+#: Un nome che R conserva cosi' com'e': make.names lo lascia invariato, e non
+#: e' una parola riservata (nessuna delle riservate ha questa forma minuscola
+#: con trattini bassi, salvo quelle escluse sotto).
+_SINTATTICO: Final = re.compile(r"^[a-z][a-z0-9_]*$")
+_RISERVATE: Final = frozenset({
+    "if", "else", "repeat", "while", "function", "for", "next", "break",
+    "in", "true", "false", "null", "inf", "nan", "na",
+})
+
+
+def nome_nell_oggetto(originale: str) -> str:
+    """Il nome sintattico di una colonna dei metadati nell'oggetto.
+
+    Minuscole, e ogni sequenza di caratteri diversi da lettere e cifre
+    diventa un trattino basso: ``Factor Value[Spaceflight]`` diventa
+    ``factor_value_spaceflight``. Un nome che non comincia con una lettera
+    prende il prefisso ``x_``. Il risultato e' un nome che R non altera.
+    """
+    nome = re.sub(r"[^a-z0-9]+", "_", originale.casefold()).strip("_")
+    if not nome or not nome[0].isalpha():
+        nome = f"x_{nome}"
+    if nome in _RISERVATE:
+        nome = f"{nome}_"
+    if not _SINTATTICO.match(nome):
+        raise ValueError(f"nome non sintattico per la colonna {originale!r}: {nome!r}")
+    return nome
+
+
+def nomi_in_collisione(originali: list[str]) -> list[tuple[str, str]]:
+    """Le colonne richieste per l'oggetto il cui nome sintattico e' gia' preso.
+
+    Per ciascuna, la coppia (nome originale, nome nell'oggetto): gia' usato da
+    una colonna dell'inventario o da una colonna che la precede in
+    ``originali``. Due colonne diverse nelle tabelle possono dare lo stesso
+    nome (``Var Uno`` e ``Var-Uno``), e la stessa colonna puo' essere chiesta
+    a due tabelle.
+    """
+    usati = set(COLONNE_INVENTARIO)
+    collisioni = []
+    for originale in originali:
+        nome = nome_nell_oggetto(originale)
+        if nome in usati:
+            collisioni.append((originale, nome))
+        usati.add(nome)
+    return collisioni

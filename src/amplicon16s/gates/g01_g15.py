@@ -57,7 +57,7 @@ from amplicon16s.io_layer.reads import StatisticheFile, espandi_iupac, scansiona
 from amplicon16s.metadata.crosswalk import Analisi, analizza
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione, Inventario
 from amplicon16s.metadata.tabelle import intestazione as _intestazione
-from amplicon16s.metadata.tabelle import tabella_di_studio
+from amplicon16s.metadata.tabelle import nomi_in_collisione, tabella_di_studio
 
 __all__ = [
     "Avviso",
@@ -162,6 +162,11 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
         "E-G15-12",
         ("ctrl.positive_values", "katharoseq.target_taxon", "katharoseq.cell_count_column",
          "out.batch_columns", "out.study_columns"),
+        "gate",
+    ),
+    Controllo(
+        "E-G15-13",
+        ("out.study_columns", "out.batch_columns"),
         "gate",
     ),
     Controllo(
@@ -454,6 +459,19 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
                 f"katharoseq.cell_count_column ({cellule!r}) non e' fra le colonne portate "
                 f"nell'oggetto: va elencata in out.batch_columns o in out.study_columns, "
                 f"secondo la tabella che la contiene",
+            )
+        )
+
+    # E-G15-13 : due colonne richieste non possono avere lo stesso nome
+    # nell'oggetto, ne' quello di una colonna dell'inventario.
+    for originale, nome in nomi_in_collisione(
+        [*config.out.study_columns, *config.out.batch_columns]
+    ):
+        violazioni.append(
+            Violazione(
+                "E-G15-13",
+                f"la colonna {originale!r} (out.study_columns o out.batch_columns) "
+                f"diventerebbe {nome!r} nell'oggetto, nome gia' usato da un'altra colonna",
             )
         )
 

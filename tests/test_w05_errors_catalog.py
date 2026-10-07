@@ -12,10 +12,10 @@ logging), con i codici aggiunti nelle settimane successive.
 
 3. Cosa valuta questo file
 --------------------------
-- completezza del catalogo ``CATALOGO``, **63 codici totali**: **43 codici di
+- completezza del catalogo ``CATALOGO``, **64 codici totali**: **43 codici di
   fase** inclusi ``E-S1-02``, ``E-S3-02``, ``E-S10-02``, ``E-S11-04`` ed ``E-S13-03``, **4 codici del ponte R**,
   **1 codice del grafo**, **3 codici della regola rigorosa sulla provenienza**
-  e **12 codici del Gate G15** (compreso ``E-G15-99``);
+  e **13 codici del Gate G15** (compreso ``E-G15-99``);
   nessun codice inatteso, fase coerente con il codice, errore esplicito su un
   codice sconosciuto;
 - ogni codice possiede una sintesi diagnostica e un'azione operativa in
@@ -354,7 +354,7 @@ def test_la_classe_discende_dalla_categoria(codice, classe):
 def test_ogni_codice_produce_un_errore_coerente(codice):
     """
     **Obiettivo**: Verificare che ``errore(codice)`` produca un'istanza valida
-    di ``ErrorePipeline`` per tutti i 63 codici del catalogo.
+    di ``ErrorePipeline`` per tutti i 64 codici del catalogo.
 
     **Razionale scientifico e sistemistico**: Assicura che nessuna voce del
     catalogo abbia una categoria non mappata nella tabella di dispatch di
