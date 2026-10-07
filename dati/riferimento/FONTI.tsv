@@ -1,0 +1,4 @@
+percorso	nel_repository	fonte	licenza	recuperato_il	controllo	note
+silva_nr99_v138_train_set.fa.gz	no	https://zenodo.org/records/3986799 (DOI 10.5281/zenodo.3986799, versione 2)	CC BY 4.0	-	md5:56821dd6f365f64c8518a21e049c3232	scarica_riferimento.py; e' tax.ref_fasta, l'MD5 e' tax.ref_md5
+SILVA_LICENSE.txt	no	https://zenodo.org/records/3986799	CC BY 4.0	-	md5:5311c80d208d3ae43d5dc0136df2fcab	scarica_riferimento.py
+silva_138_v2_bad-taxa.csv	no	https://github.com/mikemc/dada2-reference-databases (commit 73d8ddf62ed322c5d47cbcf0bf529d64ba31700d, silva-138/v2/bad-taxa.csv)	MIT	-	md5:5d919588f2c291367330ad515883e3c3	scarica_riferimento.py; e' tax.ref_bad_taxa

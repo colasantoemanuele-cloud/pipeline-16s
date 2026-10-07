@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Scarica il riferimento tassonomico usato con OSD-734: SILVA 138 per dada2.
+"""Scarica il riferimento tassonomico comune ai dataset: SILVA 138 per dada2.
+
+Il riferimento non appartiene a un dataset: le configurazioni di dati/osd734/ e
+di dati/osd276/ puntano entrambe a questa cartella.
 
 Tre file, ciascuno con il checksum della sua fonte:
 
@@ -14,9 +17,9 @@ Tre file, ciascuno con il checksum della sua fonte:
 Come ``scarica_letture.py``, lo script e' ripetibile e riprende uno scarico
 interrotto; un file gia' presente e integro non viene scaricato di nuovo.
 
-    python3 dati/osd734/scarica_riferimento.py                  # in dati/osd734/riferimento/
-    python3 dati/osd734/scarica_riferimento.py --cartella ALTRA
-    python3 dati/osd734/scarica_riferimento.py --solo-verifica
+    python3 dati/riferimento/scarica_riferimento.py                  # in dati/riferimento/
+    python3 dati/riferimento/scarica_riferimento.py --cartella ALTRA
+    python3 dati/riferimento/scarica_riferimento.py --solo-verifica
 """
 
 from __future__ import annotations
@@ -26,11 +29,10 @@ import sys
 from pathlib import Path
 from typing import Final
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scaricamento import Atteso, ErroreScarico, metti_da_parte, scarica, valido  # noqa: E402
 
-QUI = Path(__file__).resolve().parent
-CARTELLA = QUI / "riferimento"
+CARTELLA = Path(__file__).resolve().parent
 
 ZENODO: Final = "https://zenodo.org/records/3986799/files"
 #: Il commit del repository mikemc/dada2-reference-databases da cui viene
@@ -58,7 +60,7 @@ def main(argomenti: list[str] | None = None) -> int:
     """Controlla, e se serve scarica, i file del riferimento."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cartella", type=Path, default=CARTELLA,
-                        help="dove stanno, o andranno, i file (predefinita: dati/osd734/riferimento)")
+                        help="dove stanno, o andranno, i file (predefinita: dati/riferimento)")
     parser.add_argument("--solo-verifica", action="store_true",
                         help="controlla soltanto, senza scaricare ne' spostare nulla")
     opzioni = parser.parse_args(argomenti)

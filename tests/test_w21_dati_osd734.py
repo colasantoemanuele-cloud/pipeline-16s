@@ -8,8 +8,8 @@ repository.
 
 2. Moduli sorgente coperti
 --------------------------
-* ``dati/osd734/scaricamento.py``, ``dati/osd734/scarica_letture.py``,
-  ``dati/osd734/scarica_riferimento.py``, ``dati/osd734/ricostruisci_lotto.py``
+* ``dati/scaricamento.py``, ``dati/osd734/scarica_letture.py``,
+  ``dati/riferimento/scarica_riferimento.py``, ``dati/osd734/ricostruisci_lotto.py``
 * ``dati/osd734/letture_ena.tsv``, ``dati/osd734/FONTI.tsv``,
   ``dati/osd734/config_osd734.yaml``, ``.gitignore``
 
@@ -102,6 +102,8 @@ if not DATI.is_dir():
     pytest.skip("la cartella dati/ non e' presente (nell'immagine non viene copiata)",
                 allow_module_level=True)
 sys.path.insert(0, str(DATI))
+sys.path.insert(0, str(DATI.parent))
+sys.path.insert(0, str(DATI.parent / "riferimento"))
 
 import ricostruisci_lotto  # noqa: E402
 import scarica_letture  # noqa: E402
@@ -377,8 +379,12 @@ def test_la_configurazione_di_esempio_usa_la_cartella_dei_dati():
     """
     config = carica(DATI / "config_osd734.yaml")
     for percorso in (config.io.fastq_dir, config.io.assay_table, config.io.study_table,
-                     config.io.batch_table, config.tax.ref_fasta, config.tax.ref_bad_taxa):
+                     config.io.batch_table):
         assert not percorso.is_absolute() and percorso.parts[:2] == ("dati", "osd734"), percorso
+    # Il riferimento tassonomico e' comune ai dataset e sta nella sua cartella.
+    for percorso in (config.tax.ref_fasta, config.tax.ref_bad_taxa):
+        assert not percorso.is_absolute() and percorso.parts[:2] == ("dati", "riferimento"), percorso
+        assert RADICE / percorso.parent == scarica_riferimento.CARTELLA
     assert RADICE / config.io.batch_table == ricostruisci_lotto.USCITA
     assert config.tax.ref_md5 == scarica_riferimento.FILE[config.tax.ref_fasta.name].md5
     assert (RADICE / config.io.assay_table).is_file() and (RADICE / config.io.study_table).is_file()
@@ -400,9 +406,14 @@ def test_i_dati_scaricati_sono_esclusi_da_git():
         pytest.skip("git non riconosce il repository")
     esclusi = ["dati/osd734/fastq/ERX1_A_ERR1.fastq.gz",
                "dati/osd734/riferimento/silva_nr99_v138_train_set.fa.gz",
+               "dati/riferimento/silva_nr99_v138_train_set.fa.gz",
+               "dati/riferimento/silva_138_v2_bad-taxa.csv",
+               "dati/riferimento/SILVA_LICENSE.txt",
                "dati/osd734/lotto/plate_well_map_960.tsv",
                "dati/osd734/fastq/ERX1_A_ERR1.fastq.gz.parziale"]
-    tenuti = ["dati/osd734/letture_ena.tsv", "dati/osd734/metadati/s_OSD-734.txt"]
+    tenuti = ["dati/osd734/letture_ena.tsv", "dati/osd734/metadati/s_OSD-734.txt",
+              "dati/riferimento/scarica_riferimento.py", "dati/riferimento/FONTI.tsv",
+              "dati/riferimento/impronte.md5", "dati/riferimento/README.md"]
     for percorso in esclusi:
         assert subprocess.run(["git", "check-ignore", "-q", percorso], cwd=RADICE).returncode == 0, percorso
     for percorso in tenuti:

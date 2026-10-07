@@ -1,6 +1,7 @@
-"""Scarico verificato e riprendibile dei file pubblici di OSD-734.
+"""Scarico verificato e riprendibile dei file pubblici dei dataset e del riferimento.
 
-Usato da ``scarica_letture.py`` e da ``scarica_riferimento.py``; solo libreria
+Usato dagli script ``scarica_letture.py`` dei dataset e da
+``riferimento/scarica_riferimento.py``; solo libreria
 standard, perche' gli script devono girare prima che l'ambiente della pipeline
 esista.
 

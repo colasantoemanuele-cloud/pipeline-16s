@@ -8,7 +8,7 @@
 #
 # I percorsi sono relativi alla radice del repository, da cui la pipeline va
 # lanciata. Le letture si ottengono con dati/osd276/scarica_letture.py, il
-# riferimento con dati/osd734/scarica_riferimento.py (e' lo stesso).
+# riferimento con dati/riferimento/scarica_riferimento.py (comune ai dataset).
 io:
   fastq_dir: dati/osd276/fastq
   assay_table: dati/osd276/metadati/a_OSD-276_amplicon-sequencing_16s_Illumina.txt
@@ -38,7 +38,7 @@ err:
   # Una sola corsa di sequenziamento.
   batch_column: null
 tax:
-  ref_fasta: dati/osd734/riferimento/silva_nr99_v138_train_set.fa.gz
+  ref_fasta: dati/riferimento/silva_nr99_v138_train_set.fa.gz
   ref_md5: "56821dd6f365f64c8518a21e049c3232"
   ref_name: SILVA
   ref_version: "138"

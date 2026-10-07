@@ -48,16 +48,17 @@ i file R1 di OSDR avrebbe mescolato le due estremita' dell'amplicone in 8 campio
 15. Una verifica precedente, fatta sul solo campione SP9, aveva concluso che le
 forward ricavate coincidono con gli R1 di OSDR: vale per 7 corse, non per tutte.
 
-I file di ENA cosi' come sono **non vanno dati alla pipeline**. La fase di validazione
-riconosce un file con le due letture di ogni coppia dalle intestazioni delle letture
-che ispeziona (le prime `qc.head_reads`, 10.000 per difetto): in questi file ogni
-blocco e' piu' lungo (da 35.489 a 105.423 letture), e le letture ispezionate sono
-tutte dello stesso blocco. I 7 file che cominciano con il blocco `/2` sono respinti
-(`E-S0-07`: sole seconde letture), e tanto basta a fermare la validazione
-dell'insieme; gli 8 che cominciano con il blocco `/1` sembrano, nelle letture
-ispezionate, file di sole forward, e da soli passerebbero (vengono respinti anch'essi
-solo se le letture ispezionate entrano nel secondo blocco per almeno il 5%). Passati, la catena
-mescolerebbe letture forward e inverse.
+I file di ENA cosi' come sono **non vanno dati alla pipeline**, che li respinge
+tutti e 15. La fase di validazione riconosce un file con le due letture di ogni
+coppia dalle intestazioni delle letture che ispeziona (le prime `qc.head_reads`,
+10.000 per difetto): in questi file ogni blocco e' piu' lungo (da 35.489 a 105.423
+letture), e le letture ispezionate sono tutte dello stesso blocco. I 7 file che
+cominciano con il blocco `/2` sono respinti dalla validazione (`E-S0-07`: sole
+seconde letture); gli 8 che cominciano con il blocco `/1` sembrano, nelle letture
+ispezionate, file di sole forward, e li respinge il profilo di qualita', che conta i
+segni di coppia su tutte le letture di ogni file (`E-S1-04`, con i conteggi in
+`02_qc_profiles/coppie.tsv`). Accettati, la catena mescolerebbe letture forward e
+inverse.
 
 ## Perche' questo dataset
 
@@ -111,16 +112,16 @@ In che cosa OSD-276 differisce da OSD-734:
 | `FONTI.tsv` | si' | fonte, licenza e controllo di ogni file |
 | `ena/`, `fastq/` | no | i file di ENA (196 MB) e le forward ricavate (91 MB) |
 
-Il riferimento tassonomico e' lo stesso di OSD-734 (SILVA 138) e si ottiene con
-`dati/osd734/scarica_riferimento.py`.
+Il riferimento tassonomico (SILVA 138) e' comune ai dataset: sta in
+`dati/riferimento/` e si ottiene con `dati/riferimento/scarica_riferimento.py`.
 
 ## Come eseguire
 
 Dalla radice del repository, con `<immagine>` l'immagine indicata nel README principale:
 
 ```bash
-python3 dati/osd276/scarica_letture.py        # circa un minuto
-python3 dati/osd734/scarica_riferimento.py    # se il riferimento non c'e' gia'
+python3 dati/osd276/scarica_letture.py            # circa un minuto
+python3 dati/riferimento/scarica_riferimento.py   # se il riferimento non c'e' gia'
 
 docker run --rm \
   --memory=24g \
@@ -146,7 +147,9 @@ il taxon atteso e la colonna delle cellule dei controlli positivi, il file del l
 le sue colonne, l'espressione che deriva il modulo dalla posizione. La fase di
 validazione lo registra: dichiara subito che il dataset non ha controlli positivi ne'
 negativi (`E-S0-17`), cioe' che la soglia di profondita' non puo' venire da una curva e
-che i contaminanti non sono stimabili.
+che i contaminanti non sono stimabili. Senza controlli positivi non si applica alcuna
+soglia di profondita' (`E-S11-05`): sui campioni resta il solo `qc.min_reads_final`,
+sulle letture dell'oggetto finale.
 
 ## Stato della prova
 

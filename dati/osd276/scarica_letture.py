@@ -11,8 +11,7 @@ separarle.
 Per ogni corsa:
 
 1. il file di ENA si scarica in ``<cartella>/ena/`` e si verifica con l'MD5 e la
-   dimensione dichiarati da ENA (``letture_ena.tsv``, ``scaricamento.py`` di
-   ``dati/osd734/``): e' la sola fonte, ed e' verificata;
+   dimensione dichiarati da ENA (``letture_ena.tsv``, ``dati/scaricamento.py``): e' la sola fonte, ed e' verificata;
 2. si contano i record ``/1``, i record ``/2`` e gli altri. Il file si rifiuta
    se un record non e' ne' ``/1`` ne' ``/2``, se le ``/1`` e le ``/2`` non sono
    in numero uguale, o se la loro somma non e' il numero di letture dichiarato
@@ -51,7 +50,7 @@ import zlib
 from pathlib import Path
 
 QUI = Path(__file__).resolve().parent
-sys.path.insert(0, str(QUI.parent / "osd734"))
+sys.path.insert(0, str(QUI.parent))
 from scaricamento import Atteso, ErroreScarico, metti_da_parte, scarica, valido  # noqa: E402
 
 ELENCO = QUI / "letture_ena.tsv"

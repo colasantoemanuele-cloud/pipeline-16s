@@ -20,13 +20,22 @@
 # prova: pochi megabyte, sottocampionati da dati pubblici, e la catena di
 # integrazione continua non ha altro su cui eseguire le fasi.
 !tests/fixtures/**/*.fastq.gz
-# I dati di OSD-734 recuperati dagli script di dati/osd734/: letture, riferimento
-# tassonomico e file del lotto ricostruito. Nel repository restano solo i
-# metadati, gli elenchi con i checksum e gli script; i file grandi non devono
-# poter entrare in git per errore.
+# I dati di OSD-734 recuperati dagli script di dati/osd734/: letture e file del
+# lotto ricostruito. Nel repository restano solo i metadati, gli elenchi con i
+# checksum e gli script; i file grandi non devono poter entrare in git per
+# errore.
 dati/osd734/fastq/
-dati/osd734/riferimento/
 dati/osd734/lotto/
+# La collocazione precedente del riferimento tassonomico: resta esclusa, perche'
+# una copia di lavoro puo' averla ancora.
+dati/osd734/riferimento/
+# Il riferimento tassonomico comune ai dataset, scaricato in dati/riferimento/
+# accanto allo script, alle fonti e alle impronte, che restano nel repository.
+dati/riferimento/*
+!dati/riferimento/scarica_riferimento.py
+!dati/riferimento/FONTI.tsv
+!dati/riferimento/impronte.md5
+!dati/riferimento/README.md
 *.parziale
 *.md5_errato
 results/

@@ -5,7 +5,8 @@ esegue sul dataset di riferimento, OSD-734 (NASA OSDR; ENA PRJEB73327): 960 camp
 sequenziamento 16S single-end dalla Stazione Spaziale Internazionale. Nel repository
 stanno solo i file piccoli e necessari; i file grandi si scaricano con gli script, che
 verificano ogni file contro il checksum della sua fonte. Fonte, licenza e checksum di
-ogni file sono in `FONTI.tsv`.
+ogni file sono in `FONTI.tsv`. Il riferimento tassonomico, comune ai dataset, sta in
+`dati/riferimento/`, con il suo script, le sue fonti e le sue impronte.
 
 ## Che cosa c'e'
 
@@ -15,22 +16,22 @@ ogni file sono in `FONTI.tsv`.
 | `letture_ena.tsv` | si' | le 960 corse: accession, nome del file locale, indirizzo, MD5 e dimensione dichiarati da ENA |
 | `config_osd734.yaml` | si' | la configurazione per OSD-734, con i percorsi relativi alla radice del repository |
 | `scarica_letture.py` | si' | scarica le letture in `fastq/` |
-| `scarica_riferimento.py` | si' | scarica il riferimento tassonomico in `riferimento/` |
 | `ricostruisci_lotto.py` | si' | ricostruisce il file del lotto in `lotto/` dalla fonte pubblica |
-| `scaricamento.py` | si' | lo scarico verificato e riprendibile comune ai due script |
 | `confronta_risultati.py` | si' | confronta i risultati di un'esecuzione con i checksum attesi |
 | `checksum_finali.sha256` | si' | i checksum attesi dei file consegnati di `12_final/`, nella forma di `sha256sum` |
 | `checksum_artefatti.tsv` | si' | i checksum attesi di tutti i 1.031 artefatti dei manifesti di fase, con la fase che li produce |
-| `fastq/`, `riferimento/`, `lotto/` | no | i file ottenuti dagli script, esclusi da `.gitignore` |
+| `fastq/`, `lotto/` | no | i file ottenuti dagli script, esclusi da `.gitignore` |
+| `../riferimento/` | in parte | lo script `scarica_riferimento.py`, `FONTI.tsv` e `impronte.md5` del riferimento tassonomico; i file scaricati sono esclusi da `.gitignore` |
+| `../scaricamento.py` | si' | lo scarico verificato e riprendibile comune agli script |
 
 ## Come recuperare i dati
 
 Dalla radice del repository, con Python 3.11 o successivo e la sola libreria standard:
 
 ```bash
-python3 dati/osd734/scarica_letture.py        # 960 file, 2,52 GB, da ENA
-python3 dati/osd734/scarica_riferimento.py    # SILVA 138 per dada2, circa 138 MB, da Zenodo
-python3 dati/osd734/ricostruisci_lotto.py     # il file del lotto, dalla fonte degli autori
+python3 dati/osd734/scarica_letture.py            # 960 file, 2,52 GB, da ENA
+python3 dati/riferimento/scarica_riferimento.py   # SILVA 138 per dada2, circa 138 MB, da Zenodo
+python3 dati/osd734/ricostruisci_lotto.py         # il file del lotto, dalla fonte degli autori
 ```
 
 Lo scarico delle letture e' il passo lungo: i file si scaricano uno alla volta, e la
@@ -278,7 +279,7 @@ dal suo Dockerfile); quelle con l'immagine pubblicata sono del 6 ottobre 2026.
 | Che cosa | Misura | Fonte |
 |---|---|---|
 | Letture FASTQ | 2,52 GB (2.515.101.383 byte), 960 file | somma delle dimensioni dichiarate da ENA in `letture_ena.tsv`, uguale ai byte scaricati |
-| Riferimento SILVA 138 | 138 MB (137.973.851 byte) | `scarica_riferimento.py` |
+| Riferimento SILVA 138 | 138 MB (137.973.851 byte) | `dati/riferimento/scarica_riferimento.py` |
 | Durata dello scarico | 2 ore e 48 minuti le letture, 44 secondi il riferimento, meno di un secondo il lotto | i tre script, in una cartella vuota; dipende dal collegamento con ENA |
 | Immagine pubblicata | 1,86 GB da scaricare (1.863.204.352 byte compressi, 34 strati); 7,6 GB su disco, strati dell'immagine di partenza di Bioconductor compresi | manifesto del registro; `docker image ls` (colonna DISK USAGE) |
 | Costruzione dell'immagine, in alternativa | 4 minuti e 37 secondi senza cache | `docker build --no-cache`; dipende dalla rete |
@@ -331,7 +332,7 @@ perche' il nome del campione si ripete fra le repliche.
   Science Mission Directorate (SPD-41a), che rende i dati pubblici senza restrizioni e
   raccomanda la licenza CC0. Citazione: OSD-734, NASA Open Science Data Repository.
 - Letture ed elenco delle corse: ENA, secondo la politica INSDC, senza restrizioni d'uso.
-- SILVA 138 per dada2: CC BY 4.0 (record Zenodo 3986799, `SILVA_LICENSE.txt`).
-- Elenco dei taxa difettosi del riferimento: MIT (mikemc/dada2-reference-databases).
+- SILVA 138 per dada2 ed elenco dei taxa difettosi del riferimento: fonti e licenze
+  in `dati/riferimento/` (CC BY 4.0 e MIT).
 - Metadati Qiita degli autori: nessuna licenza dichiarata; usati solo come fonte della
   ricostruzione, non ridistribuiti.

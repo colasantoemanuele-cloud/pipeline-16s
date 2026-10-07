@@ -5,7 +5,7 @@
 # della cartella). La riga di comando li rende assoluti al caricamento. I file
 # da scaricare si ottengono con gli script della cartella:
 #   letture       dati/osd734/fastq/        scarica_letture.py
-#   riferimento   dati/osd734/riferimento/  scarica_riferimento.py
+#   riferimento   dati/riferimento/         dati/riferimento/scarica_riferimento.py
 #   lotto         dati/osd734/lotto/        ricostruisci_lotto.py
 # E' la configurazione congelata. Dichiara in modo esplicito tutti i parametri
 # che descrivono il dataset (obbligatori: la pipeline non ha per essi alcun
@@ -42,11 +42,11 @@ filter:
 err:
   batch_column: run_prefix
 tax:
-  ref_fasta: dati/osd734/riferimento/silva_nr99_v138_train_set.fa.gz
+  ref_fasta: dati/riferimento/silva_nr99_v138_train_set.fa.gz
   ref_md5: "56821dd6f365f64c8518a21e049c3232"
   ref_name: SILVA
   ref_version: "138"
-  ref_bad_taxa: dati/osd734/riferimento/silva_138_v2_bad-taxa.csv
+  ref_bad_taxa: dati/riferimento/silva_138_v2_bad-taxa.csv
   min_boot: 50
   assign_species: false
 ctrl:

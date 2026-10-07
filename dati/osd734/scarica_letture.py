@@ -8,7 +8,7 @@ nel nome, quello che la pipeline estrae (``io.accession_regex``).
 
 Lo script e' **ripetibile**: a ogni avvio controlla tutti i file e scarica solo
 cio' che manca o non corrisponde all'MD5; uno scarico interrotto riprende dal
-punto a cui era arrivato (``scaricamento.py``). Una cartella che contiene gia'
+punto a cui era arrivato (``dati/scaricamento.py``). Una cartella che contiene gia'
 tutti i file integri non provoca alcuno scarico.
 
     python3 dati/osd734/scarica_letture.py                  # in dati/osd734/fastq/
@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scaricamento import Atteso, ErroreScarico, metti_da_parte, scarica, valido  # noqa: E402
 
 QUI = Path(__file__).resolve().parent
