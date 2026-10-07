@@ -61,3 +61,8 @@ htmlcov/
 # --- Ambiente e sistema ------------------------------------------------------
 .env
 .DS_Store
+
+# I dati di OSD-276, il secondo dataset, recuperati da dati/osd276/scarica_letture.py:
+# i file di ENA e le letture forward che se ne ricavano.
+dati/osd276/ena/
+dati/osd276/fastq/

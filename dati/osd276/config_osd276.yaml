@@ -1,0 +1,86 @@
+# Configurazione per OSD-276 con i dati recuperati in dati/osd276/.
+#
+# OSD-276 e' il secondo dataset su cui la pipeline e' provata: 15 tamponi di
+# superfici della Stazione Spaziale Internazionale, sequenziati paired-end; qui
+# si usano le sole letture forward come dato single-end (README della cartella).
+# Non ha controlli positivi ne' negativi, ne' un file del lotto: i parametri che
+# li riguardano sono dichiarati vuoti o nulli, e la pipeline lo registra.
+#
+# I percorsi sono relativi alla radice del repository, da cui la pipeline va
+# lanciata. Le letture si ottengono con dati/osd276/scarica_letture.py, il
+# riferimento con dati/osd734/scarica_riferimento.py (e' lo stesso).
+io:
+  fastq_dir: dati/osd276/fastq
+  assay_table: dati/osd276/metadati/a_OSD-276_amplicon-sequencing_16s_Illumina.txt
+  study_table: dati/osd276/metadati/s_OSD-276.txt
+  out_root: output/osd276
+  batch_table: null
+  # I file prendono il nome dalla corsa (SRR), che e' anche nel nome del file
+  # riportato dalla tabella di assay (GLDS-276_Amplicon_SRR5336316.fastq.gz).
+  accession_regex: "SRR[0-9]+"
+meta:
+  sample_id_column: "Sample Name"
+  accession_column: "Raw Data File"
+  # La posizione e' una descrizione libera ("lab fwd air vent"): non c'e' un
+  # prefisso da cui derivare il modulo.
+  module_regex: null
+  module_column: "Factor Value[Sample Location]"
+  non_surface_positions: []
+  batch_key_column: null
+  batch_module_column: null
+filter:
+  # Letture tutte di 151 basi, con qualita' mediana mai sotto 33: si toglie la
+  # sola ultima base.
+  truncLen: 150
+  # Le letture non contengono il primer: iniziano a valle del 515F.
+  trimLeft: 0
+err:
+  # Una sola corsa di sequenziamento.
+  batch_column: null
+tax:
+  ref_fasta: dati/osd734/riferimento/silva_nr99_v138_train_set.fa.gz
+  ref_md5: "56821dd6f365f64c8518a21e049c3232"
+  ref_name: SILVA
+  ref_version: "138"
+  # 150 basi su circa 253 dell'amplicone V4: bootstrap 50 e niente specie, come
+  # per ogni lettura forward di questa lunghezza.
+  min_boot: 50
+  assign_species: false
+ctrl:
+  column: "Characteristics[Material Type]"
+  # Tutti i 15 campioni sono tamponi di superficie, dichiarati "Cells".
+  biological_values:
+    - Cells
+  # Nessun controllo nel dataset.
+  blank_values: []
+  positive_values: []
+  blank_override_column: null
+  blank_override_values: []
+katharoseq:
+  target_taxon: null
+  cell_count_column: null
+decontam:
+  batch_column: null
+  # Senza controlli negativi la decontaminazione non ha su che cosa basarsi:
+  # i tre valori sono dichiarati per completezza e non hanno effetto.
+  method: prevalence
+  threshold: 0.5
+  mode: aggregate
+prev:
+  # Con 15 campioni l'1% equivarrebbe a un solo campione, cioe' a nessun
+  # filtro: una variante deve comparire in almeno 2 campioni su 15.
+  min_fraction: 0.1
+qc:
+  # Regione V4, primer 515F-806R: lo stesso primer forward e lo stesso motivo
+  # conservato a valle.
+  primer_sequence: GTGYCAGCMGCCGCGGTAA
+  conserved_motif: "TAC[AG].AGG..GC.AGCGTT"
+  min_motif_frac: 0.25
+out:
+  study_columns:
+    - "Factor Value[Spaceflight]"
+    - "Parameter Value[Sample Storage Temperature]"
+  batch_columns: []
+run:
+  # L'immagine pubblicata con cui la prova e' stata eseguita.
+  container: "ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154"

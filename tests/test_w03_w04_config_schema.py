@@ -96,6 +96,8 @@ import pytest
 import yaml
 
 from amplicon16s.errors.catalog import Categoria, voce
+from sottoinsieme import dati_esempio as _esempio_compilato
+
 from amplicon16s.config import defaults
 from amplicon16s.config.resolve import (
     NOME_FILE_RISOLTO,
@@ -104,12 +106,14 @@ from amplicon16s.config.resolve import (
     scrivi_risolta,
 )
 from amplicon16s.config.schema import (
+    INTESTAZIONE_MANCANTI,
     PARAMETRI_DERIVATI,
     Config,
     ErroreConfigurazione,
     carica,
     chiavi_schema,
     gruppi_schema,
+    obbligatori_mancanti,
     valida,
 )
 from amplicon16s.gates.g01_g15 import CONTROLLI, ErroreGate, esegui_g15
@@ -118,24 +122,23 @@ from amplicon16s.io_layer.artifacts import Fase
 RADICE = Path(__file__).resolve().parents[1]
 ESEMPIO = RADICE / "config" / "config.example.yaml"
 
-#: Elenco tassativo dei parametri obbligatori privi di valore predefinito nello schema.
+#: Elenco tassativo dei parametri privi di valore predefinito nello schema: i
+#: percorsi e il checksum del riferimento, piu' quelli che descrivono il dataset
+#: (``defaults.OBBLIGATORI``).
 OBBLIGATORI = (
     "io.fastq_dir",
     "io.assay_table",
-    "io.study_table",
     "io.out_root",
     "tax.ref_fasta",
-    "tax.ref_name",
-    "tax.ref_version",
     "tax.ref_md5",
-    "run.container",
+    *defaults.OBBLIGATORI,
 )
 
 
 @pytest.fixture
 def dati_esempio() -> dict:
     """Carica in un dizionario mutabile indipendente il file ``config.example.yaml``."""
-    return yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
+    return _esempio_compilato()
 
 
 def _senza(dati: dict, chiave: str) -> dict:
@@ -164,14 +167,19 @@ def test_esempio_esiste():
 
 def test_esempio_si_carica_e_valida():
     """
-    **Obiettivo**: Verificare che ``carica(ESEMPIO)`` superi l'intera validazione
-    Pydantic producendo un'istanza valida di ``Config``.
+    **Obiettivo**: Verificare che ``config.example.yaml`` cosi' com'e' sia
+    respinto, perche' lascia da dichiarare i parametri obbligatori, e che
+    compilato con i valori d'esempio riportati nei suoi commenti superi
+    l'intera validazione producendo un'istanza valida di ``Config``.
 
-    **Razionale scientifico e sistemistico**: Impedisce che modifiche allo schema
-    Python lascino disallineato o invalido il file di configurazione di esempio
-    distribuito con la pipeline.
+    **Razionale scientifico e sistemistico**: L'esempio deve restare allineato
+    allo schema, ma non deve poter essere eseguito senza che chi lo usa abbia
+    dichiarato i parametri del proprio dataset.
     """
-    config = carica(ESEMPIO)
+    with pytest.raises(ErroreConfigurazione) as respinta:
+        carica(ESEMPIO)
+    assert INTESTAZIONE_MANCANTI in str(respinta.value)
+    config = valida(_esempio_compilato())
     assert isinstance(config, Config)
 
 
@@ -228,6 +236,10 @@ def test_nessuna_chiave_dello_schema_manca_nel_file(dati_esempio):
     l'esistenza consultando il file di configurazione di riferimento.
     """
     mancanti = chiavi_schema() - _chiavi_del_file(dati_esempio)
+    # run.threads e' documentato ma lasciato in commento: il suo predefinito
+    # sono i processori della macchina, e un numero fisso la fermerebbe altrove.
+    assert "  # threads:" in ESEMPIO.read_text(encoding="utf-8")
+    mancanti -= {"run.threads"}
     assert not mancanti, f"chiavi dello schema assenti dal file: {sorted(mancanti)}"
 
 
@@ -289,7 +301,7 @@ def test_elenco_obbligatori_coincide_con_lo_schema():
 @pytest.mark.parametrize("chiave", OBBLIGATORI)
 def test_obbligatorio_mancante_viene_segnalato_col_suo_nome(chiave, dati_esempio):
     """
-    **Obiettivo**: Verificare che l'omissione di ciascuno dei 9 parametri
+    **Obiettivo**: Verificare che l'omissione di ciascuno dei parametri
     obbligatori sollevi ``ErroreConfigurazione`` citando il percorso esatto
     ``gruppo.campo`` e la parola ``"obbligatorio"``.
 
@@ -302,7 +314,7 @@ def test_obbligatorio_mancante_viene_segnalato_col_suo_nome(chiave, dati_esempio
 
     messaggio = str(errore.value)
     assert chiave in messaggio, f"il messaggio non nomina {chiave}: {messaggio}"
-    assert "obbligatorio" in messaggio
+    assert "obbligator" in messaggio
 
 
 def test_gruppo_obbligatorio_mancante_viene_segnalato(dati_esempio):
@@ -707,20 +719,26 @@ def test_i_marcatori_dell_esempio_coincidono_con_i_derivati_dal_dataset():
 
 def test_esempio_usa_i_valori_del_dataset_di_riferimento(dati_esempio):
     """
-    **Obiettivo**: Verificare che ``config/config.example.yaml`` riporti gli
-    stessi valori predefiniti di ``defaults.py`` per le colonne batch, controllo,
-    database SILVA e taxon bersaglio KatharoSeq di OSD-734.
+    **Obiettivo**: Verificare che ``config/config.example.yaml`` riporti, come
+    esempio in commento di ciascun parametro obbligatorio, il valore che il
+    parametro ha per OSD-734 in ``defaults.ESEMPIO_OSD734``; che i parametri
+    obbligatori siano esattamente quelli marcati; e che nel file cosi' com'e'
+    nessuno di essi sia dichiarato.
 
-    **Razionale scientifico e sistemistico**: Garantisce che il file di esempio
-    resti sempre allineato alle costanti di riferimento di **OSD-734** senza
-    derive silenziose tra codice e configurazione.
+    **Razionale scientifico e sistemistico**: Garantisce che l'esempio resti
+    allineato ai valori del dataset di riferimento senza derive silenziose, e
+    che non possa essere eseguito ereditandoli.
     """
-    assert dati_esempio["err"]["batch_column"] == defaults.ERR_BATCH_COLUMN
-    assert dati_esempio["decontam"]["batch_column"] == defaults.DECONTAM_BATCH_COLUMN
-    assert dati_esempio["ctrl"]["column"] == defaults.CTRL_COLUMN
-    assert dati_esempio["tax"]["ref_name"] == defaults.TAX_REF_NAME
-    assert dati_esempio["tax"]["ref_version"] == defaults.TAX_REF_VERSION
-    assert dati_esempio["katharoseq"]["target_taxon"] == defaults.KATHAROSEQ_TARGET_TAXON
+    assert tuple(defaults.ESEMPIO_OSD734) == defaults.OBBLIGATORI
+    for chiave, riferimento in defaults.ESEMPIO_OSD734.items():
+        gruppo, nome = chiave.split(".")
+        atteso = list(riferimento.valore) if isinstance(riferimento.valore, tuple) else riferimento.valore
+        assert dati_esempio[gruppo][nome] == atteso, chiave
+        assert riferimento.fatto
+    testo = ESEMPIO.read_text(encoding="utf-8")
+    assert testo.count("[OBBLIGATORIO] Da dichiarare") == len(defaults.OBBLIGATORI)
+    grezzo = yaml.safe_load(testo)
+    assert obbligatori_mancanti(grezzo) == list(defaults.OBBLIGATORI)
 
 
 def test_whitelist_dei_ritentativi_non_dipende_dal_dataset():
@@ -765,7 +783,7 @@ def test_la_configurazione_non_si_modifica_dopo_il_caricamento():
     ``00_config/resolved.yaml``, invalidando il digest SHA-256 e la
     riproducibilità dell'intera corsa.
     """
-    config = carica(ESEMPIO)
+    config = valida(_esempio_compilato())
     with pytest.raises(Exception):
         config.run.threads = 1
 
@@ -852,10 +870,22 @@ INCOERENTI = [
         id="tentativi-negativi",
     ),
     pytest.param(
-        lambda d: d["ctrl"].__setitem__("blank_values", []),
-        "E-G15-07",
-        ("decontam.method", "ctrl.blank_values"),
-        id="nessun-controllo-negativo",
+        lambda d: d["io"].__setitem__("batch_table", None),
+        "E-G15-11",
+        ("io.batch_table", "out.batch_columns"),
+        id="colonne-del-lotto-senza-il-file",
+    ),
+    pytest.param(
+        lambda d: d["meta"].__setitem__("batch_key_column", None),
+        "E-G15-11",
+        ("io.batch_table", "meta.batch_key_column"),
+        id="file-del-lotto-senza-la-chiave",
+    ),
+    pytest.param(
+        lambda d: d["katharoseq"].__setitem__("target_taxon", None),
+        "E-G15-12",
+        ("ctrl.positive_values", "katharoseq.target_taxon"),
+        id="positivi-senza-taxon-atteso",
     ),
 ]
 

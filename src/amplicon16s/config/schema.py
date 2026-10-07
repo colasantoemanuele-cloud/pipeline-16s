@@ -22,6 +22,7 @@ I valori predefiniti stanno in :mod:`amplicon16s.config.defaults`.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal
@@ -42,7 +43,10 @@ from amplicon16s.config import defaults as d
 __all__ = [
     "Config",
     "ErroreConfigurazione",
+    "INTESTAZIONE_MANCANTI",
     "PARAMETRI_DERIVATI",
+    "obbligatori_mancanti",
+    "processori_disponibili",
     "carica",
     "chiavi_schema",
     "gruppi_schema",
@@ -117,6 +121,16 @@ PARAMETRI_DERIVATI: Final[tuple[str, ...]] = (
 )
 
 
+def processori_disponibili() -> int:
+    """I processori utilizzabili dal processo: quelli della sua affinita', che in
+    un container limitato sono meno di quelli della macchina.
+    """
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # piattaforme senza affinita' di processo
+        return os.cpu_count() or 1
+
+
 class _Gruppo(BaseModel):
     """Base comune a tutti i gruppi di parametri."""
 
@@ -146,46 +160,60 @@ class Io(_Gruppo):
     # Tabella campioni di studio: porta la colonna della classe del campione,
     # che nella tabella di assay non c'e'. E' condivisa fra piu' assay dello
     # stesso studio, quindi il join verso di essa va tenuto ristretto.
-    study_table: Path
+    # Facoltativa: senza, classe e variabili dei campioni si leggono dalla
+    # tabella di assay, che allora deve portarne le colonne.
+    study_table: Path | None = None
     out_root: Path
     # Associa a ciascun campione la piastra di estrazione e la corsa di
     # sequenziamento. E' facoltativo: quando manca, entrambe restano nulle e la
     # pipeline procede in modalita' a corsa singola e senza lotto.
     batch_table: Path | None = None
     fastq_glob: StringaNonVuota = d.IO_FASTQ_GLOB
-    accession_regex: Regex = d.IO_ACCESSION_REGEX
+    # Obbligatorio: estrae dal nome di ogni file la chiave del campione, che e'
+    # la corrispondenza intera oppure, se l'espressione ha un gruppo di
+    # cattura, il primo gruppo. La stessa chiave si ricava dal valore di
+    # meta.accession_column.
+    accession_regex: Regex
 
 
 class Meta(_Gruppo):
     """Lettura della tabella dei metadati e derivazione dei campi."""
 
-    sample_id_column: StringaNonVuota = d.META_SAMPLE_ID_COLUMN
-    accession_column: StringaNonVuota = d.META_ACCESSION_COLUMN
+    # I parametri senza predefinito sono obbligatori (defaults.OBBLIGATORI):
+    # descrivono il formato dei metadati. Quelli che ammettono il valore nullo
+    # si dichiarano nulli quando il dataset non ha l'informazione.
+    sample_id_column: StringaNonVuota
+    accession_column: StringaNonVuota
+    # Colonna del nome del campione nella tabella di studio, quando ha un nome
+    # diverso da quello della tabella di assay; nullo: lo stesso nome.
+    study_sample_id_column: StringaNonVuota | None = None
     derive_module: StrictBool = d.META_DERIVE_MODULE
-    module_regex: Regex = d.META_MODULE_REGEX
-    # Derivati dal dataset di riferimento.
-    module_column: StringaNonVuota = d.META_MODULE_COLUMN
+    module_regex: Regex | None
+    module_column: StringaNonVuota | None
     # Posizioni che non sono superfici. Vale in entrambe le vie di
     # attribuzione del modulo: anche un modulo dichiarato dal file di
     # arricchimento non viene attribuito a un campione che non sta su una
     # superficie, altrimenti lo stesso dataset darebbe raggruppamenti diversi
     # a seconda che quel file ci sia o no.
-    non_surface_positions: list[StringaNonVuota] = Field(
-        default_factory=lambda: list(d.META_NON_SURFACE_POSITIONS)
-    )
+    non_surface_positions: list[StringaNonVuota]
     # Colonna con cui il file facoltativo identifica il campione: deve
     # contenere l'accession, non il nome.
-    batch_key_column: StringaNonVuota = d.META_BATCH_KEY_COLUMN
+    batch_key_column: StringaNonVuota | None
     # Colonna del file facoltativo che dichiara il modulo. Ha la precedenza
     # sulla derivazione da module_regex, che resta il ripiego quando il file
     # non c'e'.
-    batch_module_column: StringaNonVuota = d.META_BATCH_MODULE_COLUMN
+    batch_module_column: StringaNonVuota | None
+
+    @property
+    def colonna_id_studio(self) -> str:
+        """La colonna del nome del campione nella tabella di studio."""
+        return self.study_sample_id_column or self.sample_id_column
 
 
 class Filter(_Gruppo):
     """Filtraggio e troncamento delle letture grezze."""
 
-    truncLen: InteroPositivo = d.FILTER_TRUNCLEN
+    truncLen: InteroPositivo  # obbligatorio: dipende dalle letture del dataset
     truncLen_shortfall_warn: InteroNonNegativo = d.FILTER_TRUNCLEN_SHORTFALL_WARN
     trimLeft: InteroNonNegativo = d.FILTER_TRIMLEFT
     maxEE: RealePositivo = d.FILTER_MAXEE
@@ -216,10 +244,10 @@ class Err(_Gruppo):
     nbases: RealePositivo = d.ERR_NBASES
     max_consist: InteroPositivo = d.ERR_MAX_CONSIST
     randomize: StrictBool = d.ERR_RANDOMIZE
-    # Derivato dal dataset di riferimento. Colonna di io.batch_table con la
+    # Obbligatorio, anche nullo. Colonna di io.batch_table con la
     # corsa di sequenziamento: un modello d'errore per corsa. Con null, o senza
     # io.batch_table, si stima un solo modello su tutti i campioni.
-    batch_column: StringaNonVuota | None = d.ERR_BATCH_COLUMN
+    batch_column: StringaNonVuota | None
 
 
 class Dada(_Gruppo):
@@ -309,25 +337,20 @@ class Ctrl(_Gruppo):
     proprietà della pipeline.
     """
 
-    column: StringaNonVuota = d.CTRL_COLUMN
-    blank_values: ElencoNonVuoto = Field(
-        default_factory=lambda: list(d.CTRL_BLANK_VALUES)
-    )
-    positive_values: ElencoNonVuoto = Field(
-        default_factory=lambda: list(d.CTRL_POSITIVE_VALUES)
-    )
-    biological_values: ElencoNonVuoto = Field(
-        default_factory=lambda: list(d.CTRL_BIOLOGICAL_VALUES)
-    )
+    # Obbligatori. Le etichette dei controlli possono essere elenchi vuoti (un
+    # dataset senza controlli positivi o negativi lo dichiara cosi'); quelle dei
+    # campioni biologici no.
+    column: StringaNonVuota
+    blank_values: list[StringaNonVuota]
+    positive_values: list[StringaNonVuota]
+    biological_values: ElencoNonVuoto
     # Riclassificazione in controllo negativo, indipendente dal materiale
     # dichiarato: i campioni il cui valore nella colonna indicata (della tabella
     # campioni di studio) e' fra quelli elencati. Il materiale resta quello
     # originale nell'inventario, cosi' la riclassificazione resta tracciabile.
     # Con l'elenco vuoto non si riclassifica nulla.
-    blank_override_column: StringaNonVuota | None = d.CTRL_BLANK_OVERRIDE_COLUMN
-    blank_override_values: list[StringaNonVuota] = Field(
-        default_factory=lambda: list(d.CTRL_BLANK_OVERRIDE_VALUES)
-    )
+    blank_override_column: StringaNonVuota | None
+    blank_override_values: list[StringaNonVuota]
     # Validazione della corsa dai controlli positivi (S11).
     min_positives: InteroPositivo = d.CTRL_MIN_POSITIVES
     min_positive_pass_frac: Frazione = d.CTRL_MIN_POSITIVE_PASS_FRAC
@@ -335,11 +358,15 @@ class Ctrl(_Gruppo):
 
     @model_validator(mode="after")
     def _categorie_disgiunte(self) -> Ctrl:
-        """Respinge un'etichetta assegnata a più di una classe di campioni."""
+        """Respinge un'etichetta assegnata a più di una classe di campioni.
+
+        Il confronto ignora maiuscole e spazi ai bordi, come la classificazione
+        dei campioni: "Blank" e "blank" sono la stessa etichetta.
+        """
         categorie = {
-            "blank_values": set(self.blank_values),
-            "positive_values": set(self.positive_values),
-            "biological_values": set(self.biological_values),
+            "blank_values": {v.strip().casefold() for v in self.blank_values},
+            "positive_values": {v.strip().casefold() for v in self.positive_values},
+            "biological_values": {v.strip().casefold() for v in self.biological_values},
         }
         nomi = sorted(categorie)
         for i, primo in enumerate(nomi):
@@ -363,11 +390,12 @@ class Ctrl(_Gruppo):
 class Katharoseq(_Gruppo):
     """Calibrazione KatharoSeq sui controlli positivi."""
 
-    # Derivati dal dataset di riferimento.
-    target_taxon: StringaNonVuota = d.KATHAROSEQ_TARGET_TAXON
+    # Obbligatori; nulli se il dataset non ha controlli positivi (G15 verifica
+    # che non lo siano quando ctrl.positive_values non e' vuoto).
+    target_taxon: StringaNonVuota | None
     # Colonna del file di arricchimento con le cellule di ciascun controllo
     # positivo, il livello di diluizione; nome originale della colonna.
-    cell_count_column: StringaNonVuota = d.KATHAROSEQ_CELL_COUNT_COLUMN
+    cell_count_column: StringaNonVuota | None
     collapse_rank: Literal["Phylum", "Class", "Order", "Family", "Genus"] = (
         d.KATHAROSEQ_COLLAPSE_RANK
     )
@@ -396,8 +424,8 @@ class Decontam(_Gruppo):
     # contro tutti i negativi) o batch (per piastra, con batch_combine). L'altra
     # si calcola come diagnostica.
     mode: Literal["aggregate", "batch"] = d.DECONTAM_MODE
-    # Derivato dal dataset di riferimento.
-    batch_column: StringaNonVuota = d.DECONTAM_BATCH_COLUMN
+    # Obbligatorio, anche nullo: la colonna di io.batch_table con la piastra.
+    batch_column: StringaNonVuota | None
 
 
 class Prev(_Gruppo):
@@ -435,9 +463,11 @@ class Qc(_Gruppo):
     head_reads: InteroPositivo = d.QC_HEAD_READS
     max_primer_hit_frac: Frazione = d.QC_MAX_PRIMER_HIT_FRAC
     min_motif_frac: Frazione = d.QC_MIN_MOTIF_FRAC
-    # Derivati dal dataset di riferimento: dipendono dalla regione amplificata.
-    primer_sequence: SequenzaIupac = d.QC_PRIMER_SEQUENCE
-    conserved_motif: Regex = d.QC_CONSERVED_MOTIF
+    # Obbligatori: dipendono dalla regione amplificata. Il motivo puo' essere
+    # nullo, per una regione senza un motivo noto: G10 verifica allora la sola
+    # assenza del primer.
+    primer_sequence: SequenzaIupac
+    conserved_motif: Regex | None
 
     @model_validator(mode="after")
     def _avviso_prima_dell_arresto(self) -> Qc:
@@ -480,25 +510,26 @@ class Out(_Gruppo):
     # dell'inventario, con il loro nome originale: dalla tabella campioni di
     # studio e dal file di arricchimento. Nell'oggetto prendono un nome
     # sintattico, e la corrispondenza resta in 10_phyloseq/colonne_metadati.tsv.
-    study_columns: list[StringaNonVuota] = Field(
-        default_factory=lambda: list(d.OUT_STUDY_COLUMNS)
-    )
-    batch_columns: list[StringaNonVuota] = Field(
-        default_factory=lambda: list(d.OUT_BATCH_COLUMNS)
-    )
+    # Obbligatori; elenchi vuoti se non si porta alcuna colonna.
+    study_columns: list[StringaNonVuota]
+    batch_columns: list[StringaNonVuota]
 
 
 class Run(_Gruppo):
     """Parametri dell'esecuzione: ambiente, parallelismo, riproducibilità."""
 
-    container: RiferimentoImmagine
+    # Facoltativo: l'immagine con cui si dichiara di eseguire. Non sceglie
+    # l'immagine, la registra nella provenienza.
+    container: RiferimentoImmagine | None = None
     # Il file di blocco delle versioni R. E' referenziato dal Dockerfile e
     # dagli script R, quindi l'ambiente sarebbe riproducibile comunque; entra
     # qui perche' cosi' finisce nella configurazione risolta e nel suo digest,
     # e due esecuzioni diventano confrontabili anche rispetto alle versioni R.
     lockfile: StringaNonVuota = d.RUN_LOCKFILE
     seed: int = d.RUN_SEED
-    threads: InteroPositivo = d.RUN_THREADS
+    # Per difetto i processori utilizzabili dal processo: non incide sui
+    # risultati, e un valore fisso fermerebbe G14 sulle macchine piu' piccole.
+    threads: InteroPositivo = Field(default_factory=lambda: processori_disponibili())
     batch_size: InteroPositivo = d.RUN_BATCH_SIZE
     # Se conservare le letture filtrate da S2 a esecuzione conclusa. Con false
     # si rimuovono solo quando tutte le fasi sono concluse, e la rimozione e'
@@ -553,23 +584,23 @@ class Config(_Gruppo):
 
     # Pipeline di produzione.
     io: Io
-    meta: Meta = Field(default_factory=Meta)
-    filter: Filter = Field(default_factory=Filter)
-    err: Err = Field(default_factory=Err)
+    meta: Meta
+    filter: Filter
+    err: Err
     dada: Dada = Field(default_factory=Dada)
     chimera: Chimera = Field(default_factory=Chimera)
     asv: Asv = Field(default_factory=Asv)
     tax: Tax
     filt: Filt = Field(default_factory=Filt)
     phylo: Phylo = Field(default_factory=Phylo)
-    ctrl: Ctrl = Field(default_factory=Ctrl)
-    katharoseq: Katharoseq = Field(default_factory=Katharoseq)
-    decontam: Decontam = Field(default_factory=Decontam)
+    ctrl: Ctrl
+    katharoseq: Katharoseq
+    decontam: Decontam
     prev: Prev = Field(default_factory=Prev)
-    qc: Qc = Field(default_factory=Qc)
+    qc: Qc
     retry: Retry = Field(default_factory=Retry)
-    out: Out = Field(default_factory=Out)
-    run: Run
+    out: Out
+    run: Run = Field(default_factory=Run)
 
     # Analisi ecologiche a valle.
     norm: Norm = Field(default_factory=Norm)
@@ -716,15 +747,55 @@ def _descrivi(errore: dict[str, Any]) -> str:
     return f"{chiave}: {spiegazione} (ricevuto: {ricevuto})"
 
 
+#: Come inizia il problema che elenca i parametri obbligatori non dichiarati:
+#: G15 lo riconosce da qui per attribuirgli il proprio codice (E-G15-10).
+INTESTAZIONE_MANCANTI: Final = "parametri obbligatori non dichiarati"
+
+
+def obbligatori_mancanti(dati: dict[str, Any]) -> list[str]:
+    """I parametri di :data:`defaults.OBBLIGATORI` assenti dal dizionario.
+
+    Conta la presenza della chiave, non il valore: un parametro dichiarato
+    nullo o vuoto e' dichiarato.
+    """
+    mancanti = []
+    for chiave in d.OBBLIGATORI:
+        gruppo, nome = chiave.split(".")
+        contenuto = dati.get(gruppo)
+        if not isinstance(contenuto, dict) or nome not in contenuto:
+            mancanti.append(chiave)
+    return mancanti
+
+
+def _voce_mancanti(mancanti: list[str]) -> str:
+    """La voce che elenca i parametri obbligatori non dichiarati."""
+    return (
+        f"{INTESTAZIONE_MANCANTI} ({len(mancanti)}): {', '.join(mancanti)}. Descrivono il "
+        "dataset e non hanno un valore predefinito: vanno dichiarati tutti nel file di "
+        "configurazione, nulli o vuoti quando non sono pertinenti (per esempio le "
+        "etichette dei controlli positivi in un dataset che non ne ha)"
+    )
+
+
 def valida(dati: dict[str, Any], origine: str | None = None) -> Config:
     """Valida un dizionario già caricato.
 
-    Solleva :class:`ErroreConfigurazione` con l'elenco completo dei problemi.
+    Solleva :class:`ErroreConfigurazione` con l'elenco completo dei problemi. I
+    parametri obbligatori non dichiarati vi compaiono in una sola voce, tutti
+    insieme: chi compila la configurazione per un dataset nuovo deve vedere
+    l'elenco intero, non scoprirli uno per esecuzione.
     """
+    mancanti = obbligatori_mancanti(dati)
     try:
         return Config.model_validate(dati)
     except ValidationError as errore:
-        problemi = [_descrivi(e) for e in errore.errors()]
+        gia_detti = set(mancanti) | {m.split(".")[0] for m in mancanti}
+        problemi = [
+            _descrivi(e) for e in errore.errors()
+            if not (e["type"] == "missing" and ".".join(str(p) for p in e["loc"]) in gia_detti)
+        ]
+        if mancanti:
+            problemi.insert(0, _voce_mancanti(mancanti))
         raise ErroreConfigurazione(problemi, origine) from errore
 
 

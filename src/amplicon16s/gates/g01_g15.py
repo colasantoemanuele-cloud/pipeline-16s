@@ -36,6 +36,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import os
+import re
 import shutil
 import statistics
 from collections.abc import Mapping, Sequence
@@ -45,6 +46,7 @@ from typing import Any, Final
 
 from amplicon16s.config.resolve import ConfigRisolta, risolvi
 from amplicon16s.config.schema import (
+    INTESTAZIONE_MANCANTI,
     Config,
     ErroreConfigurazione,
     valida,
@@ -54,6 +56,8 @@ from amplicon16s.errors.exceptions import ErrorePipeline
 from amplicon16s.io_layer.reads import StatisticheFile, espandi_iupac, scansiona
 from amplicon16s.metadata.crosswalk import Analisi, analizza
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione, Inventario
+from amplicon16s.metadata.tabelle import intestazione as _intestazione
+from amplicon16s.metadata.tabelle import tabella_di_studio
 
 __all__ = [
     "Avviso",
@@ -65,6 +69,7 @@ __all__ = [
     "Violazione",
     "esegui_g15",
     "esegui_gate_metadati",
+    "rifiuto_di_g15",
 ]
 
 
@@ -133,11 +138,6 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
         "schema",
     ),
     Controllo(
-        "E-G15-07",
-        ("decontam.method", "ctrl.blank_values"),
-        "schema",
-    ),
-    Controllo(
         "E-G15-08",
         ("filter.minLen", "asv.len_min", "asv.len_max"),
         "schema",
@@ -145,6 +145,22 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
     Controllo(
         "E-G15-09",
         ("retry.whitelist",),
+        "gate",
+    ),
+    Controllo(
+        "E-G15-10",
+        (),
+        "schema",
+    ),
+    Controllo(
+        "E-G15-11",
+        ("io.batch_table", "out.batch_columns", "err.batch_column", "decontam.batch_column",
+         "meta.batch_key_column", "meta.batch_module_column"),
+        "gate",
+    ),
+    Controllo(
+        "E-G15-12",
+        ("ctrl.positive_values", "katharoseq.target_taxon", "katharoseq.cell_count_column"),
         "gate",
     ),
     Controllo(
@@ -255,12 +271,13 @@ _ATTRIBUZIONI: Final[tuple[tuple[tuple[str, ...], frozenset[str], str], ...]] = 
         frozenset({"greater_than", "greater_than_equal"}),
         "E-G15-06",
     ),
-    (("ctrl", "blank_values"), frozenset({"too_short"}), "E-G15-07"),
 )
 
 
 def _codice_per_problema(problema: str) -> str:
     """Attribuisce un codice di controllo a un problema segnalato dallo schema."""
+    if problema.startswith(INTESTAZIONE_MANCANTI):
+        return "E-G15-10"
     if "parametro derivato" in problema:
         return "E-G15-08"
     for percorso, _tipi, codice in _ATTRIBUZIONI:
@@ -297,17 +314,6 @@ def _violazione_da_schema(problema: str) -> Violazione:
 # --------------------------------------------------------------------------- #
 # Controlli propri di G15                                                      #
 # --------------------------------------------------------------------------- #
-
-
-def _decontaminazione_attiva(config: Config) -> bool:
-    """Se la decontaminazione verrà eseguita.
-
-    Oggi non esiste un parametro che la disattivi, quindi è sempre attiva e la
-    condizione è costante. Resta esplicita perché, se un interruttore verrà
-    aggiunto, il controllo E-G15-07 debba cambiare in un punto solo.
-    """
-    del config  # nessun parametro la governa al momento
-    return True
 
 
 def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
@@ -383,17 +389,57 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
                 )
             )
 
-    # E-G15-07 : lo schema impone gia' che l'elenco non sia vuoto; qui resta la
-    # sola parte condizionale, che oggi e' sempre vera.
-    if _decontaminazione_attiva(config) and not config.ctrl.blank_values:
+    # E-G15-11 : le colonne del file del lotto hanno senso solo se il file c'e'.
+    # Senza, una colonna dichiarata resterebbe vuota per ogni campione, e lo si
+    # scoprirebbe a calcolo avviato (S3, S10) o mai.
+    if config.io.batch_table is None:
+        dichiarate = [
+            nome for nome, valore in (
+                ("out.batch_columns", config.out.batch_columns),
+                ("err.batch_column", config.err.batch_column),
+                ("decontam.batch_column", config.decontam.batch_column),
+                ("meta.batch_key_column", config.meta.batch_key_column),
+                ("meta.batch_module_column", config.meta.batch_module_column),
+            ) if valore
+        ]
+        if dichiarate:
+            violazioni.append(
+                Violazione(
+                    "E-G15-11",
+                    "io.batch_table e' nullo ma {} {} un valore: senza il file del "
+                    "lotto vanno dichiarati vuoti o nulli".format(
+                        ", ".join(dichiarate), "ha" if len(dichiarate) == 1 else "hanno"
+                    ),
+                )
+            )
+    elif config.meta.batch_key_column is None:
         violazioni.append(
             Violazione(
-                "E-G15-07",
-                "la decontaminazione e' attiva (decontam.method="
-                f"{config.decontam.method!r}) ma ctrl.blank_values e' vuoto: senza "
-                "controlli negativi non e' possibile individuare i contaminanti",
+                "E-G15-11",
+                "io.batch_table e' indicato ma meta.batch_key_column e' nullo: senza la "
+                "colonna con la chiave del campione le righe del file non si agganciano",
             )
         )
+
+    # E-G15-12 : controlli positivi dichiarati, ma non valutabili.
+    if config.ctrl.positive_values:
+        nulli = [
+            nome for nome, valore in (
+                ("katharoseq.target_taxon", config.katharoseq.target_taxon),
+                ("katharoseq.cell_count_column", config.katharoseq.cell_count_column),
+            ) if valore is None
+        ]
+        if nulli:
+            violazioni.append(
+                Violazione(
+                    "E-G15-12",
+                    "ctrl.positive_values elenca {} ma {} nullo: i controlli positivi "
+                    "non sarebbero valutabili".format(
+                        config.ctrl.positive_values,
+                        " e ".join(nulli) + (" e'" if len(nulli) == 1 else " sono"),
+                    ),
+                )
+            )
 
     return violazioni
 
@@ -401,6 +447,15 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
 # --------------------------------------------------------------------------- #
 # Esecuzione del gate                                                          #
 # --------------------------------------------------------------------------- #
+
+
+def rifiuto_di_g15(errore: ErroreConfigurazione) -> ErroreGate:
+    """Il rifiuto di G15 per una configurazione che lo schema non accetta: ogni
+    problema diventa la violazione del controllo che lo sorveglia, con il suo
+    codice. I parametri obbligatori non dichiarati sono una sola violazione,
+    ``E-G15-10``, che li elenca tutti.
+    """
+    return ErroreGate("G15", [_violazione_da_schema(p) for p in errore.problemi])
 
 
 def esegui_g15(dati: Mapping[str, Any]) -> ConfigRisolta:
@@ -413,8 +468,7 @@ def esegui_g15(dati: Mapping[str, Any]) -> ConfigRisolta:
     try:
         config = valida(dict(dati))
     except ErroreConfigurazione as errore:
-        violazioni = [_violazione_da_schema(p) for p in errore.problemi]
-        raise ErroreGate("G15", violazioni) from errore
+        raise rifiuto_di_g15(errore) from errore
 
     risolta = risolvi(config)
 
@@ -508,7 +562,9 @@ def _g05_accession_univoci(analisi: Analisi) -> list[Violazione]:
             Violazione(
                 "E-S0-05",
                 f"l'accession {accession} compare in {len(file)} file: "
-                f"{_elenca(file)}",
+                f"{_elenca(file)}. Se io.accession_regex ha un gruppo di cattura la "
+                f"chiave e' il primo gruppo: un gruppo che serve solo a raggruppare va "
+                f"scritto senza cattura, (?:...)",
             )
         )
     for accession, nomi in sorted(analisi.accession_ripetuti_nell_assay.items()):
@@ -673,11 +729,17 @@ class Contesto:
     def scansione(self) -> dict[str, StatisticheFile]:
         """Statistiche delle prime letture di ogni file, una passata sola."""
         if self._scansione is None:
+            # Con filter.trimLeft maggiore di zero l'inizio delle letture verra'
+            # tolto dal filtro: il primer in testa non e' piu' un difetto e non si
+            # cerca, e il motivo conservato si cerca dove iniziera' la lettura
+            # filtrata.
+            taglio = self.config.filter.trimLeft
             self._scansione = scansiona(
                 self.analisi.file_per_accession,
                 head_reads=self.config.qc.head_reads,
-                primer=espandi_iupac(self.config.qc.primer_sequence),
+                primer=espandi_iupac(self.config.qc.primer_sequence) if taglio == 0 else None,
                 motivo=self.config.qc.conserved_motif,
+                inizio_motivo=taglio,
             )
         return self._scansione
 
@@ -699,8 +761,9 @@ def _g01_ingressi_leggibili(contesto: Contesto) -> tuple[list[Violazione], list[
     attesi: list[tuple[str, Path, bool]] = [
         ("io.fastq_dir", Path(config.io.fastq_dir), True),
         ("io.assay_table", Path(config.io.assay_table), False),
-        ("io.study_table", Path(config.io.study_table), False),
     ]
+    if config.io.study_table is not None:
+        attesi.append(("io.study_table", Path(config.io.study_table), False))
     if config.io.batch_table is not None:
         attesi.append(("io.batch_table", Path(config.io.batch_table), False))
 
@@ -738,27 +801,62 @@ def _g01_ingressi_leggibili(contesto: Contesto) -> tuple[list[Violazione], list[
     return violazioni, []
 
 
-def _intestazione(percorso: Path) -> list[str]:
-    """I nomi delle colonne della prima riga di una tabella separata da tabulazioni."""
-    with open(percorso, encoding="utf-8", newline="") as file:
-        lettore = csv.reader(file, delimiter="\t")
-        return [c.strip().strip('"') for c in next(lettore, [])]
+def _colonne_mancanti(
+    intestazione: Sequence[str], colonne: Sequence[tuple[str, str]], tabella: str, codice: str
+) -> list[Violazione]:
+    """Una violazione per ogni colonna dichiarata che non compare, o compare piu'
+    volte, nell'intestazione. ``colonne`` sono coppie (parametro, nome).
+    """
+    violazioni = []
+    for dichiarata, nome in colonne:
+        occorrenze = list(intestazione).count(nome)
+        if occorrenze == 1:
+            continue
+        stato = (
+            "non compare nell'intestazione" if occorrenze == 0
+            else f"compare {occorrenze} volte nell'intestazione"
+        )
+        violazioni.append(
+            Violazione(codice, f"la colonna {nome!r}, dichiarata in {dichiarata}, {stato} di {tabella}")
+        )
+    return violazioni
 
 
 def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
-    """Le tabelle di metadati si aprono e hanno le colonne dichiarate."""
+    """Le tabelle di metadati si aprono e hanno ogni colonna dichiarata.
+
+    Si verifica qui, prima di qualunque calcolo, ogni colonna che la
+    configurazione chiede alle tabelle di assay e di studio: quelle con cui si
+    costruisce l'inventario e quelle che S10 portera' nell'oggetto
+    (``out.study_columns``). Una colonna assente scoperta in S10 costerebbe
+    tutte le fasi di calcolo che la precedono.
+    """
     config = contesto.config
     violazioni: list[Violazione] = []
+    studio, colonna_id = tabella_di_studio(config)
 
-    attese = [
-        ("io.assay_table", Path(config.io.assay_table),
-         {"meta.sample_id_column": config.meta.sample_id_column,
-          "meta.accession_column": config.meta.accession_column}),
-        ("io.study_table", Path(config.io.study_table),
-         {"meta.sample_id_column": config.meta.sample_id_column,
-          "ctrl.column": config.ctrl.column,
-          "meta.module_column": config.meta.module_column}),
+    assay = [("meta.sample_id_column", config.meta.sample_id_column),
+             ("meta.accession_column", config.meta.accession_column)]
+    di_studio = [
+        ("meta.study_sample_id_column" if config.meta.study_sample_id_column
+         and config.io.study_table is not None else "meta.sample_id_column", colonna_id),
+        ("ctrl.column", config.ctrl.column),
     ]
+    if config.meta.module_column is not None:
+        di_studio.append(("meta.module_column", config.meta.module_column))
+    if config.ctrl.blank_override_column is not None:
+        di_studio.append(("ctrl.blank_override_column", config.ctrl.blank_override_column))
+    di_studio += [("out.study_columns", c) for c in config.out.study_columns]
+    # Le cellule dei controlli positivi stanno nel file del lotto o nella tabella
+    # di studio: con il file del lotto lo verifica G08, che ne legge l'intestazione.
+    if config.katharoseq.cell_count_column is not None and config.io.batch_table is None:
+        di_studio.append(("katharoseq.cell_count_column", config.katharoseq.cell_count_column))
+
+    if config.io.study_table is None:
+        attese = [("io.assay_table", Path(config.io.assay_table), assay + di_studio[1:])]
+    else:
+        attese = [("io.assay_table", Path(config.io.assay_table), assay),
+                  ("io.study_table", studio, di_studio)]
 
     for parametro, percorso, colonne in attese:
         try:
@@ -773,22 +871,22 @@ def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Av
                 Violazione("E-S0-02", f"{parametro}: {percorso} non ha intestazione")
             )
             continue
-        for dichiarata, nome in colonne.items():
-            if nome not in intestazione:
-                violazioni.append(
-                    Violazione(
-                        "E-S0-02",
-                        f"{parametro}: la colonna {nome!r}, dichiarata in "
-                        f"{dichiarata}, non compare nell'intestazione di "
-                        f"{percorso.name}",
-                    )
-                )
+        # Lo stesso nome dichiarato in due parametri si segnala una volta sola.
+        uniche = list(dict((nome, (dichiarata, nome)) for dichiarata, nome in colonne).values())
+        violazioni += _colonne_mancanti(
+            intestazione, uniche, f"{percorso.name} ({parametro})", "E-S0-02"
+        )
     return violazioni, []
 
 
-#: Marcatori convenzionali del secondo file di una coppia. Sono convenzioni
-#: diffuse, non una proprieta' di questo dataset.
-_MARCATORI_INVERSA: Final[tuple[str, ...]] = ("_R2", "_R2.", ".R2.", "_2.fastq", "_2.fq")
+#: Il secondo file di una coppia, riconosciuto dal marcatore che precede
+#: l'estensione: ``_R2``, ``.R2``, ``_2`` o ``.2``, con un eventuale numero di
+#: blocco (``_001``). Ancorato alla fine del nome: un campione che si chiama
+#: ``LAB_R2D2`` non e' una lettura inversa. Sono convenzioni diffuse, non una
+#: proprieta' di un dataset.
+_LETTURA_INVERSA: Final = re.compile(
+    r"(?:[._]R2|[._]2)(?:_[0-9]+)?\.(?:fastq|fq)(?:\.gz)?$", re.IGNORECASE
+)
 
 
 def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
@@ -810,7 +908,7 @@ def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[A
     inverse = sorted(
         percorso.name
         for percorso in Path(config.io.fastq_dir).glob(config.io.fastq_glob)
-        if any(marcatore in percorso.name for marcatore in _MARCATORI_INVERSA)
+        if _LETTURA_INVERSA.search(percorso.name)
     )
     if inverse:
         violazioni.append(
@@ -995,13 +1093,17 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
     config = contesto.config
     inventario = contesto.inventario
     violazioni: list[Violazione] = []
+    avvisi: list[Avviso] = []
+    taglio = config.filter.trimLeft
 
+    # Il primer in testa e' un difetto solo se il filtro non lo togliera': con
+    # filter.trimLeft maggiore di zero non si cerca (la scansione non lo conta).
     col_primer = {
         accession: s
         for accession, s in contesto.scansione.items()
         if s.valido and s.frazione_primer > config.qc.max_primer_hit_frac
     }
-    if col_primer:
+    if col_primer and taglio == 0:
         peggiori = sorted(
             col_primer.items(), key=lambda voce: -voce[1].frazione_primer
         )
@@ -1018,6 +1120,21 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
                 f"del primer",
             )
         )
+        # Con il primer in testa il motivo conservato non puo' stare all'inizio
+        # della lettura: giudicarlo adesso darebbe una seconda violazione che e'
+        # solo la conseguenza della prima. Si giudichera' alla posizione
+        # filter.trimLeft, una volta corretto.
+        return violazioni, avvisi
+
+    if config.qc.conserved_motif is None:
+        avvisi.append(
+            Avviso(
+                "E-S0-18",
+                "qc.conserved_motif e' nullo: verificata la sola assenza del primer in "
+                "testa alle letture, non la presenza della regione amplificata",
+            )
+        )
+        return violazioni, avvisi
 
     con_segnale = [
         contesto.scansione[c.accession].frazione_motivo
@@ -1029,27 +1146,31 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
     if not con_segnale:
         violazioni.append(
             Violazione(
-                "E-S0-10",
+                "E-S0-16",
                 "nessun campione di una classe da cui attendersi il segnale e' stato "
-                "ispezionato: il controllo positivo non e' verificabile",
+                "ispezionato: la presenza della regione amplificata non e' verificabile",
             )
         )
-        return violazioni, []
+        return violazioni, avvisi
 
     mediana = statistics.median(con_segnale)
     if mediana < config.qc.min_motif_frac:
+        dove = "all'inizio delle letture" if taglio == 0 else (
+            f"alla posizione {taglio} delle letture (filter.trimLeft)"
+        )
         violazioni.append(
             Violazione(
-                "E-S0-10",
-                f"il motivo conservato {config.qc.conserved_motif!r} compare in una "
-                f"mediana del {mediana:.1%} delle letture dei {len(con_segnale)} "
-                f"campioni da cui ci si attende il segnale del bersaglio, sotto il "
-                f"{config.qc.min_motif_frac:.0%} di qc.min_motif_frac. L'assenza del "
-                f"primer non basta a dire che i file siano corretti: potrebbero non "
-                f"contenere la regione dichiarata",
+                "E-S0-16",
+                f"il motivo conservato {config.qc.conserved_motif!r}, cercato {dove}, "
+                f"compare in una mediana del {mediana:.1%} delle letture dei "
+                f"{len(con_segnale)} campioni da cui ci si attende il segnale del "
+                f"bersaglio, sotto il {config.qc.min_motif_frac:.0%} di "
+                f"qc.min_motif_frac: i file potrebbero non contenere la regione "
+                f"dichiarata, oppure filter.trimLeft non corrisponde a cio' che precede "
+                f"il motivo",
             )
         )
-    return violazioni, []
+    return violazioni, avvisi
 
 
 # =========================================================================== #
@@ -1081,19 +1202,71 @@ def _g08_lotto_coerente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
                 Violazione("E-S0-08", f"io.batch_table: {percorso} non si apre: {guasto}")
             ], []
 
-        for dichiarata, nome in (
-            ("decontam.batch_column", config.decontam.batch_column),
-            ("err.batch_column", config.err.batch_column),
-        ):
-            if nome is not None and nome not in intestazione:
+        colonne = [
+            (dichiarata, nome) for dichiarata, nome in (
+                ("decontam.batch_column", config.decontam.batch_column),
+                ("err.batch_column", config.err.batch_column),
+                ("meta.batch_module_column", config.meta.batch_module_column),
+            ) if nome is not None
+        ]
+        colonne += [("out.batch_columns", c) for c in config.out.batch_columns]
+        uniche = list(dict((nome, (dichiarata, nome)) for dichiarata, nome in colonne).values())
+        violazioni += _colonne_mancanti(
+            intestazione, uniche, f"{percorso.name} (io.batch_table)", "E-S0-08"
+        )
+        # Le cellule seminate nei controlli positivi: nel file del lotto o
+        # nella tabella di studio.
+        cellule = config.katharoseq.cell_count_column
+        if cellule is not None and cellule not in intestazione:
+            studio, _ = tabella_di_studio(config)
+            if cellule not in _intestazione(studio):
                 violazioni.append(
                     Violazione(
                         "E-S0-08",
-                        f"la colonna {nome!r}, dichiarata in {dichiarata}, non compare "
-                        f"in {percorso.name}: il lotto resterebbe nullo per ogni "
-                        f"campione senza che nulla lo segnali",
+                        f"la colonna {cellule!r}, dichiarata in "
+                        f"katharoseq.cell_count_column, non compare ne' in "
+                        f"{percorso.name} ne' in {studio.name}",
                     )
                 )
+        if violazioni:
+            return violazioni, []
+
+        # Un file incompleto o ambiguo: ogni campione deve avervi una e una
+        # sola riga, e la corsa se il modello d'errore e' per corsa. Scoprirlo
+        # qui costa secondi; in S3 costerebbe il filtro di tutte le letture.
+        analisi = contesto.analisi
+        if analisi.senza_riga_di_arricchimento:
+            violazioni.append(
+                Violazione(
+                    "E-S0-08",
+                    "{} campioni non hanno una riga in {}: {}".format(
+                        len(analisi.senza_riga_di_arricchimento), percorso.name,
+                        _elenca(sorted(analisi.senza_riga_di_arricchimento)),
+                    ),
+                )
+            )
+        if analisi.arricchimento_ambiguo:
+            violazioni.append(
+                Violazione(
+                    "E-S0-08",
+                    "{} campioni hanno piu' di una riga in {}: {}".format(
+                        len(analisi.arricchimento_ambiguo), percorso.name,
+                        _elenca([f"{a} ({n} righe)" for a, n in
+                                 sorted(analisi.arricchimento_ambiguo.items())]),
+                    ),
+                )
+            )
+        if analisi.senza_corsa:
+            violazioni.append(
+                Violazione(
+                    "E-S0-08",
+                    "{} campioni hanno la colonna {!r} (err.batch_column) vuota in {}: "
+                    "{}. Un campione senza corsa non ha un modello d'errore".format(
+                        len(analisi.senza_corsa), config.err.batch_column, percorso.name,
+                        _elenca(sorted(analisi.senza_corsa)),
+                    ),
+                )
+            )
         if violazioni:
             return violazioni, []
 
@@ -1127,6 +1300,51 @@ def _g08_lotto_coerente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
 def _g15_coerenza_configurazione(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
     """Adattatore di G15 al contesto: la configurazione e' gia' validata."""
     return _controlla_coerenza(risolvi(contesto.config)), []
+
+
+def _g11_classi_e_controlli(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
+    """G11 nel registro: ogni campione ha una classe, e i controlli si contano.
+
+    Alla verifica delle classi (:func:`_g11_classi_complete`) aggiunge la
+    dichiarazione di cio' che manca al dataset: nessun controllo positivo, o
+    meno controlli negativi di ``decontam.min_blanks``. Non sono errori (un
+    dataset puo' non averne) ma cambiano cio' che le fasi a valle possono fare,
+    e vanno detti prima del calcolo.
+    """
+    violazioni = _g11_classi_complete(contesto.analisi)
+    if violazioni:
+        return violazioni, []
+    conteggi = contesto.inventario.conteggi()
+    minimo = contesto.config.decontam.min_blanks
+    avvisi: list[Avviso] = []
+    negativi = conteggi[ClasseCampione.CONTROLLO_NEGATIVO]
+    if negativi < minimo:
+        dichiarati = (
+            "ctrl.blank_values e' vuoto" if not contesto.config.ctrl.blank_values
+            and not contesto.config.ctrl.blank_override_values
+            else "le etichette dichiarate ne riconoscono cosi' pochi"
+        )
+        avvisi.append(
+            Avviso(
+                "E-S0-17",
+                f"il dataset ha {negativi} controlli negativi, meno dei {minimo} di "
+                f"decontam.min_blanks ({dichiarati}): i contaminanti non sono "
+                f"stimabili dai controlli",
+            )
+        )
+    if conteggi[ClasseCampione.CONTROLLO_POSITIVO] == 0:
+        dichiarati = (
+            "ctrl.positive_values e' vuoto" if not contesto.config.ctrl.positive_values
+            else "nessun campione porta le etichette di ctrl.positive_values"
+        )
+        avvisi.append(
+            Avviso(
+                "E-S0-17",
+                f"il dataset non ha controlli positivi ({dichiarati}): la soglia di "
+                f"profondita' non puo' essere derivata da una curva",
+            )
+        )
+    return [], avvisi
 
 
 def _adatta(controllo: Any) -> Any:

@@ -215,7 +215,7 @@ def test_i_parametri_di_s11_hanno_i_valori_del_piano(tmp_path):
     )
     # Nel riferimento sintetico Variovorax ha un nome inventato.
     assert k.target_taxon == TAXON_SINTETICO
-    assert defaults.KATHAROSEQ_TARGET_TAXON == "Variovorax"
+    assert defaults.ESEMPIO_OSD734["katharoseq.target_taxon"].valore == "Variovorax"
     assert (k.target_sensitivity, k.min_r2, k.read_stage) == (0.90, 0.80, "nonchimeric")
     assert config.qc.min_reads_mode == "katharoseq_if_available"
     assert (config.ctrl.min_positives, config.ctrl.min_positive_pass_frac,

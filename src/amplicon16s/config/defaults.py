@@ -4,21 +4,22 @@ I valori stanno qui e non dentro lo schema perché la domanda «quali valori
 andrebbero rivisti passando a un altro dataset?» deve potersi rispondere
 leggendo un solo file.
 
-Sono divisi in due categorie, e la distinzione è sostanziale:
+I parametri sono di tre specie, e la distinzione è sostanziale:
 
 * **Predefiniti generici**: scelte ragionevoli indipendenti dal dataset.
   Restano validi finché non c'è una ragione specifica per cambiarli.
 
-* **Predefiniti derivati dal dataset di riferimento**: valori ricavati da
-  caratteristiche accertate di OSD-734: nomi di colonne dei metadati, etichette
-  usate per distinguere i controlli, taxon atteso nei controlli positivi. Su
-  dataset sono quasi certamente sbagliati e vanno rivisti uno per uno. Il
-  codice resta generale: è la configurazione a cambiare.
+* **Predefiniti tarati sul dataset di riferimento** (:data:`FATTI_OSD734`):
+  scelte di metodo il cui valore è stato fissato su un fatto accertato di
+  OSD-734. Hanno un predefinito, perché su un dataset simile sono un punto di
+  partenza sensato, ma su un altro dataset vanno riesaminati: il report elenca
+  quelli che un'esecuzione ha preso senza dichiararli.
 
-L'elenco delle chiavi della seconda categoria è esposto in
-:data:`DERIVATI_DAL_DATASET`, e :data:`FATTI_OSD734` porta per ciascuna il
-valore di OSD-734 e il fatto accertato che lo giustifica: il report li riporta
-e un test li controlla, invece di restare una convenzione a voce.
+* **Parametri obbligatori** (:data:`OBBLIGATORI`): descrivono il formato dei
+  metadati e l'esperimento, cioè il dataset e non la pipeline. Non hanno alcun
+  predefinito: vanno dichiarati tutti nella configurazione, anche vuoti o nulli
+  quando non sono pertinenti, e G15 non parte finché ne manca uno. I valori che
+  hanno per OSD-734 sono in :data:`ESEMPIO_OSD734`, a solo titolo di esempio.
 """
 
 from __future__ import annotations
@@ -31,13 +32,10 @@ from typing import Any, Final, NamedTuple
 # Predefiniti generici                                                         #
 # --------------------------------------------------------------------------- #
 
-# io: individuazione dei file di lettura e degli accession
+# io: individuazione dei file di lettura
 IO_FASTQ_GLOB: Final = "*.fastq.gz"
-IO_ACCESSION_REGEX: Final = r"(E|S|D)RX[0-9]{4,}"
 
 # meta: lettura della tabella dei metadati
-META_SAMPLE_ID_COLUMN: Final = "Sample Name"
-META_ACCESSION_COLUMN: Final = "Raw Data File"
 META_DERIVE_MODULE: Final = True
 
 # filter: filtraggio e troncamento delle letture
@@ -172,7 +170,8 @@ OUT_SAMPLE_ID_SOURCE: Final = "accession"
 # confrontabili rispetto alle versioni R impiegate.
 RUN_LOCKFILE: Final = "renv.lock"
 RUN_SEED: Final = 100
-RUN_THREADS: Final = 16
+# run.threads non ha un valore fisso: per difetto vale i processori utilizzabili
+# dal processo al momento della validazione (config/schema.py).
 RUN_BATCH_SIZE: Final = 24
 RUN_KEEP_FILTERED_FASTQ: Final = True
 # La regola rigorosa sulla provenienza: disattivata per difetto, perche' lo
@@ -182,15 +181,11 @@ RUN_STRICT_PROVENANCE: Final = False
 
 
 # --------------------------------------------------------------------------- #
-# Predefiniti derivati dal dataset di riferimento (OSD-734)                     #
+# Predefiniti tarati sul dataset di riferimento (OSD-734)                      #
 # --------------------------------------------------------------------------- #
-# Attenzione: questi valori descrivono OSD-734, non la pipeline. Su un altro
-# dataset vanno rivisti tutti. Ogni aggiunta qui va riportata anche in
-# FATTI_OSD734, più in basso, con il fatto che la giustifica.
-
-# Lunghezza di troncamento: la lettura piu' corta del dataset completo, 137
-# basi su letture di 137-151 (S1). Troncare oltre scarterebbe quelle letture.
-FILTER_TRUNCLEN: Final = 137
+# Scelte di metodo fissate su un fatto accertato di OSD-734. Su un altro dataset
+# vanno riesaminate. Ogni aggiunta qui va riportata anche in FATTI_OSD734, più
+# in basso, con il fatto che la giustifica.
 
 # Basi tolte in testa: nessuna, perche' le letture non contengono il primer e
 # iniziano nella regione conservata a valle del 515F (G10).
@@ -201,11 +196,6 @@ FILTER_TRIMLEFT: Final = 0
 # e' piu' basso a parita' di correttezza.
 TAX_MIN_BOOT: Final = 50
 TAX_ASSIGN_SPECIES: Final = False
-
-# Prefisso della posizione da cui si deriva il modulo quando manca il file di
-# arricchimento: tre lettere e una cifra, come i moduli della stazione nei nomi
-# delle posizioni di OSD-734 (LAB1, NOD2, JLP1).
-META_MODULE_REGEX: Final = r"^([A-Z]{3}[0-9])"
 
 # Decontaminazione per prevalenza: il metodo per frequenza richiede una
 # concentrazione del DNA per campione, che i metadati di OSD-734 non hanno.
@@ -227,98 +217,12 @@ QC_MIN_MOTIF_FRAC: Final = 0.25
 # rumore.
 PREV_MIN_FRACTION: Final = 0.01
 
-# Valori della colonna della posizione che denotano una posizione che non e'
-# una superficie. I campioni che li riportano non appartengono a un modulo, e
-# non vi vanno forzati: raggrupparli per modulo mescolerebbe l'aria di un
-# locale con le sue superfici. I valori vuoti e i marcatori convenzionali di
-# "non applicabile" sono gia' trattati come posizione assente, e non serve
-# elencarli qui.
-META_NON_SURFACE_POSITIONS: Final = ("Air Sample", "Unopened 3DMM Swab Tube")
-
-# Colonna della tabella campioni di studio da cui si deriva il modulo. Il
-# modulo si ricava dalla posizione dichiarata, non dal nome del campione: un
-# campione d'aria puo' chiamarsi come una superficie, e derivarlo dal nome lo
-# attribuirebbe a un modulo che non gli compete.
-META_MODULE_COLUMN: Final = "Factor Value[Sample Location]"
-
-# Colonna con cui il file facoltativo di arricchimento identifica il campione.
-# Deve contenere l'accession: il nome del campione si ripete fra repliche.
-META_BATCH_KEY_COLUMN: Final = "experiment_accession"
-
-# Colonna del file facoltativo che dichiara il modulo. Quando c'e', il modulo
-# viene da li': e' il dato originale, con il suo nome. La derivazione per
-# espressione regolare resta il ripiego per i dataset privi di quel file.
-META_BATCH_MODULE_COLUMN: Final = "module"
-
-# Colonna dei metadati che identifica il lotto di sequenziamento.
-ERR_BATCH_COLUMN: Final = "run_prefix"
-
-# Colonna dei metadati che identifica la piastra di estrazione.
-DECONTAM_BATCH_COLUMN: Final = "extraction_plate_num"
-
 # Modalita' della decontaminazione (S12). Aggregata: le piastre di OSD-734 hanno
 # da 5 a 8 controlli negativi, e il minimo di dieci probabilita' stimate
 # ciascuna su cosi' pochi negativi, con la soglia 0,5, e' permissivo per
 # costruzione (misurato: per piastra si toglierebbe la meta' delle letture dei
 # biologici). La modalita' per piastra resta calcolata come diagnostica.
 DECONTAM_MODE: Final = "aggregate"
-
-# Colonna e etichette che distinguono controlli e campioni biologici.
-CTRL_COLUMN: Final = "Characteristics[Material Type]"
-CTRL_BLANK_VALUES: Final = ("blank control",)
-CTRL_POSITIVE_VALUES: Final = ("Positive Control",)
-CTRL_BIOLOGICAL_VALUES: Final = ("Surface swab",)
-# Campioni da trattare come controlli negativi qualunque sia il materiale
-# dichiarato, riconosciuti dal valore di una colonna della tabella campioni di
-# studio. In OSD-734 i tamponi mai aperti ("Unopened 3DMM Swab Tube") sono
-# dichiarati "Surface swab" ma non hanno campionato alcuna superficie: per
-# funzione sono controlli di campo (bassa biomassa, composizione da reagente).
-CTRL_BLANK_OVERRIDE_COLUMN: Final = "Factor Value[Sample Location]"
-CTRL_BLANK_OVERRIDE_VALUES: Final = ("Unopened 3DMM Swab Tube",)
-
-# Riferimento tassonomico impiegato nello studio. Questi due parametri sono
-# obbligatori nello schema e non hanno valore predefinito: i valori qui sotto
-# documentano lo studio di riferimento e sono quelli usati in
-# config.example.yaml, ma vanno sempre dichiarati esplicitamente.
-TAX_REF_NAME: Final = "SILVA"
-TAX_REF_VERSION: Final = "138"
-
-# Primer di amplificazione atteso a inizio lettura, in codici IUPAC. Dipende
-# dalla coppia di primer dello studio: con una regione amplificata diversa
-# sarebbe un'altra sequenza. Qui 515F, con Y = C o T e M = A o C.
-QC_PRIMER_SEQUENCE: Final = "GTGYCAGCMGCCGCGGTAA"
-
-# Motivo conservato atteso subito a valle del primer, come espressione
-# regolare. Serve a G10 da controllo positivo: cercare la sola assenza del
-# primer non distinguerebbe un file corretto da un file privo di segnale.
-# Dipende anch'esso dalla regione amplificata.
-QC_CONSERVED_MOTIF: Final = r"TAC[AG].AGG..GC.AGCGTT"
-
-# Taxon atteso nei controlli positivi, usato per la calibrazione KatharoSeq.
-KATHAROSEQ_TARGET_TAXON: Final = "Variovorax"
-
-# Colonna del file di arricchimento con le cellule seminate in ciascun
-# controllo positivo della serie di diluizione: e' il livello di diluizione.
-KATHAROSEQ_CELL_COUNT_COLUMN: Final = "katharoseq_cell_count"
-
-# Colonne dei metadati portate nell'oggetto integrato (S10) oltre a quelle
-# dell'inventario. Dalla tabella campioni di studio: se il campione e' stato in
-# volo, e come e' stato conservato. Dal file di arricchimento: identificativo
-# della piastra, pozzetto, date di estrazione e di sequenziamento, piastra dei
-# primer, e le cellule seminate nei controlli positivi della serie KatharoSeq,
-# che servono alla calibrazione di S11.
-OUT_STUDY_COLUMNS: Final = (
-    "Factor Value[Spaceflight]",
-    "Parameter Value[Sample Preservation Method]",
-)
-OUT_BATCH_COLUMNS: Final = (
-    "extraction_plate_id",
-    "well_id",
-    "extraction_date",
-    "primer_plate",
-    "run_date",
-    "katharoseq_cell_count",
-)
 
 
 class RiferimentoDataset(NamedTuple):
@@ -330,19 +234,13 @@ class RiferimentoDataset(NamedTuple):
     fatto: str
 
 
-#: I parametri il cui valore descrive il dataset di riferimento e non la
-#: pipeline, ciascuno con il valore di OSD-734 e il fatto accertato che lo
-#: giustifica. E' l'unica fonte della motivazione: il report la riporta accanto
-#: a ogni parametro che in un'esecuzione coincide con il valore di OSD-734, e un
-#: test la tiene allineata ai marcatori [OSD-734] di config.example.yaml. Un
-#: valore ereditato in silenzio su un altro dataset e' il rischio che questo
-#: elenco serve a rendere visibile.
+#: I parametri con un predefinito tarato su OSD-734, ciascuno con quel valore e
+#: il fatto accertato che lo giustifica. E' l'unica fonte della motivazione: il
+#: report la riporta accanto a ogni parametro che un'esecuzione ha preso per
+#: difetto senza dichiararlo, e un test la tiene allineata ai marcatori
+#: [OSD-734] di config.example.yaml. Un valore ereditato in silenzio su un altro
+#: dataset e' il rischio che questo elenco serve a rendere visibile.
 FATTI_OSD734: Final[Mapping[str, RiferimentoDataset]] = MappingProxyType({
-    "filter.truncLen": RiferimentoDataset(
-        FILTER_TRUNCLEN,
-        "le letture del dataset completo sono lunghe 137-151 basi (S1): 137 è la "
-        "più corta, e un troncamento maggiore la scarterebbe",
-    ),
     "filter.trimLeft": RiferimentoDataset(
         FILTER_TRIMLEFT,
         "le letture non contengono il primer: iniziano nella regione conservata a "
@@ -358,11 +256,6 @@ FATTI_OSD734: Final[Mapping[str, RiferimentoDataset]] = MappingProxyType({
         "137 basi su circa 253 dell'amplicone V4 non bastano a un'assegnazione "
         "attendibile al livello di specie",
     ),
-    "meta.module_regex": RiferimentoDataset(
-        META_MODULE_REGEX,
-        "i nomi delle posizioni iniziano con il modulo della stazione, tre lettere "
-        "e una cifra (LAB1, NOD2, JLP1)",
-    ),
     "decontam.method": RiferimentoDataset(
         DECONTAM_METHOD,
         "i metadati non riportano una concentrazione del DNA per campione, che il "
@@ -374,6 +267,12 @@ FATTI_OSD734: Final[Mapping[str, RiferimentoDataset]] = MappingProxyType({
         "paragonabili ai biologici, e la contaminazione da reagente può essere una "
         "quota rilevante del segnale",
     ),
+    "decontam.mode": RiferimentoDataset(
+        DECONTAM_MODE,
+        "le piastre hanno da 5 a 8 controlli negativi dichiarati: per piastra, con "
+        "la soglia 0,5, si toglierebbe circa la metà delle letture dei biologici "
+        "(misurato)",
+    ),
     "qc.min_motif_frac": RiferimentoDataset(
         QC_MIN_MOTIF_FRAC,
         "sei campioni biologici legittimi hanno il motivo conservato sotto il 25% "
@@ -384,108 +283,176 @@ FATTI_OSD734: Final[Mapping[str, RiferimentoDataset]] = MappingProxyType({
         "i campioni vengono da oltre cento posizioni distinte della stazione: una "
         "variante propria di poche posizioni è segnale, non rumore",
     ),
-    "err.batch_column": RiferimentoDataset(
-        ERR_BATCH_COLUMN,
-        "nel file del lotto la corsa di sequenziamento sta nella colonna "
-        "run_prefix (due corse)",
+})
+
+#: Chiavi il cui valore predefinito e' tarato sul dataset di riferimento.
+#: Passando a un altro dataset vanno rivalutate una per una.
+DERIVATI_DAL_DATASET: Final[tuple[str, ...]] = tuple(FATTI_OSD734)
+
+
+# --------------------------------------------------------------------------- #
+# Parametri obbligatori: nessun predefinito                                    #
+# --------------------------------------------------------------------------- #
+
+#: I parametri che descrivono il dataset e non hanno predefinito. Vanno
+#: dichiarati tutti nel file di configurazione; quelli non pertinenti al
+#: dataset si dichiarano nulli o vuoti (per esempio le etichette dei controlli
+#: positivi in un dataset che non ne ha). G15 respinge la configurazione
+#: elencando quelli che mancano (E-G15-10).
+OBBLIGATORI: Final[tuple[str, ...]] = (
+    # come si riconoscono file e campioni
+    "io.accession_regex",
+    "meta.sample_id_column",
+    "meta.accession_column",
+    # il formato dei metadati
+    "meta.module_regex",
+    "meta.module_column",
+    "meta.non_surface_positions",
+    "meta.batch_key_column",
+    "meta.batch_module_column",
+    "err.batch_column",
+    "decontam.batch_column",
+    "ctrl.column",
+    "ctrl.blank_values",
+    "ctrl.positive_values",
+    "ctrl.biological_values",
+    "ctrl.blank_override_column",
+    "ctrl.blank_override_values",
+    "katharoseq.cell_count_column",
+    "out.study_columns",
+    "out.batch_columns",
+    # l'esperimento
+    "filter.truncLen",
+    "qc.primer_sequence",
+    "qc.conserved_motif",
+    "katharoseq.target_taxon",
+    "tax.ref_name",
+    "tax.ref_version",
+)
+
+#: I valori che i parametri obbligatori hanno per OSD-734, con la ragione di
+#: ciascuno. Non sono predefiniti e la pipeline non li usa: documentano il
+#: dataset di riferimento, sono l'esempio riportato in config.example.yaml e i
+#: valori con cui i test costruiscono i loro scenari.
+ESEMPIO_OSD734: Final[Mapping[str, RiferimentoDataset]] = MappingProxyType({
+    "io.accession_regex": RiferimentoDataset(
+        r"[ESD]RX[0-9]{4,}",
+        "i file e la tabella di assay riportano l'accession dell'esperimento "
+        "(ERX seguito da cifre)",
     ),
-    "decontam.batch_column": RiferimentoDataset(
-        DECONTAM_BATCH_COLUMN,
-        "nel file del lotto la piastra di estrazione sta nella colonna "
-        "extraction_plate_num (dieci piastre da 96)",
+    "meta.sample_id_column": RiferimentoDataset(
+        "Sample Name",
+        "nelle tabelle ISA il nome del campione sta nella colonna Sample Name",
+    ),
+    "meta.accession_column": RiferimentoDataset(
+        "Raw Data File",
+        "la tabella di assay riporta il file delle letture, con l'accession nel "
+        "nome, nella colonna Raw Data File",
+    ),
+    "meta.module_regex": RiferimentoDataset(
+        r"^([A-Z]{3}[0-9])",
+        "i nomi delle posizioni iniziano con il modulo della stazione, tre lettere "
+        "e una cifra (LAB1, NOD2, JLP1)",
     ),
     "meta.module_column": RiferimentoDataset(
-        META_MODULE_COLUMN,
+        "Factor Value[Sample Location]",
         "la posizione di campionamento è dichiarata nella colonna Factor "
         "Value[Sample Location] della tabella campioni di studio",
     ),
     "meta.non_surface_positions": RiferimentoDataset(
-        META_NON_SURFACE_POSITIONS,
+        ("Air Sample", "Unopened 3DMM Swab Tube"),
         "i campioni d'aria e i tamponi mai aperti riportano una posizione che non "
         "è una superficie, e non appartengono a un modulo",
     ),
     "meta.batch_key_column": RiferimentoDataset(
-        META_BATCH_KEY_COLUMN,
+        "experiment_accession",
         "il file del lotto identifica i campioni per accession, nella colonna "
         "experiment_accession: i due campioni risequenziati vi si distinguono solo "
         "così",
     ),
     "meta.batch_module_column": RiferimentoDataset(
-        META_BATCH_MODULE_COLUMN,
+        "module",
         "il file del lotto dichiara il modulo nella colonna module",
     ),
+    "err.batch_column": RiferimentoDataset(
+        "run_prefix",
+        "nel file del lotto la corsa di sequenziamento sta nella colonna "
+        "run_prefix (due corse)",
+    ),
+    "decontam.batch_column": RiferimentoDataset(
+        "extraction_plate_num",
+        "nel file del lotto la piastra di estrazione sta nella colonna "
+        "extraction_plate_num (dieci piastre da 96)",
+    ),
     "ctrl.column": RiferimentoDataset(
-        CTRL_COLUMN,
+        "Characteristics[Material Type]",
         "la classe del campione è dichiarata nella colonna Characteristics[Material "
         "Type] della tabella campioni di studio",
     ),
     "ctrl.blank_values": RiferimentoDataset(
-        CTRL_BLANK_VALUES,
+        ("blank control",),
         "i controlli negativi sono dichiarati con il materiale blank control",
     ),
     "ctrl.positive_values": RiferimentoDataset(
-        CTRL_POSITIVE_VALUES,
+        ("Positive Control",),
         "i controlli positivi sono dichiarati con il materiale Positive Control",
     ),
     "ctrl.biological_values": RiferimentoDataset(
-        CTRL_BIOLOGICAL_VALUES,
+        ("Surface swab",),
         "i campioni biologici sono dichiarati con il materiale Surface swab",
     ),
     "ctrl.blank_override_column": RiferimentoDataset(
-        CTRL_BLANK_OVERRIDE_COLUMN,
+        "Factor Value[Sample Location]",
         "i tamponi mai aperti si riconoscono dalla posizione dichiarata, nella "
         "colonna Factor Value[Sample Location]",
     ),
     "ctrl.blank_override_values": RiferimentoDataset(
-        CTRL_BLANK_OVERRIDE_VALUES,
+        ("Unopened 3DMM Swab Tube",),
         "33 tamponi dichiarati Surface swab hanno posizione Unopened 3DMM Swab Tube: "
         "non hanno campionato alcuna superficie, e per funzione sono controlli "
         "negativi",
     ),
-    "decontam.mode": RiferimentoDataset(
-        DECONTAM_MODE,
-        "le piastre hanno da 5 a 8 controlli negativi dichiarati: per piastra, con "
-        "la soglia 0,5, si toglierebbe circa la metà delle letture dei biologici "
-        "(misurato)",
-    ),
-    "tax.ref_name": RiferimentoDataset(
-        TAX_REF_NAME,
-        "il riferimento tassonomico adottato per lo studio è SILVA",
-    ),
-    "tax.ref_version": RiferimentoDataset(
-        TAX_REF_VERSION,
-        "la versione del riferimento adottata per lo studio è la 138",
-    ),
-    "katharoseq.target_taxon": RiferimentoDataset(
-        KATHAROSEQ_TARGET_TAXON,
-        "i controlli positivi contengono un solo ceppo, Variovorax sp. OAS795",
-    ),
     "katharoseq.cell_count_column": RiferimentoDataset(
-        KATHAROSEQ_CELL_COUNT_COLUMN,
+        "katharoseq_cell_count",
         "il file del lotto riporta le cellule seminate in ciascun controllo "
         "positivo nella colonna katharoseq_cell_count",
     ),
-    "qc.primer_sequence": RiferimentoDataset(
-        QC_PRIMER_SEQUENCE,
-        "la regione V4 è stata amplificata con il primer 515F",
-    ),
-    "qc.conserved_motif": RiferimentoDataset(
-        QC_CONSERVED_MOTIF,
-        "le letture iniziano con il motivo conservato a valle del 515F",
-    ),
     "out.study_columns": RiferimentoDataset(
-        OUT_STUDY_COLUMNS,
+        ("Factor Value[Spaceflight]", "Parameter Value[Sample Preservation Method]"),
         "la tabella campioni di studio riporta se il campione è stato in volo e "
         "come è stato conservato",
     ),
     "out.batch_columns": RiferimentoDataset(
-        OUT_BATCH_COLUMNS,
+        ("extraction_plate_id", "well_id", "extraction_date", "primer_plate",
+         "run_date", "katharoseq_cell_count"),
         "il file del lotto riporta piastra, pozzetto, date di estrazione e di "
         "sequenziamento, piastra dei primer e cellule seminate nei controlli "
         "positivi",
     ),
+    "filter.truncLen": RiferimentoDataset(
+        137,
+        "le letture del dataset completo sono lunghe 137-151 basi (S1): 137 è la "
+        "più corta, e un troncamento maggiore la scarterebbe",
+    ),
+    "qc.primer_sequence": RiferimentoDataset(
+        "GTGYCAGCMGCCGCGGTAA",
+        "la regione V4 è stata amplificata con il primer 515F",
+    ),
+    "qc.conserved_motif": RiferimentoDataset(
+        r"TAC[AG].AGG..GC.AGCGTT",
+        "le letture iniziano con il motivo conservato a valle del 515F",
+    ),
+    "katharoseq.target_taxon": RiferimentoDataset(
+        "Variovorax",
+        "i controlli positivi contengono un solo ceppo, Variovorax sp. OAS795",
+    ),
+    "tax.ref_name": RiferimentoDataset(
+        "SILVA",
+        "il riferimento tassonomico adottato per lo studio è SILVA",
+    ),
+    "tax.ref_version": RiferimentoDataset(
+        "138",
+        "la versione del riferimento adottata per lo studio è la 138",
+    ),
 })
-
-#: Chiavi il cui valore predefinito descrive il dataset di riferimento e non la
-#: pipeline. Passando a un altro dataset vanno rivalutate una per una.
-DERIVATI_DAL_DATASET: Final[tuple[str, ...]] = tuple(FATTI_OSD734)
+assert tuple(ESEMPIO_OSD734) == OBBLIGATORI

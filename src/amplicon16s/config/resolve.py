@@ -311,17 +311,19 @@ def registra_risolta(risolta: ConfigRisolta, out_root: Path | str) -> Registrazi
     """Registra la configurazione con cui un'esecuzione parte, senza sovrascrivere.
 
     * nessuna configurazione registrata: scrive ``resolved.yaml``;
-    * l'ultima registrata ha lo stesso digest: non scrive nulla;
-    * l'ultima registrata ha un digest diverso: la conserva e scrive la nuova
-      accanto, ``resolved_2.yaml``, ``resolved_3.yaml`` e cosi' via, con i
-      parametri che differiscono dalla precedente.
+    * l'ultima registrata ha lo stesso digest e gli stessi parametri
+      dichiarati: non scrive nulla;
+    * altrimenti la conserva e scrive la nuova accanto, ``resolved_2.yaml``,
+      ``resolved_3.yaml`` e cosi' via, con cio' che differisce dalla
+      precedente: i valori, e i parametri dichiarati o non piu' dichiarati.
 
     Il confronto è con l'ultima e non con una qualunque: tornare a una
     configurazione gia' usata e' a sua volta un cambiamento, e ricostruire
     con quale configurazione ha girato ciascuna ripresa richiede di vederlo.
     Una versione si distingue dalla precedente per i valori, cioe' per il
-    digest: togliere dal file un parametro che vale il predefinito non cambia
-    alcun valore e non registra una nuova versione.
+    digest, e per l'elenco dei parametri dichiarati: dichiarare un parametro
+    al valore che aveva per difetto non cambia alcun risultato, ma lo rende
+    una scelta e non piu' un valore ereditato, e il report deve poterlo leggere.
     """
     versioni = versioni_registrate(out_root)
     if not versioni:
@@ -329,7 +331,10 @@ def registra_risolta(risolta: ConfigRisolta, out_root: Path | str) -> Registrazi
 
     ultima = versioni[-1]
     registrata = yaml.safe_load(ultima.read_text(encoding="utf-8"))
-    if registrata.get("digest") == risolta.digest:
+    dichiarati_prima = registrata.get("dichiarati")
+    dichiarati_ora = list(parametri_dichiarati(risolta.config))
+    stessi_dichiarati = dichiarati_prima is None or set(dichiarati_prima) == set(dichiarati_ora)
+    if registrata.get("digest") == risolta.digest and stessi_dichiarati:
         return Registrazione(ultima, risolta.digest, False)
 
     prima = _appiattisci(registrata.get("parametri", {}))
@@ -339,6 +344,17 @@ def registra_risolta(risolta: ConfigRisolta, out_root: Path | str) -> Registrazi
         for chiave in sorted(set(prima) | set(ora))
         if prima.get(chiave) != ora.get(chiave)
     )
+    if not stessi_dichiarati:
+        # Solo per i parametri il cui valore non e' cambiato: per gli altri la
+        # differenza di valore dice gia' tutto.
+        invariati = {chiave for chiave in ora if prima.get(chiave) == ora.get(chiave)}
+        differenze += tuple(
+            f"{chiave}: ora dichiarato"
+            for chiave in sorted((set(dichiarati_ora) - set(dichiarati_prima)) & invariati)
+        ) + tuple(
+            f"{chiave}: non piu' dichiarato"
+            for chiave in sorted((set(dichiarati_prima) - set(dichiarati_ora)) & invariati)
+        )
     nome = f"resolved_{len(versioni) + 1}.yaml"
     testo = _testo_risolta(
         risolta,

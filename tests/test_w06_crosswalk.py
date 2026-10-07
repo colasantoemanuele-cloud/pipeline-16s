@@ -95,7 +95,8 @@ import pytest
 from conftest import BIOLOGICO, NEGATIVO, POSITIVO, Campione, crea_scenario
 
 from amplicon16s.errors.catalog import Categoria
-from amplicon16s.gates.g01_g15 import ErroreGate, esegui_gate_metadati
+from amplicon16s.gates.g01_g15 import Contesto, ErroreGate, esegui_gate_metadati
+from amplicon16s.gates.registry import esegui_gate
 from amplicon16s.metadata.controls_map import MappaControlli
 from amplicon16s.metadata.crosswalk import (
     AccessionNonEstraibile,
@@ -104,7 +105,7 @@ from amplicon16s.metadata.crosswalk import (
 )
 from amplicon16s.metadata.models import ClasseCampione
 
-ACCESSION = re.compile(r"(E|S|D)RX[0-9]{4,}")
+ACCESSION = re.compile(r"(?:E|S|D)RX[0-9]{4,}")
 
 
 def _tre_campioni() -> list[Campione]:
@@ -123,19 +124,29 @@ def _tre_campioni() -> list[Campione]:
 
 def test_estrae_l_accession_anche_con_gruppi_di_cattura():
     """
-    **Obiettivo**: Verificare che ``estrai_accession()`` restituisca l'intero
-    identificativo ``"ERX12083297"`` anche quando l'espressione regolare contiene
-    gruppi di cattura parentetici come ``(E|S|D)RX[0-9]{4,}``.
+    **Obiettivo**: Verificare la regola della chiave: senza gruppi di cattura
+    ``estrai_accession()`` restituisce la corrispondenza intera, anche con un
+    gruppo non catturante come ``(?:E|S|D)RX[0-9]{4,}``; con un gruppo di
+    cattura restituisce il primo gruppo, che delimita la chiave in un file
+    nominato per campione o per corsa; un gruppo di cattura che non corrisponde
+    a nulla non da' una chiave vuota ma un errore.
 
-    **Razionale scientifico e sistemistico**: In Python, ``re.findall()`` su una
-    regex dotata di gruppi di cattura restituisce solo la sottostringa catturata
-    dalle parentesi (``"E"`` anziché ``"ERX12083297"``), facendo collassare tutti
-    i 960 file di OSD-734 sull'unica chiave ``"E"``. L'uso di ``re.finditer()``
-    e ``match.group(0)`` garantisce l'estrazione dell'accession completo.
+    **Razionale scientifico e sistemistico**: La chiave del campione non e'
+    sempre un accession isolabile da solo: in ``SP15_R1.fastq.gz`` la chiave
+    ``SP15`` si riconosce da cio' che la segue. Il gruppo di cattura lo esprime
+    senza parametri nuovi; un gruppo usato solo per raggruppare, lasciato
+    catturante, farebbe collassare tutti i file sulla stessa chiave, e G05 lo
+    segnala.
     """
     assert estrai_accession("GLDS-653_Amplicon_ERX12083297_raw.fastq.gz", ACCESSION) == (
         "ERX12083297"
     )
+    per_campione = re.compile(r"^(SP[0-9]+)_R1")
+    assert estrai_accession("SP15_R1.fastq.gz", per_campione) == "SP15"
+    assert estrai_accession("corsa_SRR5336316.fastq.gz", re.compile(r"_(SRR[0-9]+)\.")) == "SRR5336316"
+    assert estrai_accession("ERX12083297_x.fastq.gz", re.compile(r"(E|S|D)RX[0-9]{4,}")) == "E"
+    with pytest.raises(AccessionNonEstraibile):
+        estrai_accession("abc.fastq.gz", re.compile(r"abc(X)?"))
 
 
 def test_nessun_accession_e_un_errore():
@@ -739,20 +750,28 @@ def test_un_file_di_arricchimento_senza_colonna_dell_accession_e_respinto(tmp_pa
 def test_una_chiave_senza_accession_e_respinta(tmp_path):
     """
     **Obiettivo**: Verificare che una riga della ``batch_table`` la cui chiave
-    non contiene un accession ENA/SRA valido sollevi ``ErroreGate`` (`E-S0-04`).
+    non e' quella di alcun campione lasci quel campione senza riga, e che G08
+    respinga il file come incompleto (`E-S0-08`) nominando il campione; con una
+    chiave vuota, G04 la respinge come non estraibile (`E-S0-04`).
 
-    **Razionale scientifico e sistemistico**: Evita che righe spurie o malformate
-    nella tabella dei lotti vengano ignorate silenziosamente.
+    **Razionale scientifico e sistemistico**: Un file del lotto incompleto si
+    scopre in S0, prima del calcolo, e non quando S3 cerca la corsa di un
+    campione che non ce l'ha.
     """
     campioni = _tre_campioni()
     campioni[0].chiave_arricchimento = "nome_senza_codice"
     scenario = crea_scenario(tmp_path, campioni, con_arricchimento=True)
 
-    with pytest.raises(ErroreGate) as errore:
-        esegui_gate_metadati(scenario.config)
+    esito = esegui_gate("G08", Contesto(scenario.config))
+    assert not esito.superato and {v.codice for v in esito.violazioni} == {"E-S0-08"}
+    assert campioni[0].accession in str(esito.violazioni[0])
+    assert "non hanno una riga" in str(esito.violazioni[0])
 
+    campioni[0].chiave_arricchimento = " "
+    vuota = crea_scenario(tmp_path / "vuota", campioni, con_arricchimento=True)
+    with pytest.raises(ErroreGate) as errore:
+        esegui_gate_metadati(vuota.config)
     assert errore.value.codice == "E-S0-04"
-    assert "nome_senza_codice" in str(errore.value)
 
 
 # --------------------------------------------------------------------------- #

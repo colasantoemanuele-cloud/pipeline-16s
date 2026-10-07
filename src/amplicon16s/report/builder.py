@@ -466,33 +466,35 @@ def _aggiustamenti(esecuzione: _Esecuzione) -> list[tuple[Passo, dict[str, Any]]
     return [(p, a) for p, m in esecuzione.manifesti.items() for a in m.aggiustamenti]
 
 
-def _valori_osd734(esecuzione: _Esecuzione) -> tuple[Tabella, int]:
-    """I parametri di ``FATTI_OSD734`` nella configurazione in uso, e quanti
-    coincidono con il valore del dataset di riferimento.
+def _valori_osd734(esecuzione: _Esecuzione) -> Tabella:
+    """I parametri che in questa esecuzione valgono il predefinito tarato su
+    OSD-734 senza essere stati dichiarati, con il fatto che lo giustificava.
+
+    I parametri obbligatori non possono essere ereditati (la configurazione
+    senza di essi non parte) e non vi compaiono. Un parametro tarato dichiarato
+    nel file, anche con lo stesso valore, e' una scelta e non compare. Se la
+    configurazione registrata non dice quali parametri sono stati dichiarati
+    (esecuzioni di versioni precedenti), compaiono tutti quelli che hanno il
+    valore di OSD-734.
     """
     versione = esecuzione.versioni[-1] if esecuzione.versioni else {}
-    righe, coincidenti = [], 0
+    righe = []
     for chiave, riferimento in FATTI_OSD734.items():
         if chiave not in esecuzione.parametri:
             continue
         in_uso = esecuzione.parametri[chiave]
         # La configurazione registrata è YAML: una tupla vi diventa un elenco.
         atteso = list(riferimento.valore) if isinstance(riferimento.valore, tuple) else riferimento.valore
-        coincide = in_uso == atteso
-        coincidenti += coincide
-        righe.append((
-            chiave, _valore(in_uso), _origine(chiave, versione), _valore(atteso),
-            "sì" if coincide else "no", riferimento.fatto,
-        ))
-    # Prima i coincidenti: sono quelli da verificare.
-    righe.sort(key=lambda r: r[4] != "sì")
+        origine = _origine(chiave, versione)
+        if origine == "dichiarato" or in_uso != atteso:
+            continue
+        righe.append((chiave, _valore(in_uso), origine, riferimento.fatto))
     return _tabella(
         "valori_osd734",
-        "Parametri il cui valore di riferimento è stato scelto su un fatto accertato di OSD-734",
-        ("parametro", "valore in uso", "origine", "valore di OSD-734", "coincide",
-         "fatto accertato su OSD-734"),
+        "Parametri non dichiarati che valgono il predefinito tarato su OSD-734",
+        ("parametro", "valore in uso", "origine", "fatto accertato su OSD-734"),
         righe,
-    ), coincidenti
+    )
 
 
 def _sezione_stato(esecuzione: _Esecuzione) -> tuple[_Sezione, bool, list[str]]:
@@ -1049,21 +1051,23 @@ def _sezione_evidenza(
     sezione = _Sezione("evidenza", "Segnalazioni in apertura")
     segnalazioni: list[str] = []
 
-    tabella, coincidenti = _valori_osd734(esecuzione)
-    sezione.sottotitolo("Valori ereditati dal dataset di riferimento")
-    if coincidenti:
+    tabella = _valori_osd734(esecuzione)
+    ereditati = len(tabella.righe)
+    sezione.sottotitolo("Parametri tarati su OSD-734 e non dichiarati")
+    if ereditati:
         segnalazioni.append(
-            f"{coincidenti} parametri su {len(tabella.righe)} hanno il valore scelto per OSD-734"
+            f"{ereditati} parametri non dichiarati valgono il predefinito tarato su OSD-734"
         )
         sezione.testo(
-            f"<strong>{coincidenti} parametri su {len(tabella.righe)}</strong> fra quelli il cui "
-            "valore è stato scelto su un fatto accertato del dataset di riferimento "
-            "(NASA GeneLab OSD-734) coincidono, in questa esecuzione, con il valore di OSD-734, "
-            "comunque siano stati impostati. Per ciascuno la tabella riporta il fatto che lo "
-            "giustificava: <strong>va verificato che quel fatto valga anche per il dataset in "
-            "uso</strong>. Se il dataset in uso è OSD-734 la coincidenza è attesa; su un altro "
-            "dataset un valore che coincide è, fino a verifica, un valore ereditato e non "
-            "scelto.", "evidenza",
+            f"<strong>{ereditati} parametri</strong> non sono stati dichiarati nella "
+            "configurazione e valgono quindi il predefinito, che è stato tarato sul dataset di "
+            "riferimento (NASA GeneLab OSD-734). La tabella li elenca con il fatto, accertato "
+            "su OSD-734, che giustificava ciascun valore. <strong>Per ognuno va controllato se "
+            "quel fatto vale anche per il dataset in uso</strong>: se vale, il parametro va "
+            "dichiarato nella configurazione con lo stesso valore, e non comparirà più qui; se "
+            "non vale, va dichiarato con il valore adatto al dataset. I parametri che descrivono "
+            "il dataset (formato dei metadati, etichette, primer, troncamento) non compaiono "
+            "perché sono obbligatori: la configurazione li dichiara tutti.", "evidenza",
         )
     elif not esecuzione.versioni:
         segnalazioni.append("nessuna configurazione registrata")
@@ -1073,8 +1077,8 @@ def _sezione_evidenza(
         )
     else:
         sezione.testo(
-            "Nessun parametro fra quelli scelti su un fatto accertato di OSD-734 ha, in questa "
-            "esecuzione, il valore del dataset di riferimento.", "regolare",
+            "Nessun parametro vale un predefinito tarato su OSD-734 senza essere stato "
+            "dichiarato nella configurazione.", "regolare",
         )
     if tabella.righe:
         sezione.tabella(tabella)

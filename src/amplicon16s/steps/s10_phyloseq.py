@@ -57,7 +57,6 @@ identificativo di variante.
 
 from __future__ import annotations
 
-import csv
 import json
 import re
 from pathlib import Path
@@ -65,8 +64,8 @@ from typing import Any, ClassVar, Final
 
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Artefatto, Fase
-from amplicon16s.metadata.crosswalk import estrai_accession
-from amplicon16s.metadata.tabelle import leggi_tsv
+from amplicon16s.metadata.crosswalk import chiave_dalla_tabella
+from amplicon16s.metadata.tabelle import intestazione, leggi_tsv, tabella_di_studio
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
@@ -123,13 +122,6 @@ def nome_nell_oggetto(originale: str) -> str:
     return nome
 
 
-def _intestazione(percorso: Path) -> list[str]:
-    """L'intestazione di una tabella separata da tabulazioni, con i nomi ripuliti."""
-    with open(percorso, encoding="utf-8", newline="") as file:
-        prima = next(csv.reader(file, delimiter="\t"), [])
-    return [c.strip().strip('"').strip() for c in prima]
-
-
 def colonne_metadati(config: Any) -> list[dict[str, str]]:
     """Le colonne dei metadati dell'oggetto, con l'origine di ciascuna.
 
@@ -152,15 +144,19 @@ def colonne_metadati(config: Any) -> list[dict[str, str]]:
         {"colonna": "materiale", "origine": "tabella campioni di studio (io.study_table)",
          "colonna_originale": config.ctrl.column, "valore": "valore originale"},
         {"colonna": "posizione", "origine": "tabella campioni di studio (io.study_table)",
-         "colonna_originale": meta.module_column,
-         "valore": "valore originale; vuoto se non applicabile"},
+         "colonna_originale": meta.module_column or "",
+         "valore": "valore originale; vuoto se non applicabile" if meta.module_column else
+                   "vuoto: meta.module_column nullo"},
         {"colonna": "modulo",
          "origine": f"{lotto}, oppure tabella campioni di studio",
-         "colonna_originale": f"{meta.batch_module_column}, oppure {meta.module_column}",
+         "colonna_originale": ", oppure ".join(
+             c for c in (meta.batch_module_column, meta.module_column) if c),
          "valore": "dal file di arricchimento se c'e', altrimenti derivato dalla posizione "
                    "con meta.module_regex; vuoto per le posizioni che non sono superfici"},
         {"colonna": "piastra", "origine": lotto,
-         "colonna_originale": config.decontam.batch_column, "valore": "valore originale"},
+         "colonna_originale": config.decontam.batch_column or "",
+         "valore": "valore originale" if config.decontam.batch_column else
+                   "vuoto: decontam.batch_column nullo"},
         {"colonna": "corsa", "origine": lotto,
          "colonna_originale": config.err.batch_column or "",
          "valore": "valore originale" if config.err.batch_column else
@@ -174,9 +170,9 @@ def colonne_metadati(config: Any) -> list[dict[str, str]]:
     usati = set(COLONNE_INVENTARIO)
     richieste = [("studio", c) for c in config.out.study_columns]
     richieste += [("lotto", c) for c in config.out.batch_columns]
-    intestazioni = {"studio": _intestazione(Path(io.study_table))}
+    intestazioni = {"studio": intestazione(tabella_di_studio(config)[0])}
     if io.batch_table is not None:
-        intestazioni["lotto"] = _intestazione(Path(io.batch_table))
+        intestazioni["lotto"] = intestazione(Path(io.batch_table))
     origini = {
         "studio": "tabella campioni di studio (io.study_table)",
         "lotto": lotto,
@@ -222,14 +218,15 @@ def _valori_metadati(
     """
     io, meta = config.io, config.meta
     studio: dict[str, dict[str, str]] = {}
-    for riga in leggi_tsv(Path(io.study_table)):
-        studio.setdefault(riga.get(meta.sample_id_column, ""), riga)
+    tabella, colonna_id = tabella_di_studio(config)
+    for riga in leggi_tsv(tabella):
+        studio.setdefault(riga.get(colonna_id, ""), riga)
     lotto: dict[str, dict[str, str]] = {}
     if io.batch_table is not None:
         espressione = re.compile(io.accession_regex)
         for riga in leggi_tsv(Path(io.batch_table)):
             try:
-                accession = estrai_accession(riga.get(meta.batch_key_column, ""), espressione)
+                accession = chiave_dalla_tabella(riga.get(meta.batch_key_column, ""), espressione)
             except ValueError:
                 continue
             lotto.setdefault(accession, riga)
@@ -281,7 +278,7 @@ class AssemblaggioOggetto(PipelineStep):
     parametri: ClassVar[tuple[str, ...]] = (
         "out.taxa_are_rows", "out.asv_id_scheme", "out.sample_id_source",
         "out.study_columns", "out.batch_columns", "meta", "ctrl.column",
-        "io.study_table", "io.batch_table", "io.accession_regex",
+        "io.assay_table", "io.study_table", "io.batch_table", "io.accession_regex",
         "decontam.batch_column", "err.batch_column",
     )
 

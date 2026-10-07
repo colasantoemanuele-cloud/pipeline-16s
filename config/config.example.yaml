@@ -2,18 +2,28 @@
 # Configurazione di esempio della pipeline 16S                                #
 # =========================================================================== #
 #
-# Istanza completa dello schema: contiene tutti i parametri, compresi quelli
-# che hanno un valore predefinito. È pensata per essere copiata e adattata.
+# Elenca tutti i parametri dello schema. È pensata per essere copiata e
+# compilata: così com'è non parte, perché i parametri obbligatori sono lasciati
+# da dichiarare.
 #
 # La pipeline non contiene valori scritti nel codice: quanto segue è il punto
 # di controllo dell'intera esecuzione. Lo schema rifiuta le chiavi che non
 # conosce, quindi un refuso ferma l'esecuzione invece di passare inosservato.
 #
-# I valori contrassegnati [OSD-734] descrivono lo studio di riferimento (la
-# struttura dei suoi metadati, le etichette dei suoi controlli, il riferimento
-# tassonomico usato per quell'analisi) e su un altro dataset vanno rivisti uno
-# per uno. Il codice resta generale: è la configurazione a cambiare.
-# I valori contrassegnati [SOSTITUIRE] sono segnaposto senza significato.
+# [OBBLIGATORIO]  Parametri che descrivono il dataset: il formato dei metadati,
+#                 le etichette dei campioni, il primer, il troncamento, il
+#                 riferimento. Non hanno un valore predefinito. Qui sono
+#                 commentati, con il valore che hanno per OSD-734 a titolo di
+#                 esempio: vanno tolti dal commento e dichiarati tutti, e la
+#                 pipeline elenca quelli che mancano (E-G15-10). Un parametro
+#                 non pertinente si dichiara nullo (null) o con un elenco vuoto
+#                 ([]): per esempio positive_values: [] in un dataset senza
+#                 controlli positivi.
+# [OSD-734]       Parametri con un predefinito tarato sul dataset di
+#                 riferimento: una scelta di metodo fissata su un fatto di
+#                 OSD-734. Su un altro dataset vanno riesaminati; il report
+#                 elenca quelli presi per difetto senza essere dichiarati.
+# [SOSTITUIRE]    Segnaposto senza significato.
 
 # --------------------------------------------------------------------------- #
 # io: percorsi di ingresso e uscita, e come si individuano i file di lettura  #
@@ -26,61 +36,83 @@ io:
   # che nella tabella di assay non c'è. È condivisa fra più assay dello stesso
   # studio, quindi contiene anche righe che a questo assay non appartengono:
   # il join verso di essa resta ristretto alle righe dell'assay.
+  # FACOLTATIVA: con null, classe e variabili dei campioni si leggono dalla
+  # tabella di assay, che allora deve portarne le colonne.
   study_table: /percorso/ai/dati/OSD-734/s_OSD-734.txt  # [SOSTITUIRE]
   out_root: /percorso/agli/output/osd734              # [SOSTITUIRE]
   # FACOLTATIVO. Associa a ciascun campione la piastra di estrazione e la
   # corsa di sequenziamento, valorizzando decontam.batch_column ed
-  # err.batch_column. Quando è null entrambe restano nulle e la pipeline
-  # procede in modalità a corsa singola e senza lotto, senza errori: è un
-  # ingresso in più, non un requisito.
-  batch_table: null
+  # err.batch_column. Quando è null la pipeline procede in modalità a corsa
+  # singola e senza lotto: è un ingresso in più, non un requisito. Senza
+  # questo file le sue colonne vanno dichiarate nulle o vuote
+  # (err.batch_column, decontam.batch_column, meta.batch_key_column,
+  # meta.batch_module_column, out.batch_columns), altrimenti G15 si ferma.
+  batch_table: /percorso/ai/dati/OSD-734/lotto.tsv   # [SOSTITUIRE] oppure null
   fastq_glob: "*.fastq.gz"
-  accession_regex: "(E|S|D)RX[0-9]{4,}"
+  # Espressione regolare che estrae dal nome di ogni file la chiave del
+  # campione: la corrispondenza intera oppure, se l'espressione ha un gruppo
+  # di cattura, il primo gruppo (per file nominati per campione o per corsa,
+  # per esempio "^(SP[0-9]+)_"). La stessa chiave si ricava dal valore di
+  # meta.accession_column; un gruppo che serve solo a raggruppare va scritto
+  # senza cattura, (?:...).
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # accession_regex: "[ESD]RX[0-9]{4,}"
 
 # --------------------------------------------------------------------------- #
 # meta: lettura della tabella dei metadati e campi derivati dai nomi          #
 # --------------------------------------------------------------------------- #
 meta:
-  sample_id_column: "Sample Name"
-  accession_column: "Raw Data File"
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # sample_id_column: "Sample Name"
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # accession_column: "Raw Data File"
+  # Colonna del nome del campione nella tabella di studio, se ha un nome
+  # diverso da quello della tabella di assay; null: lo stesso nome.
+  study_sample_id_column: null
   derive_module: true
   # Prefisso della posizione da cui si deriva il modulo senza il file di
   # arricchimento: tre lettere e una cifra, come i moduli della stazione nei
   # nomi delle posizioni (LAB1, NOD2, JLP1).
-  module_regex: "^([A-Z]{3}[0-9])"                 # [OSD-734]
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # module_regex: "^([A-Z]{3}[0-9])"
   # Colonna della tabella campioni di studio da cui si deriva il modulo. È la
   # posizione dichiarata, non il nome del campione: un campione d'aria può
   # chiamarsi come una superficie, e derivarlo dal nome lo attribuirebbe a un
   # modulo che non gli compete. Le posizioni che non sono superfici non
   # producono alcun modulo.
-  module_column: "Factor Value[Sample Location]"   # [OSD-734]
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # module_column: "Factor Value[Sample Location]"
   # Posizioni che non sono superfici: i campioni che le riportano non
   # appartengono a un modulo e non vi vengono forzati, né dalla derivazione né
   # dal valore dichiarato nel file di arricchimento. Raggrupparli per modulo
   # mescolerebbe l'aria di un locale con le sue superfici. I valori vuoti e i
   # marcatori convenzionali di "non applicabile" sono già trattati come
   # posizione assente e non vanno elencati qui.
-  non_surface_positions:                           # [OSD-734]
-    - Air Sample
-    - Unopened 3DMM Swab Tube
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # non_surface_positions:
+  #   - Air Sample
+  #   - Unopened 3DMM Swab Tube
   # Colonna con cui il file facoltativo di arricchimento identifica il
   # campione. Deve contenere l'accession, come ogni altra chiave di join della
   # pipeline: il nome del campione si ripete fra repliche, e un file che
   # identifichi i campioni per nome aggancia la replica sbagliata senza che
   # nulla se ne accorga. Se il tuo file non ha questa colonna, la si ricava
   # dalla tabella di assay associando il nome del campione.
-  batch_key_column: experiment_accession           # [OSD-734]
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # batch_key_column: experiment_accession
   # Colonna del file facoltativo che dichiara il modulo. Quando c'è, il modulo
   # viene da lì con il suo nome originale; la derivazione da module_regex è il
   # ripiego per i dataset privi di quel file.
-  batch_module_column: module                      # [OSD-734]
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # batch_module_column: module
 
 # --------------------------------------------------------------------------- #
 # filter: filtraggio e troncamento delle letture grezze                       #
 # --------------------------------------------------------------------------- #
 filter:
   # La lettura piu' corta del dataset completo: letture di 137-151 basi.
-  truncLen: 137                     # [OSD-734]
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # truncLen: 137
   truncLen_shortfall_warn: 10
   # Nessuna base tolta in testa: le letture non contengono il primer e
   # iniziano nella regione conservata a valle del 515F.
@@ -102,7 +134,8 @@ err:
   # Colonna di io.batch_table con la corsa di sequenziamento: S3 stima un
   # modello d'errore per corsa. Con null, o senza io.batch_table, stima un solo
   # modello su tutti i campioni.
-  batch_column: run_prefix          # [OSD-734] colonna del lotto di sequenziamento
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # batch_column: run_prefix
 
 # --------------------------------------------------------------------------- #
 # dada: inferenza delle varianti di sequenza                                  #
@@ -136,8 +169,10 @@ asv:
 tax:
   ref_fasta: /percorso/ai/riferimenti/silva_nr99_v138_train_set.fa.gz  # [SOSTITUIRE]
   ref_md5: "00000000000000000000000000000000"  # [SOSTITUIRE] md5 reale del file
-  ref_name: SILVA                   # [OSD-734]
-  ref_version: "138"                # [OSD-734] fra virgolette: è una stringa
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # ref_name: SILVA
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # ref_version: "138"
   # Il classificatore bayesiano naive di dada2 (assignTaxonomy): il training
   # set di SILVA per IdTaxa non e' distribuito da alcuna fonte.
   classifier: naive_bayes
@@ -188,22 +223,28 @@ phylo:
 # Tutte le etichette sono quelle usate in OSD-734. Le tre categorie devono
 # restare disgiunte: un campione non può appartenere a due di esse.
 ctrl:
-  column: "Characteristics[Material Type]"   # [OSD-734]
-  blank_values:                              # [OSD-734]
-    - blank control
-  positive_values:                           # [OSD-734]
-    - Positive Control
-  biological_values:                         # [OSD-734]
-    - Surface swab
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # column: "Characteristics[Material Type]"
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # blank_values:
+  #   - blank control
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # positive_values:
+  #   - Positive Control
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # biological_values:
+  #   - Surface swab
   # Campioni trattati come controlli negativi qualunque sia il materiale
   # dichiarato, riconosciuti dal valore di una colonna della tabella campioni di
   # studio. Il materiale resta quello originale nei metadati. In OSD-734 i
   # tamponi mai aperti sono dichiarati "Surface swab" ma non hanno campionato
   # alcuna superficie: bassa biomassa, composizione da reagente. Elenco vuoto:
   # nessuna riclassificazione.
-  blank_override_column: "Factor Value[Sample Location]"   # [OSD-734]
-  blank_override_values:                                  # [OSD-734]
-    - Unopened 3DMM Swab Tube
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # blank_override_column: "Factor Value[Sample Location]"
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # blank_override_values:
+  #   - Unopened 3DMM Swab Tube
   # Validazione della corsa dai controlli positivi (S11). Un controllo e'
   # conforme se la sua fedelta' e la sua profondita' non si discostano da
   # quelle degli altri controlli dello stesso livello di concentrazione.
@@ -216,10 +257,12 @@ ctrl:
 # katharoseq: calibrazione sui controlli positivi                             #
 # --------------------------------------------------------------------------- #
 katharoseq:
-  target_taxon: Variovorax          # [OSD-734] taxon atteso nei controlli positivi
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # target_taxon: Variovorax
   # Colonna del file di arricchimento con le cellule di ciascun controllo
   # positivo: il livello di diluizione. Senza, nessuna curva (E-S11-02).
-  cell_count_column: katharoseq_cell_count   # [OSD-734]
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # cell_count_column: katharoseq_cell_count
   collapse_rank: Genus              # rango a cui si somma il taxon atteso
   # Fedelta' (frazione delle letture del controllo sul taxon atteso) in funzione
   # di x = log10(profondita'): f = x^h / (k' + x^h), con k' = x50^h.
@@ -243,7 +286,8 @@ decontam:
   # Negativi minimi perche' una piastra abbia un confronto proprio; con meno, i
   # suoi campioni si confrontano con i negativi di tutte le piastre.
   min_blanks: 5
-  batch_column: extraction_plate_num  # [OSD-734] colonna della piastra di estrazione
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # batch_column: extraction_plate_num
   # Combinazione delle probabilita' delle piastre (batch.combine di decontam;
   # il predefinito di decontam 1.28.0 e' minimum).
   batch_combine: minimum
@@ -322,12 +366,14 @@ qc:
   # Primer di amplificazione atteso a inizio lettura, in codici IUPAC
   # (Y = C o T, M = A o C). Qui 515F. Dipende dalla coppia di primer dello
   # studio: con una regione amplificata diversa sarebbe un'altra sequenza.
-  primer_sequence: GTGYCAGCMGCCGCGGTAA          # [OSD-734]
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # primer_sequence: GTGYCAGCMGCCGCGGTAA
   # Motivo conservato atteso subito a valle del primer, come espressione
   # regolare: il punto indica una base qualunque. Serve da controllo positivo,
   # perché cercare la sola assenza del primer non distinguerebbe un file
   # corretto da un file privo di segnale. Dipende anch'esso dalla regione.
-  conserved_motif: "TAC[AG].AGG..GC.AGCGTT"     # [OSD-734]
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # conserved_motif: "TAC[AG].AGG..GC.AGCGTT"
 
 # --------------------------------------------------------------------------- #
 # retry: nuovi tentativi sulle fasi fallite                                   #
@@ -364,16 +410,18 @@ out:
   # dell'inventario (accession, sample_name, classe, materiale, posizione,
   # modulo, piastra, corsa), con il nome originale. Nell'oggetto prendono un
   # nome sintattico; la corrispondenza e' in 10_phyloseq/colonne_metadati.tsv.
-  study_columns:                    # [OSD-734] dalla tabella campioni di studio
-    - "Factor Value[Spaceflight]"
-    - "Parameter Value[Sample Preservation Method]"
-  batch_columns:                    # [OSD-734] dal file di arricchimento del lotto
-    - extraction_plate_id
-    - well_id
-    - extraction_date
-    - primer_plate
-    - run_date
-    - katharoseq_cell_count
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # study_columns:
+  #   - "Factor Value[Spaceflight]"
+  #   - "Parameter Value[Sample Preservation Method]"
+  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
+  # batch_columns:
+  #   - extraction_plate_id
+  #   - well_id
+  #   - extraction_date
+  #   - primer_plate
+  #   - run_date
+  #   - katharoseq_cell_count
   # Export piatti dell'oggetto finale in 12_final/ (S14): conteggi.tsv,
   # tassonomia.tsv, metadati.tsv, sequenze.fasta, indipendenti dalle
   # impostazioni locali e sufficienti a ricostruire l'oggetto.
@@ -383,22 +431,23 @@ out:
 # run: ambiente di esecuzione, parallelismo, riproducibilità                  #
 # --------------------------------------------------------------------------- #
 run:
-  # L'immagine va indicata per digest e non per tag: un tag può essere
-  # riassegnato a un'immagine diversa, un digest no. Lo schema rifiuta un
-  # riferimento privo di digest.
-  # [SOSTITUIRE] con il digest reale dell'immagine costruita (<immagine> e' il
-  # nome con cui la si e' costruita). Per un'immagine pubblicata in un registro:
+  # FACOLTATIVO: l'immagine con cui si dichiara di eseguire, registrata nella
+  # provenienza di ogni fase. Va indicata per digest e non per tag: un tag può
+  # essere riassegnato a un'immagine diversa, un digest no. Per un'immagine
+  # pubblicata in un registro:
   #   docker image inspect <immagine> --format '{{index .RepoDigests 0}}'
   # per un'immagine solo locale, che non ha un digest di registro:
   #   echo "amplicon16s@$(docker image inspect <immagine> --format '{{.Id}}')"
-  container: "registro.esempio/amplicon16s@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  container: null
   # File di blocco delle versioni dei pacchetti R, relativo alla radice del
   # repository. E' gia' usato dal Dockerfile e dagli script R; dichiararlo qui
   # lo fa entrare nella configurazione risolta e nel suo digest, cosi' due
   # esecuzioni sono confrontabili anche rispetto alle versioni R impiegate.
   lockfile: renv.lock
   seed: 100
-  threads: 16
+  # Per difetto i processori utilizzabili dal processo; indicare un numero
+  # solo per usarne meno. Non incide sui risultati.
+  # threads: 8
   batch_size: 24
   # Se conservare le letture filtrate da S2 (03_filtered) a esecuzione
   # conclusa. Le consumano S3 e S4, quindi non si rimuovono mai prima: con

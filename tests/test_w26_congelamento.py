@@ -99,7 +99,7 @@ from typing import Any, ClassVar
 
 import pytest
 import yaml
-from conftest import NEGATIVO, POSITIVO, Campione, crea_scenario
+from conftest import NEGATIVO, POSITIVO, Campione, crea_scenario, dichiarazione_minima
 from sottoinsieme import motivo_pacchetti_r_assenti
 
 import amplicon16s.cli as cli
@@ -181,12 +181,8 @@ def _scrivi_config(scenario, percorso: Path, **run: Any) -> Path:
     """Scrive la configurazione minima dello scenario, con i parametri del gruppo
     ``run`` indicati.
     """
-    config = scenario.config
-    dati = {
-        "io": {n: str(getattr(config.io, n)) for n in ("fastq_dir", "assay_table", "study_table", "out_root")},
-        "tax": {n: str(getattr(config.tax, n)) for n in ("ref_fasta", "ref_md5", "ref_name", "ref_version")},
-        "run": {"container": config.run.container, "threads": 1, **run},
-    }
+    dati = dichiarazione_minima(scenario.config)
+    dati["run"].update(run)
     percorso.write_text(yaml.safe_dump(dati, sort_keys=False), encoding="utf-8")
     return percorso
 

@@ -51,7 +51,8 @@ from typing import Final
 
 from amplicon16s import __version__
 from amplicon16s.config.schema import Config, ErroreConfigurazione, carica
-from amplicon16s.gates.g01_g15 import ErroreGate
+from amplicon16s.errors.catalog import voce
+from amplicon16s.gates.g01_g15 import ErroreGate, rifiuto_di_g15
 from amplicon16s.logging.logger import chiudi, configura, ottieni
 from amplicon16s.runner.executor import Conclusione, Esecutore, EsitoEsecuzione
 from amplicon16s.runner.graph import Passo
@@ -271,7 +272,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         config = _percorsi_assoluti(carica(args.config))
     except ErroreConfigurazione as e:
-        _stampa(str(e))
+        # Una configurazione che lo schema non accetta e' respinta da G15, il
+        # gate della configurazione: ogni problema porta il codice del suo
+        # controllo, e i parametri obbligatori non dichiarati sono elencati
+        # tutti insieme (E-G15-10), con l'azione del catalogo.
+        rifiuto = rifiuto_di_g15(e)
+        _stampa(f"configurazione non valida ({e.origine})" if e.origine else
+                "configurazione non valida")
+        _stampa(str(rifiuto))
+        for codice in dict.fromkeys(v.codice for v in rifiuto.violazioni):
+            _stampa(f"  cosa fare [{codice}]: {voce(codice).azione}")
         return USCITA_CONFIGURAZIONE
     except OSError as e:
         _stampa(f"configurazione non leggibile: {e}")

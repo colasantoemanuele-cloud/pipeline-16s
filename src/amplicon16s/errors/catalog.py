@@ -186,13 +186,6 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         _UMANA,
     ),
     _v(
-        "E-G15-07", "G15",
-        "La decontaminazione e' attiva ma ctrl.blank_values e' vuoto.",
-        "Elenca in ctrl.blank_values le etichette dei controlli negativi: senza "
-        "di essi non e' possibile individuare i contaminanti.",
-        _UMANA,
-    ),
-    _v(
         "E-G15-08", "G15",
         "Un parametro derivato e' stato impostato a mano.",
         "Rimuovilo dalla configurazione: e' calcolato dalla pipeline a partire "
@@ -216,6 +209,38 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "La configurazione non e' valida parametro per parametro.",
         "Correggi i parametri segnalati nell'elenco che accompagna l'errore: "
         "ciascuno indica la chiave e il valore rifiutato.",
+        _UMANA,
+    ),
+    _v(
+        "E-G15-10", "G15",
+        "Uno o piu' parametri obbligatori non sono dichiarati.",
+        "Dichiara nel file di configurazione tutti i parametri elencati: "
+        "descrivono il dataset (formato dei metadati, etichette, primer, "
+        "troncamento) e non hanno un valore predefinito, perche' un valore "
+        "ereditato da un altro dataset sarebbe quasi certamente sbagliato. Un "
+        "parametro non pertinente si dichiara nullo o con un elenco vuoto, non si "
+        "omette. config/config.example.yaml li elenca con un esempio per ciascuno.",
+        _UMANA,
+    ),
+    _v(
+        "E-G15-11", "G15",
+        "Un parametro del file del lotto e' in contraddizione con io.batch_table.",
+        "Senza io.batch_table le colonne del file del lotto vanno dichiarate "
+        "vuote o nulle (out.batch_columns, err.batch_column, decontam.batch_column, "
+        "meta.batch_key_column, meta.batch_module_column): una colonna chiesta a un "
+        "file che non c'e' resterebbe vuota senza che nulla lo segnali. Con "
+        "io.batch_table indicato, meta.batch_key_column deve nominare la colonna "
+        "con la chiave del campione.",
+        _UMANA,
+    ),
+    _v(
+        "E-G15-12", "G15",
+        "I parametri dei controlli positivi sono in contraddizione fra loro.",
+        "Se ctrl.positive_values elenca delle etichette, katharoseq.target_taxon "
+        "e katharoseq.cell_count_column devono essere indicati: senza il taxon "
+        "atteso e le cellule seminate i controlli positivi non sono valutabili. "
+        "Se il dataset non ha controlli positivi, dichiara ctrl.positive_values "
+        "vuoto.",
         _UMANA,
     ),
     # ----------------------------------------------------------------- S0 ---
@@ -247,9 +272,10 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S0-04", "S0",
         "Un accession non e' estraibile o e' ambiguo.",
-        "Adatta io.accession_regex al formato degli accession presenti in "
-        "meta.accession_column: l'espressione attuale non produce una "
-        "corrispondenza unica.",
+        "Adatta io.accession_regex a come sono nominati i file: deve trovare nel "
+        "nome di ciascuno una e una sola chiave del campione (la corrispondenza "
+        "intera, o il primo gruppo di cattura se l'espressione ne ha uno), e la "
+        "stessa chiave deve ricavarsi dal valore di meta.accession_column.",
         _UMANA,
     ),
     _v(
@@ -278,11 +304,14 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S0-08", "S0",
         "L'informazione di lotto non e' coerente.",
-        "Verifica che le colonne dichiarate in decontam.batch_column ed "
-        "err.batch_column esistano nel file indicato da io.batch_table: se non "
-        "ci sono, il lotto resterebbe nullo per ogni campione senza che nulla "
-        "lo segnali. In alternativa togli io.batch_table e la pipeline "
-        "procedera' dichiaratamente senza lotto.",
+        "Verifica che le colonne dichiarate per il file del lotto "
+        "(decontam.batch_column, err.batch_column, meta.batch_module_column, "
+        "out.batch_columns, katharoseq.cell_count_column) esistano nel file "
+        "indicato da io.batch_table, e che il file abbia una e una sola riga per "
+        "ogni campione, con piastra e corsa compilate dove sono dichiarate: un "
+        "campione senza riga, o con piu' righe, resterebbe senza lotto. In "
+        "alternativa togli io.batch_table e dichiara nulle le sue colonne: la "
+        "pipeline procedera' dichiaratamente senza lotto.",
         _UMANA,
     ),
     _v(
@@ -308,8 +337,43 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "E-S0-10", "S0",
         "Le letture contengono ancora il primer.",
         "Imposta filter.trimLeft alla lunghezza del primer, oppure rimuovilo a "
-        "monte: lasciarlo falsa l'inferenza delle varianti.",
+        "monte: lasciarlo falsa l'inferenza delle varianti. Con filter.trimLeft "
+        "maggiore di zero il gate non cerca piu' il primer in testa e verifica il "
+        "motivo conservato a partire da quella posizione.",
         _UMANA,
+    ),
+    _v(
+        "E-S0-16", "S0",
+        "Le letture non contengono il segnale atteso della regione amplificata.",
+        "Il motivo conservato dichiarato in qc.conserved_motif non compare, alla "
+        "posizione filter.trimLeft, in una quota sufficiente delle letture dei "
+        "campioni da cui ci si attende il segnale. Verifica che i file siano quelli "
+        "dell'amplicone dichiarato, che qc.conserved_motif e qc.primer_sequence "
+        "corrispondano alla regione amplificata e che filter.trimLeft sia la "
+        "lunghezza di cio' che precede il motivo; per una regione senza un motivo "
+        "noto dichiara qc.conserved_motif nullo.",
+        _UMANA,
+    ),
+    _v(
+        "E-S0-17", "S0",
+        "Il dataset non ha i controlli che la decontaminazione o la calibrazione "
+        "richiedono.",
+        "L'esecuzione prosegue e la mancanza viene registrata. Senza controlli "
+        "positivi la soglia di profondita' non puo' essere derivata da una curva; "
+        "con meno controlli negativi di decontam.min_blanks i contaminanti non sono "
+        "stimabili. Se i controlli esistono ma non sono stati riconosciuti, "
+        "correggi ctrl.positive_values, ctrl.blank_values o ctrl.column.",
+        _DEGRADA,
+    ),
+    _v(
+        "E-S0-18", "S0",
+        "Il segnale atteso non e' stato verificato: nessun motivo conservato "
+        "dichiarato.",
+        "L'esecuzione prosegue. Con qc.conserved_motif nullo il gate verifica solo "
+        "che il primer non sia in testa alle letture, e non puo' distinguere un "
+        "file corretto da uno privo della regione amplificata: se un motivo e' "
+        "noto, dichiaralo.",
+        _DEGRADA,
     ),
     _v(
         "E-S0-11", "S0",

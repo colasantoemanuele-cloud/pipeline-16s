@@ -90,11 +90,46 @@ def processori_disponibili() -> int:
 THREAD_DI_PROVA: Final = min(2, processori_disponibili())
 
 
+#: Come inizia, nella configurazione di esempio, la riga che precede un
+#: parametro obbligatorio lasciato da dichiarare.
+MARCA_OBBLIGATORIO: Final = "[OBBLIGATORIO] Da dichiarare"
+
+
+def esempio_compilato() -> str:
+    """Il testo di ``config.example.yaml`` con i parametri obbligatori dichiarati
+    al valore d'esempio riportato nel commento, cioe' quello di OSD-734.
+
+    L'esempio li lascia commentati, perche' vanno dichiarati per ogni dataset:
+    qui si toglie il commento alla riga che segue ogni marcatore, e alle voci
+    dell'elenco se il parametro e' un elenco.
+    """
+    righe = ESEMPIO.read_text(encoding="utf-8").split("\n")
+    uscita: list[str] = []
+    i = 0
+    while i < len(righe):
+        if MARCA_OBBLIGATORIO in righe[i]:
+            i += 1
+            uscita.append(righe[i].replace("  # ", "  ", 1))
+            i += 1
+            while i < len(righe) and righe[i].startswith("  #   - "):
+                uscita.append(righe[i].replace("  # ", "  ", 1))
+                i += 1
+            continue
+        uscita.append(righe[i])
+        i += 1
+    return "\n".join(uscita)
+
+
+def dati_esempio() -> dict[str, Any]:
+    """La configurazione di esempio compilata, come dizionario."""
+    return yaml.safe_load(esempio_compilato())
+
+
 def dati_config(cartella: Path, **sovrascrivi: dict[str, Any]) -> dict[str, Any]:
     """I parametri d'esempio con i percorsi della versione ridotta e i thread
     adattati ai processori utilizzabili (:data:`THREAD_DI_PROVA`).
     """
-    dati = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
+    dati = dati_esempio()
     metadati = RIDOTTO / "metadati"
     dati["io"].update(
         fastq_dir=str(RIDOTTO / "fastq"),

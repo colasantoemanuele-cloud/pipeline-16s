@@ -106,7 +106,7 @@ from typing import Any, ClassVar
 import pytest
 import yaml
 from conftest import NEGATIVO, POSITIVO, Campione, crea_scenario
-from sottoinsieme import RIDOTTO, config_ridotta, motivo_pacchetti_r_assenti
+from sottoinsieme import RIDOTTO, config_ridotta, motivo_pacchetti_r_assenti, dati_esempio
 
 from amplicon16s.config.resolve import PARAMETRI_SENZA_EFFETTO, risolvi
 from amplicon16s.config.schema import Config, valida
@@ -155,7 +155,7 @@ def test_i_parametri_nuovi_hanno_i_valori_del_piano():
         il tetto massimo del 30% di scarto medio al filtro e la conservazione
         degli intermedi filtrati.
     """
-    esempio = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
+    esempio = dati_esempio()
     assert esempio["qc"]["max_zeroed_samples"] == 0
     assert esempio["qc"]["max_frac_lost_filter"] == 0.30
     assert esempio["run"]["keep_filtered_fastq"] is True
@@ -174,7 +174,7 @@ def test_conservare_i_file_filtrati_non_incide_sui_risultati(tmp_path):
         delle fasi gia' calcolate durante una ripresa.
     """
     assert "run.keep_filtered_fastq" in PARAMETRI_SENZA_EFFETTO
-    dati = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
+    dati = dati_esempio()
     prima = risolvi(valida(dati)).impronta_risultati
     dati["run"]["keep_filtered_fastq"] = False
     assert risolvi(valida(dati)).impronta_risultati == prima
@@ -199,7 +199,7 @@ def test_i_negativi_sono_esclusi_dai_controlli_del_filtro():
 
 B, P, N = ClasseCampione.BIOLOGICO, ClasseCampione.CONTROLLO_POSITIVO, ClasseCampione.CONTROLLO_NEGATIVO
 CLASSI = {"b1": B, "b2": B, "p1": P, "n1": N, "n2": N}
-QC = valida(yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))).qc
+QC = valida(dati_esempio()).qc
 
 
 def _controlla(uscita: dict[str, int], ingresso: int = 1000):

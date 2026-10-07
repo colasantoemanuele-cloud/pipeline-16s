@@ -185,7 +185,9 @@ def impronta_dati_grezzi(config: Config) -> str:
 
     io = config.io
     file: list[Path] = sorted(Path(io.fastq_dir).glob(io.fastq_glob))
-    file += [Path(io.assay_table), Path(io.study_table)]
+    file.append(Path(io.assay_table))
+    if io.study_table is not None:
+        file.append(Path(io.study_table))
     if io.batch_table is not None:
         file.append(Path(io.batch_table))
 
@@ -202,7 +204,7 @@ class ValidazioneIngressi(PipelineStep):
     """
 
     passo: ClassVar[Passo] = Passo.S0
-    versione: ClassVar[int] = 2
+    versione: ClassVar[int] = 3
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre
@@ -210,15 +212,18 @@ class ValidazioneIngressi(PipelineStep):
     #: controllo negativo, non le chiavi di S11; di qc le cinque chiavi
     #: di G10 e della scansione; di decontam la colonna e il minimo di bianchi
     #: per piastra (G08, E-S0-15); la colonna della corsa (crosswalk, G08); il
-    #: troncamento (G09). L'elenco e' stato ricavato registrando i parametri
-    #: letti da un'esecuzione vera, e confrontato con il codice dei gate.
+    #: troncamento (G09) e il taglio iniziale, da cui dipende dove G10 cerca
+    #: primer e motivo; le colonne da portare nell'oggetto e quella delle
+    #: cellule dei controlli positivi, che G02 e G08 verificano sulle
+    #: intestazioni. L'elenco e' stato ricavato registrando i parametri letti
+    #: da un'esecuzione vera, e confrontato con il codice dei gate.
     #:
     #: G15 e G12 sono precondizioni, come G14: non contribuiscono ai risultati
     #: di S0 (se falliscono S0 non produce nulla) e l'esecutore li ripete a ogni
     #: avvio, prima di qualunque fase. G15 legge l'intera configurazione per
     #: verificarne la coerenza; G12 verifica il riferimento tassonomico contro
     #: tax.ref_md5. I parametri che servono solo a loro (asv, prev, le altre
-    #: chiavi di decontam e di qc, filter.trimLeft, retry.whitelist, tax)
+    #: chiavi di decontam e di qc, retry.whitelist, tax)
     #: restano quindi fuori dall'impronta di S0: cambiare una soglia di S6 o il
     #: riferimento tassonomico non la rende da rifare, e con lei la catena
     #: intera; il riferimento entra nell'impronta di S8. G15 e G12 si eseguono
@@ -231,7 +236,8 @@ class ValidazioneIngressi(PipelineStep):
         "qc.primer_sequence", "qc.conserved_motif", "qc.head_reads",
         "qc.max_primer_hit_frac", "qc.min_motif_frac",
         "decontam.batch_column", "decontam.min_blanks", "err.batch_column",
-        "filter.truncLen",
+        "filter.truncLen", "filter.trimLeft",
+        "out.study_columns", "out.batch_columns", "katharoseq.cell_count_column",
     )
 
     def __init__(self, *, solleva: bool = True) -> None:
@@ -305,7 +311,8 @@ class ValidazioneIngressi(PipelineStep):
                 )
             )
 
-        # Gli avvisi di degradazione (oggi E-S0-15, da G08) non fermano la
+        # Gli avvisi di degradazione (E-S0-15 da G08, E-S0-17 da G11, E-S0-18
+        # da G10) non fermano la
         # fase e finiscono nel suo manifesto; gli altri restano segnalazioni
         # nel log.
         for esito in esiti:

@@ -97,7 +97,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from conftest import NEGATIVO, POSITIVO, Campione, crea_scenario
+from conftest import NEGATIVO, POSITIVO, Campione, crea_scenario, dichiarazione_minima
 from sottoinsieme import dati_config, motivo_pacchetti_r_assenti
 
 RADICE = Path(__file__).resolve().parents[1]
@@ -114,6 +114,7 @@ if HA_DATI:
     import confronta_risultati as confronto  # noqa: E402
 
 import amplicon16s.cli as cli  # noqa: E402
+from amplicon16s.config import defaults  # noqa: E402
 from amplicon16s.config.schema import carica  # noqa: E402
 from amplicon16s.io_layer.artifacts import Fase  # noqa: E402
 from amplicon16s.logging.logger import chiudi  # noqa: E402
@@ -214,11 +215,7 @@ def test_i_percorsi_relativi_valgono_dalla_cartella_di_lancio(tmp_path, monkeypa
         Campione("ERX3000004", "BLANK.P1.1", materiale=NEGATIVO, posizione="Not Applicable"),
     ], con_letture=True)
     config = scenario.config
-    dati = {
-        "io": {n: str(getattr(config.io, n)) for n in ("fastq_dir", "assay_table", "study_table", "out_root")},
-        "tax": {n: str(getattr(config.tax, n)) for n in ("ref_fasta", "ref_md5", "ref_name", "ref_version")},
-        "run": {"container": config.run.container, "threads": 1},
-    }
+    dati = dichiarazione_minima(config)
     percorso = _config_relativa(dati, tmp_path)
     monkeypatch.chdir(tmp_path)
     assert cli.main(["validate", "--config", "config.yaml"]) == 0
@@ -229,11 +226,10 @@ def test_i_percorsi_relativi_valgono_dalla_cartella_di_lancio(tmp_path, monkeypa
         valore = registrata["parametri"][gruppo][chiave]
         if valore is not None:
             assert valore == str(getattr(getattr(config, gruppo), chiave)), chiave
-    assert registrata["dichiarati"] == [
-        "io.fastq_dir", "io.assay_table", "io.study_table", "io.out_root",
-        "tax.ref_fasta", "tax.ref_md5", "tax.ref_name", "tax.ref_version",
-        "run.container", "run.threads",
-    ]
+    assert set(registrata["dichiarati"]) == {
+        f"{gruppo}.{nome}" for gruppo, valori in dati.items() for nome in valori
+    }
+    assert set(defaults.OBBLIGATORI) <= set(registrata["dichiarati"])
     assoluta = cli._percorsi_assoluti(config)
     assert assoluta is config and carica(percorso).io.out_root == Path("out")
 

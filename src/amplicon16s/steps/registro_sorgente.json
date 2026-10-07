@@ -14,8 +14,8 @@
       "python/amplicon16s.metadata.tabelle",
       "python/amplicon16s.steps.s00_validate"
     ],
-    "sorgente": "sha256:c13063a4ffbad9d6079a0c7271d706c5447f145ad58289e3a6d5a78daa760910",
-    "versione": 2
+    "sorgente": "sha256:722ecc38c9961831af84cad1ed267cde455084e80403ab837a054a3bd346fd24",
+    "versione": 3
   },
   "S1": {
     "file": [
@@ -51,7 +51,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s10_phyloseq"
     ],
-    "sorgente": "sha256:2dc720dfef650a684883e98a8b241f5d5f6a9c342dc8d618f7eee0e1dc619c54",
+    "sorgente": "sha256:632ba1f7eda77ad58a9d12e46726b7e4308da07c98cfb44c0f5cf47dd4f292f5",
     "versione": 1
   },
   "S11": {

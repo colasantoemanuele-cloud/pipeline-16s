@@ -110,7 +110,14 @@ from typing import Any, ClassVar
 
 import pytest
 import yaml
-from conftest import NEGATIVO, POSITIVO, Campione, copia_esecuzione, crea_scenario
+from conftest import (
+    NEGATIVO,
+    POSITIVO,
+    Campione,
+    copia_esecuzione,
+    crea_scenario,
+    dichiarazione_minima,
+)
 from sottoinsieme import motivo_pacchetti_r_assenti
 
 import amplicon16s.cli as cli
@@ -123,6 +130,7 @@ from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.logging.logger import NOME_FILE_AVVII, NOME_FILE_LOG, chiudi, configura
 from amplicon16s.report.builder import CARTELLA_REPORT, CARTELLA_TABELLE, NOME_REPORT, costruisci, genera
 from amplicon16s.runner.executor import EVENTO_CONTROLLI, _blocco_r
+from amplicon16s.gates.registry import nomi_dei_gate
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import ProjectRun
 from amplicon16s.runner.retry import dimezza
@@ -212,12 +220,7 @@ def _scrivi_config(scenario, percorso: Path, **gruppi: dict[str, Any]) -> Path:
     """Scrive un file di configurazione minimo: i soli parametri obbligatori dello
     scenario, piu' quelli indicati per gruppo. Tutto il resto vale il predefinito.
     """
-    config = scenario.config
-    dati: dict[str, dict[str, Any]] = {
-        "io": {n: str(getattr(config.io, n)) for n in ("fastq_dir", "assay_table", "study_table", "out_root")},
-        "tax": {n: str(getattr(config.tax, n)) for n in ("ref_fasta", "ref_md5", "ref_name", "ref_version")},
-        "run": {"container": config.run.container, "threads": 1},
-    }
+    dati = dichiarazione_minima(scenario.config)
     for gruppo, valori in gruppi.items():
         dati.setdefault(gruppo, {}).update(valori)
     percorso.write_text(yaml.safe_dump(dati, sort_keys=False), encoding="utf-8")
@@ -495,7 +498,7 @@ def test_il_report_dopo_la_sola_validazione(scenario, file_config, capsys):
     documento = _documento(radice)
     assert re.findall(r'<section id="([a-z]+)">', documento) == list(SEZIONI)
     gate = _tabella(radice, "gate")
-    assert [g["gate"] for g in gate] == ["G15"] + [f"G{n:02d}" for n in range(1, 15)]
+    assert [g["gate"] for g in gate] == list(nomi_dei_gate())
     assert {g["esito"] for g in gate} == {"superato"}
     stato = {r["fase"]: r["stato"] for r in _tabella(radice, "fasi")}
     assert stato["S0"] == "conclusa" and stato["S1"] == "non conclusa"
@@ -531,18 +534,37 @@ def test_l_origine_dei_parametri_e_i_valori_di_osd734(scenario, file_config, fas
     assert parametri["run.batch_size"]["valore"] == "24"
     assert parametri["run.batch_size"]["aggiustamento"] == "S4: 24 -> 12 dopo E-S4-02"
 
+    # La configurazione dichiara i parametri obbligatori e nessuno di quelli con
+    # un predefinito tarato su OSD-734: il report li elenca tutti, e solo quelli.
     valori = {r["parametro"]: r for r in _tabella(radice, "valori_osd734")}
     assert set(valori) == set(defaults.DERIVATI_DAL_DATASET)
-    assert (valori["filter.truncLen"]["coincide"], valori["filter.truncLen"]["valore di OSD-734"]) == ("no", "137")
-    assert (valori["prev.min_fraction"]["coincide"], valori["prev.min_fraction"]["origine"]) == ("sì", "predefinito")
-    assert (valori["tax.ref_name"]["coincide"], valori["tax.ref_name"]["origine"]) == ("sì", "dichiarato")
+    assert not set(valori) & set(defaults.OBBLIGATORI)
+    assert {r["origine"] for r in valori.values()} == {"predefinito"}
+    assert valori["prev.min_fraction"]["valore in uso"] == "0.01"
     assert valori["prev.min_fraction"]["fatto accertato su OSD-734"] == defaults.FATTI_OSD734["prev.min_fraction"].fatto
-    assert "29 parametri su 30 hanno il valore scelto per OSD-734" in uscita
+    numero = len(defaults.DERIVATI_DAL_DATASET)
+    assert f"{numero} parametri non dichiarati valgono il predefinito tarato su OSD-734" in uscita
 
     documento = _documento(radice)
-    assert "<strong>29 parametri su 30</strong>" in documento
-    assert "va verificato che quel fatto valga anche per il dataset in uso" in documento
-    assert documento.index("Valori ereditati dal dataset di riferimento") < documento.index('id="stato"')
+    assert f"<strong>{numero} parametri</strong>" in documento
+    assert "Per ognuno va controllato se quel fatto vale anche per il dataset in uso" in documento
+    assert documento.index("Parametri tarati su OSD-734 e non dichiarati") < documento.index('id="stato"')
+
+    # Dichiarati tutti, anche con lo stesso valore, non compare piu' nulla: la
+    # sezione lo dice in una riga e la tabella non viene scritta.
+    tarati: dict[str, dict[str, Any]] = {}
+    for chiave, riferimento in defaults.FATTI_OSD734.items():
+        gruppo, nome = chiave.split(".")
+        tarati.setdefault(gruppo, {})[nome] = riferimento.valore
+    tarati.setdefault("filter", {})["truncLen"] = 120
+    _scrivi_config(scenario, file_config, **tarati)
+    assert _cli("resume", "--config", str(file_config), capsys=capsys)[0] == 0
+    codice, uscita = _cli("report", "--config", str(file_config), capsys=capsys)
+    assert codice == 0 and "tarato su OSD-734" not in uscita
+    documento = _documento(radice)
+    assert ("Nessun parametro vale un predefinito tarato su OSD-734 senza essere stato "
+            "dichiarato nella configurazione.") in documento
+    assert not (Path(radice) / CARTELLA_REPORT / CARTELLA_TABELLE / "valori_osd734.tsv").exists()
 
 
 def test_tentativi_ripetuti_e_degradazioni_dai_manifesti(scenario, file_config, fasi, capsys):
@@ -561,9 +583,12 @@ def test_tentativi_ripetuti_e_degradazioni_dai_manifesti(scenario, file_config, 
     assert tabelle["tentativi_ripetuti"].righe == (
         (Passo.S4, "E-S4-02", 1, "run.batch_size", "24", "24", "12", "run.batch_size dimezzato"),
     )
-    (degradazione,) = tabelle["degradazioni"].righe
+    # S0 dichiara per conto suo i controlli che lo scenario non ha (E-S0-17).
+    (degradazione,) = [r for r in tabelle["degradazioni"].righe if r[0] is Passo.S6]
     assert degradazione[:2] == (Passo.S6, "E-S6-02") and "0,31" in degradazione[3]
-    assert "tentativi ripetuti: 1; degradazioni: 1" in report.segnalazioni
+    di_s0 = [r for r in tabelle["degradazioni"].righe if r[0] is Passo.S0]
+    assert {r[1] for r in di_s0} == {"E-S0-17"}
+    assert f"tentativi ripetuti: 1; degradazioni: {1 + len(di_s0)}" in report.segnalazioni
     assert "<dt>catena</dt><dd>completa</dd>" in report.html
 
 

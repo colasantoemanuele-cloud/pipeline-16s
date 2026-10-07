@@ -7,30 +7,80 @@
 #   letture       dati/osd734/fastq/        scarica_letture.py
 #   riferimento   dati/osd734/riferimento/  scarica_riferimento.py
 #   lotto         dati/osd734/lotto/        ricostruisci_lotto.py
-# E' la configurazione congelata: i quattro parametri sottoposti ad analisi di
-# sensibilita' sono dichiarati qui con il valore scelto (docs/sensibilita.md,
-# docs/decision_log.md), e la regola rigorosa sulla provenienza e' attiva. Gli
-# altri parametri hanno il valore predefinito, che per OSD-734 e' quello
-# giusto: i valori scelti su fatti accertati di questo dataset sono marcati
-# [OSD-734] in config/config.example.yaml.
+# E' la configurazione congelata. Dichiara in modo esplicito tutti i parametri
+# che descrivono il dataset (obbligatori: la pipeline non ha per essi alcun
+# valore predefinito) e tutti quelli il cui predefinito e' tarato su OSD-734,
+# compresi i quattro sottoposti ad analisi di sensibilita' (docs/sensibilita.md,
+# docs/decision_log.md); la regola rigorosa sulla provenienza e' attiva. Gli
+# altri parametri hanno il valore predefinito generico. Il fatto accertato che
+# giustifica ciascun valore e' in src/amplicon16s/config/defaults.py.
 io:
   fastq_dir: dati/osd734/fastq
   assay_table: "dati/osd734/metadati/a_OSD-734_amplicon-sequencing_16s_Illumina MiSeq.txt"
   study_table: dati/osd734/metadati/s_OSD-734.txt
   out_root: output/osd734
   batch_table: dati/osd734/lotto/plate_well_map_960.tsv
+  # I file e la tabella di assay riportano l'accession dell'esperimento.
+  accession_regex: "[ESD]RX[0-9]{4,}"
+meta:
+  sample_id_column: "Sample Name"
+  accession_column: "Raw Data File"
+  # Il modulo: dal file del lotto (colonna module); senza, dal prefisso della
+  # posizione, tre lettere e una cifra (LAB1, NOD2, JLP1).
+  module_regex: "^([A-Z]{3}[0-9])"
+  module_column: "Factor Value[Sample Location]"
+  non_surface_positions:
+    - Air Sample
+    - Unopened 3DMM Swab Tube
+  batch_key_column: experiment_accession
+  batch_module_column: module
+filter:
+  # La lettura piu' corta del dataset: letture di 137-151 basi.
+  truncLen: 137
+  # Le letture non contengono il primer.
+  trimLeft: 0
+err:
+  batch_column: run_prefix
 tax:
   ref_fasta: dati/osd734/riferimento/silva_nr99_v138_train_set.fa.gz
   ref_md5: "56821dd6f365f64c8518a21e049c3232"
   ref_name: SILVA
   ref_version: "138"
   ref_bad_taxa: dati/osd734/riferimento/silva_138_v2_bad-taxa.csv
+  min_boot: 50
+  assign_species: false
+ctrl:
+  column: "Characteristics[Material Type]"
+  blank_values:
+    - blank control
+  positive_values:
+    - Positive Control
+  biological_values:
+    - Surface swab
+  # I tamponi mai aperti, dichiarati Surface swab, sono controlli negativi.
+  blank_override_column: "Factor Value[Sample Location]"
+  blank_override_values:
+    - Unopened 3DMM Swab Tube
+qc:
+  # 515F e il motivo conservato a valle, con cui iniziano le letture.
+  primer_sequence: GTGYCAGCMGCCGCGGTAA
+  conserved_motif: "TAC[AG].AGG..GC.AGCGTT"
+  min_motif_frac: 0.25
+out:
+  study_columns:
+    - "Factor Value[Spaceflight]"
+    - "Parameter Value[Sample Preservation Method]"
+  batch_columns:
+    - extraction_plate_id
+    - well_id
+    - extraction_date
+    - primer_plate
+    - run_date
+    - katharoseq_cell_count
 run:
-  # Primo valore da adattare: run.threads non e' impostato e vale 16. Su una
-  # macchina con meno processori utilizzabili i controlli di avvio fermano
-  # l'esecuzione (E-S0-14): indicare il numero di processori (nproc) o meno.
-  # Non cambia i risultati. Per esempio, su 12 processori:
-  # threads: 12
+  # run.threads non e' impostato e vale i processori utilizzabili dal
+  # processo: indicarlo solo per usarne meno. Non cambia i risultati.
+  # threads: 8
   #
   # L'immagine con cui si esegue, ancorata per digest: quella pubblicata nel
   # registro, che si scarica con docker pull e questo stesso riferimento. Il
@@ -50,9 +100,14 @@ run:
 # sono dichiarati perche' la configurazione congelata non dipenda da essi.
 katharoseq:
   target_sensitivity: 0.90
+  # I controlli positivi: un solo ceppo, Variovorax sp. OAS795, in diluizione.
+  target_taxon: Variovorax
+  cell_count_column: katharoseq_cell_count
 decontam:
+  method: prevalence
   mode: aggregate
   batch_combine: minimum
   threshold: 0.5
+  batch_column: extraction_plate_num
 prev:
   min_fraction: 0.01

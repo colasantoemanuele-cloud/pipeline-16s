@@ -543,7 +543,7 @@ def test_g10_fallisce_se_il_primer_e_in_testa(tmp_path):
 
 def test_g10_fallisce_se_manca_il_segnale_atteso(tmp_path):
     """
-    **Obiettivo**: Verificare che G10 fallisca con ``E-S0-10`` se le letture non
+    **Obiettivo**: Verificare che G10 fallisca con ``E-S0-16`` se le letture non
     hanno il primer ma sono prive anche del motivo conservato 16S V4 (``INIZIO_MUTO``).
 
     **Razionale scientifico e sistemistico**: Costituisce il *controllo positivo*
@@ -558,6 +558,7 @@ def test_g10_fallisce_se_manca_il_segnale_atteso(tmp_path):
     esito = _esegui(_scenario(tmp_path, campioni))["G10"]
 
     assert not esito.superato
+    assert {v.codice for v in esito.violazioni} == {"E-S0-16"}
     assert "motivo conservato" in str(esito.violazioni[0])
     assert "qc.min_motif_frac" in str(esito.violazioni[0])
 
@@ -670,20 +671,27 @@ def test_g13_passa(tmp_path):
 
 def test_g13_fallisce_su_un_archivio_non_decomprimibile(tmp_path):
     """
-    **Obiettivo**: Verificare che un file ``*.fastq.gz`` contenente byte non
-    compressi in formato ``gzip`` faccia fallire G13 con codice ``E-S0-13``.
+    **Obiettivo**: Verificare che un archivio ``gzip`` dal contenuto corrotto
+    faccia fallire G13 con codice ``E-S0-13`` come archivio non leggibile, e che
+    un file non compresso che non e' un FASTQ lo faccia fallire per la
+    grammatica dei record.
 
     **Razionale scientifico e sistemistico**: Intercetta in S0 file FASTQ corrotti
     da trasferimenti di rete interrotti prima che facciano andare in crash
     ``filterAndTrim`` di DADA2 a metà della Fase S2.
     """
     campioni = _campioni()
-    campioni[0].contenuto_grezzo = b"questo non e' un archivio gzip"
+    # I primi due byte dicono gzip, il resto non lo e'.
+    campioni[0].contenuto_grezzo = b"\x1f\x8b" + b"questo non e' un archivio gzip"
+    campioni[1].contenuto_grezzo = b"questo non e' un FASTQ\n"
     esito = _esegui(_scenario(tmp_path, campioni))["G13"]
 
     assert not esito.superato
     assert {v.codice for v in esito.violazioni} == {"E-S0-13"}
-    assert "archivio non leggibile" in str(esito.violazioni[0])
+    testi = sorted(str(v) for v in esito.violazioni)
+    assert len(testi) == 2
+    assert any("archivio non leggibile" in t for t in testi)
+    assert any("record troncato" in t or "non comincia con '@'" in t for t in testi)
 
 
 def test_g13_fallisce_su_un_record_troncato(tmp_path):

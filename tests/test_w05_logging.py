@@ -88,6 +88,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from sottoinsieme import dati_esempio
+
 from amplicon16s.config.resolve import scrivi_risolta
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.gates.g01_g15 import esegui_g15
@@ -399,7 +401,7 @@ def test_esecuzione_fittizia_produce_albero_configurazione_e_log(tmp_path):
     percorso_log = configura(radice)
     log = ottieni("runner")
 
-    dati = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
+    dati = dati_esempio()
     risolta = esegui_g15(dati)
     scrivi_risolta(risolta, radice)
 

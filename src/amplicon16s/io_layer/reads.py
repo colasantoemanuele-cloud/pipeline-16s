@@ -31,10 +31,11 @@ import gzip
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import IO, Final
 
 __all__ = [
     "StatisticheFile",
+    "apri_fastq",
     "espandi_iupac",
     "scansiona",
     "scansiona_file",
@@ -62,6 +63,24 @@ def espandi_iupac(sequenza: str) -> str:
         raise ValueError(f"codice IUPAC sconosciuto: {guasto.args[0]!r}") from None
 
 
+#: I primi due byte di un archivio gzip.
+_MAGIA_GZIP: Final = b"\x1f\x8b"
+
+
+def apri_fastq(percorso: Path | str) -> IO[str]:
+    """Apre in lettura un FASTQ, compresso con gzip o no.
+
+    Il formato si riconosce dai primi due byte, non dall'estensione: un file
+    ``.fastq.gz`` non compresso, o un ``.fastq`` compresso, si leggono per
+    quello che sono.
+    """
+    with open(percorso, "rb") as file:
+        compresso = file.read(2) == _MAGIA_GZIP
+    if compresso:
+        return gzip.open(percorso, "rt", encoding="utf-8", errors="replace")
+    return open(percorso, encoding="utf-8", errors="replace", newline="\n")
+
+
 @dataclass(frozen=True)
 class StatisticheFile:
     """Ciò che si è potuto misurare sulle prime letture di un file."""
@@ -73,7 +92,7 @@ class StatisticheFile:
     con_primer: int
     con_motivo: int
     #: Descrizione del guasto strutturale, se il file non è leggibile come
-    #: FASTQ compresso. ``None`` se la struttura è valida.
+    #: FASTQ. ``None`` se la struttura è valida.
     errore: str | None = None
     #: Vero se il file è finito prima di raggiungere il numero richiesto: non
     #: è un problema, ma dice che le statistiche coprono tutto il file.
@@ -102,20 +121,23 @@ class StatisticheFile:
 def scansiona_file(
     percorso: Path | str,
     head_reads: int,
-    primer: str,
-    motivo: str,
+    primer: str | None,
+    motivo: str | None,
+    inizio_motivo: int = 0,
 ) -> StatisticheFile:
     """Legge le prime ``head_reads`` letture e ne ricava tutte le statistiche.
 
-    ``primer`` e ``motivo`` sono espressioni regolari già pronte, passate come
-    stringhe gia' compilate a ogni chiamata.
-    Entrambe si cercano **ancorate a inizio lettura**: il primer starebbe in
-    testa se non fosse stato tolto, e il motivo conservato è quello che apre la
-    regione amplificata.
+    ``primer`` e ``motivo`` sono espressioni regolari. Il primer si cerca
+    **ancorato a inizio lettura**: starebbe in testa se non fosse stato tolto.
+    Il motivo conservato, che apre la regione amplificata, si cerca ancorato
+    alla posizione ``inizio_motivo``: zero se le letture iniziano dalla
+    regione, la lunghezza di cio' che la precede (``filter.trimLeft``) se
+    portano ancora il primer che il filtro togliera'. Con ``None`` la ricerca
+    corrispondente non si fa e il conteggio resta zero.
     """
     percorso = Path(percorso)
-    espressione_primer = re.compile(primer)
-    espressione_motivo = re.compile(motivo)
+    espressione_primer = re.compile(primer) if primer is not None else None
+    espressione_motivo = re.compile(motivo) if motivo is not None else None
 
     letture = con_primer = con_motivo = 0
     minima: int | None = None
@@ -123,7 +145,7 @@ def scansiona_file(
     esaurito = True
 
     try:
-        with gzip.open(percorso, "rt", encoding="utf-8", errors="replace") as file:
+        with apri_fastq(percorso) as file:
             while letture < head_reads:
                 intestazione = file.readline()
                 if not intestazione:
@@ -151,8 +173,8 @@ def scansiona_file(
                                f"con '+': {separatore[:40]!r}",
                     )
 
-                sequenza = sequenza.rstrip("\n")
-                if len(sequenza) != len(qualita.rstrip("\n")):
+                sequenza = sequenza.rstrip("\r\n")
+                if len(sequenza) != len(qualita.rstrip("\r\n")):
                     return StatisticheFile(
                         percorso.name, letture, minima, massima, con_primer, con_motivo,
                         errore=f"alla lettura {letture + 1} sequenza e qualita' hanno "
@@ -163,9 +185,11 @@ def scansiona_file(
                 lunghezza = len(sequenza)
                 minima = lunghezza if minima is None else min(minima, lunghezza)
                 massima = lunghezza if massima is None else max(massima, lunghezza)
-                if espressione_primer.match(sequenza):
+                if espressione_primer is not None and espressione_primer.match(sequenza):
                     con_primer += 1
-                if espressione_motivo.match(sequenza):
+                if espressione_motivo is not None and espressione_motivo.match(
+                    sequenza, inizio_motivo
+                ):
                     con_motivo += 1
             else:
                 esaurito = False
@@ -190,11 +214,12 @@ def scansiona_file(
 def scansiona(
     percorsi: dict[str, Path],
     head_reads: int,
-    primer: str,
-    motivo: str,
+    primer: str | None,
+    motivo: str | None,
+    inizio_motivo: int = 0,
 ) -> dict[str, StatisticheFile]:
     """Scansiona i file indicati e restituisce le statistiche di ciascuno."""
     return {
-        chiave: scansiona_file(percorso, head_reads, primer, motivo)
+        chiave: scansiona_file(percorso, head_reads, primer, motivo, inizio_motivo)
         for chiave, percorso in percorsi.items()
     }

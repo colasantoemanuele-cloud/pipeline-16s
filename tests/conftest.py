@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from amplicon16s.config import defaults
 from amplicon16s.config.schema import Config, valida
 
 #: Etichette di classificazione dei campioni nella colonna ``ctrl.column``
@@ -132,6 +133,43 @@ def _scrivi_tsv(percorso: Path, intestazione: list[str], righe: list[list[Any]])
         scrittore.writerows(righe)
 
 
+def parametri_osd734() -> dict[str, Any]:
+    """I parametri obbligatori con i valori che hanno per OSD-734, per gruppo.
+
+    Sono i valori d'esempio di ``defaults.ESEMPIO_OSD734``: gli scenari
+    sintetici hanno la forma dei metadati di OSD-734 (stessi nomi di colonne,
+    stesse etichette), e li dichiarano tutti come farebbe la sua
+    configurazione. Un test che esercita un formato diverso li sovrascrive.
+    """
+    dati: dict[str, Any] = {}
+    for chiave, riferimento in defaults.ESEMPIO_OSD734.items():
+        gruppo, nome = chiave.split(".")
+        valore = riferimento.valore
+        dati.setdefault(gruppo, {})[nome] = list(valore) if isinstance(valore, tuple) else valore
+    return dati
+
+
+def dichiarazione_minima(config: Config) -> dict[str, Any]:
+    """La configurazione piu' breve che dichiara cio' che va dichiarato: i
+    percorsi, il riferimento e i parametri obbligatori, con i valori che hanno
+    in ``config``. Tutto il resto resta al predefinito.
+
+    Serve ai test che scrivono un file di configurazione e lo passano alla riga
+    di comando: senza i parametri obbligatori G15 lo respingerebbe.
+    """
+    completa = config.model_dump(mode="json")
+    dati: dict[str, Any] = {
+        "io": {n: completa["io"][n] for n in ("fastq_dir", "assay_table", "study_table",
+                                              "out_root", "batch_table")},
+        "tax": {n: completa["tax"][n] for n in ("ref_fasta", "ref_md5")},
+        "run": {"container": completa["run"]["container"], "threads": 1},
+    }
+    for chiave in defaults.OBBLIGATORI:
+        gruppo, nome = chiave.split(".")
+        dati.setdefault(gruppo, {})[nome] = completa[gruppo][nome]
+    return dati
+
+
 def crea_scenario(
     radice: Path,
     campioni: list[Campione],
@@ -200,11 +238,15 @@ def crea_scenario(
     for nome, materiale, posizione in righe_studio_extra or []:
         righe_studio.append([nome, materiale, posizione])
 
+    # La colonna delle cellule dei controlli positivi sta nella tabella di
+    # studio, vuota: lo scenario non ha un file del lotto che la porti, e la
+    # configurazione che dichiara controlli positivi deve dichiararla.
     studio = radice / "studio.txt"
     _scrivi_tsv(
         studio,
-        ["Sample Name", "Characteristics[Material Type]", "Factor Value[Sample Location]"],
-        righe_studio,
+        ["Sample Name", "Characteristics[Material Type]", "Factor Value[Sample Location]",
+         "katharoseq_cell_count"],
+        [[*riga, ""] for riga in righe_studio],
     )
 
     arricchimento = None
@@ -229,22 +271,23 @@ def crea_scenario(
     riferimento.write_bytes(b">seq1\nACGT\n")
     md5_riferimento = hashlib.md5(riferimento.read_bytes()).hexdigest()
 
-    dati: dict[str, Any] = {
-        "io": {
-            "fastq_dir": str(fastq),
-            "assay_table": str(assay),
-            "study_table": str(studio),
-            "out_root": str(radice / "out"),
-            "batch_table": str(arricchimento) if arricchimento else None,
-        },
-        "tax": {
-            "ref_fasta": str(riferimento),
-            "ref_md5": md5_riferimento,
-            "ref_name": "SILVA",
-            "ref_version": "138",
-        },
-        "run": {"container": CONTAINER, "threads": 1},
-    }
+    # I parametri obbligatori hanno i valori di OSD-734, che e' la forma dei
+    # metadati dello scenario; quelli del file del lotto sono nulli o vuoti
+    # quando lo scenario non lo ha, e le colonne da portare nell'oggetto sono
+    # vuote perche' le tabelle dello scenario non le contengono.
+    dati = parametri_osd734()
+    dati["out"].update(study_columns=[], batch_columns=[])
+    if arricchimento is None:
+        dati["meta"].update(batch_key_column=None, batch_module_column=None)
+        dati["err"]["batch_column"] = None
+        dati["decontam"]["batch_column"] = None
+    dati["io"].update(
+        fastq_dir=str(fastq), assay_table=str(assay), study_table=str(studio),
+        out_root=str(radice / "out"),
+        batch_table=str(arricchimento) if arricchimento else None,
+    )
+    dati["tax"].update(ref_fasta=str(riferimento), ref_md5=md5_riferimento)
+    dati["run"] = {"container": CONTAINER, "threads": 1}
     for gruppo, valori in (sovrascrivi or {}).items():
         dati.setdefault(gruppo, {}).update(valori)
 

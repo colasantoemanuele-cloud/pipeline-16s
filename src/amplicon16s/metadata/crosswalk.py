@@ -32,7 +32,7 @@ from pathlib import Path
 from amplicon16s.config.schema import Config
 from amplicon16s.metadata.controls_map import MappaControlli
 from amplicon16s.metadata.models import Campione, Inventario
-from amplicon16s.metadata.tabelle import leggi_tsv
+from amplicon16s.metadata.tabelle import leggi_tsv, tabella_di_studio
 
 __all__ = ["Analisi", "analizza", "estrai_accession"]
 
@@ -42,26 +42,46 @@ class AccessionNonEstraibile(ValueError):
 
 
 def estrai_accession(testo: str, espressione: re.Pattern[str]) -> str:
-    """Estrae l'unico accession contenuto nel testo.
+    """Estrae l'unica chiave del campione contenuta nel testo.
+
+    La chiave e' la corrispondenza intera dell'espressione oppure, se
+    l'espressione ha un gruppo di cattura, il primo gruppo: cosi' un file
+    nominato per campione o per corsa si descrive delimitando la chiave con
+    cio' che la circonda, per esempio ``^(SP[0-9]+)_R1``. Un gruppo che serve
+    solo a raggruppare va scritto senza cattura, ``(?:...)``.
 
     Zero corrispondenze e più di una sono entrambe errori, e per la stessa
     ragione: in nessuno dei due casi si sa a quale campione il file
     appartenga. Prendere la prima corrispondenza sarebbe la scelta comoda e
     silenziosamente sbagliata.
     """
-    # finditer e group(0) invece di findall: findall restituisce il contenuto
-    # dei gruppi di cattura quando l'espressione ne ha, e l'accession
-    # predefinito ne ha uno - "(E|S|D)RX[0-9]{4,}" darebbe "E" al posto
-    # dell'accession intero. La forma dell'espressione e' scelta dall'utente,
-    # quindi l'estrazione non deve dipendere da come l'ha raggruppata.
-    trovati = [corrispondenza.group(0) for corrispondenza in espressione.finditer(testo)]
-    if not trovati:
+    gruppo = 1 if espressione.groups else 0
+    trovati = [c.group(gruppo) for c in espressione.finditer(testo)]
+    if not trovati or any(not chiave for chiave in trovati):
         raise AccessionNonEstraibile("nessun accession riconosciuto")
     if len(trovati) > 1:
         raise AccessionNonEstraibile(
             "accession ambiguo, trovati {}: {}".format(len(trovati), ", ".join(trovati))
         )
     return trovati[0]
+
+
+def chiave_dalla_tabella(valore: str, espressione: re.Pattern[str]) -> str:
+    """La chiave del campione ricavata dal valore di una colonna dei metadati.
+
+    Il valore puo' essere il nome di un file, e allora la chiave vi si estrae
+    come dai nomi dei file; oppure puo' essere gia' la chiave, e allora la si
+    usa cosi' com'e' quando l'espressione, pensata per i nomi dei file, non vi
+    trova nulla. Un valore vuoto o con piu' chiavi resta un errore.
+    """
+    if not valore:
+        raise AccessionNonEstraibile("valore vuoto")
+    try:
+        return estrai_accession(valore, espressione)
+    except AccessionNonEstraibile as guasto:
+        if "ambiguo" in str(guasto):
+            raise
+        return valore
 
 
 @dataclass(frozen=True)
@@ -105,6 +125,10 @@ class Analisi:
     arricchimento_senza_accession: list[tuple[str, str]] = field(default_factory=list)
     senza_riga_di_arricchimento: list[str] = field(default_factory=list)
     arricchimento_ambiguo: dict[str, int] = field(default_factory=dict)
+    #: Campioni con la riga del lotto ma senza il valore di una colonna
+    #: dichiarata: la piastra (decontam.batch_column), la corsa (err.batch_column).
+    senza_piastra: list[str] = field(default_factory=list)
+    senza_corsa: list[str] = field(default_factory=list)
 
     # --- risultato ------------------------------------------------------------
     #: File di letture trovati, per accession. Serve ai gate che ispezionano
@@ -151,7 +175,7 @@ def _righe_assay(config: Config, analisi: Analisi) -> dict[str, RigaAssay]:
         nome = riga.get(config.meta.sample_id_column, "")
         riferimento = riga.get(config.meta.accession_column, "")
         try:
-            accession = estrai_accession(riferimento, espressione)
+            accession = chiave_dalla_tabella(riferimento, espressione)
         except AccessionNonEstraibile as guasto:
             analisi.assay_senza_accession.append(
                 (riferimento or f"<riga del campione {nome!r}>", str(guasto))
@@ -168,10 +192,14 @@ def _righe_assay(config: Config, analisi: Analisi) -> dict[str, RigaAssay]:
 
 
 def _righe_studio(config: Config) -> dict[str, list[dict[str, str]]]:
-    """Le righe della tabella di studio raggruppate per nome del campione."""
+    """Le righe della tabella di studio raggruppate per nome del campione.
+
+    Senza ``io.study_table`` la tabella di studio e' quella di assay stessa.
+    """
+    percorso, colonna = tabella_di_studio(config)
     per_nome: dict[str, list[dict[str, str]]] = defaultdict(list)
-    for riga in leggi_tsv(Path(config.io.study_table)):
-        per_nome[riga.get(config.meta.sample_id_column, "")].append(riga)
+    for riga in leggi_tsv(percorso):
+        per_nome[riga.get(colonna, "")].append(riga)
     return per_nome
 
 
@@ -218,14 +246,15 @@ def _righe_arricchimento(
     espressione = re.compile(config.io.accession_regex)
     righe = leggi_tsv(Path(percorso))
 
-    if righe and config.meta.batch_key_column not in righe[0]:
-        analisi.arricchimento_senza_colonna = config.meta.batch_key_column
+    colonna = config.meta.batch_key_column
+    if colonna is None or (righe and colonna not in righe[0]):
+        analisi.arricchimento_senza_colonna = colonna or "<meta.batch_key_column nullo>"
         return per_accession
 
     for riga in righe:
-        grezzo = riga.get(config.meta.batch_key_column, "")
+        grezzo = riga.get(colonna, "")
         try:
-            accession = estrai_accession(grezzo, espressione)
+            accession = chiave_dalla_tabella(grezzo, espressione)
         except AccessionNonEstraibile as guasto:
             analisi.arricchimento_senza_accession.append((grezzo, str(guasto)))
             continue
@@ -265,7 +294,9 @@ def analizza(config: Config) -> Analisi:
 
     mappa = MappaControlli.da_configurazione(config.ctrl)
     espressione_modulo = (
-        re.compile(config.meta.module_regex) if config.meta.derive_module else None
+        re.compile(config.meta.module_regex)
+        if config.meta.derive_module and config.meta.module_regex is not None
+        else None
     )
     non_superfici = frozenset(
         v.strip().casefold() for v in config.meta.non_surface_positions
@@ -314,12 +345,14 @@ def analizza(config: Config) -> Analisi:
             righe = arricchimento_per_accession.get(accession, [])
             if len(righe) == 1:
                 riga_lotto = righe[0]
-                piastra = _valore_o_assente(riga_lotto.get(config.decontam.batch_column))
-                corsa = (
-                    _valore_o_assente(riga_lotto.get(config.err.batch_column))
-                    if config.err.batch_column is not None
-                    else None
-                )
+                if config.decontam.batch_column is not None:
+                    piastra = _valore_o_assente(riga_lotto.get(config.decontam.batch_column))
+                    if piastra is None:
+                        analisi.senza_piastra.append(accession)
+                if config.err.batch_column is not None:
+                    corsa = _valore_o_assente(riga_lotto.get(config.err.batch_column))
+                    if corsa is None:
+                        analisi.senza_corsa.append(accession)
             elif not righe:
                 analisi.senza_riga_di_arricchimento.append(accession)
             else:
@@ -344,7 +377,7 @@ def analizza(config: Config) -> Analisi:
             and config.meta.batch_module_column in riga_lotto
         ):
             modulo = _valore_o_assente(riga_lotto.get(config.meta.batch_module_column))
-        elif espressione_modulo is not None:
+        elif espressione_modulo is not None and posizione is not None:
             trovato = espressione_modulo.match(posizione)
             if trovato is not None:
                 # Il gruppo 1 se l'espressione ne ha uno, altrimenti l'intera

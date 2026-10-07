@@ -1,15 +1,19 @@
 """Registro dei gate di validazione e loro esecuzione in sequenza.
 
 I quindici gate sono dichiarati qui in un solo posto, con l'ordine in cui
-vanno eseguiti. L'ordine non è quello numerico per una ragione e una
-eccezione:
+vanno eseguiti. L'ordine non è quello numerico:
 
 * **G15 apre la sequenza.** Verifica la coerenza interna della configurazione,
   e un errore lì va scoperto prima di aprire un solo file: sarebbe assurdo
   ispezionare centinaia di archivi per poi fermarsi su una soglia incoerente.
-* gli altri seguono l'ordine numerico, che è anche l'ordine delle dipendenze:
-  senza ingressi leggibili non si aprono le tabelle, senza tabelle non si
-  estraggono gli accession, senza accession non si confrontano gli insiemi.
+* gli altri seguono l'ordine delle dipendenze, che non è quello numerico:
+  senza ingressi leggibili non si aprono le tabelle (G01, G02); senza tabelle
+  non si estraggono gli accession, senza accession univoci non si confrontano
+  gli insiemi, e solo su insiemi coincidenti il join e le classi hanno senso
+  (G04, G05, G06, G03, G11); i gate che leggono le sequenze vengono dopo
+  (G13, G07, G08, G09, G10), perché G10 giudica il segnale sui campioni di una
+  classe, e un'etichetta sbagliata va diagnosticata da G11, non da lui;
+  chiudono il riferimento tassonomico e le risorse (G12, G14).
 
 **L'esecuzione si ferma al primo gate fallito.** I gate successivi
 dipendono dai precedenti, e proseguire produrrebbe errori derivati che
@@ -39,7 +43,7 @@ from amplicon16s.gates.g01_g15 import (
     _g08_lotto_coerente,
     _g09_troncamento_compatibile,
     _g10_primer_assente,
-    _g11_classi_complete,
+    _g11_classi_e_controlli,
     _g12_riferimento_verificato,
     _g13_archivi_validi,
     _g14_risorse_disponibili,
@@ -92,17 +96,17 @@ REGISTRO: Final[tuple[_Voce, ...]] = (
     _Voce("G15", "coerenza interna della configurazione", _g15_coerenza_configurazione),
     _Voce("G01", "gli ingressi dichiarati esistono e sono leggibili", _g01_ingressi_leggibili),
     _Voce("G02", "le tabelle di metadati si aprono e hanno le colonne attese", _g02_tabelle_apribili),
-    _Voce("G03", "il join resta ristretto alla tabella di assay", _adatta(_g03_join_ristretto)),
     _Voce("G04", "l'accession e' estraibile da ogni nome e non e' ambiguo", _adatta(_g04_accession_estraibile)),
     _Voce("G05", "gli accession sono univoci", _adatta(_g05_accession_univoci)),
     _Voce("G06", "gli insiemi dei file e dei metadati coincidono", _adatta(_g06_insiemi_simmetrici)),
+    _Voce("G03", "il join resta ristretto alla tabella di assay", _adatta(_g03_join_ristretto)),
+    _Voce("G11", "ogni campione ricade in una classe dichiarata", _g11_classi_e_controlli),
+    _Voce("G13", "ogni file di letture e' un archivio valido", _g13_archivi_validi),
     _Voce("G07", "il layout e' single-end", _g07_layout_single_end),
     _Voce("G08", "l'informazione di lotto e' coerente e le piastre sono plausibili", _g08_lotto_coerente),
     _Voce("G09", "filter.truncLen e' compatibile con le lunghezze osservate", _g09_troncamento_compatibile),
     _Voce("G10", "il primer non e' presente e il segnale atteso c'e'", _g10_primer_assente),
-    _Voce("G11", "ogni campione ricade in una classe dichiarata", _adatta(_g11_classi_complete)),
     _Voce("G12", "il database tassonomico e' quello dichiarato", _g12_riferimento_verificato),
-    _Voce("G13", "ogni file di letture e' un archivio valido", _g13_archivi_validi),
     _Voce("G14", "le risorse richieste sono disponibili", _g14_risorse_disponibili),
 )
 
