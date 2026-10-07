@@ -42,8 +42,8 @@ sequenza:
 
     pytest tests/ -n 0
 
-Totale complessivo della suite: 1263 test su 33 moduli:
-  * 1096 passed e 167 skipped in ambiente locale standard (R base + jsonlite, senza
+Totale complessivo della suite: 1270 test su 33 moduli:
+  * 1101 passed e 169 skipped in ambiente locale standard (R base + jsonlite, senza
     Bioconductor e senza dati reali), in circa un minuto e mezzo;
   * nel container CI standard (senza dati reali OSD-734), su quattro processi:
     @@CI@@
@@ -323,7 +323,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
 --------------------------------------------------------------------------------
 
-5.1 Catalogo centralizzato degli errori (76 codici catalogati)
+5.1 Catalogo centralizzato degli errori (77 codici catalogati)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   * SETTIMANA E FASE:
     Settimana W5 (esteso in W11 e W13), Fase F1/F4 (Tassonomia formale degli
@@ -333,9 +333,9 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     tests/test_w05_errors_catalog.py
 
   * COSA VALUTA:
-    Ispeziona sistematicamente tutti i 76 codici del catalogo ('CATALOGO': 55
+    Ispeziona sistematicamente tutti i 77 codici del catalogo ('CATALOGO': 56
     codici di fase S0-S14 inclusi 'E-S0-16', 'E-S0-17', 'E-S0-18', 'E-S0-19',
-    'E-S1-02', 'E-S1-04', 'E-S3-02', 'E-S3-05', 'E-S10-02', 'E-S11-04', 'E-S12-04',
+    'E-S1-02', 'E-S1-04', 'E-S1-05', 'E-S3-02', 'E-S3-05', 'E-S10-02', 'E-S11-04', 'E-S12-04',
     'E-S12-05' ed 'E-S13-03', 13 codici di configurazione G15 compreso
     'E-G15-14', 4 codici del ponte verso R 'E-R-01..04', 1 codice del
     grafo 'E-GRAFO-01' e 3 codici della regola rigorosa sulla provenienza
@@ -346,13 +346,13 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     sottoclasse corretta di 'ErrorePipeline'. Verifica inoltre che la whitelist
     dei codici ripetibili ('AMMESSI_AL_RETRY') sia chiusa ermeticamente ai soli
     4 codici tecnici 'E-S2-03', 'E-S3-01', 'E-S4-02', 'E-S5-01' e che i restanti
-    72 codici non ammettano mai il retry.
+    73 codici non ammettano mai il retry.
 
   * COMANDO BASH:
     pytest tests/test_w05_errors_catalog.py -v
 
   * RISULTATO ATTESO:
-    415 passed in ~0.35s
+    420 passed in ~0.35s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
@@ -1785,7 +1785,8 @@ SETTIMANA 29 (W29) : SOGLIA DI PROFONDITA' OMOGENEA E LETTURE DI COPPIA
     riconoscimento delle coppie per nome, che sotto le venti letture le sole
     seconde non cedano a un record, che un file a blocchi sfugga a G07 e non
     al conteggio su tutte le letture, e che S1 lo fermi con 'E-S1-04'
-    registrando i conteggi in 'coppie.tsv'. Che lo strumento di sensibilita'
+    registrando i conteggi in 'coppie.tsv'; che un file troncato oltre le
+    letture ispezionate fermi S1 con 'E-S1-05'. Che lo strumento di sensibilita'
     legga griglie e modalita' dal file e il valore corrente dalla
     configurazione, e che solo un arresto previsto dalla regola renda un
     valore non ammissibile. Che le due configurazioni pubblicate puntino al
@@ -1797,8 +1798,8 @@ SETTIMANA 29 (W29) : SOGLIA DI PROFONDITA' OMOGENEA E LETTURE DI COPPIA
     pytest tests/test_w29_soglia.py -v
 
   * RISULTATO ATTESO:
-    24 test (11 passed e 13 skipped in ambiente locale senza Bioconductor; 22
-    passed e 2 skipped nel container senza dati reali; 24 passed con i dati
+    26 test (11 passed e 15 skipped in ambiente locale senza Bioconductor; 24
+    passed e 2 skipped nel container senza dati reali; 26 passed con i dati
     reali e AMPLICON16S_DATI_OSD276)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
@@ -1881,7 +1882,7 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   ----------+---------------------------------------+------+-------------------------------------------------
   W1 - W2   | tests/test_w01_w02_import.py          |   10 | pytest tests/test_w01_w02_import.py -v
   W3 - W4   | tests/test_w03_w04_config_schema.py   |  107 | pytest tests/test_w03_w04_config_schema.py -v
-  W5        | tests/test_w05_errors_catalog.py      |  415 | pytest tests/test_w05_errors_catalog.py -v
+  W5        | tests/test_w05_errors_catalog.py      |  420 | pytest tests/test_w05_errors_catalog.py -v
   W5        | tests/test_w05_artifacts.py           |   25 | pytest tests/test_w05_artifacts.py -v
   W5        | tests/test_w05_logging.py             |   14 | pytest tests/test_w05_logging.py -v
   W6        | tests/test_w06_crosswalk.py           |   43 | pytest tests/test_w06_crosswalk.py -v
@@ -1910,8 +1911,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W26       | tests/test_w26_congelamento.py        |   20 | pytest tests/test_w26_congelamento.py -v
   W27       | tests/test_w27_ingressi.py            |   37 | pytest tests/test_w27_ingressi.py -v
   W28       | tests/test_w28_calcolo.py             |   44 | pytest tests/test_w28_calcolo.py -v
-  W29       | tests/test_w29_soglia.py              |   24 | pytest tests/test_w29_soglia.py -v
+  W29       | tests/test_w29_soglia.py              |   26 | pytest tests/test_w29_soglia.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (33 moduli)              | 1263 | pytest tests/ -v
+  TOTALE    | Intera suite (33 moduli)              | 1270 | pytest tests/ -v
 ================================================================================

@@ -447,7 +447,7 @@ Sono realizzati:
   manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
   in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
   lo stesso checksum fra due esecuzioni sugli stessi ingressi;
-- il catalogo degli errori (76 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (77 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -745,7 +745,10 @@ Sono realizzati:
   (`io_layer/reads.py`), li registra per campione in `coppie.tsv` e si ferma con
   `E-S1-04` se un file contiene le due letture di ogni coppia, o le sole seconde: un
   file con tutte le prime letture seguite da tutte le seconde supera G07 quando le
-  letture ispezionate non arrivano al secondo blocco. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
+  letture ispezionate non arrivano al secondo blocco. La stessa lettura completa
+  ferma con `E-S1-05` un file che non si legge fino in fondo (un record incompleto o
+  un archivio interrotto oltre le letture ispezionate da S0), che il lettore a
+  blocchi del profilo scarterebbe in silenzio. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
   `filter.truncLen_shortfall_warn`, che prima registrava S0 dalla stima;
 - **la fase S2, filtro e troncamento** (`steps/s02_filter.py`, `R/02_filter.R`), con
   `dada2::filterAndTrim` e i parametri del gruppo `filter`; scrive in `03_filtered/`

@@ -499,6 +499,16 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "solo letture singole.",
         _UMANA,
     ),
+    _v(
+        "E-S1-05", "S1",
+        "Un file di letture non si legge fino in fondo.",
+        "La validazione ispeziona le prime qc.head_reads letture di ogni file; "
+        "letto per intero, il file ha un record incompleto o un archivio che si "
+        "interrompe (il dettaglio dice dove). Riscarica il file dalla sorgente e "
+        "verificane il checksum prima di rieseguire: proseguire userebbe una "
+        "parte delle letture senza dirlo.",
+        _UMANA,
+    ),
     # ----------------------------------------------------------------- S2 ---
     _v(
         "E-S2-01", "S2",

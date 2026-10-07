@@ -705,6 +705,12 @@ in cui le verifiche dipendono l'una dall'altra.**
   coppia; nelle letture forward ricavate per il secondo dataset ogni lettura porta
   il marcatore della prima e nessuna quello della seconda, e nessun file è respinto.
   Il conteggio costa 24 secondi con dodici processi.
+- Un file che non si legge fino in fondo ferma il profilo di qualità (`E-S1-05`). La
+  stessa lettura completa trova un record incompleto o un archivio interrotto oltre
+  le letture ispezionate dalla validazione. Senza questo arresto il lettore a blocchi
+  del profilo scarta il record incompleto senza errore e il filtro verifica la sola
+  decompressione: un file troncato su un confine di blocco compresso attraversava la
+  catena, e un file di coppie troncato risultava privo di segni di coppia.
 - Due tolleranze rese simmetriche. Un nome in più di due copie non spegne più da
   solo il riconoscimento delle coppie per nome: si tollera entro la stessa frazione
   degli altri segni (5%, almeno due), così un'intestazione vuota o uguale per tutte

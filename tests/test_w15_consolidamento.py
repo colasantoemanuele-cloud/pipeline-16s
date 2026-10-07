@@ -423,6 +423,7 @@ COPERTURA: dict[str, str] = {
     "E-S1-02": "test_w11_s01_profile.py::test_s1_ferma_se_il_troncamento_supera_il_minimo_vero",
     "E-S1-03": "test_w28_calcolo.py::test_con_poche_qualita_distinte_s1_avvisa_con_e_s1_03",
     "E-S1-04": "test_w29_soglia.py::test_un_file_con_le_due_letture_di_ogni_coppia_ferma_s1",
+    "E-S1-05": "test_w29_soglia.py::test_un_file_troncato_oltre_le_letture_ispezionate_ferma_s1",
     "E-S2-01": "test_w15_consolidamento.py::test_s2_ferma_su_un_biologico_azzerato_e_non_su_un_negativo",
     "E-S2-02": "test_w12_s02_filter.py::test_una_perdita_media_oltre_il_30_per_cento_ferma",
     "E-S2-03": "test_w12_s02_filter.py::test_un_archivio_corrotto_si_ferma_dopo_i_tentativi",

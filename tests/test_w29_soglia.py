@@ -1002,6 +1002,41 @@ def test_un_file_con_le_due_letture_di_ogni_coppia_ferma_s1(bioc, tmp_path):
     assert run.albero.manifesto_passo(Passo.S1, Fase.QC_PROFILES) is None
 
 
+def test_un_file_troncato_oltre_le_letture_ispezionate_ferma_s1(bioc, tmp_path):
+    """
+    **Obiettivo**: Verificare che un file con l'ultimo record incompleto,
+    oltre le letture ispezionate da S0, superi la validazione e fermi S1 con
+    ``E-S1-05``, a revisione umana, nominando il file e il punto del guasto,
+    sia quando il file contiene le due letture di ogni coppia sia quando e'
+    di sole forward; e che ``coppie.tsv`` non venga scritto.
+
+    **Razionale scientifico e sistemistico**: Il lettore a blocchi del profilo
+    scarta in silenzio un record incompleto, e il filtro verifica la sola
+    decompressione: senza questo arresto un file troncato attraverserebbe la
+    catena, e un file di coppie troncato risulterebbe privo di segni di coppia.
+    """
+    for nome, record in (
+        ("coppie", [(f"r{i}/1", lettura()) for i in range(30)]
+                   + [(f"r{i}/2", lettura()) for i in range(30)]),
+        ("forward", [(f"r{i}", lettura()) for i in range(60)]),
+    ):
+        scenario = crea_scenario(tmp_path / nome, _campioni(), con_arricchimento=True,
+                                 con_letture=True, sovrascrivi={"qc": {"head_reads": 20}})
+        percorso = _file_di(scenario, "ERX3000002")
+        _scrivi_record(percorso, record)
+        with gzip.open(percorso, "at", encoding="utf-8") as file:
+            file.write("@ultima\nACGT\n")
+        run = ProjectRun(scenario.config)
+        esito = Esecutore(run, fino_a=Passo.S1).esegui()
+        assert [r.passo for r in esito.eseguite] == [Passo.S0], nome
+        punto = esito.punto
+        assert (punto.passo, punto.codice, punto.categoria) == (
+            Passo.S1, "E-S1-05", "revisione_umana"), nome
+        assert percorso.name in punto.dettaglio and "record troncato dopo 60 letture" in punto.dettaglio
+        assert not (run.albero.cartella(Fase.QC_PROFILES) / NOME_COPPIE).exists()
+        chiudi()
+
+
 def test_s1_registra_i_conteggi_di_coppia_fra_i_suoi_artefatti(bioc, ridotta_calcolata):
     """
     **Obiettivo**: Verificare che sulla versione ridotta S1 si concluda con

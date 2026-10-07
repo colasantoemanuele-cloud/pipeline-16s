@@ -32,6 +32,12 @@ le sole seconde: proseguire darebbe il doppio delle letture, forward e
 inverse mescolate. Il conteggio precede i profili: è una lettura dei soli
 nomi, e un dataset da respingere si respinge prima del calcolo.
 
+**Un file che non si legge fino in fondo ferma la fase, E-S1-05.** La stessa
+lettura completa trova un record troncato o un archivio che si interrompe
+oltre le letture ispezionate da S0. Il profilo in R non lo direbbe: il lettore
+a blocchi scarta in silenzio un record incompleto, e il conteggio dei segni di
+coppia, fermo al punto del guasto, non varrebbe per il file intero.
+
 **Segnala le qualità raggruppate, E-S1-03.** Con quattro valori di qualità
 distinti o meno (``valori_qualita.tsv``) le letture vengono da un
 sequenziatore che raggruppa le qualità: è una degradazione dichiarata, che
@@ -129,8 +135,9 @@ class ProfiloLetture(PipelineStep):
     #: qualita' distinti. 3: la frazione si giudica su ciascuna classe
     #: controllata, non sulle due riunite. 4: conta su tutte le letture i segni
     #: di coppia che G07 cerca nelle prime, li scrive in coppie.tsv e ferma un
-    #: file con le due letture di ogni coppia (E-S1-04).
-    versione: ClassVar[int] = 4
+    #: file con le due letture di ogni coppia (E-S1-04). 5: ferma un file che
+    #: non si legge fino in fondo (E-S1-05).
+    versione: ClassVar[int] = 5
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("grezze",)
     #: I profili dipendono solo dalle letture, cioe' da S0; il troncamento, la
@@ -157,6 +164,18 @@ class ProfiloLetture(PipelineStep):
         # condividono nulla, e i nomi di un file vivono solo nel suo processo.
         with ProcessPoolExecutor(max_workers=processi) as gruppo:
             coppie = dict(zip(campioni, gruppo.map(conta_coppie, campioni.values())))
+        # Un file che non si legge per intero non ha un conteggio: fermarsi
+        # prima di scriverlo, perche' zero segni su una lettura interrotta non
+        # dicono che il file e' single-end.
+        guasti = {c: s for c, s in coppie.items() if s.errore is not None}
+        if guasti:
+            elenco = "; ".join(f"{c} ({s.nome}): {s.errore}" for c, s in list(guasti.items())[:5])
+            raise errore(
+                "E-S1-05",
+                f"{len(guasti)} file su {len(coppie)} non si leggono fino in fondo: {elenco}"
+                + ("" if len(guasti) <= 5 else f"; e altri {len(guasti) - 5}"),
+                campioni=sorted(guasti),
+            )
         tabella = contesto.albero.scrivi_testo(self.cartella, NOME_COPPIE, self._tsv_coppie(coppie))
         respinti = {c: s.coppie_nello_stesso_file for c, s in coppie.items()
                     if s.coppie_nello_stesso_file}
