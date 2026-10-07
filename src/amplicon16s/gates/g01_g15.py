@@ -173,7 +173,7 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
         "E-G15-14",
         ("ctrl.blank_override_values", "ctrl.blank_override_column",
          "meta.study_sample_id_column", "io.study_table",
-         "meta.module_regex", "meta.module_column"),
+         "meta.module_regex", "meta.non_surface_positions", "meta.module_column"),
         "gate",
     ),
     Controllo(
@@ -458,8 +458,18 @@ def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
 
     # E-G15-14 : un parametro che ha effetto solo insieme a un altro. Dichiarato
     # da solo verrebbe ignorato in silenzio, e chi lo ha scritto crederebbe il
-    # contrario. (La regola di riclassificazione senza colonna la respinge gia'
-    # lo schema, con lo stesso codice.)
+    # contrario. La regola di riclassificazione senza colonna la respinge gia'
+    # lo schema, con lo stesso codice: e' un vincolo del gruppo ctrl, e lo schema
+    # si valuta prima, quindi quel rifiuto precede gli altri di questo controllo.
+    if config.meta.non_surface_positions and config.meta.module_column is None:
+        violazioni.append(
+            Violazione(
+                "E-G15-14",
+                f"meta.non_surface_positions elenca {config.meta.non_surface_positions} ma "
+                "meta.module_column e' nullo: senza la colonna della posizione nessun "
+                "campione puo' essere riconosciuto come non di superficie",
+            )
+        )
     if config.meta.study_sample_id_column is not None and config.io.study_table is None:
         violazioni.append(
             Violazione(

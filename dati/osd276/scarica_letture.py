@@ -47,6 +47,7 @@ import os
 import sys
 import tempfile
 import time
+import zlib
 from pathlib import Path
 
 QUI = Path(__file__).resolve().parent
@@ -85,6 +86,11 @@ def impronta_contenuto(percorso: Path) -> tuple[str, int]:
 
 class DepositoInatteso(ValueError):
     """Il file del deposito non ha la forma che lo script sa separare."""
+
+
+#: I guasti di una corsa che finiscono nel riepilogo senza fermare le altre:
+#: scarico fallito, deposito inatteso, archivio illeggibile o troncato.
+GUASTI = (ErroreScarico, DepositoInatteso, OSError, EOFError, zlib.error)
 
 
 def conta_letture(deposito: Path) -> tuple[int, int, int]:
@@ -196,7 +202,14 @@ def main(argomenti: list[str] | None = None) -> int:
     for indice, riga in enumerate(righe, start=1):
         forward = opzioni.cartella / "fastq" / riga["file"]
         attese = (impronte[riga["file"]], int(riga["letture_forward"]))
-        if forward.is_file() and impronta_contenuto(forward) == attese:
+        # Un file forward illeggibile (troncato, non compresso) e' non conforme
+        # come uno dal contenuto diverso: non deve fermare le altre corse.
+        try:
+            conforme = forward.is_file() and impronta_contenuto(forward) == attese
+        except GUASTI as guasto:
+            conforme = False
+            print(f"{riga['file']}: illeggibile ({type(guasto).__name__}: {guasto})", flush=True)
+        if conforme:
             conformi += 1
             continue
         if opzioni.solo_verifica:
@@ -206,7 +219,7 @@ def main(argomenti: list[str] | None = None) -> int:
         # Ogni guasto di una corsa finisce nel riepilogo: le altre proseguono.
         try:
             prepara_corsa(riga, opzioni.cartella, attese, opzioni.tentativi, opzioni.pausa)
-        except (ErroreScarico, DepositoInatteso, OSError, EOFError) as guasto:
+        except GUASTI as guasto:
             mancanti.append(f"{riga['file']}: {type(guasto).__name__}: {guasto}")
             continue
         conformi += 1

@@ -253,13 +253,14 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-G15-14", "G15",
         "Un parametro dei metadati e' dichiarato senza quello da cui dipende.",
-        "Tre parametri hanno effetto solo insieme a un altro, e dichiarati da "
+        "Quattro parametri hanno effetto solo insieme a un altro, e dichiarati da "
         "soli verrebbero ignorati senza che nulla lo segnali: "
         "ctrl.blank_override_values richiede ctrl.blank_override_column (la "
         "colonna in cui cercare i valori); meta.study_sample_id_column richiede "
         "io.study_table (senza tabella di studio il nome del campione si legge "
         "dalla tabella di assay, in meta.sample_id_column); meta.module_regex "
-        "richiede meta.module_column (la posizione da cui derivare il modulo). "
+        "e meta.non_surface_positions richiedono meta.module_column (la posizione "
+        "da cui derivare il modulo, e in cui riconoscere le non superfici). "
         "Dichiara il parametro mancante, oppure rendi nullo o vuoto quello che "
         "ne dipende.",
         _UMANA,

@@ -208,8 +208,10 @@ class ValidazioneIngressi(PipelineStep):
     #: righe del lotto senza campione (E-S0-19); il modulo viene dal lotto
     #: anche senza meta.module_column. 7: G09 giudica ogni classe controllata
     #: da sola; G07 riconosce i file con le due letture di ogni coppia; G02 e
-    #: G08 respingono i valori con tabulazioni o a capo.
-    versione: ClassVar[int] = 7
+    #: G08 respingono i valori con tabulazioni o a capo. 8: G15, i cui esiti
+    #: sono in gates.json, respinge anche meta.non_surface_positions senza la
+    #: colonna della posizione.
+    versione: ClassVar[int] = 8
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre

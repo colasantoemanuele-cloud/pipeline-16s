@@ -125,11 +125,11 @@ class Analisi:
     arricchimento_senza_accession: list[tuple[str, str]] = field(default_factory=list)
     senza_riga_di_arricchimento: list[str] = field(default_factory=list)
     arricchimento_ambiguo: dict[str, int] = field(default_factory=dict)
-    #: Campioni con la riga del lotto ma senza il valore di una colonna
-    #: dichiarata: la piastra (decontam.batch_column), la corsa (err.batch_column).
     #: Righe del file che non corrispondono ad alcun campione dell'assay, per
     #: chiave: il file ne dichiara piu' di quanti campioni la pipeline tratti.
     righe_lotto_senza_campione: dict[str, int] = field(default_factory=dict)
+    #: Campioni con la riga del lotto ma senza il valore di una colonna
+    #: dichiarata: la piastra (decontam.batch_column), la corsa (err.batch_column).
     senza_piastra: list[str] = field(default_factory=list)
     senza_corsa: list[str] = field(default_factory=list)
 

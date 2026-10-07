@@ -558,7 +558,9 @@ class Run(_Gruppo):
     # macchina non entra nella configurazione ne' nel suo digest, che resta lo
     # stesso su macchine diverse; un valore fisso per difetto fermerebbe G14
     # sulle macchine piu' piccole.
-    threads: InteroPositivo | None = None
+    # Intero in senso stretto: YAML legge "true" come booleano, che per Python
+    # e' anche l'intero 1, e un refuso diventerebbe un solo thread.
+    threads: Annotated[int, Field(gt=0, strict=True)] | None = None
     batch_size: InteroPositivo = d.RUN_BATCH_SIZE
     # Se conservare le letture filtrate da S2 a esecuzione conclusa. Con false
     # si rimuovono solo quando tutte le fasi sono concluse, e la rimozione e'

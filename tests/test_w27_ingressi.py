@@ -1102,8 +1102,9 @@ def test_senza_colonna_della_posizione_il_modulo_viene_dal_file_del_lotto(tmp_pa
     ``meta.batch_module_column`` dichiarata ogni campione prenda il modulo dal
     file del lotto e resti senza posizione; che con la colonna della posizione
     dichiarata la regola delle non superfici continui a valere; e che G15
-    respinga con ``E-G15-14`` ``meta.module_regex`` valorizzata con
-    ``meta.module_column`` nullo.
+    respinga con ``E-G15-14`` ``meta.module_regex`` e
+    ``meta.non_surface_positions`` valorizzati con ``meta.module_column``
+    nullo.
 
     **Razionale scientifico e sistemistico**: Senza una posizione dichiarata la
     regola delle non superfici non ha nulla da giudicare, e scartare il modulo
@@ -1114,7 +1115,8 @@ def test_senza_colonna_della_posizione_il_modulo_viene_dal_file_del_lotto(tmp_pa
     campioni = _campioni()
     senza = crea_scenario(
         tmp_path / "a", campioni, con_arricchimento=True, con_letture=True,
-        sovrascrivi={"meta": {"module_column": None, "module_regex": None},
+        sovrascrivi={"meta": {"module_column": None, "module_regex": None,
+                              "non_surface_positions": []},
                      "ctrl": {"blank_override_column": None, "blank_override_values": []}},
     )
     assert esegui_gate("G15", Contesto(senza.config)).superato
@@ -1131,9 +1133,12 @@ def test_senza_colonna_della_posizione_il_modulo_viene_dal_file_del_lotto(tmp_pa
         sovrascrivi={"meta": {"module_column": None},
                      "ctrl": {"blank_override_column": None, "blank_override_values": []}},
     )
+    # L'espressione e le posizioni non di superficie, entrambe senza la colonna:
+    # due violazioni, dette insieme.
     esito = esegui_gate("G15", Contesto(incoerente.config))
-    assert [v.codice for v in esito.violazioni] == ["E-G15-14"]
-    assert "meta.module_regex" in esito.violazioni[0].dettaglio
+    assert [v.codice for v in esito.violazioni] == ["E-G15-14", "E-G15-14"]
+    testi = " | ".join(v.dettaglio for v in esito.violazioni)
+    assert "meta.module_regex" in testi and "meta.non_surface_positions" in testi
     assert CATALOGO["E-G15-14"].categoria is Categoria.REVISIONE_UMANA
 
 
@@ -1205,7 +1210,9 @@ def test_g15_respinge_un_parametro_dichiarato_senza_quello_da_cui_dipende(tmp_pa
     **Obiettivo**: Verificare che G15 respinga con ``E-G15-14``
     ``ctrl.blank_override_values`` non vuoto con ``ctrl.blank_override_column``
     nullo, e ``meta.study_sample_id_column`` dichiarato con ``io.study_table``
-    nullo; e che le stesse configurazioni, corrette, passino.
+    nullo; che
+    ``run.threads: true`` sia respinto; e che le stesse configurazioni,
+    corrette, passino.
 
     **Razionale scientifico e sistemistico**: Un parametro che ha effetto solo
     insieme a un altro, dichiarato da solo, verrebbe ignorato in silenzio: chi
@@ -1234,6 +1241,12 @@ def test_g15_respinge_un_parametro_dichiarato_senza_quello_da_cui_dipende(tmp_pa
 
     senza_studio["meta"]["study_sample_id_column"] = None
     assert esegui_g15(senza_studio).config.io.study_table is None
+
+    booleano = copy.deepcopy(dati)
+    booleano["run"]["threads"] = True
+    with pytest.raises(ErroreGate) as info:
+        esegui_g15(booleano)
+    assert "run.threads" in str(info.value)
 
 
 def test_g08_dichiara_le_righe_del_lotto_senza_campione(tmp_path):
@@ -1361,3 +1374,11 @@ def test_le_forward_si_ricavano_solo_da_un_deposito_con_le_coppie_complete(tmp_p
     assert "CORSA2_campione_R1.fastq.gz: DepositoInatteso" in uscita and "messo da parte" in uscita
     assert "CORSA3_campione_R1.fastq.gz: BadGzipFile" in uscita
     assert script.main(["--cartella", str(cartella), "--solo-verifica"]) == 1
+
+    # Un file forward gia' presente ma illeggibile e' non conforme, non un arresto.
+    (cartella / "fastq" / "CORSA1_campione_R1.fastq.gz").write_bytes(b"\x1f\x8b troncato")
+    capsys.readouterr()
+    assert script.main(["--cartella", str(cartella), "--solo-verifica"]) == 1
+    uscita = capsys.readouterr().out
+    assert "CORSA1_campione_R1.fastq.gz: illeggibile" in uscita
+    assert "file forward conformi 0, mancanti o non conformi 3" in uscita
