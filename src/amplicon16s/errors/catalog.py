@@ -322,8 +322,8 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "Seleziona il sottoinsieme single-end oppure usa una pipeline "
         "paired-end: questa tratta solo letture singole. Se un file contiene le "
         "due letture di ogni coppia (lo dicono le intestazioni, con /1 e /2 o con "
-        "lo stesso nome ripetuto), estrai le sole letture forward in un file per "
-        "campione.",
+        "lo stesso nome due volte), o le sole seconde letture (intestazioni tutte "
+        "con /2), estrai le sole letture forward in un file per campione.",
         _UMANA,
     ),
     _v(

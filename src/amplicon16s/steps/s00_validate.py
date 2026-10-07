@@ -213,8 +213,9 @@ class ValidazioneIngressi(PipelineStep):
     #: colonna della posizione. 9: G07 giudica i segni di coppia sulla
     #: frazione delle letture esaminate, sull'intera intestazione, e respinge un
     #: file di sole seconde letture; G02 guarda nella tabella di studio le sole
-    #: righe dei campioni dell'assay.
-    versione: ClassVar[int] = 9
+    #: righe dei campioni dell'assay. 10: un nome ripetuto piu' di due volte
+    #: non e' un segno di coppia, e servono almeno due letture con il segno.
+    versione: ClassVar[int] = 10
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre

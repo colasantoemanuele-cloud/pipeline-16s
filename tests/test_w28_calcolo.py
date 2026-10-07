@@ -1088,6 +1088,8 @@ def test_una_classe_minoritaria_di_sole_letture_corte_ferma_s1(bioc, tmp_path):
     ("senza_marcatore", ["r1 lunghezza=151", "r2 lunghezza=151", "r3", "r4"], False),
     ("campione_in_testa", ["Campione 1 length=151", "Campione 2 length=151",
                            "Campione 3 length=151", "Campione 4 length=151"], False),
+    ("intestazione_costante", ["campione"] * 4, False),
+    ("intestazione_vuota", [""] * 4, False),
 ])
 def test_g07_riconosce_le_due_letture_di_ogni_coppia_nello_stesso_file(
     tmp_path, nome, intestazioni, intercalato
@@ -1098,8 +1100,9 @@ def test_g07_riconosce_le_due_letture_di_ogni_coppia_nello_stesso_file(
     coppia (suffissi ``/1`` e ``/2``, commento ``1:N:`` e ``2:N:``, o lo stesso
     nome di lettura ripetuto) o le sole seconde letture, dicendo di estrarre
     le letture forward; e che un file di sole letture forward, senza
-    marcatori, o con il nome del campione ripetuto in testa a ogni
-    intestazione, passi.
+    marcatori, con il nome del campione ripetuto in testa a ogni
+    intestazione, o con un'intestazione vuota o uguale per tutte le letture,
+    passi.
 
     **Razionale scientifico e sistemistico**: Alcuni archivi distribuiscono un
     dataset paired-end con un solo file per corsa: il nome non lo dice, e
@@ -1108,8 +1111,10 @@ def test_g07_riconosce_le_due_letture_di_ogni_coppia_nello_stesso_file(
     """
     scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
     percorso = _file_di(scenario, "ERX3000001")
-    # Cinque blocchi con nomi distinti: i nomi si ripetono solo dove lo dice il caso.
-    _scrivi_record(percorso, [(f"b{blocco}{i}", lettura(), "I" * 151)
+    # Cinque blocchi con nomi distinti: i nomi si ripetono solo dove lo dice il
+    # caso (un'intestazione costante o vuota resta uguale in ogni blocco).
+    costante = len(set(intestazioni)) == 1
+    _scrivi_record(percorso, [(i if costante else f"b{blocco}{i}", lettura(), "I" * 151)
                               for blocco in range(5) for i in intestazioni])
     esito = esegui_gate("G07", Contesto(scenario.config))
     if not intercalato:
@@ -1125,8 +1130,9 @@ def test_un_record_isolato_non_fa_di_un_file_un_file_di_coppie(tmp_path):
     """
     **Obiettivo**: Verificare che un file di quaranta letture forward in cui
     una sola porta il marcatore della seconda lettura, o ripete il nome di
-    un'altra, superi G07; e che lo stesso segno su meta' delle letture lo
-    fermi.
+    un'altra, superi G07, anche se le letture sono solo quindici; che lo
+    stesso segno su meta' delle letture lo fermi; e che un file di seconde
+    letture con una sola prima resti respinto.
 
     **Razionale scientifico e sistemistico**: Un record anomalo e' un difetto
     del file, non la prova che contenga le due letture di ogni coppia: il
@@ -1142,6 +1148,12 @@ def test_un_record_isolato_non_fa_di_un_file_un_file_di_coppie(tmp_path):
         assert statistiche.seconde_di_coppia + statistiche.nomi_ripetuti == 1
         assert esegui_gate("G07", Contesto(scenario.config)).superato, anomalo
     _scrivi_record(percorso, forward[:20] + [(f"r{i}/2", lettura(), "I" * 151) for i in range(20)])
+    assert [v.codice for v in esegui_gate("G07", Contesto(scenario.config)).violazioni] == ["E-S0-07"]
+    # Anche in un file di poche letture un solo record anomalo non basta, e le
+    # seconde letture restano riconosciute se fra loro c'e' una sola prima.
+    _scrivi_record(percorso, forward[:14] + [("r99/2", lettura(), "I" * 151)])
+    assert esegui_gate("G07", Contesto(scenario.config)).superato
+    _scrivi_record(percorso, [(f"r{i}/2", lettura(), "I" * 151) for i in range(39)] + forward[:1])
     assert [v.codice for v in esegui_gate("G07", Contesto(scenario.config)).violazioni] == ["E-S0-07"]
 
 

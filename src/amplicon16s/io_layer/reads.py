@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import gzip
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Final
@@ -102,10 +103,13 @@ class StatisticheFile:
     piu_corte: int = 0
     #: Letture esaminate la cui intestazione le marca come prima o seconda
     #: lettura di una coppia (``/1``, ``/2``, o ``1:`` e ``2:`` nel commento), e
-    #: letture il cui nome era gia' comparso nello stesso file.
+    #: nomi di lettura comparsi esattamente due volte nello stesso file, come
+    #: le due letture di una coppia; e nomi comparsi piu' di due volte, che di
+    #: una coppia non possono essere (un'intestazione vuota o costante).
     prime_di_coppia: int = 0
     seconde_di_coppia: int = 0
     nomi_ripetuti: int = 0
+    nomi_oltre_due: int = 0
 
     @property
     def coppie_nello_stesso_file(self) -> str | None:
@@ -113,8 +117,10 @@ class StatisticheFile:
 
         Tre segni, giudicati sulla frazione delle letture esaminate e non su un
         record isolato (:data:`FRAZIONE_DI_COPPIA`): intestazioni che marcano
-        sia la prima sia la seconda lettura di una coppia; lo stesso nome di
-        lettura piu' volte; oppure sole seconde letture, come nella testa di
+        sia la prima sia la seconda lettura di una coppia; nomi di lettura che
+        compaiono due volte (e nessuno piu' di due: un'intestazione vuota o
+        uguale per tutte le letture non e' un segno di coppia); oppure quasi
+        sole seconde letture, come nella testa di
         un file che riporta prima tutte le seconde e poi tutte le prime. Vale
         per le letture esaminate: un file che riporta prima tutte le prime
         letture e poi le seconde non si riconosce se le esaminate non arrivano
@@ -122,22 +128,30 @@ class StatisticheFile:
         """
         if not self.letture_esaminate:
             return None
-        minimo = FRAZIONE_DI_COPPIA * self.letture_esaminate
+        # Almeno due letture, oltre la frazione: in un file di poche letture
+        # un solo record anomalo non deve bastare.
+        tollerate = FRAZIONE_DI_COPPIA * self.letture_esaminate
+        minimo = max(2.0, tollerate)
         if self.prime_di_coppia >= minimo and self.seconde_di_coppia >= minimo:
             return (
                 f"{self.prime_di_coppia} intestazioni su {self.letture_esaminate} marcano "
                 f"la prima lettura di una coppia e {self.seconde_di_coppia} la seconda"
             )
-        if self.nomi_ripetuti >= minimo:
+        # Lo stesso nome due volte e' il segno di una coppia; piu' di due volte
+        # e' un'intestazione che non distingue le letture, e non dice nulla.
+        if self.nomi_ripetuti >= minimo and not self.nomi_oltre_due:
             return (
-                f"{self.nomi_ripetuti} letture su {self.letture_esaminate} ripetono il nome "
-                "di una lettura precedente"
+                f"{self.nomi_ripetuti} nomi di lettura su {self.letture_esaminate} letture "
+                "compaiono due volte"
             )
-        if self.seconde_di_coppia and not self.prime_di_coppia \
-                and self.seconde_di_coppia >= self.letture_esaminate - minimo:
+        if (
+            self.seconde_di_coppia >= minimo
+            and self.prime_di_coppia < minimo
+            and self.seconde_di_coppia >= self.letture_esaminate - tollerate
+        ):
             return (
                 f"{self.seconde_di_coppia} intestazioni su {self.letture_esaminate} marcano "
-                "la seconda lettura di una coppia, e nessuna la prima"
+                f"la seconda lettura di una coppia, e {self.prime_di_coppia} la prima"
             )
         return None
 
@@ -227,8 +241,8 @@ def scansiona_file(
     espressione_motivo = re.compile(motivo) if motivo is not None else None
 
     letture = con_primer = con_motivo = corte = 0
-    prime = seconde = ripetuti = 0
-    nomi: set[str] = set()
+    prime = seconde = 0
+    nomi: Counter[str] = Counter()
     minima: int | None = None
     massima: int | None = None
     esaurito = True
@@ -274,9 +288,7 @@ def scansiona_file(
                 nome, coppia = _nome_e_coppia(intestazione)
                 prime += coppia == "1"
                 seconde += coppia == "2"
-                if nome in nomi:
-                    ripetuti += 1
-                nomi.add(nome)
+                nomi[nome] += 1
                 lunghezza = len(sequenza)
                 minima = lunghezza if minima is None else min(minima, lunghezza)
                 massima = lunghezza if massima is None else max(massima, lunghezza)
@@ -307,7 +319,9 @@ def scansiona_file(
     return StatisticheFile(
         percorso.name, letture, minima, massima, con_primer, con_motivo,
         esaurito=esaurito, piu_corte=corte,
-        prime_di_coppia=prime, seconde_di_coppia=seconde, nomi_ripetuti=ripetuti,
+        prime_di_coppia=prime, seconde_di_coppia=seconde,
+        nomi_ripetuti=sum(1 for volte in nomi.values() if volte == 2),
+        nomi_oltre_due=sum(1 for volte in nomi.values() if volte > 2),
     )
 
 
