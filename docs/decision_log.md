@@ -654,8 +654,12 @@ in cui le verifiche dipendono l'una dall'altra.**
   loro numero (`E-S0-19`). Un file che nelle letture ispezionate porta le due
   letture di ogni coppia (intestazioni con `/1` e `/2`, o la stessa intestazione
   ripetuta), o le sole seconde letture, è respinto come layout non single-end
-  (`E-S0-07`); il segno deve riguardare almeno il 5% delle letture ispezionate,
-  perché un record anomalo isolato non fermi un dataset single-end. Il primer in testa alle letture
+  (`E-S0-07`). Un record anomalo isolato non ferma un dataset single-end: i
+  marcatori delle due letture, o i nomi che compaiono due volte, devono riguardare
+  almeno il 5% delle letture ispezionate (e almeno due); un file è di sole seconde
+  letture se le marcate come seconde sono almeno il 95% e le prime meno del 5%. Un
+  nome che compare più di due volte (un'intestazione vuota o uguale per tutte le
+  letture) non è un segno di coppia. Il primer in testa alle letture
   si cerca nei soli campioni biologici e controlli positivi, come il motivo
   conservato.
 - Motivazione: sono tutti casi in cui la pipeline proseguiva con un risultato
@@ -671,7 +675,11 @@ in cui le verifiche dipendono l'una dall'altra.**
   letture sono respinti con il valore predefinito di 10.000, e bastano a fermare la
   validazione; gli 8 che cominciano con le prime, presi da soli, passerebbero.
   Chiudere il limite richiede di contare i marcatori su tutte le letture, nel
-  profilo di qualità.
+  profilo di qualità. Non si riconoscono nemmeno le coppie marcate in altri modi
+  (suffissi `.1` e `.2` o `_1` e `_2`, commento separato da una tabulazione,
+  letture rinumerate senza marcatore). E un dataset single-end fatto di seconde
+  letture, se le intestazioni lo dichiarano, è respinto: non c'è un parametro per
+  dichiararlo voluto.
 
 **Il numero di thread non fa parte dell'identità della configurazione.**
 - Decisione: `run.threads` è nullo per difetto, cioè automatico: i processori

@@ -55,8 +55,8 @@ blocco e' piu' lungo (da 35.489 a 105.423 letture), e le letture ispezionate son
 tutte dello stesso blocco. I 7 file che cominciano con il blocco `/2` sono respinti
 (`E-S0-07`: sole seconde letture), e tanto basta a fermare la validazione
 dell'insieme; gli 8 che cominciano con il blocco `/1` sembrano, nelle letture
-ispezionate, file di sole forward, e da soli passerebbero (con `qc.head_reads` oltre
-la lunghezza del primo blocco vengono respinti anch'essi). Passati, la catena
+ispezionate, file di sole forward, e da soli passerebbero (vengono respinti anch'essi
+solo se le letture ispezionate entrano nel secondo blocco per almeno il 5%). Passati, la catena
 mescolerebbe letture forward e inverse.
 
 ## Perche' questo dataset
