@@ -639,13 +639,51 @@ in cui le verifiche dipendono l'una dall'altra.**
 - Motivazione: la diagnosi deve nominare l'errore vero. Un controllo eseguito prima di
   ciò da cui dipende fallisce con il messaggio di un altro problema.
 
+**Ciò che la validazione iniziale lasciava passare in silenzio ha un esito dichiarato.**
+- Decisione: un parametro che ha effetto solo insieme a un altro, dichiarato da solo,
+  è respinto (`E-G15-14`: i valori della riclassificazione in controllo negativo
+  senza la colonna, la colonna del nome nella tabella di studio senza la tabella,
+  l'espressione del modulo senza la colonna della posizione). Senza colonna della
+  posizione il modulo viene dal file del lotto, se lo dichiara. Un valore dei
+  metadati con una tabulazione o un a capo dentro un campo fra virgolette, in una
+  colonna che la pipeline legge, ferma la validazione (`E-S0-02` per le tabelle di
+  assay e di studio, `E-S0-08` per il file del lotto). Le righe del file del lotto
+  che non corrispondono ad alcun campione non fermano, ma sono dichiarate con il
+  loro numero (`E-S0-19`). Un file che nelle letture ispezionate porta le due
+  letture di ogni coppia (intestazioni con `/1` e `/2`, o lo stesso nome ripetuto)
+  è respinto come layout non single-end (`E-S0-07`). Il primer in testa alle letture
+  si cerca nei soli campioni biologici e controlli positivi, come il motivo
+  conservato.
+- Motivazione: sono tutti casi in cui la pipeline proseguiva con un risultato
+  plausibile (un modulo mancante, una riclassificazione non avvenuta, il doppio delle
+  letture) o si fermava molto dopo con un errore che non nominava la causa. Per il
+  primer: in un controllo negativo con tre letture una sola che comincia come il
+  primer supera qualunque soglia in frazione.
+- Limite dichiarato: i file con le due letture di ogni coppia si riconoscono nelle
+  sole letture ispezionate (`qc.head_reads`). Un file con tutte le prime letture
+  seguite da tutte le seconde, come quelli che ENA distribuisce per il secondo
+  dataset (da 35.489 a 105.423 coppie per file), non si riconosce con il valore
+  predefinito di 10.000.
+
+**Il numero di thread non fa parte dell'identità della configurazione.**
+- Decisione: `run.threads` è nullo per difetto, cioè automatico: i processori
+  utilizzabili si contano quando servono, e il numero non entra nella configurazione
+  registrata né nel suo digest. Un valore dichiarato resta dichiarato, e la
+  validazione lo confronta con i processori utilizzabili.
+- Motivazione: il digest identifica la configurazione; con il numero dei processori
+  al suo interno la stessa configurazione avrebbe avuto un digest diverso su ogni
+  macchina, e una ripresa altrove avrebbe registrato una configurazione nuova.
+- Misure: la stessa configurazione dà lo stesso digest con 4 e con 16 processori.
+
 ### 3.16 Generalità delle fasi di calcolo: ciò che un dataset può non avere
 
 **Il troncamento si giudica sulla frazione di letture più corte, non sulla più corta.**
 - Decisione: G09 (sulle prime letture) e S1 (su tutte) si fermano solo se le letture
   più corte di `filter.truncLen` superano `qc.max_frac_short_reads` (0,05) delle
-  letture dei campioni biologici e dei controlli positivi; i controlli negativi non
-  contano. `filter.minLen`, che coincideva per costruzione con `filter.truncLen`, e il
+  letture dei campioni biologici, o di quelle dei controlli positivi: ogni classe si
+  giudica da sola, perché in una frazione unica pesata sulle letture la classe meno
+  numerosa (tre controlli positivi fra cento campioni) potrebbe perdere tutte le sue
+  letture restando sotto la soglia. I controlli negativi non contano. `filter.minLen`, che coincideva per costruzione con `filter.truncLen`, e il
   controllo che lo sorvegliava (`E-G15-01`) sono rimossi. Il report indica un
   troncamento suggerito: il minore fra il più lungo che scarta non oltre il 5% delle
   letture e l'ultima posizione con qualità mediana dei biologici almeno 30. È
@@ -661,15 +699,25 @@ in cui le verifiche dipendono l'una dall'altra.**
 **Il modello di errore ha una variante per le qualità raggruppate, e S1 dice quando
 serve.**
 - Decisione: `err.error_function` vale `loess` (la funzione standard di dada2,
-  predefinita) o `loess_monotono` (loess pesato sui conteggi, reso non crescente con
-  la qualità). S1 conta i valori di qualità distinti e con quattro o meno lo dichiara
-  (`E-S1-03`). Una corsa senza letture filtrate ferma S3 con un codice proprio
-  (`E-S3-03`); letture con un solo valore di qualità, da cui nessuna funzione può
-  stimare il modello, la fermano con `E-S3-04`.
+  predefinita) o `loess_monotono`: un loess di primo grado con span 2 e pesi pari al
+  logaritmo in base 10 delle basi osservate a ogni qualità (span e pesi sono quelli
+  discussi dalla comunità di dada2 per i dati a qualità raggruppate), poi reso non
+  crescente con la qualità (a ogni qualità il tasso è almeno quello di tutte le
+  qualità superiori); con due soli valori di qualità la retta per i due punti. S1
+  conta i valori di qualità distinti e con quattro o meno lo dichiara (`E-S1-03`).
+  Una corsa senza letture filtrate ferma S3 con un codice proprio (`E-S3-03`);
+  letture con un solo valore di qualità, da cui nessuna funzione può stimare il
+  modello, la fermano con `E-S3-04`, e solo quelle: ogni altra stima fallita ha un
+  codice diverso (`E-S3-05`), deciso contando i valori di qualità delle letture su
+  cui si stimava.
 - Motivazione: con pochi valori di qualità la stima standard può dare un tasso di
   errore che cresce con la qualità, e l'inferenza tratterebbe come più affidabili le
   basi peggiori. La scelta resta di chi conduce l'analisi: la pipeline segnala, non
-  sostituisce il modello da sé.
+  sostituisce il modello da sé. Lo span largo e il primo grado servono proprio ai
+  pochi punti: con lo span stretto la curva interpolava esattamente tre punti o non
+  era adattabile.
+- Misure: su matrici di transizione con due, tre e quattro qualità osservate la
+  variante dà tassi finiti e non crescenti; la funzione standard si ferma con due.
 
 **L'assenza di una classe di controlli è una condizione dichiarata, non un errore.**
 - Decisione: senza controlli positivi, o senza la colonna dei livelli, S11 non adatta
@@ -677,6 +725,8 @@ serve.**
   attendibile (`E-S11-02`); un controllo senza piastra entra nella sola curva
   aggregata e uno con una sola lettura in nessuna. Con meno di `decontam.min_blanks`
   controlli negativi con letture S12 non toglie nulla e lo dichiara (`E-S12-03`).
+  Se nessun campione biologico ha letture la fase si ferma (`E-S12-04`), e così se
+  tutte le varianti risultano contaminanti entro la quota ammessa (`E-S12-05`).
   La colonna dei livelli si cerca nel file del lotto e poi nella tabella di studio, ed
   entra nell'oggetto anche se non è fra le colonne richieste. Il valore del ripiego
   della soglia di profondità non cambia.

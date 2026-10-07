@@ -360,8 +360,14 @@ Sono realizzati:
   `dati/osd276/config_osd276.yaml` li dichiarano tutti. Otto parametri restano con un
   predefinito tarato su OSD-734 (`FATTI_OSD734`: scelte di metodo come la soglia di
   decontaminazione o la prevalenza minima), e il report segnala quelli presi per
-  difetto. `run.threads` vale per difetto i processori utilizzabili dal processo e
-  `run.container` è facoltativo;
+  difetto. `run.threads` è nullo per difetto, cioè automatico: le fasi e G14 contano
+  i processori utilizzabili dal processo quando servono, e il valore ricavato dalla
+  macchina non entra nella configurazione registrata né nel suo digest, che è lo
+  stesso su macchine diverse; `run.container` è facoltativo. G15 respinge un
+  parametro dichiarato senza quello da cui dipende (`E-G15-14`: la regola di
+  riclassificazione senza la sua colonna, `meta.study_sample_id_column` senza
+  tabella di studio, `meta.module_regex` senza `meta.module_column`), e se manca un
+  intero gruppo l'elenco dei problemi nomina ogni suo parametro senza predefinito;
 - **la prova su un secondo dataset** (`dati/osd276/`): OSD-276, 15 tamponi di
   superfici della stessa stazione, di un altro laboratorio; paired-end, di cui si
   usano le sole letture forward come dato single-end; 151 basi, nessun controllo,
@@ -392,11 +398,26 @@ Sono realizzati:
   colonne richieste che nell'oggetto prenderebbero lo stesso nome, o quello di una
   colonna dell'inventario, sono respinte da G15 (`E-G15-13`) invece che da S10 a
   calcolo concluso; G08 respinge un file del lotto in cui un
-  campione non ha riga, ne ha più d'una, o non ha la piastra o la corsa dichiarate.
-  G07 riconosce le letture inverse dal marcatore che precede l'estensione; i FASTQ,
+  campione non ha riga, ne ha più d'una, o non ha la piastra o la corsa dichiarate,
+  e dichiara con un avviso (`E-S0-19`) le righe che non corrispondono ad alcun
+  campione. G02 e G08 respingono anche un valore con una tabulazione o un a capo
+  dentro un campo fra virgolette, nelle colonne che la pipeline legge: le tabelle
+  che scrive non hanno virgolette, e prima se ne accorgeva S10. Senza
+  `meta.module_column` il modulo viene dal file del lotto, se
+  `meta.batch_module_column` è dichiarata.
+  G07 riconosce le letture inverse dal marcatore che precede l'estensione e, nelle
+  letture ispezionate, i file con le due letture di ogni coppia (intestazioni con
+  `/1` e `/2`, o lo stesso nome di lettura ripetuto): è un limite dichiarato che un
+  file con tutte le prime letture seguite da tutte le seconde si riconosce solo se
+  le `qc.head_reads` letture ispezionate arrivano alla seconda metà. I FASTQ,
   compressi o no, si riconoscono dai primi byte, in S0 come nel controllo che S2 fa
-  sugli archivi prima del filtro. G10 cerca il primer in testa alle
-  letture solo con `filter.trimLeft` a zero, e il motivo conservato a partire dalla
+  sugli archivi prima del filtro. G09 giudica la frazione di letture più corte
+  del troncamento separatamente per i campioni biologici e per i controlli positivi:
+  riunite in una sola frazione, una classe poco numerosa potrebbe perdere tutte le
+  sue letture senza farsi notare. G10 cerca il primer in testa alle
+  letture solo con `filter.trimLeft` a zero e solo nei campioni biologici e nei
+  controlli positivi (in un bianco con poche letture una frazione non ha
+  significato), e il motivo conservato a partire dalla
   posizione `filter.trimLeft`: così la correzione che il gate indica (il taglio pari
   alla lunghezza del primer) lo fa superare. Primer presente (`E-S0-10`) e segnale
   assente (`E-S0-16`) hanno codici e rimedi distinti; con `qc.conserved_motif` nullo
@@ -418,7 +439,7 @@ Sono realizzati:
   manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
   in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
   lo stesso checksum fra due esecuzioni sugli stessi ingressi;
-- il catalogo degli errori (70 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (75 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -657,7 +678,8 @@ Sono realizzati:
   precedente. I checksum attesi sono pubblicati in `dati/osd734/`
   (`checksum_finali.sha256` per i file consegnati, `checksum_artefatti.tsv` per tutti
   gli artefatti), e `confronta_risultati.py` li confronta con un'esecuzione indicando,
-  se differiscono, la prima fase in cui la differenza compare. Si riferiscono
+  se differiscono, la prima fase in cui la differenza compare; legge i manifesti nelle
+  sole cartelle delle fasi e in `12_final/intermedi`, e si ferma se una fase ne ha due. Si riferiscono
   all'immagine pubblicata nel registro, con cui la catena completa è stata rieseguita
   (1.031 artefatti identici, 48 minuti e 11 secondi, 12,6 GB di picco). La prova ha
   fatto emergere un difetto, corretto: i percorsi relativi della
@@ -685,18 +707,23 @@ Sono realizzati:
   lunghezza minima è 137, la moda 151, e la qualità mediana non scende sotto 25 in
   nessuna posizione; la fase impiega alcuni minuti. S1 chiude il limite noto di G09,
   che misura le prime `qc.head_reads` letture: su tutte le letture calcola, per
-  classe, la frazione più corta di `filter.truncLen`, e si ferma con `E-S1-02` solo
-  se quella dei campioni biologici e dei controlli positivi supera
-  `qc.max_frac_short_reads` (0,05; i controlli negativi non contano). Una sola
+  classe, la frazione più corta di `filter.truncLen`, e si ferma con `E-S1-02` se
+  quella dei campioni biologici, o quella dei controlli positivi, supera
+  `qc.max_frac_short_reads` (0,05; ogni classe si giudica da sola, e i controlli
+  negativi non contano). Una sola
   lettura corta non ferma più né G09 né S1: in un dataset a lunghezza variabile ce
   n'è quasi sempre qualcuna, e il filtro la toglie. S1 conta anche i valori di
   qualità distinti (`valori_qualita.tsv`) e, se sono quattro o meno (qualità
   raggruppate), lo dichiara con `E-S1-03`, perché la stima standard del modello di
   errore vi è poco affidabile: `err.error_function` sceglie fra la funzione standard
   di dada2 (`loess`) e una variante pesata e monotona (`loess_monotono`,
-  `R/lib/errore_loess.R`), usata da S3 e da S4. Una corsa senza letture filtrate
+  `R/lib/errore_loess.R`: loess di primo grado con span 2 e pesi pari al logaritmo
+  delle basi osservate, poi tassi non crescenti con la qualità; regge due, tre o
+  quattro valori di qualità), usata da S3 e da S4. Una corsa senza letture filtrate
   ferma S3 con `E-S3-03`; letture con un solo valore di qualità, da cui nessuna
-  funzione può stimare il modello, con `E-S3-04`. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
+  funzione può stimare il modello, con `E-S3-04` (e in quel caso `E-S1-03` non
+  suggerisce una funzione); ogni altra stima fallita, con più valori di qualità,
+  con `E-S3-05`. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
   `filter.truncLen_shortfall_warn`, che prima registrava S0 dalla stima;
 - **la fase S2, filtro e troncamento** (`steps/s02_filter.py`, `R/02_filter.R`), con
   `dada2::filterAndTrim` e i parametri del gruppo `filter`; scrive in `03_filtered/`
@@ -886,7 +913,9 @@ Sono realizzati:
   l'aggregata: le piastre hanno pochi negativi, e il minimo di dieci probabilità
   stimate ciascuna su così pochi negativi è permissivo per costruzione. Se la
   modalità dichiarata rimuove dai biologici una frazione delle letture oltre
-  `qc.max_frac_contaminant` (0,40), `E-S12-02` ferma la fase. Il confronto numerico e
+  `qc.max_frac_contaminant` (0,40), `E-S12-02` ferma la fase; se nessun campione
+  biologico ha letture la ferma `E-S12-04`, e se tutte le varianti risultano
+  contaminanti entro la quota ammessa `E-S12-05`. Il confronto numerico e
   la frazione rimossa per classe sono in `decontam_riepilogo.json`; le probabilità e
   le prevalenze di ogni variante in `decontam_varianti.tsv`, quelle di ogni piastra
   in `decontam_per_piastra.tsv`, l'elenco dei contaminanti in
@@ -944,7 +973,7 @@ Sono realizzati:
   degli export che la configurazione non produce più). La validazione,
   `E-S14-01`: componenti allineati, solo biologici, nessun campione e nessuna variante
   senza letture, l'oggetto riletto e quello ricostruito dai soli export identici a
-  quello serializzato, `ps_filtrato.rds` di S13 integro rispetto al suo manifesto, la
+  quello serializzato, `ps_filtrato.rds` di S13 e `ps_integrato.rds` di S10 integri rispetto ai manifesti di chi li ha scritti, la
   frazione delle letture trattenute dall'insieme dei campioni finali (letture finali
   su letture senza chimere) non sotto `qc.min_frac_reads_retained` (0,40). Le due
   soglie del piano agiscono a livelli diversi: `qc.min_reads_final` per campione, in
