@@ -323,11 +323,11 @@ prev:
 # warn_frac_chimeric non può superare stop_frac_chimeric: l'esecuzione si
 # fermerebbe prima di emettere l'avviso.
 qc:
-  # Ripiego della profondita' minima, sulle letture GREZZE: non e' confrontabile
-  # con la soglia derivata da S11, che si applica allo stadio katharoseq.read_stage.
-  min_reads_raw: 1000
-  # katharoseq_if_available: la soglia di S11 se la curva e' attendibile,
-  # altrimenti min_reads_raw con E-S11-02; fixed: sempre min_reads_raw.
+  # katharoseq_if_available: le soglie di S11, sulle letture senza chimere
+  # (katharoseq.read_stage). Una piastra senza curva valida usa la soglia
+  # aggregata o la mediana delle soglie delle altre piastre (E-S11-02); senza
+  # alcuna curva valida non c'e' soglia (E-S11-05) e resta min_reads_final.
+  # none: nessuna soglia di profondita', resta min_reads_final.
   min_reads_mode: katharoseq_if_available
   # Frazione massima delle letture dei campioni biologici che la decontaminazione,
   # nella modalita' dichiarata, puo' rimuovere: oltre, E-S12-02.

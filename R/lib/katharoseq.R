@@ -6,7 +6,8 @@
 #                                      per controllo: z di fedelta' e profondita',
 #                                      esito (conforme, non conforme, non valutabile)
 #   adatta_curva(profondita, fedelta, sensibilita)
-#                                      la sigmoide allosterica, la bonta' e la soglia
+#                                      la sigmoide allosterica, la bonta', l'AIC
+#                                      e la soglia
 #   soglia_determinata(profondita, curva)
 #                                      se la soglia e' sostenuta da osservazioni
 #
@@ -31,6 +32,14 @@
 # confronta con un test F. Qui dice soltanto quanto la curva riduce l'errore
 # quadratico rispetto alla fedelta' media. Accanto si riporta l'errore
 # quadratico medio (RMSE), nella stessa unita' della fedelta'.
+#
+# L'AIC. Il criterio di Akaike della curva (stats::AIC sul modello nls:
+# verosimiglianza gaussiana, due parametri della curva piu' la varianza dei
+# residui) serve a confrontare la curva aggregata con l'insieme delle curve per
+# piastra, adattate sugli stessi punti: l'AIC del modello per piastra e' la
+# somma degli AIC delle sue curve, perche' le piastre sono stimate in modo
+# indipendente e le verosimiglianze si moltiplicano. Il confronto vale solo a
+# parita' di punti: R/11_controls.R li fissa prima di adattare.
 #
 # L'ADATTAMENTO. nls con l'algoritmo "port" e h, x50 maggiori di zero. I
 # valori iniziali vengono dai dati in modo deterministico, dalla forma
@@ -102,7 +111,7 @@ conformita <- function(livello, fedelta, profondita, min_controlli) {
 adatta_curva <- function(profondita, fedelta, sensibilita) {
   esito <- list(converge = FALSE, punti = length(profondita), h = NA_real_,
                 x50 = NA_real_, k = NA_real_, r2 = NA_real_, rmse = NA_real_,
-                soglia = NA_real_, motivo = "")
+                aic = NA_real_, soglia = NA_real_, motivo = "")
   if (length(profondita) < 3L) {
     esito$motivo <- sprintf("%d punti, ne servono almeno 3 per due parametri",
                             length(profondita))
@@ -140,6 +149,7 @@ adatta_curva <- function(profondita, fedelta, sensibilita) {
   esito$k <- esito$x50^esito$h
   esito$r2 <- 1 - sum(residui^2) / sum((dati$f - mean(dati$f))^2)
   esito$rmse <- sqrt(mean(residui^2))
+  esito$aic <- as.numeric(stats::AIC(modello))
   esito$soglia <- 10^(esito$x50 * (sensibilita / (1 - sensibilita))^(1 / esito$h))
   esito
 }

@@ -488,6 +488,19 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     ),
     # ----------------------------------------------------------------- S2 ---
     _v(
+        "E-S1-04", "S1",
+        "Un file di letture, su tutte le sue letture, non ha un layout single-end.",
+        "G07, in S0, guarda le sole prime qc.head_reads letture di ogni file: un "
+        "file con tutte le prime letture seguite da tutte le seconde gli sfugge. "
+        "Qui i segni di coppia sono contati su tutte le letture "
+        "(02_qc_profiles/coppie.tsv). Se un file contiene le due letture di ogni "
+        "coppia (lo dicono le intestazioni, con /1 e /2 o con lo stesso nome due "
+        "volte), o le sole seconde letture (intestazioni tutte con /2), estrai le "
+        "sole letture forward in un file per campione: questa pipeline tratta "
+        "solo letture singole.",
+        _UMANA,
+    ),
+    _v(
         "E-S2-01", "S2",
         "Uno o piu' campioni non conservano alcuna lettura dopo il filtro.",
         "Allenta filter.maxEE o filter.truncLen, oppure escludi quei campioni "
@@ -678,14 +691,16 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     # ---------------------------------------------------------------- S11 ---
     _v(
         "E-S11-02", "S11",
-        "La soglia di profondita' derivata dai controlli positivi non e' "
-        "attendibile.",
-        "Si prosegue con qc.min_reads_raw, che si applica alle letture grezze e "
-        "non a quelle senza chimere, e il motivo e' registrato in "
-        "11_controls/soglia.json, per piastra se la curva manca solo per alcune. "
-        "Per una soglia derivata servono la colonna katharoseq.cell_count_column, "
-        "almeno ctrl.min_positives controlli e una curva con bonta' non inferiore "
-        "a katharoseq.min_r2: le misure di ogni curva sono in curve.tsv.",
+        "Almeno una piastra, o un campione senza piastra, non usa una soglia "
+        "di profondita' derivata da una curva propria.",
+        "Si prosegue con la soglia della curva aggregata, se e' valida, altrimenti "
+        "con la mediana delle soglie delle piastre con una curva propria valida, "
+        "sempre sulle letture senza chimere: il dettaglio e 11_controls/soglia.json "
+        "riportano per ognuno l'origine della soglia e il motivo. Per una curva "
+        "propria servono almeno ctrl.min_positives controlli utilizzabili nella "
+        "piastra, una bonta' non inferiore a katharoseq.min_r2 e una soglia dentro "
+        "le profondita' osservate e determinata dai dati: le misure di ogni curva "
+        "sono in curve.tsv.",
         _DEGRADA,
     ),
     _v(
@@ -710,14 +725,16 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     # ---------------------------------------------------------------- S12 ---
     _v(
         "E-S11-05", "S11",
-        "Il dataset non ha controlli positivi utilizzabili: nessuna curva di "
-        "calibrazione.",
-        "Si prosegue con qc.min_reads_raw sulle letture grezze per tutti i "
-        "campioni, e 11_controls/soglia.json ne registra il motivo. Senza "
-        "controlli positivi, o senza la colonna delle cellule seminate "
-        "(katharoseq.cell_count_column), la profondita' minima non puo' essere "
-        "derivata dai dati: la soglia fissa e' una scelta, da dichiarare con i "
-        "risultati.",
+        "Nessuna curva di calibrazione valida: nessuna soglia di profondita' "
+        "dai controlli positivi.",
+        "Si prosegue senza il filtro per profondita': in S13 resta il solo "
+        "qc.min_reads_final, sulle letture dell'oggetto finale, e "
+        "11_controls/soglia.json ne registra il motivo. Succede senza controlli "
+        "positivi, senza la colonna delle cellule seminate "
+        "(katharoseq.cell_count_column), senza una piastra con almeno "
+        "ctrl.min_positives controlli utilizzabili, o se nessuna curva e' valida "
+        "(curve.tsv). Va dichiarato con i risultati: i campioni non sono stati "
+        "selezionati per profondita'.",
         _DEGRADA,
     ),
     _v(

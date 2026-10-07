@@ -11,14 +11,16 @@ S14. Il calcolo dei filtri sulle varianti e' in ``R/13_filtri.R``, che
 dichiara l'ordine dei filtri e il denominatore della prevalenza.
 
 **Il filtro per profondita'**, che il piano di S13 non nomina, viene per primo
-ed e' deciso qui. S11 scrive in ``soglia.json`` la soglia di ogni piastra con
-lo stadio delle letture a cui si applica: ``nonchimeric``, le letture senza
-chimere dopo il filtro di lunghezza (``letture_lunghezza.tsv`` di S7), o
-``raw``, le letture grezze (``letture_prefiltro.tsv`` di S2). Ogni campione
-biologico si confronta con la soglia della sua piastra usando la sua
-profondita' a quello stadio, letta dal tracciamento: non la profondita'
-dell'oggetto, che dopo la decontaminazione e' piu' bassa e non e' la
-grandezza con cui la soglia e' stata stimata.
+ed e' deciso qui. S11 scrive in ``soglia.json`` la soglia di ogni piastra, che
+vale sulle letture senza chimere dopo il filtro di lunghezza
+(``letture_lunghezza.tsv`` di S7). Ogni campione biologico si confronta con la
+soglia della sua piastra usando la sua profondita' a quello stadio, letta dal
+tracciamento: non la profondita' dell'oggetto, che dopo la decontaminazione e'
+piu' bassa e non e' la grandezza con cui la soglia e' stata stimata. Nessun
+confronto si fa sulle letture grezze. Dove S11 non ha una soglia (origine
+``nessuna``: nessuna curva valida, o ``qc.min_reads_mode`` = ``none``) il
+filtro per profondita' non si applica, e ``filtri_riepilogo.json`` lo dichiara:
+resta ``qc.min_reads_final``, sulle letture dell'oggetto finale.
 
 **Gli identificativi delle varianti** non si rinumerano: i vuoti lasciati dai
 filtri sono attesi.
@@ -50,11 +52,13 @@ from amplicon16s.metadata.models import ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s02_filter import NOME_PREFILTRO
 from amplicon16s.steps.s11_controls import NOME_SOGLIA
 from amplicon16s.steps.s12_decontam import NOME_OGGETTO_DECONTAMINATO
 
-__all__ = ["FiltriFinali", "NOME_FILTRATO", "NOME_RIEPILOGO", "esclusi_per_profondita"]
+__all__ = [
+    "FiltriFinali", "NOME_FILTRATO", "NOME_RIEPILOGO", "esclusi_per_profondita",
+    "profondita_applicata",
+]
 
 NOME_SCRIPT: Final = "13_filtri.R"
 #: L'oggetto filtrato che S14 serializza.
@@ -66,16 +70,21 @@ NOME_LUNGHEZZA: Final = "letture_lunghezza.tsv"
 NOME_RIEPILOGO_TASSONOMIA: Final = "riepilogo.json"
 
 
+#: Lo stadio delle letture del tracciamento con cui si confronta ogni soglia.
+STADIO_SOGLIA: Final = "nonchimeric"
+
+
 def esclusi_per_profondita(
     campioni: list[tuple[str, str | None]],
     soglia: dict[str, Any],
-    letture: dict[str, dict[str, int]],
+    letture: dict[str, int],
 ) -> tuple[list[str], list[dict[str, str]]]:
     """I campioni sopra e sotto la soglia di profondita' della loro piastra.
 
     ``campioni`` sono coppie (accession, piastra); ``soglia`` e' il documento
-    di S11; ``letture`` le letture per campione di ciascuno stadio. Un campione
-    senza piastra usa la soglia ``senza_piastra``. Restituisce i tenuti, in
+    di S11; ``letture`` le letture senza chimere per campione. Un campione
+    senza piastra usa la soglia ``senza_piastra``. Una voce senza valore
+    (origine ``nessuna``) non esclude alcun campione. Restituisce i tenuti, in
     ordine, e le esclusioni con il motivo.
     """
     per_piastra = soglia["per_piastra"] or {}
@@ -85,15 +94,19 @@ def esclusi_per_profondita(
         voce = per_piastra.get(piastra) if piastra is not None else None
         if voce is None:
             voce = soglia["senza_piastra"]
-        stadio = voce["stadio"]
-        if stadio not in letture:
-            raise RuntimeError(f"stadio della soglia sconosciuto: {stadio!r}")
-        profondita = letture[stadio].get(accession, 0)
+        if voce["valore"] is None:
+            tenuti.append(accession)
+            continue
+        # La soglia e' stimata su questo stadio: una voce con un altro stadio
+        # verrebbe da un documento che questa fase non sa applicare.
+        if voce["stadio"] != STADIO_SOGLIA:
+            raise RuntimeError(f"stadio della soglia sconosciuto: {voce['stadio']!r}")
+        profondita = letture.get(accession, 0)
         if profondita < voce["valore"]:
             esclusi.append({
                 "accession": accession,
                 "motivo": (
-                    f"{profondita} letture allo stadio {stadio}, meno della soglia "
+                    f"{profondita} letture allo stadio {STADIO_SOGLIA}, meno della soglia "
                     f"{voce['valore']} della piastra {piastra or 'non nota'} "
                     f"({voce['origine']})"
                 ),
@@ -101,6 +114,15 @@ def esclusi_per_profondita(
         else:
             tenuti.append(accession)
     return tenuti, esclusi
+
+
+def profondita_applicata(campioni: list[tuple[str, str | None]], soglia: dict[str, Any]) -> bool:
+    """Se almeno un campione biologico ha una soglia di profondita' da rispettare."""
+    per_piastra = soglia["per_piastra"] or {}
+    return any(
+        (per_piastra.get(piastra) or soglia["senza_piastra"])["valore"] is not None
+        for _, piastra in campioni
+    )
 
 
 class FiltriFinali(PipelineStep):
@@ -111,7 +133,9 @@ class FiltriFinali(PipelineStep):
     #: (lo consegna S14); confronta i taxa senza il prefisso di rango; un
     #: campione svuotato dalla prevalenza esce invece di fermare la fase.
     #: 3: una tassonomia di un solo rango non ferma il filtro sui taxa.
-    versione: ClassVar[int] = 3
+    #: 4: la soglia si confronta con le sole letture senza chimere; senza
+    #: soglia il filtro per profondita' non si applica e il riepilogo lo dice.
+    versione: ClassVar[int] = 4
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("finali",)
     #: I filtri tassonomici (filt), quello di prevalenza (prev) e le letture
@@ -129,10 +153,7 @@ class FiltriFinali(PipelineStep):
         soglia = json.loads(
             (albero.cartella(Fase.CONTROLS) / NOME_SOGLIA).read_text(encoding="utf-8")
         )
-        letture = {
-            "nonchimeric": leggi_conteggi(albero.cartella(Fase.CHIMERA) / NOME_LUNGHEZZA),
-            "raw": leggi_conteggi(albero.cartella(Fase.FILTERED) / NOME_PREFILTRO),
-        }
+        letture = leggi_conteggi(albero.cartella(Fase.CHIMERA) / NOME_LUNGHEZZA)
         biologici = [(c.accession, c.piastra) for c in contesto.inventario
                      if c.classe is ClasseCampione.BIOLOGICO]
         tenuti, esclusi = esclusi_per_profondita(biologici, soglia, letture)
@@ -153,13 +174,14 @@ class FiltriFinali(PipelineStep):
                 "decontaminato": str(albero.cartella(Fase.CONTROLS) / NOME_OGGETTO_DECONTAMINATO),
                 "tenuti": tenuti,
                 "esclusi_profondita": esclusi,
+                "profondita_applicata": profondita_applicata(biologici, soglia),
                 "senza_phylum": config.filt.remove_na_phylum,
                 "taxa_esclusi": list(config.filt.exclude_taxa),
                 "prevalenza": config.prev.apply,
                 "frazione": config.prev.min_fraction,
                 "minimo_conteggio": config.prev.min_count,
                 "letture_minime": config.qc.min_reads_final,
-                "letture_nonchimeric": {a: letture["nonchimeric"].get(a, 0) for a in tenuti},
+                "letture_nonchimeric": {a: letture.get(a, 0) for a in tenuti},
             },
             albero,
             self.cartella,

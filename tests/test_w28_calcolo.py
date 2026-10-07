@@ -566,8 +566,8 @@ def test_senza_controlli_positivi_s11_dichiara_e_s11_05(bioc, oggetto_calcolato,
     """
     **Obiettivo**: Verificare che su un oggetto senza controlli positivi S11
     si concluda senza adattare curve, con ``E-S11-05`` fra le degradazioni e
-    non ``E-S11-02``, con ``positivi.tsv`` vuoto e la soglia di ripiego per
-    ogni piastra; e che con ``qc.min_reads_mode: fixed`` non dichiari nulla.
+    non ``E-S11-02``, con ``positivi.tsv`` vuoto e nessuna soglia per alcuna
+    piastra; e che con ``qc.min_reads_mode: none`` non dichiari nulla.
 
     **Razionale scientifico e sistemistico**: Senza controlli positivi non
     c'e' una curva che sia riuscita male: non c'e' nulla da stimare. Sono due
@@ -582,11 +582,13 @@ def test_senza_controlli_positivi_s11_dichiara_e_s11_05(bioc, oggetto_calcolato,
     assert _tsv(cartella / "positivi.tsv") == [] and _tsv(cartella / "curve.tsv") == []
     soglia = json.loads((cartella / "soglia.json").read_text())
     assert soglia["scelta"] == "nessuno"
-    assert {v["stadio"] for v in soglia["per_piastra"].values()} == {"raw"}
+    assert {v["origine"] for v in soglia["per_piastra"].values()} == {"nessuna"}
+    assert {v["valore"] for v in soglia["per_piastra"].values()} == {None}
+    assert soglia["senza_piastra"]["valore"] is None
 
-    fisso = _con_oggetto_riscritto(oggetto_calcolato, tmp_path / "b", modifica,
-                                   qc={"min_reads_mode": "fixed"})
-    assert _calcola(fisso, Passo.S11).degradazioni == []
+    senza = _con_oggetto_riscritto(oggetto_calcolato, tmp_path / "b", modifica,
+                                   qc={"min_reads_mode": "none"})
+    assert _calcola(senza, Passo.S11).degradazioni == []
 
 
 def test_un_controllo_senza_piastra_o_con_una_lettura_non_ferma_s11(
@@ -595,7 +597,8 @@ def test_un_controllo_senza_piastra_o_con_una_lettura_non_ferma_s11(
     """
     **Obiettivo**: Verificare che S11 si concluda con un codice del catalogo,
     e non con un errore di R, quando un controllo positivo non ha la piastra e
-    un altro ha una sola lettura; e quando nessun campione ha la piastra.
+    un altro ha una sola lettura; e che quando nessun campione ha la piastra
+    nessuna curva si adatti e la fase lo dichiari con ``E-S11-05``.
 
     **Razionale scientifico e sistemistico**: La curva e' definita sul
     logaritmo della profondita', che per una lettura vale zero, e le curve per
@@ -609,7 +612,7 @@ m[, pos[2]] <- 0L; m[1, pos[2]] <- 1L
 """
     run = _con_oggetto_riscritto(oggetto_calcolato, tmp_path / "a", modifica)
     contesto = _calcola(run, Passo.S11)
-    assert {d.codice for d in contesto.degradazioni} <= {"E-S11-02", "E-S11-04"}
+    assert {d.codice for d in contesto.degradazioni} <= {"E-S11-02", "E-S11-04", "E-S11-05"}
     positivi = _tsv(run.albero.cartella(Fase.CONTROLS) / "positivi.tsv")
     assert [p["nella_curva"] for p in positivi if p["profondita"] == "1"] == ["no"]
     assert sum(1 for p in positivi if p["piastra"] == "") == 1
@@ -617,7 +620,11 @@ m[, pos[2]] <- 0L; m[1, pos[2]] <- 1L
     senza = _con_oggetto_riscritto(oggetto_calcolato, tmp_path / "b", "dati$piastra <- NA_character_")
     contesto = _calcola(senza, Passo.S11)
     soglia = json.loads((senza.albero.cartella(Fase.CONTROLS) / "soglia.json").read_text())
-    assert not soglia["per_piastra"] and soglia["senza_piastra"]["valore"] > 0
+    # Le curve si adattano sui controlli delle piastre con abbastanza punti:
+    # senza piastre non c'e' alcun punto comune, quindi nessuna soglia.
+    assert not soglia["per_piastra"] and soglia["senza_piastra"]["valore"] is None
+    assert [d.codice for d in contesto.degradazioni if d.codice != "E-S11-04"] == ["E-S11-05"]
+    assert "nessuna piastra ha almeno ctrl.min_positives" in soglia["motivo_scelta"]
 
 
 def test_con_pochi_negativi_s12_dichiara_e_s12_03(bioc, oggetto_calcolato, tmp_path):
@@ -797,11 +804,12 @@ def test_s14_toglie_i_file_consegnati_di_un_esecuzione_precedente(
 def test_il_troncamento_suggerito_e_il_minore_fra_lunghezza_e_qualita():
     """
     **Obiettivo**: Verificare che ``troncamento_suggerito`` dia per lunghezza
-    il troncamento piu' lungo che scarta non oltre il 5% delle letture di
-    biologici e positivi (i negativi non contano), per qualita' l'ultima
+    il troncamento piu' lungo che in ciascuna classe controllata scarta non
+    oltre la quota ammessa (i negativi non contano), la lunghezza senza
+    perdite, la perdita peggiore per campione, per qualita' l'ultima
     posizione con mediana dei biologici almeno 30, e come suggerito il minore
-    dei due; e che senza letture dia valori nulli, e ``_pct`` un trattino per
-    una frazione che non esiste.
+    fra lunghezza ammessa e qualita'; e che senza letture dia valori nulli, e
+    ``_pct`` un trattino per una frazione che non esiste.
 
     **Razionale scientifico e sistemistico**: Chi imposta ``filter.truncLen``
     su un dataset nuovo ha bisogno di un'indicazione ricavata dalle letture,
@@ -821,12 +829,17 @@ def test_il_troncamento_suggerito_e_il_minore_fra_lunghezza_e_qualita():
         for c, valori in (("b1", [38, 36, 31, 28]), ("b2", [38, 34, 30, 20]), ("n", [10, 10, 10, 10]))
         for p, q in enumerate(valori, start=1)
     ]
-    esito = troncamento_suggerito(lunghezze, qualita, classi)
-    # A 140 si scartano 4 letture su 200 (2%); a 150, 10 su 200 (5%): ammesso.
-    assert esito == {"per_lunghezza": 150, "per_qualita": 3, "suggerito": 3}
-    assert troncamento_suggerito(lunghezze, qualita[:4], classi)["suggerito"] == 3
-    vuoto = troncamento_suggerito([], [], classi)
-    assert vuoto == {"per_lunghezza": None, "per_qualita": None, "suggerito": None}
+    esito = troncamento_suggerito(lunghezze, qualita, classi, 0.10)
+    # A 150 i biologici perdono 10 letture su 100 (10%, ammesso al 10%) e i
+    # positivi nessuna; il campione che perde di piu' e' b1.
+    assert esito == {"senza_perdite": 100, "per_lunghezza": 150, "perdita_peggiore": 0.10,
+                     "campione_peggiore": "b1", "per_qualita": 3, "suggerito": 3}
+    # Al 5% i biologici a 150 sono oltre: resta 140 (4 su 100).
+    assert troncamento_suggerito(lunghezze, qualita, classi, 0.05)["per_lunghezza"] == 140
+    assert troncamento_suggerito(lunghezze, qualita[:4], classi, 0.10)["suggerito"] == 3
+    vuoto = troncamento_suggerito([], [], classi, 0.05)
+    assert vuoto == {"senza_perdite": None, "per_lunghezza": None, "perdita_peggiore": None,
+                     "campione_peggiore": None, "per_qualita": None, "suggerito": None}
     assert _pct(None) == "-" and _pct(0.125) == "12,5%"
 
 
@@ -875,9 +888,21 @@ def _insieme_ridotto(cartella: Path, tieni, *, senza_lotto: bool = False) -> dic
 
 
 def _senza_curve(run) -> None:
-    """Senza controlli positivi: nessun controllo valutato, nessuna curva."""
+    """Senza controlli positivi: nessun controllo valutato, nessuna curva,
+    nessuna soglia; il filtro per profondita' non si applica e lo dichiara.
+    """
     cartella = run.albero.cartella(Fase.CONTROLS)
     assert _tsv(cartella / "positivi.tsv") == [] and _tsv(cartella / "curve.tsv") == []
+    soglia = json.loads((cartella / "soglia.json").read_text())
+    assert soglia["scelta"] == "nessuno" and soglia["senza_piastra"]["valore"] is None
+    assert {v["origine"] for v in soglia["per_piastra"].values()} == {"nessuna"}
+    filtri = json.loads((run.albero.cartella(Fase.FINAL_INTERMEDI)
+                         / "filtri_riepilogo.json").read_text())
+    assert filtri["profondita_applicata"] is False
+    assert filtri["campioni"]["esclusi"]["profondita"] == 0
+    assert all("qc.min_reads_final" in e["motivo"]
+               for e in _tsv(run.albero.cartella(Fase.FINAL_INTERMEDI) / "esclusioni.tsv")
+               if e["filtro"] == "letture_finali")
 
 
 def _nulla_rimosso(run) -> None:
@@ -931,7 +956,9 @@ INSIEMI: dict[str, dict[str, Any]] = {
         "config": {"out": {"batch_columns": []}, "err": {"batch_column": None},
                    "decontam": {"batch_column": None},
                    "meta": {"batch_key_column": None, "batch_module_column": None}},
-        "attese": {},
+        # Senza piastre nessuna ha abbastanza controlli per una curva: nessun
+        # punto comune ai due modelli, quindi nessuna soglia.
+        "attese": {Passo.S11: "E-S11-05"},
         "verifica": _livelli_dalla_tabella_di_studio,
     },
     "una_piastra": {

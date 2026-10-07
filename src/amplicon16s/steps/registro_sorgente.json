@@ -14,8 +14,8 @@
       "python/amplicon16s.metadata.tabelle",
       "python/amplicon16s.steps.s00_validate"
     ],
-    "sorgente": "sha256:5e0e1ad70712d95d841398f4a0db4bb9dbeb47a912b5b9e9dcdd8787e0b220ae",
-    "versione": 10
+    "sorgente": "sha256:4b3f31e765f56c432cbc76b3b46856cc500be8fe147c0bca49332ba569e67d1e",
+    "versione": 11
   },
   "S1": {
     "file": [
@@ -25,14 +25,15 @@
       "R/lib/letture.R",
       "python/amplicon16s.io_layer.artifacts",
       "python/amplicon16s.io_layer.checksums",
+      "python/amplicon16s.io_layer.reads",
       "python/amplicon16s.metadata.lettura_inventario",
       "python/amplicon16s.metadata.models",
       "python/amplicon16s.rbridge.payload",
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s01_profile"
     ],
-    "sorgente": "sha256:4651e6aa9d7116d9650f0e1e291bae49892b04cd7a79784790ec19f0d7989cce",
-    "versione": 3
+    "sorgente": "sha256:2eec9abbbf94a8c66d17a209e88391a549edcdf7b0c7da37b7c73c72b9370da3",
+    "versione": 4
   },
   "S10": {
     "file": [
@@ -60,7 +61,6 @@
       "R/lib/errors.R",
       "R/lib/io_json.R",
       "R/lib/katharoseq.R",
-      "R/lib/letture.R",
       "python/amplicon16s.io_layer.artifacts",
       "python/amplicon16s.io_layer.checksums",
       "python/amplicon16s.metadata.tabelle",
@@ -68,8 +68,8 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s11_controls"
     ],
-    "sorgente": "sha256:054df38de3e73102ecae3a182c74490852ece753fedafb4d3b9f197b904572bf",
-    "versione": 3
+    "sorgente": "sha256:5a9596a4ee21c0feca604e403c8b84cef19888ef66c893e870aa44c8dfff29d2",
+    "versione": 4
   },
   "S12": {
     "file": [
@@ -102,8 +102,8 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s13_filtri"
     ],
-    "sorgente": "sha256:ac6be182a5740baa686a71c38a3f08e2f83d10f451dc3dd03141acacb5ed3f9c",
-    "versione": 3
+    "sorgente": "sha256:ca312929b04b551331a98fb79dc2bc23247e501eb6a87371260eb45b1588dadf",
+    "versione": 4
   },
   "S14": {
     "file": [

@@ -20,6 +20,18 @@ nulla del troncamento. Il codice è di S1 e non è ``E-S0-09``: la condizione si
 qui, e il log deve dire dove. Le frazioni per classe restano nelle metriche
 del manifesto.
 
+**Chiude il limite noto di G07, E-S1-04.** G07 riconosce un file con le due
+letture di ogni coppia dalle intestazioni delle prime ``qc.head_reads``
+letture: un file con tutte le prime letture seguite da tutte le seconde gli
+sfugge se le ispezionate non arrivano al secondo blocco. S1 conta gli stessi
+segni (``/1`` e ``/2``, ``1:N:`` e ``2:N:``, lo stesso nome ripetuto) su tutte
+le letture, con la stessa funzione e la stessa tolleranza
+(``io_layer/reads.py``), registra i conteggi per campione in ``coppie.tsv`` e
+si ferma con ``E-S1-04`` se un file contiene le due letture di ogni coppia, o
+le sole seconde: proseguire darebbe il doppio delle letture, forward e
+inverse mescolate. Il conteggio precede i profili: è una lettura dei soli
+nomi, e un dataset da respingere si respinge prima del calcolo.
+
 **Segnala le qualità raggruppate, E-S1-03.** Con quattro valori di qualità
 distinti o meno (``valori_qualita.tsv``) le letture vengono da un
 sequenziatore che raggruppa le qualità: è una degradazione dichiarata, che
@@ -38,22 +50,29 @@ from __future__ import annotations
 import csv
 import json
 from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor
 from typing import Any, ClassVar, Final
 
 from amplicon16s.config.schema import thread_effettivi
 from amplicon16s.errors.exceptions import errore
+from amplicon16s.io_layer.reads import StatisticheFile, conta_coppie
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 
-__all__ = ["ProfiloLetture", "classi_oltre_soglia", "letture_corte", "NOME_LUNGHEZZE", "NOME_QUALITA", "NOME_RIEPILOGO"]
+__all__ = [
+    "ProfiloLetture", "classi_oltre_soglia", "letture_corte", "NOME_COPPIE", "NOME_LUNGHEZZE",
+    "NOME_QUALITA", "NOME_RIEPILOGO",
+]
 
 NOME_SCRIPT: Final = "01_profile.R"
 NOME_LUNGHEZZE: Final = "lunghezze.tsv"
 NOME_QUALITA: Final = "qualita.tsv"
 NOME_RIEPILOGO: Final = "riepilogo.json"
 NOME_VALORI_QUALITA: Final = "valori_qualita.tsv"
+#: I segni di coppia contati su tutte le letture di ogni file.
+NOME_COPPIE: Final = "coppie.tsv"
 
 
 #: Con questo numero di valori di qualita' distinti, o meno, le qualita' sono
@@ -108,8 +127,10 @@ class ProfiloLetture(PipelineStep):
     #: 2: il troncamento si giudica sulla frazione di letture piu' corte, per
     #: classe, e non piu' sulla sola lettura piu' corta; si contano i valori di
     #: qualita' distinti. 3: la frazione si giudica su ciascuna classe
-    #: controllata, non sulle due riunite.
-    versione: ClassVar[int] = 3
+    #: controllata, non sulle due riunite. 4: conta su tutte le letture i segni
+    #: di coppia che G07 cerca nelle prime, li scrive in coppie.tsv e ferma un
+    #: file con le due letture di ogni coppia (E-S1-04).
+    versione: ClassVar[int] = 4
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("grezze",)
     #: I profili dipendono solo dalle letture, cioe' da S0; il troncamento, la
@@ -131,9 +152,28 @@ class ProfiloLetture(PipelineStep):
         campioni = {
             c.accession: str(c.file) for c in contesto.inventario if c.file is not None
         }
+        processi = thread_effettivi(contesto.config)
+        # Un processo per file: la decompressione e la lettura dei nomi non
+        # condividono nulla, e i nomi di un file vivono solo nel suo processo.
+        with ProcessPoolExecutor(max_workers=processi) as gruppo:
+            coppie = dict(zip(campioni, gruppo.map(conta_coppie, campioni.values())))
+        tabella = contesto.albero.scrivi_testo(self.cartella, NOME_COPPIE, self._tsv_coppie(coppie))
+        respinti = {c: s.coppie_nello_stesso_file for c, s in coppie.items()
+                    if s.coppie_nello_stesso_file}
+        if respinti:
+            elenco = "; ".join(f"{c} ({coppie[c].nome}): {motivo}"
+                               for c, motivo in list(respinti.items())[:5])
+            raise errore(
+                "E-S1-04",
+                f"{len(respinti)} file su {len(coppie)}, su tutte le loro letture, non "
+                f"contengono le sole prime letture: {elenco}"
+                + ("" if len(respinti) <= 5 else f"; e altri {len(respinti) - 5}")
+                + f". I conteggi di ogni file sono in {NOME_COPPIE}",
+                campioni=sorted(respinti),
+            )
         esito = esegui_script(
             cartella_r() / NOME_SCRIPT,
-            {"campioni": campioni, "processi": thread_effettivi(contesto.config)},
+            {"campioni": campioni, "processi": processi},
             contesto.albero,
             self.cartella,
             passo=self.passo,
@@ -209,7 +249,20 @@ class ProfiloLetture(PipelineStep):
                 valori=sorted(valori),
             )
 
-        return Produzione(esito.artefatti, metriche)
+        return Produzione((tabella, *esito.artefatti), metriche)
+
+    @staticmethod
+    def _tsv_coppie(coppie: dict[str, StatisticheFile]) -> str:
+        """``coppie.tsv``: per campione, le letture e i segni di coppia contati."""
+        righe = ["campione\tletture\tprime_di_coppia\tseconde_di_coppia\tnomi_ripetuti\t"
+                 "nomi_oltre_due\tcoppie_nello_stesso_file"]
+        righe += [
+            f"{campione}\t{s.letture_esaminate}\t{s.prime_di_coppia}\t{s.seconde_di_coppia}\t"
+            f"{s.nomi_ripetuti}\t{s.nomi_oltre_due}\t"
+            f"{'si' if s.coppie_nello_stesso_file else 'no'}"
+            for campione, s in coppie.items()
+        ]
+        return "\n".join(righe) + "\n"
 
     @staticmethod
     def _lunghezze(cartella: Any) -> dict[str, dict[int, int]]:

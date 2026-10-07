@@ -366,7 +366,7 @@ def eseguita(ridotta_calcolata):
 
 
 def test_s1_scrive_i_profili_con_il_proprio_manifesto(bioconductor, eseguita):
-    """Verifica che la Fase S1 produca i 4 artefatti attesi e registri ``manifest_S1.json``.
+    """Verifica che la Fase S1 produca gli artefatti attesi e registri ``manifest_S1.json``.
 
     * **Obiettivo**: controllare che l'esecuzione di S0 e S1 termini con stato
       ``COMPLETATA``, che ``manifest_S1.json`` in ``02_qc_profiles/`` elenchi
@@ -383,7 +383,7 @@ def test_s1_scrive_i_profili_con_il_proprio_manifesto(bioconductor, eseguita):
     manifesto_s1 = run.albero.manifesto_passo(Passo.S1, Fase.QC_PROFILES)
     assert set(manifesto_s1.nomi) == {
         "lunghezze.tsv", "qualita.tsv", "letture_grezze.tsv", "riepilogo.json",
-        "valori_qualita.tsv",
+        "valori_qualita.tsv", "coppie.tsv",
     }
     assert run.valuta().situazioni[Passo.S1].stato.value == "completata"
 

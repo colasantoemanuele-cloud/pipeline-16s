@@ -250,8 +250,8 @@ GRAFO: Final = Grafo(
         ),
         Nodo(
             Passo.S11, "validazione dai controlli positivi", Fase.CONTROLS,
-            # S2 per le letture grezze, a cui si applica il ripiego.
-            (Passo.S2, Passo.S10),
+            # Solo l'oggetto integrato: profondita' e fedelta' dei controlli.
+            (Passo.S10,),
         ),
         Nodo(
             # Solo l'oggetto integrato: la soglia di S11 si applica in S13.
@@ -260,10 +260,10 @@ GRAFO: Final = Grafo(
         Nodo(
             Passo.S13, "filtri per profondita', tassonomici e di prevalenza",
             Fase.FINAL_INTERMEDI,
-            # S2 e S7 per le letture grezze e senza chimere del tracciamento, a
-            # cui si applicano le soglie di S11; S8 per i ranghi della
-            # tassonomia; S12 per l'oggetto decontaminato.
-            (Passo.S0, Passo.S2, Passo.S7, Passo.S8, Passo.S11, Passo.S12),
+            # S7 per le letture senza chimere del tracciamento, a cui si
+            # applicano le soglie di S11; S8 per i ranghi della tassonomia; S12
+            # per l'oggetto decontaminato.
+            (Passo.S0, Passo.S7, Passo.S8, Passo.S11, Passo.S12),
         ),
         Nodo(
             # Dopo S13 e prima di S14: l'albero delle varianti finali.

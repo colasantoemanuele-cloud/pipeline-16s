@@ -11,7 +11,8 @@ dei controlli).
 * ``src/amplicon16s/steps/s11_controls.py``, ``R/11_controls.R``, ``R/lib/katharoseq.R``
 * ``src/amplicon16s/config/schema.py`` (gruppo ``katharoseq``, ``ctrl.min_positives``,
   ``ctrl.min_positive_pass_frac``, ``ctrl.positive_gate``, ``qc.min_reads_mode``)
-* ``src/amplicon16s/errors/catalog.py`` (``E-S11-02``, ``E-S11-03``, ``E-S11-04``)
+* ``src/amplicon16s/errors/catalog.py`` (``E-S11-02``, ``E-S11-03``, ``E-S11-04``,
+  ``E-S11-05``)
 * ``src/amplicon16s/steps/s00_validate.py`` (le sole chiavi di ``ctrl`` che S0 legge)
 
 3. Cosa valuta questo file
@@ -27,13 +28,13 @@ dei controlli).
   valutabile;
 - S10 non e' rifatta dai parametri di S11, e S0 non dipende da essi;
 - S11 sul sottoinsieme di prova: curva aggregata e per piastra con la bonta'
-  di entrambe, scelta motivata, soglia per piastra con lo stadio a cui si
-  applica, ripiego con ``E-S11-02`` e motivo per le piastre senza curva,
-  stessi byte in due esecuzioni;
-- forzando ``katharoseq.min_r2`` sopra ogni bonta' tutte le piastre ripiegano
-  su ``qc.min_reads_raw``, sulle letture grezze, con ``E-S11-02`` e il motivo;
-  senza la colonna dei livelli anche; con ``qc.min_reads_mode: fixed`` si usa
-  il ripiego senza degradazione;
+  di entrambe, scelta motivata, soglia per piastra sulle letture senza
+  chimere con la sua origine, ``E-S11-02`` e motivo per le piastre senza
+  curva propria, stessi byte in due esecuzioni;
+- forzando ``katharoseq.min_r2`` sopra ogni bonta', o ``ctrl.min_positives``
+  sopra i controlli disponibili, nessuna curva e' valida: nessuna soglia, con
+  ``E-S11-05`` e il motivo; con ``qc.min_reads_mode: none`` nessuna soglia e
+  nessuna degradazione;
 - su un oggetto costruito: controlli conformi alla loro concentrazione non
   fanno scattare nulla; una piastra di controlli non conformi fa scattare
   ``E-S11-03`` con ``ctrl.positive_gate`` vero e l'avviso ``E-S11-04`` con
@@ -80,14 +81,15 @@ Vedi ``test.txt``, scheda W19.
 6. Razionale scientifico e sistemistico
 ---------------------------------------
 - La soglia di profondita' e' un risultato dei controlli, non una scelta: va
-  scritta con lo stadio delle letture a cui si applica, perche' il ripiego
-  sulle letture grezze e la soglia sulle letture senza chimere non sono
-  confrontabili.
+  scritta con lo stadio delle letture a cui si applica e con la sua origine,
+  perche' una soglia su un'altra grandezza non sarebbe confrontabile fra le
+  piastre.
 - Ai livelli piu' diluiti della serie i contaminanti prevalgono per
   costruzione: giudicare un controllo senza la sua concentrazione darebbe un
   falso allarme proprio dove la curva prevede la fedelta' bassa.
-- Un ripiego non deve passare inosservato: il motivo resta negli artefatti e
-  nel manifesto.
+- Una soglia che non viene dalla curva della piastra, o l'assenza di ogni
+  soglia, non deve passare inosservata: il motivo resta negli artefatti e nel
+  manifesto.
 """
 
 from __future__ import annotations
@@ -227,7 +229,7 @@ def test_i_parametri_di_s11_hanno_i_valori_del_piano(tmp_path):
 @pytest.mark.parametrize(
     "variazione",
     [{"ctrl": {"min_positives": 5}}, {"ctrl": {"positive_gate": True}},
-     {"katharoseq": {"min_r2": 0.5}}, {"qc": {"min_reads_mode": "fixed"}}],
+     {"katharoseq": {"min_r2": 0.5}}, {"qc": {"min_reads_mode": "none"}}],
     ids=["min_positives", "positive_gate", "min_r2", "min_reads_mode"],
 )
 def test_i_parametri_di_s11_non_toccano_s0_ne_s10(tmp_path, variazione):
@@ -443,15 +445,16 @@ def test_s11_adatta_le_curve_e_scrive_la_soglia_con_il_suo_stadio(bioc, controll
     """
     **Obiettivo**: Verificare che S11 sulla versione ridotta si concluda dopo
     S10, che ``curve.tsv`` registri la curva aggregata e quelle per piastra con
-    la bonta', che la scelta sia motivata in ``soglia.json``, e che ogni
-    soglia porti lo stadio: la piastra 10, con la serie completa, ha la soglia
-    della propria curva sulle letture ``nonchimeric``; le altre, senza una
-    serie, ripiegano su ``qc.min_reads_raw`` sulle letture ``raw``, con
-    ``E-S11-02`` e il motivo nel manifesto.
+    la bonta' e l'AIC, che la scelta sia motivata in ``soglia.json``, e che
+    ogni soglia porti lo stadio ``nonchimeric`` e l'origine: la piastra 10, con
+    la serie completa, ha la soglia della propria curva; le altre, senza una
+    serie, quella aggregata o la mediana, con ``E-S11-02`` e il motivo nel
+    manifesto.
 
     **Razionale scientifico e sistemistico**: La versione ridotta ha la serie
     di otto livelli della sola piastra 10 e un positivo della piastra 4: e' il
-    caso misto, curva dove c'e' e ripiego dichiarato dove manca.
+    caso misto, curva propria dove c'e' e soglia presa altrove, dichiarata,
+    dove manca. Nessuna soglia vale sulle letture grezze.
     """
     run, esito = controlli_calcolati
     assert esito.conclusione is Conclusione.COMPLETATA
@@ -461,24 +464,31 @@ def test_s11_adatta_le_curve_e_scrive_la_soglia_con_il_suo_stadio(bioc, controll
     assert curve["piastra 10"]["valida"] == "si"
     assert float(curve["piastra 10"]["r2"]) >= 0.8
     soglia = _soglia(run)
-    assert soglia["scelta"] in ("per_piastra", "aggregato")
+    # Una sola piastra ha abbastanza punti: i due modelli coincidono, l'AIC e'
+    # lo stesso e l'aggregato non e' preferito.
+    assert soglia["scelta"] == "per_piastra"
     assert soglia["motivo_scelta"]
-    assert set(soglia["stadi"]) == {"nonchimeric", "raw"}
+    modello = soglia["modello"]
+    assert modello["piastre_comuni"] == ["10"]
+    assert modello["punti_comuni"] == int(curve["piastra 10"]["punti"])
+    assert modello["aic_aggregato"] == pytest.approx(modello["aic_per_piastra"])
+    assert float(curve["aggregato"]["aic"]) == pytest.approx(modello["aic_aggregato"], rel=1e-5)
+    assert soglia["stadio"] == "nonchimeric"
     per_piastra = soglia["per_piastra"]
     assert set(per_piastra) == {"2", "4", "8", "10"}
-    for piastra, voce in per_piastra.items():
-        assert voce["stadio"] in ("nonchimeric", "raw")
-        if voce["stadio"] == "raw":
-            assert voce["valore"] == 1000 and voce["motivo"]
-        else:
-            assert voce["origine"].startswith("curva") and voce["valore"] > 0
-    if soglia["scelta"] == "per_piastra":
-        assert per_piastra["10"]["valore"] == int(curve["piastra 10"]["soglia"])
-        assert per_piastra["10"]["stadio"] == "nonchimeric"
+    assert {voce["stadio"] for voce in per_piastra.values()} == {"nonchimeric"}
+    assert per_piastra["10"]["origine"] == "propria" and per_piastra["10"]["motivo"] == ""
+    assert per_piastra["10"]["valore"] == int(curve["piastra 10"]["soglia"])
+    for piastra in ("2", "4", "8"):
+        voce = per_piastra[piastra]
+        assert voce["origine"] in ("aggregata", "mediana") and voce["motivo"]
+        assert voce["valore"] == per_piastra["10"]["valore"]
     manifesto = run.albero.manifesto_passo(Passo.S11, Fase.CONTROLS)
-    assert [d["codice"] for d in manifesto.degradazioni] == (
-        ["E-S11-02"] if soglia["ripiego"]["degradazione"] else []
-    )
+    assert soglia["degradazione"] is True
+    assert [d["codice"] for d in manifesto.degradazioni] == ["E-S11-02"]
+    for piastra in ("2", "4", "8"):
+        assert f"{piastra}: soglia {per_piastra[piastra]['origine']}" in (
+            manifesto.degradazioni[0]["dettaglio"])
     print(f"\nS11 sulla versione ridotta: {dict(esito.eseguite[0].metriche)}")
     print(f"scelta: {soglia['scelta']} ({soglia['motivo_scelta']})")
 
@@ -486,13 +496,13 @@ def test_s11_adatta_le_curve_e_scrive_la_soglia_con_il_suo_stadio(bioc, controll
 def test_la_misura_sui_campioni_usa_la_soglia_del_suo_stadio(bioc, controlli_calcolati):
     """
     **Obiettivo**: Verificare che ``profondita_campioni.tsv`` abbia una riga per
-    campione dell'inventario, con la soglia e lo stadio della sua piastra, e
-    che ``sotto_soglia`` confronti la soglia con le letture di quello stadio:
-    grezze per il ripiego, senza chimere per la soglia derivata.
+    campione dell'inventario, con la soglia, lo stadio e l'origine della sua
+    piastra, e che ``sotto_soglia`` confronti la soglia con le letture senza
+    chimere, le sole riportate.
 
-    **Razionale scientifico e sistemistico**: Le due grandezze non sono
-    confrontabili: una soglia applicata alle letture sbagliate darebbe un
-    filtro plausibile e sbagliato.
+    **Razionale scientifico e sistemistico**: Una soglia applicata alle
+    letture sbagliate darebbe un filtro plausibile e sbagliato: la tabella non
+    riporta altra grandezza che quella a cui la soglia vale.
     """
     run, _ = controlli_calcolati
     righe = _tsv(run.albero.cartella(Fase.CONTROLS) / "profondita_campioni.tsv")
@@ -500,9 +510,10 @@ def test_la_misura_sui_campioni_usa_la_soglia_del_suo_stadio(bioc, controlli_cal
     per_piastra = _soglia(run)["per_piastra"]
     for r in righe:
         voce = per_piastra[r["piastra"]]
-        assert (int(r["soglia"]), r["stadio"]) == (voce["valore"], voce["stadio"])
-        letture = int(r["letture_grezze"] if r["stadio"] == "raw" else r["letture_nonchimeric"])
-        assert r["sotto_soglia"] == ("si" if letture < voce["valore"] else "no")
+        assert "letture_grezze" not in r
+        assert (int(r["soglia"]), r["stadio"], r["origine"]) == (
+            voce["valore"], "nonchimeric", voce["origine"])
+        assert r["sotto_soglia"] == ("si" if int(r["letture_nonchimeric"]) < voce["valore"] else "no")
     riepilogo = _riepilogo(run)
     assert riepilogo["biologici_sotto_soglia"] == sum(
         1 for r in righe if r["classe"] == "biologico" and r["sotto_soglia"] == "si")
@@ -570,21 +581,23 @@ def test_la_colonna_dei_livelli_assente_e_respinta_in_s0(tmp_path):
     [
         ({"katharoseq": {"min_r2": 1.0}}, "katharoseq.min_r2", True),
         ({"ctrl": {"min_positives": 50}}, "ctrl.min_positives", True),
-        ({"qc": {"min_reads_mode": "fixed"}}, "fixed", False),
+        ({"qc": {"min_reads_mode": "none"}}, "none", False),
     ],
-    ids=["bonta_insufficiente", "controlli_insufficienti", "modo_fixed"],
+    ids=["bonta_insufficiente", "controlli_insufficienti", "modo_none"],
 )
-def test_il_ripiego_e_registrato_con_il_motivo(bioc, oggetto_calcolato, tmp_path,
-                                               sovrascrivi, nel_motivo, degrada):
+def test_l_assenza_della_soglia_e_registrata_con_il_motivo(bioc, oggetto_calcolato, tmp_path,
+                                                           sovrascrivi, nel_motivo, degrada):
     """
     **Obiettivo**: Verificare che con ``katharoseq.min_r2`` sopra ogni bonta'
-    o con meno controlli di ``ctrl.min_positives`` ogni piastra ripieghi su ``qc.min_reads_raw`` sulle
-    letture grezze, con ``E-S11-02`` nel manifesto e il motivo in
-    ``soglia.json``; e che con ``qc.min_reads_mode: fixed`` si usi il ripiego
-    senza degradazione.
+    o con meno controlli di ``ctrl.min_positives`` nessuna piastra abbia una
+    soglia (origine ``nessuna``, valore nullo), con ``E-S11-05`` nel manifesto
+    e il motivo in ``soglia.json``; e che con ``qc.min_reads_mode: none`` non
+    ci sia alcuna soglia ne' alcuna degradazione.
 
-    **Razionale scientifico e sistemistico**: Il ripiego e' una degradazione
-    automatica: non ferma, ma resta scritto, con il suo motivo e il suo stadio.
+    **Razionale scientifico e sistemistico**: Senza una curva valida non
+    esiste un valore di ripiego: il filtro per profondita' non si applica, e
+    l'esecuzione lo dichiara. Con il modo ``none`` l'assenza e' una scelta
+    scritta nella configurazione.
     """
     run = copia_esecuzione(oggetto_calcolato, tmp_path, **sovrascrivi)
     assert run.valuta().situazioni[Passo.S10].stato is StatoPasso.COMPLETATA
@@ -593,11 +606,13 @@ def test_il_ripiego_e_registrato_con_il_motivo(bioc, oggetto_calcolato, tmp_path
     soglia = _soglia(run)
     assert soglia["scelta"] == "nessuno"
     assert nel_motivo in soglia["motivo_scelta"]
-    assert {v["stadio"] for v in soglia["per_piastra"].values()} == {"raw"}
-    assert {v["valore"] for v in soglia["per_piastra"].values()} == {1000}
-    assert soglia["ripiego"]["degradazione"] is degrada
+    assert {v["origine"] for v in soglia["per_piastra"].values()} == {"nessuna"}
+    assert {v["valore"] for v in soglia["per_piastra"].values()} == {None}
+    assert soglia["senza_piastra"]["valore"] is None and soglia["degradazione"] is False
+    righe = _tsv(run.albero.cartella(Fase.CONTROLS) / "profondita_campioni.tsv")
+    assert {(r["soglia"], r["sotto_soglia"]) for r in righe} == {("", "no")}
     manifesto = run.albero.manifesto_passo(Passo.S11, Fase.CONTROLS)
-    assert [d["codice"] for d in manifesto.degradazioni] == (["E-S11-02"] if degrada else [])
+    assert [d["codice"] for d in manifesto.degradazioni] == (["E-S11-05"] if degrada else [])
     if degrada:
         assert nel_motivo in manifesto.degradazioni[0]["dettaglio"]
 
@@ -668,7 +683,9 @@ def test_controlli_conformi_alla_concentrazione_non_fanno_scattare_nulla(
     """
     run = copia_esecuzione(oggetto_calcolato, tmp_path / "copia", ctrl={"positive_gate": True})
     contesto = _s11_su_oggetto_costruito(run, tmp_path, [])
-    assert [d.codice for d in contesto.degradazioni] == []
+    # E-S11-02 dice solo da dove viene la soglia (qui puo' essere l'aggregata,
+    # se l'AIC la preferisce): non riguarda la conformita' dei controlli.
+    assert [d.codice for d in contesto.degradazioni if d.codice != "E-S11-02"] == []
     riepilogo = _riepilogo(run)
     assert (riepilogo["conformi"], riepilogo["non_conformi"]) == (24, 0)
     assert _soglia(run)["scelta"] in ("per_piastra", "aggregato")

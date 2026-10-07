@@ -100,13 +100,13 @@ PREV_MIN_COUNT: Final = 2
 PREV_APPLY: Final = True
 
 # qc: soglie dei controlli di qualità
-QC_MIN_READS_RAW: Final = 1000
 # Frazione massima delle letture dei campioni biologici che la decontaminazione
 # puo' rimuovere (S12, E-S12-02).
 QC_MAX_FRAC_CONTAMINANT: Final = 0.40
-# Da dove viene la profondita' minima dei campioni: la soglia derivata dai
-# controlli positivi (S11) quando la curva e' attendibile, altrimenti
-# qc.min_reads_raw sulle letture grezze; "fixed" usa sempre il ripiego.
+# Da dove viene la profondita' minima dei campioni: le soglie derivate dai
+# controlli positivi (S11), sulle letture senza chimere, con la soglia
+# aggregata o la mediana dove una piastra non ha una curva valida; "none" non
+# applica alcuna soglia di profondita' e lascia il solo qc.min_reads_final.
 QC_MIN_READS_MODE: Final = "katharoseq_if_available"
 # Letture minime di un campione nell'oggetto finale, dopo tutti i filtri di S13:
 # per campione; sotto, il campione esce dall'oggetto finale con il motivo.

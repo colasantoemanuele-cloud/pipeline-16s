@@ -15,6 +15,7 @@
 # Parametri: decontaminato (ps_decontaminato.rds di S12), tenuti (accession dei
 # biologici sopra la soglia di
 # profondita'), esclusi_profondita (le esclusioni per profondita', gia' decise),
+# profondita_applicata (falso se S11 non ha dato alcuna soglia),
 # senza_phylum (filt.remove_na_phylum), taxa_esclusi (filt.exclude_taxa),
 # prevalenza (prev.apply), frazione (prev.min_fraction), minimo_conteggio
 # (prev.min_count), letture_minime (qc.min_reads_final), letture_nonchimeric
@@ -22,7 +23,10 @@
 #
 # L'ORDINE DEI FILTRI.
 #   1. profondita' (campioni): deciso dalla fase Python sul tracciamento, prima
-#      di tutto, perche' definisce i campioni dell'oggetto finale;
+#      di tutto, perche' definisce i campioni dell'oggetto finale. Le soglie di
+#      S11 valgono sulle letture senza chimere; se S11 non ne ha (nessuna curva
+#      valida, o qc.min_reads_mode "none") il filtro non si applica, e il
+#      riepilogo lo dichiara in profondita_applicata;
 #   2. tassonomico (varianti): senza phylum, se filt.remove_na_phylum, e i taxa
 #      di filt.exclude_taxa cercati in ogni rango; un campione che ne resta
 #      vuoto non ha segnale batterico ed esce (E-S13-03). I nomi dei taxa si
@@ -209,6 +213,7 @@ esegui_fase(function(parametri, cartella) {
   scrivi_json(
     list(
       ordine = list("profondita", "tassonomico", "prevalenza", "letture_finali"),
+      profondita_applicata = isTRUE(parametri$profondita_applicata),
       campioni = list(
         biologici = sum(dati$classe == "biologico"),
         controlli_a_parte = sum(dati$classe != "biologico"),

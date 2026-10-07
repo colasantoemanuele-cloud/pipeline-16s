@@ -1,0 +1,25 @@
+# Griglie dell'analisi di sensibilita' sul dataset di riferimento, come fissate
+# dalla regola di decisione (docs/decision_log.md, sezione 1.1). Si passano a
+# scripts/sensitivity.py con --griglie; il valore corrente di ogni parametro si
+# legge dalla configurazione, e nella griglia deve avere due vicini.
+numerici:
+  katharoseq.target_sensitivity:
+    griglia: [0.70, 0.75, 0.80, 0.85, 0.90, 0.95]
+  decontam.threshold:
+    griglia: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+  prev.min_fraction:
+    griglia: [0.005, 0.010, 0.015, 0.020, 0.025, 0.030]
+    # Il valore consueto in letteratura: riportato, non deciso.
+    fuori_griglia: [0.05]
+modalita:
+  nome: "modalita' di decontaminazione"
+  valori:
+    aggregata:
+      decontam.mode: aggregate
+      decontam.batch_combine: minimum
+    "per piastra, minimum":
+      decontam.mode: batch
+      decontam.batch_combine: minimum
+    "per piastra, fisher":
+      decontam.mode: batch
+      decontam.batch_combine: fisher

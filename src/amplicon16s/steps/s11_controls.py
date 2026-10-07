@@ -22,22 +22,30 @@ nella colonna ``katharoseq.cell_count_column`` del file di arricchimento o
 della tabella di studio, che S10 porta nell'oggetto; il nome che ha
 nell'oggetto si legge da ``colonne_metadati.tsv`` di S10.
 
-**Senza controlli positivi**, o senza la colonna dei livelli, non c'e' nulla
-da stimare: nessuna curva, la soglia e' il ripiego per tutti i campioni, e la
-fase lo dichiara con ``E-S11-05``, distinto da ``E-S11-02`` (controlli
-presenti, curva non attendibile). Un controllo senza piastra entra nella sola
-curva aggregata; uno con una sola lettura in nessuna, perche' la curva e'
-definita sul logaritmo della profondita'.
-
 **La soglia e' un risultato, non un parametro.** Sta in ``soglia.json``, per
-piastra, e ogni valore porta lo stadio a cui si applica: la soglia derivata
-vale sulle letture ``nonchimeric``; il ripiego ``qc.min_reads_raw`` sulle
-letture grezze (``raw``, ``letture_prefiltro.tsv`` di S2). Con
-``qc.min_reads_mode`` = ``katharoseq_if_available`` una piastra senza curva
-valida ripiega, e la fase lo registra con ``E-S11-02`` e il motivo (colonna
-dei livelli assente, controlli meno di ``ctrl.min_positives``, bonta' sotto
-``katharoseq.min_r2``, soglia fuori dalle profondita' osservate); con
-``fixed`` si usa sempre il ripiego, senza degradazione.
+piastra e per i campioni senza piastra, e ogni valore porta lo stadio a cui si
+applica, l'origine e il motivo. Ogni soglia vale sulle letture
+``katharoseq.read_stage`` (``nonchimeric``): nessuna si applica alle letture
+grezze, perche' una soglia su un'altra grandezza darebbe ad alcune piastre un
+filtro non confrontabile con quello delle altre.
+
+**La regola**, dichiarata in ``R/11_controls.R``: la curva aggregata e le curve
+per piastra si adattano sugli stessi punti (i controlli utilizzabili delle
+piastre con almeno ``ctrl.min_positives`` punti) e si preferisce il modello con
+l'AIC minore. Se e' l'aggregato ed e' valido, tutte le piastre usano la sua
+soglia (origine ``aggregata``); altrimenti una piastra con la curva valida usa
+la propria (``propria``), una senza usa l'aggregata se valida, o la mediana
+delle soglie proprie (``mediana``); un campione senza piastra segue la stessa
+strada. Se almeno una piastra, o un campione senza piastra, non usa una curva
+propria la fase lo registra con ``E-S11-02`` e, per ognuno, l'origine e il
+motivo.
+
+**Senza alcuna curva valida** (un dataset senza controlli positivi, senza la
+colonna dei livelli, o con curve tutte non valide) non c'e' alcuna soglia
+(origine ``nessuna``): la fase lo dichiara con ``E-S11-05`` e in S13 resta il
+solo ``qc.min_reads_final``. Con ``qc.min_reads_mode`` = ``none`` le curve si
+riportano come diagnostica e nessuna soglia si applica, senza degradazione:
+e' una scelta dichiarata.
 
 **La conformita' dei controlli** tiene conto della concentrazione: un
 controllo e' non conforme se la sua fedelta' e' anomalamente bassa, o la sua
@@ -74,8 +82,6 @@ NOME_SCRIPT: Final = "11_controls.R"
 #: La soglia di profondita' che le fasi successive leggono.
 NOME_SOGLIA: Final = "soglia.json"
 NOME_RIEPILOGO: Final = "riepilogo.json"
-#: Le letture grezze per campione, scritte da S2.
-NOME_GREZZE: Final = "letture_prefiltro.tsv"
 
 
 def colonna_dei_livelli(
@@ -104,19 +110,24 @@ class ValidazioneControlli(PipelineStep):
     #: 3: senza controlli positivi o senza la colonna dei livelli dichiara
     #: E-S11-05 e non adatta curve; un controllo senza piastra o con una sola
     #: lettura non ferma la fase.
-    versione: ClassVar[int] = 3
+    #: 4: modello scelto per AIC sugli stessi punti; chi non ha una curva
+    #: propria usa la soglia aggregata o la mediana delle soglie proprie, sulle
+    #: letture senza chimere; senza curve valide nessuna soglia. Il ripiego
+    #: sulle letture grezze non esiste piu'.
+    versione: ClassVar[int] = 4
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La curva (katharoseq), i controlli minimi, la frazione di conformi e il
-    #: comportamento sotto di essa (ctrl), la regola e il valore del ripiego (qc).
+    #: comportamento sotto di essa (ctrl), se una soglia si applica (qc).
     parametri: ClassVar[tuple[str, ...]] = (
         "katharoseq",
         "ctrl.min_positives", "ctrl.min_positive_pass_frac", "ctrl.positive_gate",
-        "qc.min_reads_mode", "qc.min_reads_raw",
+        "qc.min_reads_mode",
     )
 
     def calcola(self, contesto: StepContext) -> Produzione:
-        """Esegue ``R/11_controls.R`` sull'oggetto di S10, poi registra il ripiego
-        (``E-S11-02``) e applica il controllo sulla conformita' dei positivi.
+        """Esegue ``R/11_controls.R`` sull'oggetto di S10, poi registra chi non usa
+        una curva propria (``E-S11-02``) o l'assenza di ogni soglia (``E-S11-05``)
+        e applica il controllo sulla conformita' dei positivi.
         """
         config = contesto.config
         katharoseq = config.katharoseq
@@ -145,8 +156,6 @@ class ValidazioneControlli(PipelineStep):
                 "stadio": katharoseq.read_stage,
                 "min_positivi": config.ctrl.min_positives,
                 "modo": config.qc.min_reads_mode,
-                "ripiego": config.qc.min_reads_raw,
-                "letture_grezze": str(albero.cartella(Fase.FILTERED) / NOME_GREZZE),
             },
             albero,
             self.cartella,
@@ -157,28 +166,27 @@ class ValidazioneControlli(PipelineStep):
         riepilogo = json.loads((cartella / NOME_RIEPILOGO).read_text(encoding="utf-8"))
         soglia = json.loads((cartella / NOME_SOGLIA).read_text(encoding="utf-8"))
 
-        # Senza controlli positivi, o senza la colonna dei livelli, la curva
-        # manca per costruzione e non per un difetto dei controlli: e' un'altra
-        # dichiarazione, perche' chi legge deve sapere che non c'era nulla da
-        # stimare. Il valore applicato e' lo stesso ripiego.
-        if riepilogo["positivi"] == 0 or colonna is None:
-            if config.qc.min_reads_mode != "fixed":
-                contesto.degrada(
-                    "E-S11-05",
-                    f"{riepilogo['motivo_scelta']}: qc.min_reads_raw "
-                    f"({config.qc.min_reads_raw}) sulle letture grezze per tutti i campioni",
-                    scelta=soglia["scelta"],
-                )
-        elif soglia["ripiego"]["degradazione"]:
-            motivi = "; ".join(
-                f"{m['piastra']}: {m['motivo']}" for m in soglia["ripiego"]["motivi"]
-            )
+        # Due dichiarazioni distinte. Senza alcuna curva valida non c'e' una
+        # soglia riuscita male: non c'e' nulla da applicare, e chi legge deve
+        # sapere che il filtro di profondita' non e' stato fatto. Con una soglia
+        # presa dall'aggregato o dalla mediana il filtro c'e', ma non viene dai
+        # controlli della piastra. Con qc.min_reads_mode none l'assenza della
+        # soglia e' dichiarata nella configurazione, e non e' una degradazione.
+        if config.qc.min_reads_mode == "none":
+            pass
+        elif soglia["scelta"] == "nessuno":
             contesto.degrada(
-                "E-S11-02",
-                f"qc.min_reads_raw ({config.qc.min_reads_raw}) sulle letture grezze dove "
-                f"la curva manca, per piastra: {motivi}",
+                "E-S11-05",
+                f"{soglia['motivo_scelta']}: nessuna soglia KatharoSeq, resta "
+                "il solo qc.min_reads_final in S13",
                 scelta=soglia["scelta"],
             )
+        elif soglia["degradazione"]:
+            dettagli = "; ".join(
+                f"{v['piastra']}: soglia {v['origine']} ({v['valore']} letture "
+                f"{soglia['stadio']}), {v['motivo']}" for v in soglia["non_proprie"]
+            )
+            contesto.degrada("E-S11-02", dettagli, scelta=soglia["scelta"])
 
         frazione = riepilogo["frazione_conformi"]
         minima = config.ctrl.min_positive_pass_frac
@@ -202,6 +210,7 @@ class ValidazioneControlli(PipelineStep):
         # Senza piastre R scrive un elenco vuoto invece di un oggetto.
         per_piastra = soglia["per_piastra"] or {}
         metriche["soglie"] = {
-            p: {"valore": s["valore"], "stadio": s["stadio"]} for p, s in per_piastra.items()
+            p: {"valore": s["valore"], "stadio": s["stadio"], "origine": s["origine"]}
+            for p, s in per_piastra.items()
         }
         return Produzione(esito.artefatti, metriche)

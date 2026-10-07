@@ -102,9 +102,12 @@ from amplicon16s.runner.executor import Conclusione, Esecutore
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import StatoPasso, passi_realizzati
 from amplicon16s.io_layer.conteggi import leggi_conteggi
-from amplicon16s.steps.s02_filter import NOME_PREFILTRO
 from amplicon16s.steps.s10_phyloseq import NOME_OGGETTO
-from amplicon16s.steps.s13_filtri import NOME_LUNGHEZZA, esclusi_per_profondita
+from amplicon16s.steps.s13_filtri import (
+    NOME_LUNGHEZZA,
+    esclusi_per_profondita,
+    profondita_applicata,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -171,40 +174,44 @@ def _riepilogo(run) -> dict:
 
 SOGLIA = {
     "per_piastra": {
-        "1": {"valore": 1000, "stadio": "raw", "origine": "ripiego: qc.min_reads_raw"},
-        "3": {"valore": 9000, "stadio": "nonchimeric", "origine": "curva della piastra"},
+        "1": {"valore": 5000, "stadio": "nonchimeric", "origine": "mediana"},
+        "3": {"valore": 9000, "stadio": "nonchimeric", "origine": "propria"},
+        "7": {"valore": None, "stadio": "nonchimeric", "origine": "nessuna"},
     },
-    "senza_piastra": {"valore": 1000, "stadio": "raw", "origine": "ripiego: qc.min_reads_raw"},
+    "senza_piastra": {"valore": 5000, "stadio": "nonchimeric", "origine": "mediana"},
 }
 
 
 def test_il_filtro_per_profondita_usa_lo_stadio_della_piastra():
     """
     **Obiettivo**: Verificare che ogni campione si confronti con la soglia della
-    sua piastra sulle letture dello stadio dichiarato: nella piastra 3 le
-    letture senza chimere, nella piastra 1 e senza piastra le grezze; e che il
-    motivo dell'esclusione dica letture, stadio, soglia e piastra.
+    sua piastra sulle letture senza chimere, qualunque sia l'origine della
+    soglia; che un campione senza piastra usi la soglia ``senza_piastra``; che
+    una voce senza valore non escluda nessuno; che il motivo dell'esclusione
+    dica letture, stadio, soglia, piastra e origine; e che una soglia con un
+    altro stadio sia rifiutata.
 
-    **Razionale scientifico e sistemistico**: Le letture grezze e quelle senza
-    chimere non sono confrontabili: un campione con 9.500 letture grezze e
-    8.000 senza chimere e' sotto la soglia di 9.000 che vale sulle seconde.
+    **Razionale scientifico e sistemistico**: La soglia e' stimata sulle
+    letture senza chimere, e solo con quelle si confronta: un campione con
+    9.500 letture grezze e 8.000 senza chimere e' sotto la soglia di 9.000.
+    Una soglia sulle letture grezze non esiste piu', e un documento che la
+    dichiarasse non si applica in silenzio.
     """
-    letture = {
-        "raw": {"A": 1500, "B": 900, "C": 9500, "D": 9500, "E": 800},
-        "nonchimeric": {"A": 700, "B": 600, "C": 8000, "D": 9200, "E": 700},
-    }
-    campioni = [("A", "1"), ("B", "1"), ("C", "3"), ("D", "3"), ("E", None)]
+    letture = {"A": 5000, "B": 4999, "C": 8000, "D": 9200, "E": 700, "F": 3}
+    campioni = [("A", "1"), ("B", "1"), ("C", "3"), ("D", "3"), ("E", None), ("F", "7")]
     tenuti, esclusi = esclusi_per_profondita(campioni, SOGLIA, letture)
-    assert tenuti == ["A", "D"]
+    assert tenuti == ["A", "D", "F"]
     assert [e["accession"] for e in esclusi] == ["B", "C", "E"]
     assert esclusi[1]["motivo"] == (
         "8000 letture allo stadio nonchimeric, meno della soglia 9000 della piastra 3 "
-        "(curva della piastra)"
+        "(propria)"
     )
-    assert "piastra non nota" in esclusi[2]["motivo"]
+    assert "piastra non nota" in esclusi[2]["motivo"] and "(mediana)" in esclusi[2]["motivo"]
+    assert profondita_applicata(campioni, SOGLIA) is True
+    assert profondita_applicata([("F", "7")], SOGLIA) is False
     with pytest.raises(RuntimeError, match="stadio"):
         esclusi_per_profondita([("A", "1")], {**SOGLIA, "per_piastra": {
-            "1": {"valore": 1, "stadio": "decontaminate", "origine": "x"}}}, letture)
+            "1": {"valore": 1, "stadio": "raw", "origine": "x"}}}, letture)
 
 
 def test_i_parametri_di_s13_e_s14(tmp_path):
@@ -285,9 +292,9 @@ jsonlite::write_json(list(
 def test_il_filtro_per_profondita_usa_le_letture_del_tracciamento(bioc, finale_calcolata):
     """
     **Obiettivo**: Verificare che i campioni esclusi per profondita' siano
-    esattamente quelli che il tracciamento, letto allo stadio della soglia di
-    ciascuna piastra in ``soglia.json``, mette sotto soglia; e che sulla
-    versione ridotta ci siano piastre con entrambi gli stadi.
+    esattamente quelli che il tracciamento delle letture senza chimere mette
+    sotto la soglia della loro piastra in ``soglia.json``; e che ogni soglia
+    della versione ridotta valga su quello stadio, qualunque ne sia l'origine.
 
     **Razionale scientifico e sistemistico**: La soglia si applica alla
     grandezza con cui S11 l'ha stimata, non alla profondita' dell'oggetto dopo
@@ -295,15 +302,13 @@ def test_il_filtro_per_profondita_usa_le_letture_del_tracciamento(bioc, finale_c
     """
     run, _ = finale_calcolata
     soglia = json.loads((run.albero.cartella(Fase.CONTROLS) / "soglia.json").read_text())
-    assert {v["stadio"] for v in soglia["per_piastra"].values()} == {"raw", "nonchimeric"}
-    letture = {
-        "raw": leggi_conteggi(run.albero.cartella(Fase.FILTERED) / NOME_PREFILTRO),
-        "nonchimeric": leggi_conteggi(run.albero.cartella(Fase.CHIMERA) / NOME_LUNGHEZZA),
-    }
+    assert {v["stadio"] for v in soglia["per_piastra"].values()} == {"nonchimeric"}
+    assert len({v["origine"] for v in soglia["per_piastra"].values()}) > 1
+    letture = leggi_conteggi(run.albero.cartella(Fase.CHIMERA) / NOME_LUNGHEZZA)
     attesi = set()
     for c in run.valuta().inventario.di_classe(ClasseCampione.BIOLOGICO):
         voce = soglia["per_piastra"][c.piastra]
-        if letture[voce["stadio"]][c.accession] < voce["valore"]:
+        if letture[c.accession] < voce["valore"]:
             attesi.add(c.accession)
     esclusi = {e["accession"] for e in _tsv(run.albero.cartella(Fase.FINAL_INTERMEDI) / "esclusioni.tsv")
                if e["filtro"] == "profondita"}
@@ -316,11 +321,13 @@ def test_la_prevalenza_si_calcola_sui_campioni_tenuti(bioc, finale_calcolata, tm
     biologici tenuti dopo i filtri per profondita' e tassonomico, che
     ``min_campioni`` sia ``ceil(prev.min_fraction * denominatore)``, che ogni
     variante finale sia presente con almeno ``prev.min_count`` letture in
-    almeno ``min_campioni`` campioni finali, e che le rimosse lo dichiarino.
+    almeno ``min_campioni`` dei campioni del denominatore, e che le rimosse lo
+    dichiarino.
 
     **Razionale scientifico e sistemistico**: Numeratore e denominatore della
-    prevalenza si riferiscono allo stesso insieme di campioni, quelli
-    dell'oggetto finale.
+    prevalenza si riferiscono allo stesso insieme di campioni: i biologici
+    tenuti quando il filtro si applica. Il filtro sulle letture finali viene
+    dopo, e un campione che esclude era nel denominatore.
     """
     run, _ = finale_calcolata
     riepilogo = _riepilogo(run)
@@ -330,12 +337,22 @@ def test_la_prevalenza_si_calcola_sui_campioni_tenuti(bioc, finale_calcolata, tm
         riepilogo["campioni"]["biologici"] - esclusi["profondita"] - esclusi["tassonomico"])
     assert prevalenza["min_campioni"] == math.ceil(0.01 * prevalenza["denominatore"])
     cartella = run.albero.cartella(Fase.FINAL)
+    # Il denominatore: i biologici dell'oggetto decontaminato non esclusi per
+    # profondita' ne' svuotati dal filtro tassonomico.
+    prima = [e["accession"] for e in _tsv(run.albero.cartella(Fase.FINAL_INTERMEDI) / "esclusioni.tsv")
+             if e["filtro"] in ("profondita", "tassonomico")]
     presenze = _r(f"""
 suppressPackageStartupMessages(library(phyloseq))
 f <- readRDS({json.dumps(str(cartella / 'ps_final.rds'))})
-jsonlite::write_json(as.list(rowSums(as(otu_table(f), "matrix") >= 2)), uscita, auto_unbox = TRUE)
+d <- readRDS({json.dumps(str(run.albero.cartella(Fase.CONTROLS) / 'ps_decontaminato.rds'))})
+dati <- as(sample_data(d), "data.frame")
+tenuti <- setdiff(rownames(dati)[dati$classe == "biologico"], c({", ".join(json.dumps(a) for a in prima) or "character()"}))
+m <- as(otu_table(d), "matrix")[taxa_names(f), tenuti, drop = FALSE]
+jsonlite::write_json(list(presenze = as.list(rowSums(m >= 2)), tenuti = length(tenuti)),
+                     uscita, auto_unbox = TRUE)
 """, tmp_path)
-    assert min(presenze.values()) >= prevalenza["min_campioni"]
+    assert presenze["tenuti"] == prevalenza["denominatore"]
+    assert min(presenze["presenze"].values()) >= prevalenza["min_campioni"]
     rimosse = [r for r in _tsv(run.albero.cartella(Fase.FINAL_INTERMEDI) / "varianti_rimosse.tsv")
                if r["filtro"] == "prevalenza"]
     assert rimosse and all("campioni su" in r["motivo"] or "nessuna lettura" in r["motivo"]
@@ -563,7 +580,11 @@ def test_i_campioni_con_poche_letture_finali_escono_senza_fermare(bioc, finale_c
     assert esito.conclusione is Conclusione.COMPLETATA
     poveri = [e for e in _tsv(copia.albero.cartella(Fase.FINAL_INTERMEDI) / "esclusioni.tsv")
               if e["filtro"] == "letture_finali"]
-    assert len(poveri) == sum(1 for n in finali if n < mediana)
+    # Ai campioni sotto la mediana si aggiungono quelli che il filtro escludeva
+    # gia' con la soglia di partenza, che fra le letture finali non compaiono.
+    gia_esclusi = sum(1 for e in _tsv(run.albero.cartella(Fase.FINAL_INTERMEDI) / "esclusioni.tsv")
+                      if e["filtro"] == "letture_finali")
+    assert len(poveri) == sum(1 for n in finali if n < mediana) + gia_esclusi
     assert all("qc.min_reads_final" in e["motivo"] for e in poveri)
 
 

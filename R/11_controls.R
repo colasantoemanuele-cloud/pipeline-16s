@@ -9,57 +9,79 @@
 #   curve.tsv                per curva (aggregata e per piastra): punti, h, x50,
 #                            k', R^2, RMSE, soglia, punto medio, osservazioni fra
 #                            punto medio e soglia, se e' valida e perche'
-#   soglia.json              la soglia di profondita' scelta, per piastra, con lo
-#                            stadio delle letture a cui si applica, l'origine
-#                            (curva o ripiego) e il motivo di ogni ripiego
-#   profondita_campioni.tsv  per campione: letture grezze e allo stadio della
-#                            soglia, la soglia che gli si applica e se vi cade
-#                            sotto. E' una misura: il filtro e' di S13
+#   soglia.json              la soglia di profondita' di ogni piastra e dei campioni
+#                            senza piastra: valore, stadio delle letture, origine
+#                            (propria, aggregata, mediana, nessuna) e motivo; il
+#                            modello scelto con gli AIC, i punti comuni e l'R^2
+#                            dichiarato; la mediana, arrotondata e no
+#   profondita_campioni.tsv  per campione: letture allo stadio della soglia, la
+#                            soglia che gli si applica con la sua origine e se vi
+#                            cade sotto. E' una misura: il filtro e' di S13
 #   riepilogo.json           conformita' dei controlli, scelta della curva e conteggi
 #
 # Parametri: oggetto (ps_integrato.rds di S10), colonna_cellule (il nome nell'oggetto
 # della colonna dei livelli, o null) e motivo_colonna, rango, taxon, sensibilita,
-# min_r2, min_positivi, modo (qc.min_reads_mode), ripiego (qc.min_reads_raw),
-# letture_grezze (letture_prefiltro.tsv di S2).
+# min_r2, min_positivi, stadio (katharoseq.read_stage), modo (qc.min_reads_mode).
 #
-# La curva, la bonta' e la conformita' sono in R/lib/katharoseq.R.
+# La curva, la bonta', l'AIC e la conformita' sono in R/lib/katharoseq.R.
 #
-# LA SCELTA FRA CURVA AGGREGATA E CURVE PER PIASTRA. Si adattano entrambe sui
-# controlli con un livello noto, con letture, e non giudicati non conformi. Una
-# curva e' valida se converge, ha almeno min_positivi punti, ha R^2 non
-# inferiore a min_r2, la sua soglia cade dentro l'intervallo di profondita'
-# dei suoi punti (una soglia estrapolata non e' sostenuta da alcun controllo)
-# ed e' determinata dai dati: almeno un'osservazione fra il punto medio della
-# curva e la soglia (R/lib/katharoseq.R).
-# La bonta' del modello per piastra e' l'R^2 complessivo delle previsioni di
-# ciascuna piastra sui propri punti, calcolato su tutti i punti delle piastre la
-# cui curva converge. Si sceglie il modello con la bonta' maggiore fra quelli
-# ammissibili (l'aggregato se valido, il modello per piastra se la sua bonta'
-# raggiunge min_r2 e almeno una piastra ha una curva valida); a parita',
-# l'aggregato. Con il modello per piastra ogni piastra usa la propria soglia,
-# e una piastra senza curva valida ripiega su qc.min_reads_raw. Se nessun
-# modello e' ammissibile, ripiegano tutte.
+# LO STADIO. Ogni soglia vale sulle letture dell'oggetto integrato
+# (katharoseq.read_stage, "nonchimeric"), lo stadio a cui profondita' e fedelta'
+# dei controlli sono misurate. Nessuna soglia si applica alle letture grezze:
+# una soglia su un'altra grandezza non sarebbe confrontabile fra le piastre, e
+# i campioni di una piastra passerebbero un filtro piu' largo delle altre (un
+# effetto di lotto introdotto dal filtro).
 #
-# SENZA CONTROLLI POSITIVI, o senza la colonna dei livelli, non si adatta
-# alcuna curva: la scelta e' "nessuno" con il motivo, e la fase Python lo
-# dichiara (E-S11-05). Un controllo senza piastra entra nella sola curva
-# aggregata; uno con una sola lettura non entra in alcuna curva, perche' la
-# curva e' definita sul logaritmo della profondita', che per una lettura e'
-# zero.
+# I PUNTI COMUNI. La curva aggregata e le curve per piastra si adattano sugli
+# stessi punti: i controlli con un livello noto, con piu' di una lettura e non
+# giudicati non conformi, delle piastre che ne hanno almeno min_positivi. Solo a
+# parita' di punti le verosimiglianze dei due modelli sono confrontabili. Un
+# controllo senza piastra, o di una piastra con meno punti, non entra in alcuna
+# curva; uno con una sola lettura nemmeno, perche' la curva e' definita sul
+# logaritmo della profondita', che per una lettura e' zero.
 #
-# GLI STADI. La soglia derivata vale sulle letture dell'oggetto integrato
-# (katharoseq.read_stage, "nonchimeric"); il ripiego qc.min_reads_raw vale sulle
-# letture grezze ("raw"). Le due grandezze non sono confrontabili, e ogni
-# soglia scritta porta il suo stadio.
+# LA VALIDITA'. Una curva e' valida se converge, ha almeno min_positivi punti, ha
+# R^2 non inferiore a min_r2, la sua soglia cade dentro l'intervallo di
+# profondita' dei suoi punti (una soglia estrapolata non e' sostenuta da alcun
+# controllo) ed e' determinata dai dati: almeno un'osservazione fra il punto
+# medio della curva e la soglia (R/lib/katharoseq.R).
+#
+# LA SCELTA DEL MODELLO. Si preferisce il modello con l'AIC minore; l'AIC del
+# modello per piastra e' la somma degli AIC delle sue curve. L'aggregato e'
+# preferito solo se il suo AIC e' strettamente minore: a parita' (una sola
+# piastra), o se una delle curve non converge e la somma non e' calcolabile,
+# vale il modello per piastra, che usa la curva di ogni piastra dove esiste.
+#
+# LA SOGLIA DI OGNI PIASTRA, nell'ordine:
+#   1. se l'aggregato e' preferito ed e' valido, tutte le piastre usano la
+#      soglia aggregata (origine "aggregata");
+#   2. altrimenti una piastra con la propria curva valida usa la propria
+#      (origine "propria");
+#   3. una piastra senza curva valida usa la soglia aggregata, se l'aggregato e'
+#      valido (origine "aggregata");
+#   4. altrimenti la mediana delle soglie delle piastre con curva propria
+#      valida, arrotondata all'intero superiore (origine "mediana"): una piastra
+#      i cui controlli non determinano una soglia riceve cosi' un filtro dello
+#      stesso ordine di quello delle altre;
+#   5. un campione senza piastra segue i passi 3 e 4;
+#   6. se nessuna curva e' valida non c'e' alcuna soglia (origine "nessuna"):
+#      resta il solo qc.min_reads_final di S13.
+# La bonta' dichiarata e' l'R^2 dell'aggregato al passo 1; altrimenti l'R^2
+# complessivo delle sole piastre che usano la propria curva, ciascuna con le
+# previsioni della propria.
+#
+# SENZA CONTROLLI POSITIVI, senza la colonna dei livelli o senza una piastra
+# con abbastanza punti non si adatta alcuna curva: la scelta e' "nessuno" con il
+# motivo. Con qc.min_reads_mode "none" le curve si adattano e si riportano come
+# diagnostica, ma nessuna soglia si applica.
 
-for (f in c("io_json.R", "errors.R", "letture.R", "katharoseq.R")) {
+for (f in c("io_json.R", "errors.R", "katharoseq.R")) {
   source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
 }
 
 STADI <- list(
   nonchimeric = paste0("letture dell'oggetto integrato di S10: senza chimere (S6) e ",
-                       "dopo il filtro di lunghezza (S7)"),
-  raw = "letture grezze, in ingresso al filtro (S2, letture_prefiltro.tsv)"
+                       "dopo il filtro di lunghezza (S7)")
 )
 
 numero <- function(x, cifre = 6L) {
@@ -71,7 +93,7 @@ esegui_fase(function(parametri, cartella) {
   sensibilita <- as.numeric(parametri$sensibilita)
   min_r2 <- as.numeric(parametri$min_r2)
   min_positivi <- as.integer(parametri$min_positivi)
-  ripiego <- as.numeric(parametri$ripiego)
+  senza_soglia <- identical(parametri$modo, "none")
   stadio <- parametri$stadio
 
   ps <- readRDS(parametri$oggetto)
@@ -84,8 +106,6 @@ esegui_fase(function(parametri, cartella) {
     stop("l'oggetto di S10 non ha campioni e varianti allineati")
   }
   profondita <- colSums(conteggi)
-  grezze <- leggi_letture(parametri$letture_grezze)[campioni]
-  grezze[is.na(grezze)] <- 0L
   piastra <- dati$piastra
 
   # ---- Fedelta' dei controlli positivi -------------------------------------
@@ -158,97 +178,141 @@ esegui_fase(function(parametri, cartella) {
       curva)
   }
   curve <- list()
+  comuni <- integer()
+  piastre_comuni <- character()
+  punti_per_piastra <- table(piastra[positivi][nella_curva])
   if (length(motivo_globale) == 0L) {
-    punti <- which(nella_curva)
-    curve[["aggregato"]] <- valuta("aggregato", punti)
-    for (p in sort(unique(piastra[positivi][punti]), method = "radix")) {
-      curve[[paste0("piastra ", p)]] <- valuta(
-        paste0("piastra ", p), punti[piastra[positivi][punti] %in% p])
+    # Senza alcuna piastra la tabella e' vuota e non ha nomi.
+    piastre_comuni <- sort(as.character(names(punti_per_piastra)[punti_per_piastra >= min_positivi]),
+                           method = "radix")
+    comuni <- which(nella_curva & piastra[positivi] %in% piastre_comuni)
+    if (length(comuni) == 0L) {
+      motivo_globale <- sprintf(paste0(
+        "nessuna piastra ha almeno ctrl.min_positives (%d) controlli positivi ",
+        "utilizzabili per la curva"), min_positivi)
     }
   }
-  per_piastra <- Filter(function(cv) cv$modello != "aggregato" && cv$converge, curve)
-  r2_per_piastra <- NA_real_
-  if (length(per_piastra)) {
-    osservate <- unlist(lapply(per_piastra, function(cv) fedelta[cv$indici]))
-    previste <- unlist(lapply(per_piastra, function(cv) {
-      1 / (1 + (cv$x50 / log10(n_pos[cv$indici]))^cv$h)
-    }))
-    r2_per_piastra <- 1 - sum((osservate - previste)^2) /
-      sum((osservate - mean(osservate))^2)
+  if (length(motivo_globale) == 0L) {
+    curve[["aggregato"]] <- valuta("aggregato", comuni)
+    for (p in piastre_comuni) {
+      curve[[paste0("piastra ", p)]] <- valuta(
+        paste0("piastra ", p), comuni[piastra[positivi][comuni] == p])
+    }
   }
   aggregato <- curve[["aggregato"]]
+  per_piastra <- curve[names(curve) != "aggregato"]
+  r2_complessivo <- function(insieme) {
+    if (!length(insieme)) return(NA_real_)
+    osservate <- unlist(lapply(insieme, function(cv) fedelta[cv$indici]))
+    previste <- unlist(lapply(insieme, function(cv) {
+      1 / (1 + (cv$x50 / log10(n_pos[cv$indici]))^cv$h)
+    }))
+    1 - sum((osservate - previste)^2) / sum((osservate - mean(osservate))^2)
+  }
   r2_aggregato <- if (is.null(aggregato) || !aggregato$converge) NA_real_ else aggregato$r2
+  r2_per_piastra <- r2_complessivo(Filter(function(cv) cv$converge, per_piastra))
 
-  # ---- La scelta ------------------------------------------------------------
-  ammesso_agg <- !is.null(aggregato) && aggregato$valida
-  ammesso_pp <- !is.na(r2_per_piastra) && r2_per_piastra >= min_r2 &&
-    any(vapply(per_piastra, function(cv) cv$valida, logical(1)))
-  if (parametri$modo == "fixed") {
+  # ---- Il modello preferito: AIC sugli stessi punti -------------------------
+  aic_aggregato <- if (is.null(aggregato)) NA_real_ else aggregato$aic
+  aic_per_piastra <- if (length(per_piastra)) {
+    sum(vapply(per_piastra, function(cv) cv$aic, numeric(1)))
+  } else NA_real_
+  preferito <- if (is.null(aggregato)) "nessuno" else if (
+    !is.na(aic_aggregato) && !is.na(aic_per_piastra) && aic_aggregato < aic_per_piastra
+  ) "aggregato" else "per_piastra"
+  aic_testo <- function(v) if (is.na(v)) "non calcolabile" else sprintf("%.2f", v)
+
+  # ---- Una soglia per piastra -----------------------------------------------
+  voce <- function(valore, origine, motivo) {
+    list(valore = valore, stadio = stadio, descrizione_stadio = STADI[[stadio]],
+         origine = origine, motivo = motivo)
+  }
+  aggregato_valido <- !is.null(aggregato) && aggregato$valida
+  proprie <- Filter(function(cv) cv$valida, per_piastra)
+  valori_propri <- vapply(proprie, function(cv) ceiling(cv$soglia), numeric(1))
+  mediana <- if (length(valori_propri)) stats::median(valori_propri) else NA_real_
+  usa_aggregato <- preferito == "aggregato" && aggregato_valido
+  # Passi 3, 4 e 6: la soglia di chi non ha una curva propria.
+  senza_curva <- function(motivo) {
+    if (aggregato_valido) {
+      voce(ceiling(aggregato$soglia), "aggregata", motivo)
+    } else if (!is.na(mediana)) {
+      voce(ceiling(mediana), "mediana", sprintf(
+        "%s; curva aggregata non valida: %s", motivo, aggregato$motivo_validita))
+    } else {
+      voce(NULL, "nessuna", motivo)
+    }
+  }
+  piastre <- sort(unique(piastra[!is.na(piastra)]), method = "radix")
+  if (senza_soglia) {
     scelta <- "nessuno"
-    motivo_scelta <- "qc.min_reads_mode e' fixed: si usa qc.min_reads_raw senza curva"
+    motivo_scelta <- "qc.min_reads_mode e' none: nessuna soglia di profondita'"
   } else if (length(motivo_globale)) {
     scelta <- "nessuno"
     motivo_scelta <- paste(motivo_globale, collapse = "; ")
-  } else if (!ammesso_agg && !ammesso_pp) {
-    scelta <- "nessuno"
-    motivo_scelta <- sprintf(
-      "nessun modello ammissibile: aggregato %s; per piastra R^2 %s",
-      if (is.null(aggregato)) "assente" else if (aggregato$valida) "valido" else aggregato$motivo_validita,
-      if (is.na(r2_per_piastra)) "non calcolabile" else sprintf("%.4f", r2_per_piastra))
-  } else if (ammesso_pp && (!ammesso_agg || r2_per_piastra > r2_aggregato)) {
-    scelta <- "per_piastra"
-    motivo_scelta <- sprintf(
-      "R^2 per piastra %.4f contro %s dell'aggregato%s", r2_per_piastra,
-      if (is.na(r2_aggregato)) "nessuno" else sprintf("%.4f", r2_aggregato),
-      if (ammesso_agg) "" else sprintf(" (aggregato non valido: %s)", aggregato$motivo_validita))
-  } else {
+  } else if (usa_aggregato) {
     scelta <- "aggregato"
-    motivo_scelta <- sprintf(
-      "R^2 dell'aggregato %.4f contro %s per piastra%s", r2_aggregato,
-      if (is.na(r2_per_piastra)) "nessuno" else sprintf("%.4f", r2_per_piastra),
-      if (ammesso_pp) "" else " (modello per piastra non ammissibile)")
+    motivo_scelta <- sprintf("AIC dell'aggregato %s, minore di %s del modello per piastra",
+                             aic_testo(aic_aggregato), aic_testo(aic_per_piastra))
+  } else if (aggregato_valido || length(proprie)) {
+    scelta <- "per_piastra"
+    motivo_scelta <- if (preferito == "aggregato") sprintf(
+      "AIC dell'aggregato %s, minore di %s del modello per piastra, ma l'aggregato non e' valido: %s",
+      aic_testo(aic_aggregato), aic_testo(aic_per_piastra), aggregato$motivo_validita
+    ) else sprintf("AIC del modello per piastra %s, non maggiore di %s dell'aggregato",
+                   aic_testo(aic_per_piastra), aic_testo(aic_aggregato))
+  } else {
+    scelta <- "nessuno"
+    motivo_scelta <- paste0("nessuna curva valida: ", paste(vapply(curve, function(cv) {
+      sprintf("%s: %s", cv$modello, cv$motivo_validita)
+    }, character(1)), collapse = " | "))
   }
-
-  # ---- Una soglia per piastra, con il suo stadio ----------------------------
-  da_curva <- function(cv, origine) {
-    list(valore = ceiling(cv$soglia), stadio = stadio, descrizione_stadio = STADI[[stadio]],
-         origine = origine, motivo = "")
-  }
-  di_ripiego <- function(motivo) {
-    list(valore = ripiego, stadio = "raw", descrizione_stadio = STADI$raw,
-         origine = "ripiego: qc.min_reads_raw", motivo = motivo)
-  }
-  piastre <- sort(unique(piastra[!is.na(piastra)]), method = "radix")
   soglie <- list()
   for (p in piastre) {
-    cv <- curve[[paste0("piastra ", p)]]
-    soglie[[p]] <- switch(
-      scelta,
-      aggregato = da_curva(aggregato, "curva aggregata"),
-      per_piastra = if (!is.null(cv) && cv$valida) da_curva(cv, "curva della piastra") else
-        di_ripiego(if (is.null(cv)) "nessun controllo positivo utilizzabile nella piastra" else
-          paste("curva della piastra non valida:", cv$motivo_validita)),
-      nessuno = di_ripiego(motivo_scelta)
-    )
+    cv <- per_piastra[[paste0("piastra ", p)]]
+    soglie[[p]] <- if (scelta == "nessuno") {
+      voce(NULL, "nessuna", motivo_scelta)
+    } else if (scelta == "aggregato") {
+      voce(ceiling(aggregato$soglia), "aggregata", motivo_scelta)
+    } else if (!is.null(cv) && cv$valida) {
+      voce(ceiling(cv$soglia), "propria", "")
+    } else if (is.null(cv)) {
+      senza_curva(sprintf(
+        "%d controlli positivi utilizzabili nella piastra, meno di ctrl.min_positives (%d)",
+        if (p %in% names(punti_per_piastra)) punti_per_piastra[[p]] else 0L, min_positivi))
+    } else {
+      senza_curva(paste("curva della piastra non valida:", cv$motivo_validita))
+    }
   }
-  senza_piastra <- if (scelta == "aggregato") da_curva(aggregato, "curva aggregata") else
-    di_ripiego(if (scelta == "nessuno") motivo_scelta else "campione senza piastra")
-  degrada <- parametri$modo != "fixed" && any(vapply(
-    c(soglie, if (anyNA(piastra)) list(senza_piastra)),
-    function(s) s$stadio == "raw", logical(1)))
+  senza_piastra <- if (scelta == "nessuno") {
+    voce(NULL, "nessuna", motivo_scelta)
+  } else if (scelta == "aggregato") {
+    voce(ceiling(aggregato$soglia), "aggregata", motivo_scelta)
+  } else {
+    senza_curva("campione senza piastra")
+  }
+  applicate <- c(soglie, if (anyNA(piastra)) list("senza piastra" = senza_piastra))
+  non_proprie <- Filter(function(s) s$origine %in% c("aggregata", "mediana"), applicate)
+  degrada <- length(non_proprie) > 0L
+  usano_la_propria <- per_piastra[paste0("piastra ", names(Filter(
+    function(s) s$origine == "propria", soglie)))]
+  r2_dichiarato <- switch(scelta, aggregato = r2_aggregato,
+                          per_piastra = r2_complessivo(usano_la_propria), NA_real_)
 
   # ---- Misura sui campioni: chi cadrebbe sotto la soglia -------------------
   applicata <- lapply(seq_along(campioni), function(i) {
     if (is.na(piastra[i])) senza_piastra else soglie[[piastra[i]]]
   })
-  valore <- vapply(applicata, function(s) s$valore, numeric(1))
-  stadi <- vapply(applicata, function(s) s$stadio, character(1))
-  confrontate <- ifelse(stadi == "raw", grezze, profondita)
-  sotto <- confrontate < valore
+  valore <- vapply(applicata, function(s) if (is.null(s$valore)) NA_real_ else s$valore,
+                   numeric(1))
+  sotto <- !is.na(valore) & profondita < valore
   scrivi_atomico(
-    c("accession\tclasse\tpiastra\tletture_grezze\tletture_nonchimeric\tsoglia\tstadio\tsotto_soglia",
-      sprintf("%s\t%s\t%s\t%.0f\t%.0f\t%.0f\t%s\t%s", campioni, dati$classe,
-              ifelse(is.na(piastra), "", piastra), grezze, profondita, valore, stadi,
+    c(sprintf("accession\tclasse\tpiastra\tletture_%s\tsoglia\tstadio\torigine\tsotto_soglia",
+              stadio),
+      sprintf("%s\t%s\t%s\t%.0f\t%s\t%s\t%s\t%s", campioni, dati$classe,
+              ifelse(is.na(piastra), "", piastra), profondita,
+              ifelse(is.na(valore), "", sprintf("%.0f", valore)), stadio,
+              vapply(applicata, function(s) s$origine, character(1)),
               ifelse(sotto, "si", "no"))),
     file.path(cartella, "profondita_campioni.tsv")
   )
@@ -267,15 +331,15 @@ esegui_fase(function(parametri, cartella) {
     file.path(cartella, "positivi.tsv")
   )
   righe_curve <- vapply(curve, function(cv) {
-    sprintf("%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s", cv$modello, cv$punti,
+    sprintf("%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s", cv$modello, cv$punti,
             numero(cv$h), numero(cv$x50), numero(cv$k), numero(cv$r2, 4L),
-            numero(cv$rmse, 4L),
+            numero(cv$rmse, 4L), numero(cv$aic),
             if (is.na(cv$soglia)) "" else sprintf("%.0f", ceiling(cv$soglia)),
             if (is.na(cv$punto_medio)) "" else sprintf("%.0f", cv$punto_medio),
             cv$osservazioni_transizione, if (cv$valida) "si" else "no", cv$motivo_validita)
   }, character(1))
   scrivi_atomico(
-    c(paste0("modello\tpunti\th\tx50\tk\tr2\trmse\tsoglia\tpunto_medio\t",
+    c(paste0("modello\tpunti\th\tx50\tk\tr2\trmse\taic\tsoglia\tpunto_medio\t",
              "osservazioni_transizione\tvalida\tmotivo"), unname(righe_curve)),
     file.path(cartella, "curve.tsv")
   )
@@ -283,25 +347,41 @@ esegui_fase(function(parametri, cartella) {
   valutabili <- conf$esito != "non valutabile"
   conformi <- sum(conf$esito == "conforme")
   frazione <- if (any(valutabili)) conformi / sum(valutabili) else NA_real_
-  ripieghi <- Filter(function(s) s$stadio == "raw",
-                     c(soglie, if (anyNA(piastra)) list(senza_piastra = senza_piastra)))
+  o_nullo <- function(v, cifre = 6L) if (is.na(v)) NULL else signif(v, cifre)
   scrivi_json(
     list(
       modo = parametri$modo,
       sensibilita = sensibilita,
       modello_curva = "allosteric_sigmoid: f = x^h / (k' + x^h), x = log10(profondita'), k' = x50^h",
+      stadio = stadio,
+      descrizione_stadio = STADI[[stadio]],
       scelta = scelta,
       motivo_scelta = motivo_scelta,
-      r2_aggregato = if (is.na(r2_aggregato)) NULL else signif(r2_aggregato, 6),
-      r2_per_piastra = if (is.na(r2_per_piastra)) NULL else signif(r2_per_piastra, 6),
-      stadi = STADI,
+      modello = list(
+        preferito_aic = preferito,
+        aic_aggregato = o_nullo(aic_aggregato, 10L),
+        aic_per_piastra = o_nullo(aic_per_piastra, 10L),
+        punti_comuni = length(comuni),
+        piastre_comuni = as.list(piastre_comuni),
+        r2_dichiarato = o_nullo(r2_dichiarato),
+        r2_aggregato = o_nullo(r2_aggregato),
+        r2_per_piastra = o_nullo(r2_per_piastra),
+        aggregato_valido = aggregato_valido
+      ),
+      # La mediana delle soglie proprie, calcolata sui valori interi applicati
+      # alle piastre: e' il ripiego del passo 4, e si registra anche se nessuno
+      # la usa.
+      mediana = if (is.na(mediana)) NULL else list(
+        valore_non_arrotondato = mediana, valore = ceiling(mediana),
+        piastre = as.list(sub("^piastra ", "", names(proprie))),
+        usata = any(vapply(applicate, function(s) s$origine == "mediana", logical(1)))),
       per_piastra = soglie,
       senza_piastra = senza_piastra,
-      ripiego = list(parametro = "qc.min_reads_raw", valore = ripiego, stadio = "raw",
-                     degradazione = degrada,
-                     motivi = unname(lapply(names(ripieghi), function(n) {
-                       list(piastra = n, motivo = ripieghi[[n]]$motivo)
-                     })))
+      degradazione = degrada,
+      non_proprie = unname(lapply(names(non_proprie), function(n) {
+        list(piastra = n, origine = non_proprie[[n]]$origine,
+             valore = non_proprie[[n]]$valore, motivo = non_proprie[[n]]$motivo)
+      }))
     ),
     file.path(cartella, "soglia.json")
   )

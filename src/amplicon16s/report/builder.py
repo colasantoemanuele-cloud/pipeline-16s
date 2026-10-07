@@ -71,7 +71,12 @@ from amplicon16s.runner.project import avviso_di_provenienza, passi_realizzati
 from amplicon16s.runner.provenienza import file_del_sorgente, impronta_sorgente
 from amplicon16s.runner.tracciamento import PREFISSO, Tracciamento, componi
 from amplicon16s.steps.base import PipelineStep
-from amplicon16s.steps.s01_profile import NOME_LUNGHEZZE, NOME_QUALITA
+from amplicon16s.steps.s01_profile import (
+    NOME_LUNGHEZZE,
+    NOME_QUALITA,
+    classi_oltre_soglia,
+    letture_corte,
+)
 
 __all__ = [
     "CARTELLA_REPORT",
@@ -94,10 +99,9 @@ CARTELLA_TABELLE: Final = "tabelle"
 
 _MODELLI: Final = Path(__file__).resolve().parent / "templates"
 _CLASSI: Final = tuple(c.value for c in ClasseCampione)
-#: Le due regole del troncamento suggerito: la quota di letture che un
-#: troncamento puo' scartare perche' piu' corte, e la qualita' mediana sotto
-#: la quale una posizione non conviene tenerla.
-QUOTA_CORTE_SUGGERITA: Final = 0.05
+#: La qualita' mediana sotto la quale il troncamento suggerito non tiene una
+#: posizione. La quota di letture piu' corte ammessa non e' una costante: e'
+#: qc.max_frac_short_reads, la stessa che ferma S1 e G09.
 QUALITA_MINIMA_SUGGERITA: Final = 30
 
 
@@ -796,21 +800,56 @@ def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
     """Soglia di profondità per piastra (S11) e modalità di decontaminazione (S12)."""
     soglia = esecuzione.json(Passo.S11, "soglia.json")
     if soglia is not None:
+        modello = soglia.get("modello", {})
+        mediana = soglia.get("mediana")
+
+        def numero(valore: Any, cifre: int) -> str:
+            return "non calcolabile" if valore is None else f"{valore:.{cifre}f}".replace(".", ",")
+
         sezione.sottotitolo("Soglia di profondità per piastra (S11)")
         sezione.sintesi((
             ("modo dichiarato", soglia.get("modo", "")),
             ("modello scelto", soglia.get("scelta", "")),
             ("motivo della scelta", soglia.get("motivo_scelta", "")),
+            ("AIC della curva aggregata", numero(modello.get("aic_aggregato"), 2)),
+            ("AIC del modello per piastra (somma delle curve)",
+             numero(modello.get("aic_per_piastra"), 2)),
+            ("punti comuni ai due modelli", _e(modello.get("punti_comuni", ""))),
+            ("R² dichiarato", numero(modello.get("r2_dichiarato"), 4)),
+            ("mediana delle soglie proprie",
+             "nessuna" if not mediana else
+             f"{_n(mediana['valore_non_arrotondato'])} letture, applicata come "
+             f"{_n(mediana['valore'])}" if mediana.get("usata") else
+             f"{_n(mediana['valore_non_arrotondato'])} letture, non usata"),
         ))
-        piastre = dict(soglia.get("per_piastra", {}))
-        if "senza_piastra" in soglia:
-            piastre["senza piastra"] = soglia["senza_piastra"]
+        # Biologici in ingresso e conservati dal filtro di profondita', dalla
+        # misura per campione di S11: e' lo stesso confronto che S13 applica.
+        ingresso: dict[str, int] = defaultdict(int)
+        conservati: dict[str, int] = defaultdict(int)
+        for riga in esecuzione.tsv(Passo.S11, "profondita_campioni.tsv") or []:
+            if riga["classe"] == ClasseCampione.BIOLOGICO.value:
+                chiave = riga["piastra"] or "senza piastra"
+                ingresso[chiave] += 1
+                conservati[chiave] += riga["sotto_soglia"] == "no"
+        piastre = dict(soglia.get("per_piastra") or {})
+        piastre["senza piastra"] = soglia["senza_piastra"]
         sezione.tabella(_tabella(
-            "soglie_profondita", "Soglia di profondità e ripieghi (11_controls/soglia.json)",
-            ("piastra", "soglia (letture)", "stadio delle letture", "origine", "motivo del ripiego"),
-            ((p, s["valore"], s.get("stadio", ""), s.get("origine", ""), s.get("motivo", ""))
+            "soglie_profondita",
+            "Soglia di profondità effettiva e campioni biologici conservati "
+            "(11_controls/soglia.json, profondita_campioni.tsv)",
+            ("piastra", "soglia (letture)", "stadio delle letture", "origine",
+             "biologici in ingresso", "biologici conservati", "quota conservata", "motivo"),
+            ((p, "nessuna" if s["valore"] is None else s["valore"], s.get("stadio", ""),
+              s.get("origine", ""), ingresso[p], conservati[p],
+              _pct(conservati[p] / ingresso[p] if ingresso[p] else None), s.get("motivo", ""))
              for p, s in sorted(piastre.items(), key=lambda voce: _ordine_piastre(voce[0]))),
         ))
+        if soglia.get("scelta") == "nessuno":
+            sezione.testo(
+                "Nessuna soglia di profondità dai controlli positivi: il filtro per "
+                "profondità non è applicato, e sui campioni resta il solo "
+                "<code>qc.min_reads_final</code>, sulle letture dell'oggetto finale."
+            )
     positivi = esecuzione.json(Passo.S11, "riepilogo.json")
     if positivi is not None:
         sezione.testo(
@@ -918,34 +957,48 @@ def troncamento_suggerito(
     lunghezze: Iterable[Mapping[str, str]],
     qualita: Iterable[Mapping[str, str]],
     classi: Mapping[str, str],
-) -> dict[str, int | None]:
+    massima: float,
+) -> dict[str, Any]:
     """Il troncamento che le letture suggeriscono: un'indicazione, non una scelta.
 
-    E' il minore fra due valori. ``per_lunghezza``: il troncamento piu' lungo
-    che scarta, perche' piu' corte, non oltre ``QUOTA_CORTE_SUGGERITA`` delle
-    letture dei campioni biologici e dei controlli positivi (i negativi non
-    contano: le loro poche letture sono spesso dimeri corti). ``per_qualita``:
-    l'ultima posizione prima che la qualita' mediana dei campioni biologici (la
+    ``senza_perdite``: il troncamento piu' lungo che non scarta alcuna lettura
+    dei campioni biologici e dei controlli positivi, cioe' la loro lettura piu'
+    corta (i negativi non contano: le loro poche letture sono spesso dimeri
+    corti). ``per_lunghezza``: il piu' lungo ammesso dalla regola che ferma S1
+    e G09, ogni classe controllata giudicata da sola contro ``massima``
+    (``qc.max_frac_short_reads``), con le stesse funzioni di S1: un valore
+    suggerito e' quindi un valore che S1 accetta. ``perdita_peggiore``: a
+    quella lunghezza, la frazione di letture scartate nel campione che ne
+    perde di piu', con ``campione_peggiore``. ``per_qualita``: l'ultima
+    posizione prima che la qualita' mediana dei campioni biologici (la
     mediana, fra i campioni, della mediana di ciascuno) scenda sotto
     ``QUALITA_MINIMA_SUGGERITA``; la lunghezza massima se non scende mai.
+    ``suggerito`` e' il minore fra ``per_lunghezza`` e ``per_qualita``.
     ``lunghezze`` e ``qualita`` sono le righe delle tabelle di S1, ``classi``
     la classe di ogni campione. Un valore e' ``None`` se mancano le letture
     per calcolarlo.
     """
-    controllate = {c.value for c in CLASSI_CONTROLLATE}
-    per_lunghezza: dict[int, int] = defaultdict(int)
+    controllate = {c.value: c for c in CLASSI_CONTROLLATE}
+    per_campione: dict[str, dict[int, int]] = defaultdict(dict)
     for riga in lunghezze:
         if classi.get(riga["campione"]) in controllate:
-            per_lunghezza[int(riga["lunghezza"])] += int(riga["letture"])
-    totale = sum(per_lunghezza.values())
-    da_lunghezza = None
-    piu_corte = 0
-    for lunghezza in sorted(per_lunghezza):
-        # Troncare a questa lunghezza scarta le letture piu' corte di essa.
-        if piu_corte > QUOTA_CORTE_SUGGERITA * totale:
-            break
-        da_lunghezza = lunghezza
-        piu_corte += per_lunghezza[lunghezza]
+            per_campione[riga["campione"]][int(riga["lunghezza"])] = int(riga["letture"])
+    classe_di = {c: controllate[classi[c]] for c in per_campione}
+    osservate = sorted({lunghezza for d in per_campione.values() for lunghezza in d})
+    # Troncare a una lunghezza non osservata scarta le stesse letture della
+    # prima lunghezza osservata piu' lunga: bastano le osservate.
+    ammesse = [
+        lunghezza for lunghezza in osservate
+        if not classi_oltre_soglia(letture_corte(per_campione, classe_di, lunghezza), massima)
+    ]
+    da_lunghezza = max(ammesse) if ammesse else None
+    peggiore, campione_peggiore = None, None
+    if da_lunghezza is not None:
+        for campione in sorted(per_campione):
+            totale = sum(per_campione[campione].values())
+            corte = sum(n for l, n in per_campione[campione].items() if l < da_lunghezza)
+            if totale and (peggiore is None or corte / totale > peggiore):
+                peggiore, campione_peggiore = corte / totale, campione
 
     mediane: dict[int, list[float]] = defaultdict(list)
     for riga in qualita:
@@ -959,7 +1012,10 @@ def troncamento_suggerito(
 
     presenti = [v for v in (da_lunghezza, da_qualita) if v is not None]
     return {
+        "senza_perdite": osservate[0] if osservate else None,
         "per_lunghezza": da_lunghezza,
+        "perdita_peggiore": peggiore,
+        "campione_peggiore": campione_peggiore,
         "per_qualita": da_qualita,
         "suggerito": min(presenti) if len(presenti) == 2 else None,
     }
@@ -970,28 +1026,41 @@ def _decisioni_troncamento(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
     lunghezze = esecuzione.tsv(Passo.S1, NOME_LUNGHEZZE)
     qualita = esecuzione.tsv(Passo.S1, NOME_QUALITA)
     inventario = esecuzione.tsv(Passo.S0, NOME_CROSSWALK)
-    if lunghezze is None or qualita is None or inventario is None:
+    massima = esecuzione.parametri.get("qc.max_frac_short_reads")
+    if lunghezze is None or qualita is None or inventario is None or massima is None:
         return
     esito = troncamento_suggerito(
-        lunghezze, qualita, {r["accession"]: r["classe"] for r in inventario}
+        lunghezze, qualita, {r["accession"]: r["classe"] for r in inventario}, float(massima)
     )
+    nomi = {r["accession"]: r["sample_name"] for r in inventario}
+
+    def o_assente(valore: Any) -> str:
+        return _e(valore if valore is not None else "non calcolabile")
+
+    peggiore = esito["campione_peggiore"]
     sezione.sottotitolo("Troncamento suggerito dalle letture (S1)")
     sezione.sintesi((
         ("troncamento dichiarato (filter.truncLen)",
          _valore(esecuzione.parametri.get("filter.truncLen"))),
-        ("troncamento suggerito", _e(esito["suggerito"] if esito["suggerito"] is not None
-                                     else "non calcolabile")),
-        (f"per lunghezza: il più lungo che scarta non oltre "
-         f"{_pct(QUOTA_CORTE_SUGGERITA)} delle letture di biologici e positivi",
-         _e(esito["per_lunghezza"] if esito["per_lunghezza"] is not None else "non calcolabile")),
+        ("troncamento suggerito", o_assente(esito["suggerito"])),
+        ("lunghezza senza perdite: la più lunga che non scarta alcuna lettura di "
+         "biologici e positivi", o_assente(esito["senza_perdite"])),
+        (f"lunghezza ammessa: la più lunga che in ciascuna classe (biologici, positivi) "
+         f"scarta non oltre {_pct(massima)} delle letture (qc.max_frac_short_reads)",
+         o_assente(esito["per_lunghezza"])),
+        ("alla lunghezza ammessa, perdita peggiore per singolo campione",
+         "non calcolabile" if peggiore is None else
+         f"{_pct(esito['perdita_peggiore'])} ({_e(nomi.get(peggiore, peggiore))}, {_e(peggiore)})"),
         (f"per qualità: l'ultima posizione con qualità mediana dei biologici almeno "
-         f"{QUALITA_MINIMA_SUGGERITA}",
-         _e(esito["per_qualita"] if esito["per_qualita"] is not None else "non calcolabile")),
+         f"{QUALITA_MINIMA_SUGGERITA}", o_assente(esito["per_qualita"])),
     ))
     sezione.testo(
         "Il valore suggerito è un'indicazione ricavata da 02_qc_profiles/lunghezze.tsv e "
-        "qualita.tsv: il troncamento applicato resta quello dichiarato in "
-        "<code>filter.truncLen</code>, che è una scelta di chi conduce l'analisi."
+        "qualita.tsv, il minore fra la lunghezza ammessa e quella della qualità: il "
+        "troncamento applicato resta quello dichiarato in <code>filter.truncLen</code>, "
+        "che è una scelta di chi conduce l'analisi. Troncare oltre la lunghezza senza "
+        "perdite scarta letture in modo diverso da campione a campione: la quota ammessa "
+        "vale per la classe, e il singolo campione può perderne molte di più."
     )
 
 

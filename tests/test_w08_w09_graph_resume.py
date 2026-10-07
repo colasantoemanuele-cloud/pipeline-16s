@@ -1272,7 +1272,7 @@ def test_esistono_tutte_le_fasi(scenario):
     quindici fasi, compresa ``Passo.S9``, la filogenesi: dopo S0,
     ``Passo.S1`` e ``Passo.S2`` sono da eseguire (S2 dipende da S0, non da S1),
     ``Passo.S3`` attende S2, ``Passo.S8`` attende S7, ``Passo.S10`` attende S7 e
-    S8, ``Passo.S11`` attende S2 e S10,
+    S8, ``Passo.S11`` attende S10 (non S2: nessuna soglia si applica alle letture grezze),
     ``Passo.S12`` attende S10 (non S11, di cui non legge artefatti),
     ``Passo.S13`` le fasi di cui legge gli
     artefatti e ``Passo.S14`` attende S10 e S13; ``Passo.S9`` e' realizzata e
@@ -1294,9 +1294,9 @@ def test_esistono_tutte_le_fasi(scenario):
     assert situazione[Passo.S4].motivo == "a monte da eseguire: S2, S3"
     assert situazione[Passo.S8].motivo == "a monte da eseguire: S7"
     assert situazione[Passo.S10].motivo == "a monte da eseguire: S7, S8"
-    assert situazione[Passo.S11].motivo == "a monte da eseguire: S2, S10"
+    assert situazione[Passo.S11].motivo == "a monte da eseguire: S10"
     assert situazione[Passo.S12].motivo == "a monte da eseguire: S10"
-    assert situazione[Passo.S13].motivo == "a monte da eseguire: S2, S7, S8, S11, S12"
+    assert situazione[Passo.S13].motivo == "a monte da eseguire: S7, S8, S11, S12"
     assert situazione[Passo.S14].motivo == "a monte da eseguire: S10, S13"
     assert situazione[Passo.S9].stato is StatoPasso.DISATTIVATA
     assert run.prossima() is Passo.S1

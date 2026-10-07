@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import gzip
 import re
+import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +38,7 @@ from typing import IO, Final
 __all__ = [
     "StatisticheFile",
     "apri_fastq",
+    "conta_coppie",
     "espandi_iupac",
     "scansiona",
     "scansiona_file",
@@ -118,13 +120,15 @@ class StatisticheFile:
         Tre segni, giudicati sulla frazione delle letture esaminate e non su un
         record isolato (:data:`FRAZIONE_DI_COPPIA`): intestazioni che marcano
         sia la prima sia la seconda lettura di una coppia; nomi di lettura che
-        compaiono due volte (e nessuno piu' di due: un'intestazione vuota o
-        uguale per tutte le letture non e' un segno di coppia); oppure quasi
-        sole seconde letture, come nella testa di
+        compaiono due volte (con i nomi comparsi piu' di due volte sotto la
+        stessa frazione: un'intestazione vuota o uguale per tutte le letture
+        non e' un segno di coppia, ma un solo nome in tre copie non assolve un
+        file di coppie); oppure quasi sole seconde letture, come nella testa di
         un file che riporta prima tutte le seconde e poi tutte le prime. Vale
-        per le letture esaminate: un file che riporta prima tutte le prime
-        letture e poi le seconde non si riconosce se le esaminate non arrivano
-        al secondo blocco.
+        per le letture esaminate: G07 guarda le prime ``qc.head_reads``, e un
+        file che riporta prima tutte le prime letture e poi le seconde gli
+        sfugge se le esaminate non arrivano al secondo blocco; S1 ripete il
+        giudizio su tutte le letture (:func:`conta_coppie`).
         """
         if not self.letture_esaminate:
             return None
@@ -138,8 +142,10 @@ class StatisticheFile:
                 f"la prima lettura di una coppia e {self.seconde_di_coppia} la seconda"
             )
         # Lo stesso nome due volte e' il segno di una coppia; piu' di due volte
-        # e' un'intestazione che non distingue le letture, e non dice nulla.
-        if self.nomi_ripetuti >= minimo and not self.nomi_oltre_due:
+        # e' un'intestazione che non distingue le letture, e non dice nulla. I
+        # nomi oltre le due copie si tollerano come ogni altro record anomalo:
+        # sotto la frazione non spengono il riconoscimento.
+        if self.nomi_ripetuti >= minimo and self.nomi_oltre_due < minimo:
             return (
                 f"{self.nomi_ripetuti} nomi di lettura su {self.letture_esaminate} letture "
                 "compaiono due volte"
@@ -147,7 +153,10 @@ class StatisticheFile:
         if (
             self.seconde_di_coppia >= minimo
             and self.prime_di_coppia < minimo
-            and self.seconde_di_coppia >= self.letture_esaminate - tollerate
+            # Almeno un record tollerato anche nei file piccoli, dove la
+            # frazione vale meno di una lettura: come per le altre soglie, un
+            # record isolato non decide in nessuno dei due versi.
+            and self.seconde_di_coppia >= self.letture_esaminate - max(1.0, tollerate)
         ):
             return (
                 f"{self.seconde_di_coppia} intestazioni su {self.letture_esaminate} marcano "
@@ -323,6 +332,18 @@ def scansiona_file(
         nomi_ripetuti=sum(1 for volte in nomi.values() if volte == 2),
         nomi_oltre_due=sum(1 for volte in nomi.values() if volte > 2),
     )
+
+
+def conta_coppie(percorso: Path | str) -> StatisticheFile:
+    """I segni di coppia su **tutte** le letture del file, con le regole di G07.
+
+    E' la stessa scansione dei gate senza il limite delle prime letture e senza
+    le ricerche di primer e motivo: il giudizio
+    (:attr:`StatisticheFile.coppie_nello_stesso_file`) e' lo stesso, e cio' che
+    G07 non vede oltre ``qc.head_reads`` qui si vede. I nomi di lettura di un
+    file restano in memoria solo per la durata della sua scansione.
+    """
+    return scansiona_file(percorso, sys.maxsize, None, None)
 
 
 def scansiona(

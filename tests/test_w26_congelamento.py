@@ -143,6 +143,9 @@ def _strumento():
 
 
 S = _strumento()
+#: Le griglie pubblicate del dataset di riferimento, lette come le legge lo
+#: strumento: nel codice dello strumento non c'e' alcun valore di un dataset.
+GRIGLIE_PUBBLICATE = SENSIBILITA / "griglie.yaml"
 
 
 def _passo(varianti: float = 0.0, campioni: float = 0.0, letture: float = 0.0) -> dict[str, float]:
@@ -385,13 +388,16 @@ def test_la_modalita_corrente_si_mantiene_se_ammissibile():
     assert d["scelto"] == "a" and "limite noto" in d["esito"]
 
 
+@senza_dati
 @senza_docs
 def test_griglie_e_soglie_dello_strumento_sono_quelle_del_registro():
     """
-    **Obiettivo**: Verificare che le griglie, i valori correnti, le soglie
-    assolute e il fattore di sproporzione di ``scripts/sensitivity.py``
-    coincidano con quelli scritti nel registro delle decisioni, e che in ogni
-    griglia il valore corrente abbia due vicini a passo uniforme.
+    **Obiettivo**: Verificare che le griglie pubblicate in
+    ``docs/sensibilita/griglie.yaml``, i valori correnti della configurazione
+    congelata, le soglie assolute e il fattore di sproporzione di
+    ``scripts/sensitivity.py`` coincidano con quelli scritti nel registro
+    delle decisioni, e che in ogni griglia il valore corrente abbia due vicini
+    a passo uniforme.
 
     **Razionale scientifico e sistemistico**: La regola e' stata fissata nel
     registro prima dei risultati: lo strumento che la applica non puo'
@@ -402,7 +408,12 @@ def test_griglie_e_soglie_dello_strumento_sono_quelle_del_registro():
     def numeri(testo: str) -> tuple[float, ...]:
         return tuple(float(n.replace(",", ".")) for n in re.findall(r"\d+,\d+", testo))
 
-    for parametro, (corrente, griglia) in S.GRIGLIE.items():
+    numerici, _, modalita = S.leggi_griglie(GRIGLIE_PUBBLICATE)
+    config = Config.model_validate(yaml.safe_load(CONGELATA.read_text(encoding="utf-8")))
+    assert set(numerici) == {
+        "katharoseq.target_sensitivity", "decontam.threshold", "prev.min_fraction"}
+    for parametro, voce in numerici.items():
+        corrente, griglia = S.valore_corrente(config, parametro), voce["griglia"]
         riga = next(r for r in registro.splitlines() if r.startswith(f"| `{parametro}` |"))
         _, _, scritto, valori, _ = (c.strip() for c in riga.split("|"))
         assert numeri(scritto) == (corrente,) and numeri(valori) == griglia, parametro
@@ -413,8 +424,8 @@ def test_griglie_e_soglie_dello_strumento_sono_quelle_del_registro():
     assert S.SOGLIE_ASSOLUTE == {"varianti": 0.10, "campioni": 0.05, "letture": 0.05}
     assert "0,10 per le varianti, 0,05 per i campioni, 0,05 per le" in registro
     assert S.FATTORE_SPROPORZIONE == 3.0 and "tre volte la mediana" in registro
-    assert S.MODALITA[S.MODALITA_CORRENTE] == {"mode": "aggregate", "batch_combine": "minimum"}
-    assert set(S.MODALITA) == {"aggregata", "per piastra, minimum", "per piastra, fisher"}
+    assert S.modalita_corrente(config, modalita) == "aggregata"
+    assert set(modalita) == {"aggregata", "per piastra, minimum", "per piastra, fisher"}
 
 
 @senza_docs
@@ -433,7 +444,10 @@ def test_le_decisioni_pubblicate_derivano_dai_passi_pubblicati():
     decisioni = json.loads((SENSIBILITA / "decisioni.json").read_text(encoding="utf-8"))
     passi = _tsv(SENSIBILITA / "passi.tsv")
     misure = _tsv(SENSIBILITA / "misure.tsv")
-    for parametro, (corrente, griglia) in S.GRIGLIE.items():
+    numerici, nome_modalita, tre_modalita = S.leggi_griglie(GRIGLIE_PUBBLICATE)
+    for parametro, voce in numerici.items():
+        griglia = voce["griglia"]
+        corrente = decisioni["decisioni"][parametro]["corrente"]
         del_parametro = [
             {m: float(r[m]) for m in S.MISURE} for r in passi if r["parametro"] == parametro
         ]
@@ -443,10 +457,10 @@ def test_le_decisioni_pubblicate_derivano_dai_passi_pubblicati():
         assert rifatta["instabile"] == pubblicata["instabile"], parametro
         assert rifatta["scelto"] == pubblicata["scelto"], parametro
         misurati = {float(r["valore"]) for r in misure if r["parametro"] == parametro}
-        assert set(griglia) | set(S.FUORI_GRIGLIA.get(parametro, ())) == misurati
-    assert {0.80, 0.90} <= set(S.GRIGLIE["katharoseq.target_sensitivity"][1])
-    modalita = {r["valore"] for r in misure if r["parametro"].startswith("modalita")}
-    assert modalita == set(S.MODALITA)
+        assert set(griglia) | set(voce["fuori_griglia"]) == misurati
+    assert {0.80, 0.90} <= set(numerici["katharoseq.target_sensitivity"]["griglia"])
+    modalita = {r["valore"] for r in misure if r["parametro"] == nome_modalita}
+    assert modalita == set(tre_modalita)
     assert decisioni["soglie_assolute"] == S.SOGLIE_ASSOLUTE
 
 
@@ -469,8 +483,9 @@ def test_la_configurazione_congelata_ha_i_valori_scelti_e_la_regola_attiva():
     assert dati["katharoseq"]["target_sensitivity"] == scelte["katharoseq.target_sensitivity"]["scelto"]
     assert dati["decontam"]["threshold"] == scelte["decontam.threshold"]["scelto"]
     assert dati["prev"]["min_fraction"] == scelte["prev.min_fraction"]["scelto"]
-    modalita = S.MODALITA[scelte["modalita' di decontaminazione"]["scelto"]]
-    assert {k: dati["decontam"][k] for k in ("mode", "batch_combine")} == modalita
+    _, nome_modalita, tre_modalita = S.leggi_griglie(GRIGLIE_PUBBLICATE)
+    modalita = tre_modalita[scelte[nome_modalita]["scelto"]]
+    assert {f"decontam.{k}": dati["decontam"][k] for k in ("mode", "batch_combine")} == modalita
     assert dati["run"]["strict_provenance"] is True
     assert re.fullmatch(r"ghcr\.io/[a-z0-9-]+/[a-z0-9._-]+@sha256:[0-9a-f]{64}", dati["run"]["container"])
     Config.model_validate(dati)

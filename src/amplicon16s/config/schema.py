@@ -464,8 +464,9 @@ class Prev(_Gruppo):
 class Qc(_Gruppo):
     """Soglie dei controlli di qualità che governano avvisi e arresti."""
 
-    min_reads_raw: InteroNonNegativo = d.QC_MIN_READS_RAW
-    min_reads_mode: Literal["fixed", "katharoseq_if_available"] = d.QC_MIN_READS_MODE
+    # katharoseq_if_available: le soglie di S11, sulle letture senza chimere;
+    # none: nessuna soglia di profondita', resta min_reads_final.
+    min_reads_mode: Literal["katharoseq_if_available", "none"] = d.QC_MIN_READS_MODE
     # Frazione massima delle letture dei biologici rimossa come contaminante (S12).
     max_frac_contaminant: Frazione = d.QC_MAX_FRAC_CONTAMINANT
     # Per campione, sulle letture dell'oggetto finale (S13): sotto, il campione
@@ -494,6 +495,34 @@ class Qc(_Gruppo):
     # assenza del primer.
     primer_sequence: SequenzaIupac
     conserved_motif: Regex | None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _soglia_sulle_letture_grezze_rimossa(cls, valori: Any) -> Any:
+        """Respinge ``min_reads_raw`` e il modo ``fixed`` spiegando il cambiamento.
+
+        Una configurazione scritta per la soglia fissa sulle letture grezze
+        chiedeva un filtro che non esiste piu': respingerla come chiave
+        sconosciuta non direbbe che cosa lo sostituisce.
+        """
+        if isinstance(valori, dict):
+            if "min_reads_raw" in valori:
+                raise ValueError(
+                    "min_reads_raw non esiste piu': nessuna soglia di profondita' si "
+                    "applica alle letture grezze. La soglia viene dai controlli positivi "
+                    "(S11), sulle letture senza chimere, e dove una piastra non ha una "
+                    "curva valida si usa la soglia aggregata o la mediana delle altre "
+                    "piastre; senza curve valide resta min_reads_final. Togli la chiave"
+                )
+            if valori.get("min_reads_mode") == "fixed":
+                raise ValueError(
+                    "min_reads_mode: fixed non esiste piu', perche' applicava "
+                    "min_reads_raw alle letture grezze. I valori ammessi sono "
+                    "katharoseq_if_available (le soglie di S11, sulle letture senza "
+                    "chimere) e none (nessuna soglia di profondita', resta "
+                    "min_reads_final)"
+                )
+        return valori
 
     @model_validator(mode="after")
     def _avviso_prima_dell_arresto(self) -> Qc:
