@@ -34,6 +34,7 @@ R/                    Script R dei calcoli scientifici; R/lib/ per le funzioni c
 config/               File di configurazione (config.example.yaml)
 tests/                Suite di test
 dati/osd734/          Dati del dataset di riferimento: metadati, elenchi con i checksum, script di scarico
+dati/osd276/          Dati del secondo dataset, su cui si verifica la generalità: metadati, script di scarico, configurazione
 docs/                 Registro delle decisioni di metodo (decision_log.md) e analisi di sensibilità (sensibilita.md, sensibilita/)
 scripts/              Script di utilità
 container/            Definizione dell'ambiente riproducibile (Dockerfile e script R)
@@ -163,8 +164,8 @@ python3 dati/osd734/ricostruisci_lotto.py     # piastre, pozzetti e corse dalla 
 ```
 
 La pipeline si esegue poi nel container, con il repository montato: il README della
-cartella riporta i comandi completi, i valori da adattare (`run.threads` per primo, e
-`run.container`) e i requisiti misurati di spazio, durata e memoria. A esecuzione
+cartella riporta i comandi completi, i valori da adattare e i requisiti misurati di
+spazio, durata e memoria. A esecuzione
 conclusa i risultati si verificano con un comando contro i checksum attesi pubblicati
 nella stessa cartella:
 
@@ -306,7 +307,15 @@ Sono realizzati:
 - l'inventario dei campioni: il crosswalk fra i file di letture, la tabella di assay
   dell'amplicone e la tabella campioni di studio, con la classe di ciascun campione.
   La chiave del join è l'accession estratto dal nome del file, non il nome del
-  campione, che può ripetersi fra repliche. Il join verso la tabella campioni di
+  campione, che può ripetersi fra repliche: `io.accession_regex` la estrae dal nome di
+  ogni file (la corrispondenza intera, o il primo gruppo di cattura se l'espressione
+  ne ha uno, per i file nominati per campione o per corsa), e la stessa chiave si
+  ricava dal valore di `meta.accession_column`, che può essere il nome di un file o la
+  chiave stessa. La tabella campioni di studio è facoltativa: senza `io.study_table`
+  classe e variabili si leggono dalla tabella di assay; se c'è e la sua colonna del
+  nome del campione ha un altro nome, lo dichiara `meta.study_sample_id_column`.
+  Tutte le tabelle si leggono da un solo modulo (`metadata/tabelle.py`): UTF-8 con o
+  senza BOM, nomi delle colonne e valori ripuliti da spazi e virgolette. Il join verso la tabella campioni di
   studio resta ristretto alle righe dell'assay, perché quella tabella è condivisa fra
   più assay dello stesso studio. Un file facoltativo associa a ogni campione la
   piastra di estrazione, la corsa di sequenziamento e il modulo; anche quel file si
@@ -332,10 +341,58 @@ Sono realizzati:
   16 campioni: il file riconosce l'Airlock, mentre la derivazione per prefisso no,
   perché `A/L1` non ha la forma che l'espressione predefinita cattura. I moduli sono
   nove con il file e otto senza;
-- **la fase S0, la validazione iniziale**, con tutti e quindici i gate: dagli ingressi
-  leggibili e dalle tabelle apribili fino al troncamento compatibile con le lunghezze
-  osservate, all'assenza del primer e alla disponibilità delle risorse.
-  L'assenza del primer è accompagnata da un controllo positivo, che verifica la
+- **i parametri che descrivono il dataset sono obbligatori** (`OBBLIGATORI` in
+  `config/defaults.py`, 25 parametri): il formato dei metadati (colonne, etichette
+  delle classi, colonne del file del lotto, colonne da portare nell'oggetto),
+  l'esperimento (`filter.truncLen`, primer, motivo conservato, taxon atteso nei
+  controlli positivi, nome e versione del riferimento) e il modo di riconoscere file e
+  campioni (`io.accession_regex`, `meta.sample_id_column`, `meta.accession_column`).
+  Non hanno un valore predefinito: una configurazione che non li dichiara è respinta
+  da G15 con `E-G15-10` e l'elenco completo dei mancanti, prima di aprire un solo
+  file. Obbligatorio significa dichiarato, non provvisto di un valore: un parametro
+  non pertinente si dichiara nullo o vuoto (le etichette dei controlli in un dataset
+  che non ne ha, il motivo conservato di una regione che non ne ha uno noto, le
+  colonne del lotto senza il file). G15 ne verifica la coerenza: senza
+  `io.batch_table` le colonne del lotto devono essere vuote o nulle (`E-G15-11`); con
+  etichette di controlli positivi, taxon atteso e colonna delle cellule non possono
+  essere nulli (`E-G15-12`). `config.example.yaml` li lascia da compilare, con il
+  valore di OSD-734 come esempio in commento; `dati/osd734/config_osd734.yaml` e
+  `dati/osd276/config_osd276.yaml` li dichiarano tutti. Otto parametri restano con un
+  predefinito tarato su OSD-734 (`FATTI_OSD734`: scelte di metodo come la soglia di
+  decontaminazione o la prevalenza minima), e il report segnala quelli presi per
+  difetto. `run.threads` vale per difetto i processori utilizzabili dal processo e
+  `run.container` è facoltativo;
+- **la prova su un secondo dataset** (`dati/osd276/`): OSD-276, 15 tamponi di
+  superfici della stessa stazione, di un altro laboratorio; paired-end, di cui si
+  usano le sole letture forward come dato single-end; 151 basi, nessun controllo,
+  nessun file del lotto, file nominati per corsa. Con i predefiniti di OSD-734 la
+  pipeline respingeva i file per il formato dell'accession, diagnosticava l'etichetta
+  non dichiarata dei campioni come primer nelle letture, e si fermava in S10 per una
+  colonna inesistente dopo dodici minuti di calcolo. Con la configurazione che
+  dichiara il dataset la validazione passa in pochi secondi, dichiarando che non ci
+  sono controlli positivi né negativi (`E-S0-17`), e la catena arriva alla
+  decontaminazione (S12). Si ferma nei filtri finali (S13), perché l'oggetto dei
+  controlli non si costruisce su zero controlli: le fasi di calcolo presuppongono
+  ancora la presenza di controlli;
+- **la fase S0, la validazione iniziale**, con tutti e quindici i gate, eseguiti
+  nell'ordine delle dipendenze: G15, G01, G02, G04, G05, G06, G03, G11, G13, G07,
+  G08, G09, G10, G12, G14. Le classi dei campioni (G11) si verificano prima dei gate
+  che leggono le sequenze, così un'etichetta non dichiarata è diagnosticata come tale
+  e non come segnale assente. G02 e G08 verificano ogni colonna che la configurazione
+  nomina, sulle tabelle di assay e di studio e sul file del lotto, comprese quelle da
+  portare nell'oggetto (`out.study_columns`, `out.batch_columns`); G08 respinge un
+  file del lotto in cui un campione non ha riga, ne ha più d'una o non ha la corsa.
+  G07 riconosce le letture inverse dal marcatore che precede l'estensione; i FASTQ,
+  compressi o no, si riconoscono dai primi byte. G10 cerca il primer in testa alle
+  letture solo con `filter.trimLeft` a zero, e il motivo conservato a partire dalla
+  posizione `filter.trimLeft`: così la correzione che il gate indica (il taglio pari
+  alla lunghezza del primer) lo fa superare. Primer presente (`E-S0-10`) e segnale
+  assente (`E-S0-16`) hanno codici e rimedi distinti; con `qc.conserved_motif` nullo
+  il gate verifica il solo primer e lo dichiara (`E-S0-18`). S0 conta i controlli e
+  dichiara subito, come degradazione registrata nel suo manifesto (`E-S0-17`), un
+  dataset senza controlli positivi o con meno controlli negativi di
+  `decontam.min_blanks`.
+  Il controllo sul motivo verifica la
   presenza della regione amplificata dichiarata, non la qualità del campione:
   sul dataset di riferimento il motivo conservato compare nei controlli
   negativi quanto nei biologici, perché i bianchi amplificano contaminanti. È la barriera
@@ -349,7 +406,7 @@ Sono realizzati:
   manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
   in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
   lo stesso checksum fra due esecuzioni sugli stessi ingressi;
-- il catalogo degli errori (58 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (63 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -957,13 +1014,16 @@ Sono realizzati:
   `dichiarati` i parametri impostati nel file di ingresso, come li riconosce lo schema
   al caricamento; il report dice così, per ogni parametro, se il valore è dichiarato,
   preso dal predefinito, derivato da altri parametri, o aggiustato da un tentativo
-  ripetuto. Dichiarato non significa scelto: `config.example.yaml` e
-  `dati/osd734/config_osd734.yaml` sono istanze complete, e chi le copia dichiara anche
-  i valori di OSD-734. Per i 30 parametri di `DERIVATI_DAL_DATASET` il report segnala
-  quindi in apertura, comunque siano stati impostati, quelli che coincidono con il
-  valore di OSD-734, con il fatto accertato che lo giustificava
-  (`FATTI_OSD734` in `config/defaults.py`, unica fonte, tenuta allineata ai marcatori
-  `[OSD-734]` dell'esempio da un test) e l'invito a verificarlo sul dataset in uso.
+  ripetuto. I parametri che descrivono il dataset sono obbligatori e non possono essere
+  ereditati. Per gli otto con un predefinito tarato su OSD-734 (`FATTI_OSD734` in
+  `config/defaults.py`, unica fonte, tenuta allineata ai marcatori `[OSD-734]`
+  dell'esempio da un test) il report elenca in apertura quelli che l'esecuzione ha
+  preso per difetto senza dichiararli, con il fatto accertato su OSD-734 che
+  giustificava il valore e che cosa fare: controllare se quel fatto vale per il
+  dataset in uso, e dichiarare il parametro con lo stesso valore o con quello adatto.
+  Un parametro dichiarato non compare più, anche a una ripresa: dichiararlo registra
+  una nuova versione della configurazione pur senza cambiare alcun valore. Se non ce
+  ne sono, la sezione lo dice in una riga.
 
   **Che cosa legge e che cosa no.** Lo stato riportato è quello dei manifesti: se una
   fase è ancora valida per la configurazione e i dati di adesso lo giudica `resume`.

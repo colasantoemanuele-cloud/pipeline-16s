@@ -86,11 +86,13 @@ percorsi sono relativi alla radice del repository, da cui il comando va lanciato
 riga di comando li rende assoluti al caricamento, e la configurazione registrata in
 `00_config/` riporta i percorsi dei file letti (nel container, sotto `/app`).
 
-- `run.threads` e' il valore da adattare. La configurazione non lo imposta e vale 16:
-  se la macchina ha meno processori utilizzabili, i controlli di avvio fermano
-  l'esecuzione con `E-S0-14` prima di qualunque fase. Va indicato il numero di
-  processori della macchina (`nproc`) o meno. Non cambia i risultati: e' fra i
-  parametri senza effetto, fuori dall'impronta delle fasi.
+- `run.threads` non e' impostato e vale i processori utilizzabili dal processo: va
+  indicato solo per usarne meno. Non cambia i risultati: e' fra i parametri senza
+  effetto, fuori dall'impronta delle fasi.
+- I parametri che descrivono il dataset (colonne e etichette dei metadati, colonne del
+  file del lotto, primer, motivo conservato, troncamento, riferimento) sono dichiarati
+  tutti: la pipeline non ha per essi alcun valore predefinito, e una configurazione
+  che ne omette uno e' respinta prima di qualunque calcolo (`E-G15-10`).
 - `run.strict_provenance` e' vero: e' la configurazione congelata, e l'esecuzione parte
   solo se il codice e l'ambiente sono quelli dichiarati. Prima di qualunque fase la
   pipeline verifica che il repository sia un clone git leggibile, che `src/` e `R/`
@@ -222,6 +224,17 @@ pubblicata compresa, coincidono su tutti gli artefatti. Fuori dal container, con
 i risultati possono differire senza che l'esecuzione sia sbagliata: il confronto prova
 l'identita', non la correttezza.
 
+### Una differenza attesa con il codice attuale
+
+I checksum pubblicati sono quelli dell'esecuzione di riferimento, prodotta dal commit
+`af82ef9`. Da allora l'ordine in cui la fase S0 esegue i gate e' cambiato (segue le
+dipendenze fra i gate, non il loro numero), e `01_input_validation/gates.json`, che
+elenca i gate nell'ordine di esecuzione, ha quindi un checksum diverso: lo script
+segnala una differenza in S0, su quel solo file. Il contenuto e' lo stesso, gate per
+gate (descrizione, esito, violazioni, avvisi); gli altri 1.030 artefatti, compresi i
+cinque file consegnati di `12_final/`, sono identici byte per byte (catena completa
+rieseguita il 7 ottobre 2026 nell'immagine pubblicata, 57 minuti).
+
 ### Se i risultati non coincidono
 
 1. Guardare la prima fase indicata dallo script: le fasi successive dipendono da
@@ -229,7 +242,7 @@ l'identita', non la correttezza.
 2. Se la prima fase e' S0, S1 o S2, la differenza e' nei dati di ingresso: rilanciare i
    tre script di scarico con `--solo-verifica`, che devono terminare con esito 0, e
    confrontare la configurazione registrata in `output/osd734/00_config/resolved.yaml`
-   con `config_osd734.yaml` (devono differire solo i percorsi e `run.threads`).
+   con `config_osd734.yaml` (devono differire solo i percorsi).
 3. Se e' una fase successiva, la differenza e' nell'ambiente di calcolo: controllare
    di aver eseguito nell'immagine pubblicata, scaricata con il suo digest, con
    `AMPLICON16S_R_DIR=/app/R` (senza, l'immagine esegue gli script R copiati alla

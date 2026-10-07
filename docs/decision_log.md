@@ -180,8 +180,10 @@ dell'analisi: 492 campioni, 1.753 varianti, 21.202.825 letture.
 
 **La configurazione congelata** è `dati/osd734/config_osd734.yaml`. Dichiara in modo
 esplicito i quattro valori della tabella, anche se coincidono con i predefiniti, perché
-non dipendano da essi; dichiara l'immagine del container con il suo digest di registro;
-attiva la regola rigorosa sulla provenienza (sezione 3.14).
+non dipendano da essi, e con loro tutti i parametri che descrivono il dataset e tutti
+quelli il cui predefinito è tarato su OSD-734 (sezione 3.15); dichiara l'immagine del
+container con il suo digest di registro; attiva la regola rigorosa sulla provenienza
+(sezione 3.14).
 
 **Limiti che l'analisi ha messo in evidenza**, da dichiarare con i risultati:
 
@@ -591,3 +593,48 @@ configurazione congelata.**
 - Motivazione: una configurazione congelata certifica i risultati solo se ciò che li
   ha calcolati è identificato; ciò che non si può verificare deve fermare l'esecuzione
   o essere dichiarato come tale, non passare in silenzio.
+
+### 3.15 Generalità: che cosa descrive il dataset e che cosa la pipeline
+
+**I parametri che descrivono il dataset non hanno un valore predefinito.**
+- Decisione: sono obbligatori i parametri sul formato dei metadati (colonne del nome
+  del campione e del file, colonna e etichette delle classi, colonne della posizione,
+  del modulo, della piastra e della corsa, colonne da portare nell'oggetto), quelli
+  sull'esperimento (lunghezza di troncamento, primer, motivo conservato, taxon atteso
+  nei controlli positivi, nome e versione del riferimento) e l'espressione che estrae
+  dal nome dei file la chiave del campione: 25 in tutto. Una configurazione che ne
+  omette uno non parte, e l'errore li elenca tutti. Un parametro che per il dataset
+  non ha contenuto si dichiara nullo o vuoto: un dataset senza controlli positivi lo
+  dice con un elenco vuoto.
+- Motivazione: un valore ereditato da un altro dataset (una colonna che per caso
+  esiste, un'etichetta, un troncamento) non produce un errore ma un risultato
+  plausibile e sbagliato. Dichiarare è l'unico modo di sapere che chi esegue ha
+  guardato i propri dati.
+- Misure: su un secondo dataset (OSD-276, 15 tamponi della stessa stazione, altro
+  laboratorio) la pipeline con i predefiniti di OSD-734 respingeva i file per il
+  formato dell'accession, diagnosticava un'etichetta non dichiarata come primer nelle
+  letture, e si fermava per una colonna inesistente dopo dodici minuti di calcolo; il
+  troncamento ereditato toglieva 14 basi a ogni lettura senza alcun arresto.
+
+**Otto parametri conservano un predefinito tarato sul dataset di riferimento, e il
+report di ogni esecuzione elenca quelli presi per difetto.**
+- Decisione: taglio iniziale, bootstrap minimo e assegnazione della specie, metodo,
+  soglia e modalità della decontaminazione, frazione minima del motivo conservato,
+  prevalenza minima. Sono scelte di metodo, non descrizioni del dataset: hanno un
+  valore di partenza sensato, ma il fatto che lo giustifica va riesaminato.
+- Motivazione: renderli tutti obbligatori chiederebbe a chi esegue di scegliere prima
+  di aver visto un risultato; lasciarli impliciti nasconderebbe che sono stati scelti
+  su altri dati. La segnalazione scompare quando il parametro viene dichiarato.
+- Misure: con 15 campioni la prevalenza minima dell'1% equivale a un solo campione,
+  cioè a nessun filtro.
+
+**La validazione iniziale verifica tutto ciò che la configurazione dichiara, nell'ordine
+in cui le verifiche dipendono l'una dall'altra.**
+- Decisione: ogni colonna nominata si cerca nelle intestazioni prima del calcolo; il
+  file del lotto deve avere una e una sola riga per campione; le classi dei campioni
+  si verificano prima dei controlli sulle letture; il primer si cerca in testa alle
+  letture solo se il filtro non lo toglierà, e il motivo conservato dove inizierà la
+  lettura filtrata; un dataset senza controlli positivi, o con pochi controlli
+  negativi, viene dichiarato tale subito.
+- Motivazione: la diagnosi deve nominare l'errore vero. Un controllo eseguito prima di
+  ciò da cui dipende fallisce con il messaggio di un altro problema.

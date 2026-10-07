@@ -107,6 +107,8 @@ from sottoinsieme import TAXON_SINTETICO, config_ridotta, motivo_pacchetti_r_ass
 from amplicon16s.config import defaults
 from amplicon16s.config.resolve import risolvi
 from amplicon16s.errors.exceptions import ErrorePipeline
+from amplicon16s.gates.g01_g15 import Contesto
+from amplicon16s.gates.registry import esegui_gate
 from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.logging.logger import chiudi
 from amplicon16s.rbridge.payload import PREFISSO
@@ -525,22 +527,38 @@ def test_s11_da_gli_stessi_byte_in_due_esecuzioni(bioc, controlli_calcolati, tmp
     assert _impronte(copia.albero.cartella(Fase.CONTROLS)) == attese
 
 
+def test_la_colonna_dei_livelli_assente_e_respinta_in_s0(tmp_path):
+    """
+    **Obiettivo**: Verificare che una ``katharoseq.cell_count_column`` che non
+    compare ne' nel file del lotto ne' nella tabella di studio sia respinta da
+    G08 con ``E-S0-08``, nominando il parametro, prima di qualunque calcolo.
+
+    **Razionale scientifico e sistemistico**: Senza la colonna dei livelli S11
+    ripiegava sulla soglia fissa dopo l'intera catena di calcolo: una colonna
+    dichiarata e inesistente e' un errore della configurazione, e si scopre
+    leggendo le intestazioni.
+    """
+    config = config_ridotta(tmp_path, katharoseq={"cell_count_column": "cellule_inesistenti"})
+    esito = esegui_gate("G08", Contesto(config))
+    assert not esito.superato and {v.codice for v in esito.violazioni} == {"E-S0-08"}
+    assert "katharoseq.cell_count_column" in esito.violazioni[0].dettaglio
+    assert "cellule_inesistenti" in esito.violazioni[0].dettaglio
+
+
 @pytest.mark.parametrize(
     ("sovrascrivi", "nel_motivo", "degrada"),
     [
         ({"katharoseq": {"min_r2": 1.0}}, "katharoseq.min_r2", True),
-        ({"katharoseq": {"cell_count_column": "cellule_inesistenti"}}, "cellule_inesistenti", True),
         ({"ctrl": {"min_positives": 50}}, "ctrl.min_positives", True),
         ({"qc": {"min_reads_mode": "fixed"}}, "fixed", False),
     ],
-    ids=["bonta_insufficiente", "colonna_assente", "controlli_insufficienti", "modo_fixed"],
+    ids=["bonta_insufficiente", "controlli_insufficienti", "modo_fixed"],
 )
 def test_il_ripiego_e_registrato_con_il_motivo(bioc, oggetto_calcolato, tmp_path,
                                                sovrascrivi, nel_motivo, degrada):
     """
-    **Obiettivo**: Verificare che con ``katharoseq.min_r2`` sopra ogni bonta',
-    con la colonna dei livelli assente o con meno controlli di
-    ``ctrl.min_positives``, ogni piastra ripieghi su ``qc.min_reads_raw`` sulle
+    **Obiettivo**: Verificare che con ``katharoseq.min_r2`` sopra ogni bonta'
+    o con meno controlli di ``ctrl.min_positives`` ogni piastra ripieghi su ``qc.min_reads_raw`` sulle
     letture grezze, con ``E-S11-02`` nel manifesto e il motivo in
     ``soglia.json``; e che con ``qc.min_reads_mode: fixed`` si usi il ripiego
     senza degradazione.
