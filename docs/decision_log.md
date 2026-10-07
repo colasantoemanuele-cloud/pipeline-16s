@@ -655,8 +655,9 @@ in cui le verifiche dipendono l'una dall'altra.**
   letture di ogni coppia (intestazioni con `/1` e `/2`, o la stessa intestazione
   ripetuta), o le sole seconde letture, è respinto come layout non single-end
   (`E-S0-07`). Un record anomalo isolato non ferma un dataset single-end: i
-  marcatori delle due letture, o i nomi che compaiono due volte, devono riguardare
-  almeno il 5% delle letture ispezionate (e almeno due); un file è di sole seconde
+  marcatori di ciascuna delle due letture devono comparire in almeno il 5% delle
+  letture ispezionate (e in almeno due), e così i nomi che compaiono due volte, che
+  si contano per nome; un file è di sole seconde
   letture se le marcate come seconde sono almeno il 95% e le prime meno del 5%. Un
   nome che compare più di due volte (un'intestazione vuota o uguale per tutte le
   letture) non è un segno di coppia. Il primer in testa alle letture
@@ -676,8 +677,9 @@ in cui le verifiche dipendono l'una dall'altra.**
   validazione; gli 8 che cominciano con le prime, presi da soli, passerebbero.
   Chiudere il limite richiede di contare i marcatori su tutte le letture, nel
   profilo di qualità. Non si riconoscono nemmeno le coppie marcate in altri modi
-  (suffissi `.1` e `.2` o `_1` e `_2`, commento separato da una tabulazione,
-  letture rinumerate senza marcatore). E un dataset single-end fatto di seconde
+  (suffissi `.1` e `.2` o `_1` e `_2`, commento separato da una tabulazione o da
+  più spazi, letture rinumerate senza marcatore), né, fra quelle riconoscibili dal
+  solo nome, i file in cui anche un solo nome compare più di due volte. E un dataset single-end fatto di seconde
   letture, se le intestazioni lo dichiarano, è respinto: non c'è un parametro per
   dichiararlo voluto.
 

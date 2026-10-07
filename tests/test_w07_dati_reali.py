@@ -637,8 +637,9 @@ def test_il_motivo_non_distingue_segnale_e_contaminazione(risultato_s0, configur
 def test_g09_fallisce_se_il_troncamento_supera_il_minimo(configurazione, tmp_path):
     """
     **Obiettivo**: Verificare che impostando ``filter.truncLen = 152`` sul
-    dataset reale OSD-734 il Gate G09 fallisca con codice ``E-S0-09`` segnalando
-    la presenza di letture da ``137 bp``.
+    dataset reale OSD-734 il Gate G09 fallisca con codice ``E-S0-09`` per
+    ciascuna delle due classi controllate, con tutte le letture piu' corte del
+    troncamento, e che le letture ispezionate arrivino a ``137 bp``.
 
     **Razionale scientifico e sistemistico**: Sebbene la lunghezza nominale della
     corsa MiSeq sia 151 bp, le letture reali di OSD-734 contengono sequenze già
@@ -655,8 +656,18 @@ def test_g09_fallisce_se_il_troncamento_supera_il_minimo(configurazione, tmp_pat
 
     g09 = next(e for e in risultato.esiti if e.gate == "G09")
     assert not g09.superato
-    assert {v.codice for v in g09.violazioni} == {"E-S0-09"}
-    assert "137 bp" in str(g09.violazioni[0])
+    assert [v.codice for v in g09.violazioni] == ["E-S0-09", "E-S0-09"]
+    # Una violazione per classe controllata, ciascuna con tutte le letture piu'
+    # corte: il messaggio elenca i cinque file piu' colpiti, che a parita' di
+    # frazione non sono per forza quelli con la lettura piu' corta. Il minimo
+    # di 137 bp si legge dalle statistiche delle letture ispezionate.
+    testi = [str(v) for v in g09.violazioni]
+    assert "classe biologico" in testi[0] and "classe controllo_positivo" in testi[1]
+    assert all("il 100.0%" in testo and "filter.truncLen vale 152" in testo for testo in testi)
+    with open(tmp_path / "out" / "01_input_validation" / "letture_ispezionate.tsv",
+              encoding="utf-8", newline="") as file:
+        minime = [int(r["lunghezza_minima"]) for r in csv.DictReader(file, delimiter="\t")]
+    assert min(minime) == 137
 
 
 def test_le_letture_non_contengono_il_primer(risultato_s0, configurazione):

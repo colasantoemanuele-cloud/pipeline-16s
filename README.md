@@ -412,7 +412,8 @@ Sono realizzati:
   giudicando sulla frazione delle letture e non su un record isolato: è un limite
   dichiarato che un file con tutte le prime letture seguite da tutte le seconde si
   riconosce solo se le `qc.head_reads` letture ispezionate arrivano al secondo
-  blocco. I FASTQ,
+  blocco (gli altri limiti del riconoscimento sono in `docs/decision_log.md`,
+  sezione 3.15). I FASTQ,
   compressi o no, si riconoscono dai primi byte, in S0 come nel controllo che S2 fa
   sugli archivi prima del filtro. G09 giudica la frazione di letture più corte
   del troncamento separatamente per i campioni biologici e per i controlli positivi:

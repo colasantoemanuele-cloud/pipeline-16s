@@ -42,34 +42,40 @@ sequenza:
 
     pytest tests/ -n 0
 
-Totale complessivo della suite: 1177 test su 32 moduli:
-  * 1029 passed e 148 skipped in ambiente locale standard (R base + jsonlite, senza
+Totale complessivo della suite: 1234 test su 32 moduli:
+  * 1080 passed e 154 skipped in ambiente locale standard (R base + jsonlite, senza
     Bioconductor e senza dati reali), in circa un minuto; lo stesso esito su un
     solo processore ('taskset -c 0 pytest tests/'), in circa 9 minuti;
   * nel container CI standard (senza dati reali OSD-734), su quattro processi:
-    1122 passed e 47 skipped in circa 9 minuti, nell'immagine costruita dal
+    1176 passed e 50 skipped in circa 24 minuti con la macchina occupata da
+    un'altra esecuzione, nell'immagine costruita dal
     Dockerfile come nella CI (l'ultima esecuzione della CI, run 37447520163
     sulla suite precedente di 1007 test, ha dato 956 passed e 43 skipped in
     circa 11 minuti). I
     salti sono 34 test sui dati reali OSD-734, 1 test
     sull'allocazione R legata alla lingua, 1 test che richiede il repository
-    .git, i 5 test di 'tests/test_w24_riproduzione.py' che usano i checksum
+    .git, i 7 test di 'tests/test_w24_riproduzione.py' che usano i checksum
     pubblicati in dati/ (uno dei quali e' il trentacinquesimo sui dati reali),
     1 test di 'tests/test_w25_immagine.py' che legge la configurazione in dati/,
     3 test di 'tests/test_w26_congelamento.py' che leggono docs/ e dati/,
-    1 test di 'tests/test_w27_ingressi.py' che legge dati/
+    2 test di 'tests/test_w27_ingressi.py' che leggono dati/
     e il modulo 'tests/test_w21_dati_osd734.py',
     che nell'immagine si salta per intero e conta come un solo salto al posto
     dei suoi 9 test (la cartella dati/ non vi e' copiata): per questo i test
-    contati sono 1169;
+    contati sono 1226;
   * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 35 test che li
-    richiedono, tutti sullo stesso processo: 1042 passed e 3 skipped in 76
-    minuti e mezzo, con picco di memoria del container di 16,0 GB (limite a
-    24 GB), misurati il 6 ottobre 2026 nell'immagine pubblicata con la suite
-    precedente, di 1045 test, e il repository montato. I
-    3 salti restano anche in questo scenario: la lingua di R, e due test che
-    richiedono che git riconosca il repository, cosa che nel container con il
-    repository montato di un altro proprietario non avviene.
+    richiedono, tutti sullo stesso processo ('pytest -m dati_reali'). Il 7
+    ottobre 2026, nell'immagine pubblicata con il repository montato e il
+    limite di 24 GB: 34 passed e 1 failed in 95 minuti. Il test fallito, di
+    'tests/test_w07_dati_reali.py', cercava nel messaggio di E-S0-09 una
+    lunghezza che il messaggio non riporta piu' per forza (elenca i cinque
+    file piu' colpiti di ciascuna classe): l'asserzione e' stata corretta e
+    il modulo rieseguito sui dati reali, 22 passed in 78 secondi. Fra i 34
+    passati c'e' il confronto della catena completa con i checksum
+    pubblicati. La suite intera con i dati reali (1234 test) non e' stata
+    rieseguita: l'ultima misura, del 6 ottobre 2026 sulla suite di 1045
+    test, e' di 1042 passed e 3 skipped in 76 minuti e mezzo, con picco di
+    memoria di 16,0 GB.
 
 Per includere anche i test end-to-end sui 960 file FASTQ reali di OSD-734,
 impostare la variabile d'ambiente che punta al file di configurazione reale:
@@ -340,7 +346,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
 --------------------------------------------------------------------------------
 
-5.1 Catalogo centralizzato degli errori (70 codici catalogati)
+5.1 Catalogo centralizzato degli errori (75 codici catalogati)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   * SETTIMANA E FASE:
     Settimana W5 (esteso in W11 e W13), Fase F1/F4 (Tassonomia formale degli
@@ -350,10 +356,11 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     tests/test_w05_errors_catalog.py
 
   * COSA VALUTA:
-    Ispeziona sistematicamente tutti i 70 codici del catalogo ('CATALOGO': 50
-    codici di fase S0-S14 inclusi 'E-S0-16', 'E-S0-17', 'E-S0-18', 'E-S1-02',
-    'E-S3-02', 'E-S10-02', 'E-S11-04' ed 'E-S13-03', 12 codici di
-    configurazione G15, 4 codici del ponte verso R 'E-R-01..04', 1 codice del
+    Ispeziona sistematicamente tutti i 75 codici del catalogo ('CATALOGO': 54
+    codici di fase S0-S14 inclusi 'E-S0-16', 'E-S0-17', 'E-S0-18', 'E-S0-19',
+    'E-S1-02', 'E-S3-02', 'E-S3-05', 'E-S10-02', 'E-S11-04', 'E-S12-04',
+    'E-S12-05' ed 'E-S13-03', 13 codici di configurazione G15 compreso
+    'E-G15-14', 4 codici del ponte verso R 'E-R-01..04', 1 codice del
     grafo 'E-GRAFO-01' e 3 codici della regola rigorosa sulla provenienza
     'E-PROV-01..03'). Verifica che ogni codice appartenga a una delle 4
     categorie formali ('revisione_umana', 'retry', 'retry_poi_revisione',
@@ -362,13 +369,13 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     sottoclasse corretta di 'ErrorePipeline'. Verifica inoltre che la whitelist
     dei codici ripetibili ('AMMESSI_AL_RETRY') sia chiusa ermeticamente ai soli
     4 codici tecnici 'E-S2-03', 'E-S3-01', 'E-S4-02', 'E-S5-01' e che i restanti
-    66 codici non ammettano mai il retry.
+    71 codici non ammettano mai il retry.
 
   * COMANDO BASH:
     pytest tests/test_w05_errors_catalog.py -v
 
   * RISULTATO ATTESO:
-    385 passed in ~0.35s
+    410 passed in ~0.35s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
@@ -1503,26 +1510,34 @@ SETTIMANA 24 (W24) : RIPRODUZIONE DEI RISULTATI SU OSD-734 (MILESTONE M7)
     letti e gli stessi parametri dichiarati; che sul sottoinsieme di prova, con
     percorsi relativi, si concluda anche S1, la prima fase con un calcolo in R
     (il caso che ha fermato la prima riproduzione dal clone); che l'ordine
-    delle fasi di 'confronta_risultati.py' sia quello del grafo; che
+    delle fasi di 'confronta_risultati.py' sia quello del grafo, che lo script
+    legga i manifesti nelle sole cartelle delle fasi e in '12_final/intermedi'
+    e si fermi se una fase ne ha due; che
     '--aggiorna' scriva i due file dei checksum attesi e che un'esecuzione con
     gli stessi artefatti, ma manifesti, log e configurazione diversi, risulti
     identica con esito 0; che un artefatto alterato, uno mancante e uno non
     atteso diano esito 1 indicando la prima fase divergente nell'ordine di
     esecuzione; che i checksum pubblicati siano coerenti fra loro (i file
     consegnati sono quelli di S14, ogni fase tranne S9 e' presente) e che il
-    README della cartella riporti il comando; sul dataset completo, che la
-    catena della suite dia gli artefatti attesi pubblicati (tranne S1, che la
-    catena condivisa non esegue).
+    README della cartella riporti il comando; che 'gates.json', con i gate
+    rimessi in un altro ordine e riserializzati come li scrive S0, si
+    ricostruisca byte per byte; sul dataset completo, che la catena della
+    suite dia gli artefatti attesi pubblicati (tranne S1, che la catena
+    condivisa non esegue), con le sole differenze per costruzione, ammesse per
+    nome e verificate nel contenuto ('gates.json' riordinato ha l'impronta
+    pubblicata, la sesta riga di 'checksum.sha256' e' l'impronta di
+    'ps_controlli.rds'), e solo finche' i checksum pubblicati sono quelli del
+    riferimento precedente.
 
   * COMANDO BASH:
     pytest tests/test_w24_riproduzione.py -v
 
   * RISULTATO ATTESO:
-    7 test (5 passed, 2 skipped in ambiente locale privo di Bioconductor;
-    6 passed, 1 skipped nel container con il repository montato; 7 passed nel
+    9 test (7 passed, 2 skipped in ambiente locale privo di Bioconductor;
+    8 passed, 1 skipped nel container con il repository montato; 9 passed nel
     container con dati reali OSD-734. Nell'immagine senza il repository
     montato, come nella CI, la cartella dati/ manca: 2 passed, i due test sui
-    percorsi relativi, e 5 skipped)
+    percorsi relativi, e 7 skipped)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. La riproducibilita' si prova confrontando byte: chi riproduce verifica
@@ -1658,8 +1673,16 @@ SETTIMANA 27 (W27) : GENERALITA' DEGLI INGRESSI, CONFIGURAZIONE E FASE S0
     le tabelle si leggano con BOM, virgolette e CRLF; le etichette senza
     distinzione di maiuscole; le letture inverse dal marcatore prima
     dell'estensione; i FASTQ dai primi byte. Che S0 dichiari i controlli
-    mancanti ('E-S0-17'), che 'run.threads' valga i processori utilizzabili e
-    'run.container' sia facoltativo. Che il report elenchi solo i parametri
+    mancanti ('E-S0-17'), che 'run.threads' sia nullo per difetto, con i
+    thread effettivi contati all'uso e lo stesso digest con 4 e con 16
+    processori, e 'run.container' sia facoltativo. Che senza
+    'meta.module_column' il modulo venga dal file del lotto, che G15 respinga
+    un parametro dichiarato senza quello da cui dipende ('E-G15-14'), che un
+    gruppo mancante elenchi tutti i suoi parametri senza predefinito, che G10
+    cerchi il primer nelle sole classi controllate e G08 dichiari le righe
+    del lotto senza campione ('E-S0-19'). Che lo script delle letture forward
+    del secondo dataset rifiuti un deposito incoerente, metta da parte un
+    file non conforme e raccolga i guasti nel riepilogo. Che il report elenchi solo i parametri
     tarati su OSD-734 presi per difetto. Che le configurazioni di OSD-734 e
     di OSD-276 dichiarino tutto e nessun valore di OSD-276 stia nel codice.
 
@@ -1667,9 +1690,9 @@ SETTIMANA 27 (W27) : GENERALITA' DEGLI INGRESSI, CONFIGURAZIONE E FASE S0
     pytest tests/test_w27_ingressi.py -v
 
   * RISULTATO ATTESO:
-    29 test (29 passed in ambiente locale e nel container con il repository
-    montato; nell'immagine senza il repository montato, come nella CI, 28
-    passed e 1 skipped, perche' la cartella dati/ manca)
+    37 test (37 passed in ambiente locale e nel container con il repository
+    montato; nell'immagine senza il repository montato, come nella CI, 35
+    passed e 2 skipped, perche' la cartella dati/ manca)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Un valore ereditato da un altro dataset (una colonna, un'etichetta,
@@ -1697,24 +1720,34 @@ SETTIMANA 28 (W28) : GENERALITA' DELLE FASI DI CALCOLO E DEL REPORT
 
   * COSA VALUTA:
     Che il troncamento si giudichi sulla frazione di letture piu' corte dei
-    campioni biologici e dei controlli positivi ('qc.max_frac_short_reads'):
-    poche letture corte non fermano G09 ne' S1, una quota rilevante si'
-    ('E-S0-09', 'E-S1-02'), e i controlli negativi non contano; che
+    campioni biologici e dei controlli positivi ('qc.max_frac_short_reads'),
+    ogni classe da sola: poche letture corte non fermano G09 ne' S1, una
+    quota rilevante si' ('E-S0-09', 'E-S1-02'), anche quella di tre controlli
+    positivi fra novantasette biologici, e i controlli negativi non contano;
+    che G07 riconosca i file con le due letture di ogni coppia e che un
+    valore dei metadati con tabulazione o a capo fra virgolette fermi G02 o
+    G08; che
     'filter.minLen' ed 'E-G15-01' non esistano piu' e 'tax.assign_species'
     vero sia respinto. Che 'err.error_function' scelga fra 'loess' e
     'loess_monotono', che la variante monotona dia tassi non crescenti con la
     qualita', che S1 dichiari le qualita' raggruppate ('E-S1-03') e che una
-    corsa senza letture filtrate fermi S3 con 'E-S3-03' e le letture con un
-    solo valore di qualita' con 'E-S3-04'. Che S11 senza
+    corsa senza letture filtrate fermi S3 con 'E-S3-03', le letture con un
+    solo valore di qualita' con 'E-S3-04' e ogni altra stima fallita con
+    'E-S3-05', e che la variante monotona regga due, tre e quattro valori di
+    qualita'. Che S11 senza
     controlli positivi dichiari 'E-S11-05' e non adatti curve, e non si fermi
     per un controllo senza piastra o con una sola lettura; che S12 con pochi
-    negativi dichiari 'E-S12-03' e non tolga nulla; che la colonna dei
+    negativi dichiari 'E-S12-03' e non tolga nulla, senza biologici con
+    letture si fermi con 'E-S12-04' e con sole varianti contaminanti con
+    'E-S12-05'; che la colonna dei
     livelli entri nell'oggetto da sola, dal file del lotto o dalla tabella di
     studio; che 'decontam.mode: batch' senza colonna della piastra sia
     respinto ('E-G15-11'). Che S13 confronti i taxa senza il prefisso di
     rango, dichiari la tassonomia senza Phylum ('E-S13-05') e si fermi con
-    'E-S13-04' se nessun campione supera i filtri; che S14 tolga i file
-    consegnati di un'esecuzione precedente. Che il report dia il troncamento
+    'E-S13-04' se nessun campione supera i filtri, e non si fermi per una
+    tassonomia di un solo rango; che S14 tolga i file consegnati di
+    un'esecuzione precedente e verifichi 'ps_integrato.rds' contro il
+    manifesto di S10. Che il report dia il troncamento
     suggerito e regga le classi di controllo vuote. Che la catena intera, su
     quattro insiemi ricavati dal sottoinsieme ridotto (senza positivi, senza
     negativi, senza file del lotto, con una sola piastra), si concluda o si
@@ -1725,7 +1758,7 @@ SETTIMANA 28 (W28) : GENERALITA' DELLE FASI DI CALCOLO E DEL REPORT
     pytest tests/test_w28_calcolo.py -v
 
   * RISULTATO ATTESO:
-    22 test (7 passed e 15 skipped in ambiente locale senza Bioconductor; 22
+    44 test (23 passed e 21 skipped in ambiente locale senza Bioconductor; 44
     passed nel container)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
@@ -1807,7 +1840,7 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   ----------+---------------------------------------+------+-------------------------------------------------
   W1 - W2   | tests/test_w01_w02_import.py          |   10 | pytest tests/test_w01_w02_import.py -v
   W3 - W4   | tests/test_w03_w04_config_schema.py   |  107 | pytest tests/test_w03_w04_config_schema.py -v
-  W5        | tests/test_w05_errors_catalog.py      |  385 | pytest tests/test_w05_errors_catalog.py -v
+  W5        | tests/test_w05_errors_catalog.py      |  410 | pytest tests/test_w05_errors_catalog.py -v
   W5        | tests/test_w05_artifacts.py           |   25 | pytest tests/test_w05_artifacts.py -v
   W5        | tests/test_w05_logging.py             |   14 | pytest tests/test_w05_logging.py -v
   W6        | tests/test_w06_crosswalk.py           |   43 | pytest tests/test_w06_crosswalk.py -v
@@ -1831,12 +1864,12 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W21       | tests/test_w21_dati_osd734.py         |    9 | pytest tests/test_w21_dati_osd734.py -v
   W22       | tests/test_w22_report.py              |   19 | pytest tests/test_w22_report.py -v
   W23       | tests/test_w23_filogenesi.py          |   14 | pytest tests/test_w23_filogenesi.py -v
-  W24       | tests/test_w24_riproduzione.py        |    7 | pytest tests/test_w24_riproduzione.py -v
+  W24       | tests/test_w24_riproduzione.py        |    9 | pytest tests/test_w24_riproduzione.py -v
   W25       | tests/test_w25_immagine.py            |    5 | pytest tests/test_w25_immagine.py -v
   W26       | tests/test_w26_congelamento.py        |   20 | pytest tests/test_w26_congelamento.py -v
-  W27       | tests/test_w27_ingressi.py            |   29 | pytest tests/test_w27_ingressi.py -v
-  W28       | tests/test_w28_calcolo.py             |   22 | pytest tests/test_w28_calcolo.py -v
+  W27       | tests/test_w27_ingressi.py            |   37 | pytest tests/test_w27_ingressi.py -v
+  W28       | tests/test_w28_calcolo.py             |   44 | pytest tests/test_w28_calcolo.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (32 moduli)              | 1177 | pytest tests/ -v
+  TOTALE    | Intera suite (32 moduli)              | 1234 | pytest tests/ -v
 ================================================================================
