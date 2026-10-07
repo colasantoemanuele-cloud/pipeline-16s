@@ -370,10 +370,16 @@ Sono realizzati:
   non dichiarata dei campioni come primer nelle letture, e si fermava in S10 per una
   colonna inesistente dopo dodici minuti di calcolo. Con la configurazione che
   dichiara il dataset la validazione passa in pochi secondi, dichiarando che non ci
-  sono controlli positivi né negativi (`E-S0-17`), e la catena arriva alla
-  decontaminazione (S12). Si ferma nei filtri finali (S13), perché l'oggetto dei
-  controlli non si costruisce su zero controlli: le fasi di calcolo presuppongono
-  ancora la presenza di controlli;
+  sono controlli positivi né negativi (`E-S0-17`), e la catena arriva in fondo:
+  S11 dichiara che non c'è alcuna curva da adattare (`E-S11-05`), S12 che non c'è
+  stata decontaminazione (`E-S12-03`), e S14 consegna l'oggetto finale (15 campioni,
+  1.005 varianti, 774.790 letture) senza `ps_controlli.rds`; il report si genera, con
+  il troncamento suggerito dalle letture. La soglia di profondità resta il ripiego
+  fisso sulle letture grezze;
+- **un dataset senza una classe di controlli, senza file del lotto o con una sola
+  piastra** attraversa le fasi di calcolo con le assenze dichiarate nei manifesti e nel
+  report, o si ferma con un codice del catalogo: lo verificano quattro catene intere
+  su insiemi ricavati dal sottoinsieme di prova (`tests/test_w28_calcolo.py`);
 - **la fase S0, la validazione iniziale**, con tutti e quindici i gate, eseguiti
   nell'ordine delle dipendenze: G15, G01, G02, G04, G05, G06, G03, G11, G13, G07,
   G08, G09, G10, G12, G14. Le classi dei campioni (G11) si verificano prima dei gate
