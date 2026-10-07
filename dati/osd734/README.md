@@ -224,16 +224,30 @@ pubblicata compresa, coincidono su tutti gli artefatti. Fuori dal container, con
 i risultati possono differire senza che l'esecuzione sia sbagliata: il confronto prova
 l'identita', non la correttezza.
 
-### Una differenza attesa con il codice attuale
+### Differenze attese con il codice attuale
 
 I checksum pubblicati sono quelli dell'esecuzione di riferimento, prodotta dal commit
-`af82ef9`. Da allora l'ordine in cui la fase S0 esegue i gate e' cambiato (segue le
-dipendenze fra i gate, non il loro numero), e `01_input_validation/gates.json`, che
-elenca i gate nell'ordine di esecuzione, ha quindi un checksum diverso: lo script
-segnala una differenza in S0, su quel solo file. Il contenuto e' lo stesso, gate per
-gate (descrizione, esito, violazioni, avvisi); gli altri 1.030 artefatti, compresi i
-cinque file consegnati di `12_final/`, sono identici byte per byte (catena completa
-rieseguita il 7 ottobre 2026 nell'immagine pubblicata, 57 minuti).
+`af82ef9`, e non sono stati aggiornati: lo saranno insieme al riferimento. Con il codice
+attuale lo script segnala quindi differenze in S0, S1, S13 e S14, tutte per costruzione; i
+1.031 artefatti pubblicati esistono ancora, e 1.029 hanno gli stessi byte (catena completa
+rieseguita il 7 ottobre 2026 nell'immagine pubblicata, 63 minuti):
+
+- `01_input_validation/gates.json` (S0) ha un checksum diverso: elenca i gate nell'ordine
+  di esecuzione, che ora segue le dipendenze fra i gate e non il loro numero. Il contenuto
+  e' lo stesso, gate per gate (descrizione, esito, violazioni, avvisi);
+- i cinque intermedi di S13 (`ps_filtrato.rds`, `esclusioni.tsv`, `varianti_rimosse.tsv`,
+  `filtri_riepilogo.json`, `letture_finali.tsv`) stanno in `12_final/intermedi/` invece
+  che in `12_final/`, con gli stessi byte: lo script, che li cerca nella cartella
+  pubblicata, li da' per mancanti;
+- `ps_controlli.rds` resta in `12_final/` con gli stessi byte, ma lo scrive S14 invece di
+  S13: e' un file consegnato;
+- `12_final/checksum.sha256` (S14) ha una riga in piu', quella di `ps_controlli.rds`; le
+  prime cinque sono quelle pubblicate, e
+  `sha256sum -c ../../../dati/osd734/checksum_finali.sha256` da' ancora cinque OK;
+- `02_qc_profiles/valori_qualita.tsv` (S1) e' un artefatto nuovo, che i checksum
+  pubblicati non elencano.
+
+L'oggetto finale, gli export e ogni altra tabella di calcolo sono identici byte per byte.
 
 ### Se i risultati non coincidono
 
