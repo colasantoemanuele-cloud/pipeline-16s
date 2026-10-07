@@ -278,6 +278,28 @@ mai sui negativi.**
   della stessa lunghezza; le letture del dataset sono lunghe da 137 a 151 basi, e 137 è
   la lunghezza che non ne scarta nessuna per lunghezza insufficiente.
 
+**Il troncamento resta a 137 anche se la regola per classe ammetterebbe 151.**
+- Decisione: `filter.truncLen` resta 137. Il report indica 151 come lunghezza ammessa
+  (in nessuna delle due classi controllate le letture più corte superano il 5%), ma è
+  un'indicazione sulla classe, e il valore dichiarato non la segue.
+- Motivazione: una lettura più corta del troncamento non viene accorciata, viene
+  scartata. A 137 basi non se ne scarta nessuna, e la profondità di ogni campione
+  dopo il filtro dipende solo dalla qualità; oltre 137 si scartano letture in
+  proporzione diversa da campione a campione, e la perdita si sommerebbe alla soglia
+  di profondità, che esclude i campioni proprio sulle letture rimaste. Le 14 basi in
+  più non compensano una perdita che dipende dal campione.
+- Misure, dalle distribuzioni delle lunghezze di tutte le letture (nessun ricalcolo
+  della catena). Letture più corte di 151 basi: 1,48% nei campioni biologici (382.002
+  su 25.730.344), 0,53% nei controlli positivi (16.056 su 3.001.536), 0,68% nei
+  controlli negativi; la lettura più corta è di 137 basi in tutte e tre le classi.
+  Per campione, fra gli 850 biologici e positivi: perdita mediana 1,1%, novantesimo
+  percentile 2,7%, novantanovesimo 11,1%; 365 campioni perderebbero fino all'1%, 460
+  fra l'1% e il 5%, 23 più del 5%, 9 più del 10%, 4 più del 20%. La perdita peggiore è
+  l'89,2% (JLP1S1.R4, 269 letture); fra i campioni profondi, il 40,8% di JLP1P1.R2
+  (83.231 letture) e il 20,4% di JLP1P1.R4 (72.240). La perdita cresce negli ultimi
+  due cicli: fino a 148 basi nessun campione perde più del 2,3%; a 149 sette campioni
+  superano il 5% e uno il 20% (39,4%); a 150 sono nove e uno.
+
 **Un modello d'errore per corsa di sequenziamento (`err.batch_column`).**
 - Motivazione: i tassi d'errore dipendono dalla corsa; un modello unico per due corse
   ne descriverebbe la media.
@@ -368,20 +390,19 @@ piastra.**
   letture assegnate al ceppo atteso, su otto livelli di diluizione) si descrive in
   funzione del logaritmo della profondità con la curva f = 1 / (1 + (x50 / x)^h); la
   soglia è la profondità a cui la curva raggiunge `katharoseq.target_sensitivity`.
-  La stima è deterministica (nessun numero casuale). Si usa il modello per piastra o
-  quello aggregato secondo la bontà di adattamento (R^2 sulla fedeltà).
-- Misure: R^2 per piastra 0,92 contro 0,57 dell'aggregato, che resta sotto il minimo
-  richiesto (`katharoseq.min_r2`, 0,8). Soglie fra 6.376 e 41.968 letture nelle otto
-  piastre con curva valida.
+  La stima è deterministica (nessun numero casuale). Fra il modello per piastra e
+  quello aggregato sceglie il criterio di Akaike, sugli stessi punti (sezione 4).
+- Misure: R^2 dell'aggregato 0,57, sotto il minimo richiesto (`katharoseq.min_r2`,
+  0,8). Soglie fra 6.376 e 41.968 letture nelle otto piastre con curva valida.
 
 **Una curva è valida solo se la soglia è determinata dai dati.**
 - Decisione: oltre al numero minimo di controlli e all'R^2, si richiede almeno un
-  controllo osservato fra il punto medio della curva e la soglia. Una piastra senza
-  curva valida ripiega su una soglia fissa (`qc.min_reads_raw`, 1.000 letture grezze) e
-  l'esecuzione lo segnala.
+  controllo osservato fra il punto medio della curva e la soglia. Che cosa usa una
+  piastra senza curva valida è stabilito dalla regola della sezione 4, che ha
+  sostituito il ripiego su una soglia fissa di 1.000 letture grezze.
 - Motivazione: se fra il punto medio e la soglia non c'è alcuna osservazione, la soglia
   è un'estrapolazione della forma della curva, non una misura.
-- Misure: ripiegano le piastre 1 e 2. Nella piastra 1 la curva è un gradino fra 20.257
+- Misure: non hanno una curva valida le piastre 1 e 2. Nella piastra 1 la curva è un gradino fra 20.257
   e 98.611 letture senza osservazioni intermedie; nella 2 l'R^2 è 0,53. In entrambe un
   contaminante cloroplastico fa il 69,5% delle letture dei controlli negativi e domina
   i controlli positivi più diluiti. Un intervallo di confidenza della soglia è stato
@@ -668,18 +689,29 @@ in cui le verifiche dipendono l'una dall'altra.**
   letture) o si fermava molto dopo con un errore che non nominava la causa. Per il
   primer: in un controllo negativo con tre letture una sola che comincia come il
   primer supera qualunque soglia in frazione.
-- Limite dichiarato: i file con le due letture di ogni coppia si riconoscono nelle
-  sole letture ispezionate (`qc.head_reads`). Un file con tutte le prime letture
-  seguite da tutte le seconde non si riconosce se le letture ispezionate non
-  arrivano al secondo blocco. Dei 15 file che ENA distribuisce per il secondo
-  dataset (da 35.489 a 105.423 coppie per file) i 7 che cominciano con le seconde
-  letture sono respinti con il valore predefinito di 10.000, e bastano a fermare la
-  validazione; gli 8 che cominciano con le prime, presi da soli, passerebbero.
-  Chiudere il limite richiede di contare i marcatori su tutte le letture, nel
-  profilo di qualità. Non si riconoscono nemmeno le coppie marcate in altri modi
-  (suffissi `.1` e `.2` o `_1` e `_2`, commento separato da una tabulazione o da
-  più spazi, letture rinumerate senza marcatore), né, fra quelle riconoscibili dal
-  solo nome, i file in cui anche un solo nome compare più di due volte. E un dataset single-end fatto di seconde
+- Il limite delle letture ispezionate è chiuso dal profilo di qualità. G07 guarda
+  le prime `qc.head_reads` letture: un file con tutte le prime letture seguite da
+  tutte le seconde gli sfugge se le ispezionate non arrivano al secondo blocco. Il
+  profilo di qualità, che legge ogni file per intero, conta gli stessi segni su
+  tutte le letture, con la stessa funzione e la stessa tolleranza, li registra per
+  campione (`coppie.tsv`) e si ferma con un codice proprio (`E-S1-04`) e la stessa
+  indicazione di G07, estrarre le sole letture forward. Il conteggio precede il
+  calcolo dei profili. Dei 15 file che ENA distribuisce per il secondo dataset (da
+  35.489 a 105.423 coppie per file) i 7 che cominciano con le seconde letture sono
+  respinti da G07 con il valore predefinito di 10.000; gli 8 che cominciano con le
+  prime, che presi da soli superavano la validazione, sono respinti dal conteggio.
+  Sui 960 file del dataset di riferimento (31.544.697 letture) nessun segno di
+  coppia, e nessuno sulle letture forward ricavate per il secondo dataset; il
+  conteggio costa 24 secondi con dodici processi.
+- Due tolleranze rese simmetriche. Un nome in più di due copie non spegne più da
+  solo il riconoscimento delle coppie per nome: si tollera entro la stessa frazione
+  degli altri segni (5%, almeno due), così un'intestazione vuota o uguale per tutte
+  le letture continua a passare e un file di coppie con un nome in tre copie resta
+  respinto. E un file di sole seconde letture tollera almeno un record di altro
+  tipo anche sotto le venti letture, dove il 5% vale meno di una lettura.
+- Limite dichiarato: non si riconoscono le coppie marcate in altri modi (suffissi
+  `.1` e `.2` o `_1` e `_2`, commento separato da una tabulazione o da più spazi,
+  letture rinumerate senza marcatore). E un dataset single-end fatto di seconde
   letture, se le intestazioni lo dichiarano, è respinto: non c'è un parametro per
   dichiararlo voluto.
 
@@ -703,9 +735,15 @@ in cui le verifiche dipendono l'una dall'altra.**
   numerosa (tre controlli positivi fra cento campioni) potrebbe perdere tutte le sue
   letture restando sotto la soglia. I controlli negativi non contano. `filter.minLen`, che coincideva per costruzione con `filter.truncLen`, e il
   controllo che lo sorvegliava (`E-G15-01`) sono rimossi. Il report indica un
-  troncamento suggerito: il minore fra il più lungo che scarta non oltre il 5% delle
-  letture e l'ultima posizione con qualità mediana dei biologici almeno 30. È
-  un'indicazione: il valore applicato resta quello dichiarato.
+  troncamento suggerito con la stessa regola: il minore fra la lunghezza ammessa (la
+  più lunga che in ciascuna classe controllata scarta non oltre
+  `qc.max_frac_short_reads` delle letture, con le stesse funzioni di S1) e l'ultima
+  posizione con qualità mediana dei biologici almeno 30. Accanto riporta la lunghezza
+  senza perdite (la più lunga che non scarta alcuna lettura delle classi controllate)
+  e, alla lunghezza ammessa, la perdita peggiore per singolo campione con il suo
+  nome. È un'indicazione: il valore applicato resta quello dichiarato, e troncare
+  oltre la lunghezza senza perdite scarta letture in modo diverso da campione a
+  campione.
 - Motivazione: in un dataset a lunghezza variabile una lettura corta c'è sempre, e il
   filtro la toglie senza danno; fermarsi per quella rendeva la pipeline inutilizzabile
   fuori dal dataset di riferimento, le cui letture sono tutte più lunghe del
@@ -739,15 +777,15 @@ serve.**
 
 **L'assenza di una classe di controlli è una condizione dichiarata, non un errore.**
 - Decisione: senza controlli positivi, o senza la colonna dei livelli, S11 non adatta
-  alcuna curva e lo dichiara (`E-S11-05`), distinto dal ripiego di una curva non
-  attendibile (`E-S11-02`); un controllo senza piastra entra nella sola curva
-  aggregata e uno con una sola lettura in nessuna. Con meno di `decontam.min_blanks`
+  alcuna curva e lo dichiara (`E-S11-05`), distinto dal caso in cui una piastra non
+  usa una curva propria (`E-S11-02`); un controllo senza piastra, o con una sola
+  lettura, non entra in alcuna curva (sezione 4). Con meno di `decontam.min_blanks`
   controlli negativi con letture S12 non toglie nulla e lo dichiara (`E-S12-03`).
   Se nessun campione biologico ha letture la fase si ferma (`E-S12-04`), e così se
   tutte le varianti risultano contaminanti entro la quota ammessa (`E-S12-05`).
   La colonna dei livelli si cerca nel file del lotto e poi nella tabella di studio, ed
-  entra nell'oggetto anche se non è fra le colonne richieste. Il valore del ripiego
-  della soglia di profondità non cambia.
+  entra nell'oggetto anche se non è fra le colonne richieste. Senza curve valide non
+  si applica alcuna soglia di profondità (sezione 4).
 - Motivazione: un ripiego silenzioso (nessuna decontaminazione, nessuna curva) dà un
   risultato plausibile e non confrontabile con uno decontaminato e calibrato; un
   errore di R senza codice non dice che cosa manca.

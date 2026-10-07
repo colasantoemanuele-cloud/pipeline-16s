@@ -35,6 +35,7 @@ config/               File di configurazione (config.example.yaml)
 tests/                Suite di test
 dati/osd734/          Dati del dataset di riferimento: metadati, elenchi con i checksum, script di scarico
 dati/osd276/          Dati del secondo dataset, su cui si verifica la generalità: metadati, script di scarico, configurazione
+dati/riferimento/     Riferimento tassonomico comune ai dataset: script di scarico, fonti e impronte
 docs/                 Registro delle decisioni di metodo (decision_log.md) e analisi di sensibilità (sensibilita.md, sensibilita/)
 scripts/              Script di utilità
 container/            Definizione dell'ambiente riproducibile (Dockerfile e script R)
@@ -155,12 +156,14 @@ suo README): nel repository ci sono le tabelle ISA usate dalla pipeline, l'elenc
 ogni file (`FONTI.tsv`) e una configurazione con i percorsi relativi alla radice del
 repository;
 le letture, il riferimento tassonomico e il file del lotto si ottengono con tre script,
-dalla radice del repository e con la sola libreria standard di Python:
+dalla radice del repository e con la sola libreria standard di Python. Il riferimento
+tassonomico è comune ai dataset e sta in `dati/riferimento/`, con le sue fonti e le
+sue impronte:
 
 ```bash
-python3 dati/osd734/scarica_letture.py        # 960 file FASTQ da ENA, 2,52 GB
-python3 dati/osd734/scarica_riferimento.py    # SILVA 138 per dada2 da Zenodo
-python3 dati/osd734/ricostruisci_lotto.py     # piastre, pozzetti e corse dalla fonte degli autori
+python3 dati/osd734/scarica_letture.py            # 960 file FASTQ da ENA, 2,52 GB
+python3 dati/riferimento/scarica_riferimento.py   # SILVA 138 per dada2 da Zenodo
+python3 dati/osd734/ricostruisci_lotto.py         # piastre, pozzetti e corse dalla fonte degli autori
 ```
 
 La pipeline si esegue poi nel container, con il repository montato: il README della
@@ -381,8 +384,8 @@ Sono realizzati:
   S11 dichiara che non c'è alcuna curva da adattare (`E-S11-05`), S12 che non c'è
   stata decontaminazione (`E-S12-03`), e S14 consegna l'oggetto finale (15 campioni,
   1.005 varianti, 774.790 letture) senza `ps_controlli.rds`; il report si genera, con
-  il troncamento suggerito dalle letture. La soglia di profondità resta il ripiego
-  fisso sulle letture grezze;
+  il troncamento suggerito dalle letture. Senza controlli positivi non si applica
+  alcuna soglia di profondità: resta il solo `qc.min_reads_final`;
 - **un dataset senza una classe di controlli, senza file del lotto o con una sola
   piastra** attraversa le fasi di calcolo con le assenze dichiarate nei manifesti e nel
   report, o si ferma con un codice del catalogo: lo verificano quattro catene intere
@@ -409,11 +412,12 @@ Sono realizzati:
   G07 riconosce le letture inverse dal marcatore che precede l'estensione e, nelle
   letture ispezionate, i file con le due letture di ogni coppia (intestazioni con
   `/1` e `/2`, o la stessa intestazione ripetuta) e quelli di sole seconde letture,
-  giudicando sulla frazione delle letture e non su un record isolato: è un limite
-  dichiarato che un file con tutte le prime letture seguite da tutte le seconde si
-  riconosce solo se le `qc.head_reads` letture ispezionate arrivano al secondo
-  blocco (gli altri limiti del riconoscimento sono in `docs/decision_log.md`,
-  sezione 3.15). I FASTQ,
+  giudicando sulla frazione delle letture e non su un record isolato (un nome in più
+  di due copie, o un record di altro tipo fra le seconde letture, si tollera entro la
+  stessa frazione). Un file con tutte le prime letture seguite da tutte le seconde
+  sfugge a G07 se le `qc.head_reads` letture ispezionate non arrivano al secondo
+  blocco: lo ferma S1, che conta gli stessi segni su tutte le letture (`E-S1-04`; gli
+  altri limiti del riconoscimento sono in `docs/decision_log.md`, sezione 3.15). I FASTQ,
   compressi o no, si riconoscono dai primi byte, in S0 come nel controllo che S2 fa
   sugli archivi prima del filtro. G09 giudica la frazione di letture più corte
   del troncamento separatamente per i campioni biologici e per i controlli positivi:
@@ -443,7 +447,7 @@ Sono realizzati:
   manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
   in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
   lo stesso checksum fra due esecuzioni sugli stessi ingressi;
-- il catalogo degli errori (75 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (76 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -605,10 +609,15 @@ Sono realizzati:
   sensibilità, fissata in una revisione che precede ogni risultato, l'esito
   dell'analisi e le decisioni di metodo del progetto con motivazione e misure.
   `scripts/sensitivity.py` copia un'esecuzione conclusa con collegamenti fisici, la
-  riprende cambiando un parametro alla volta (`katharoseq.target_sensitivity`,
-  `decontam.threshold`, `prev.min_fraction`, modalità di decontaminazione), misura
-  campioni conservati, varianti finali, letture, soglie per piastra e contaminanti, e
-  applica la regola; `docs/sensibilita.md` riporta parametri, intervalli, misure e
+  riprende cambiando un parametro alla volta, misura campioni conservati, varianti
+  finali, letture, soglie per piastra con la loro origine e contaminanti, e applica la
+  regola. Non porta nel codice alcun valore di un dataset: le griglie e le modalità
+  vengono da un file (`--griglie`; per OSD-734 `docs/sensibilita/griglie.yaml`, con
+  `katharoseq.target_sensitivity`, `decontam.threshold`, `prev.min_fraction` e la
+  modalità di decontaminazione), il valore corrente dalla configurazione, e i
+  percorsi relativi sono resi assoluti come dalla riga di comando. Un valore è non
+  ammissibile solo se produce un arresto previsto dalla regola; ogni altro arresto
+  ferma lo strumento; `docs/sensibilita.md` riporta parametri, intervalli, misure e
   decisioni, con le tabelle in `docs/sensibilita/`. Su OSD-734 la regola mantiene i
   quattro valori correnti, e il confronto fra GTR+G+I e GTR+G con il criterio
   d'informazione bayesiano mantiene GTR+G+I come predefinito di `phylo.model`. Con la
@@ -638,10 +647,11 @@ Sono realizzati:
   aggiustamento: è il caso di E-S2-03, errore di lettura;
   la fase resta giudicata sulla configurazione dichiarata, quindi una ripresa non la
   rifà. Le degradazioni non fermano l'esecuzione: la fase le registra e proseguono nel
-  log e nel manifesto. Sono sei, la categoria «degradazione automatica» del catalogo:
-  E-S0-15 (G08, una piastra con pochi controlli negativi), E-S1-01 (scarto del
+  log e nel manifesto. Sono la categoria «degradazione automatica» del catalogo, fra
+  cui E-S0-15 (G08, una piastra con pochi controlli negativi), E-S1-01 (scarto del
   troncamento sotto la lettura più corta), E-S6-02 (frazione chimerica oltre
-  l'avviso), E-S11-02 (soglia di profondità sul ripiego), E-S11-04 (controlli
+  l'avviso), E-S11-02 (una piastra senza curva propria usa la soglia aggregata o la
+  mediana), E-S11-05 (nessuna curva valida, nessuna soglia), E-S11-04 (controlli
   positivi conformi sotto il minimo, con `ctrl.positive_gate` falso), E-S13-03
   (campioni svuotati dal filtro tassonomico).
   Quando l'esecuzione si ferma, l'esecutore dichiara il punto di ripresa: fase,
@@ -666,9 +676,10 @@ Sono realizzati:
 - **i dati di OSD-734 recuperabili dal repository** (`dati/osd734/`): le tabelle ISA
   usate dalla pipeline, l'elenco delle 960 corse con i checksum di ENA, fonte e licenza
   di ogni file, una configurazione con i percorsi relativi e tre script, con la sola
-  libreria standard: `scarica_letture.py` (ENA) e `scarica_riferimento.py` (SILVA 138
-  da Zenodo e l'elenco dei suoi taxa difettosi) scaricano verificando l'MD5 e
-  riprendendo uno scarico interrotto; `ricostruisci_lotto.py` ricostruisce il file del
+  libreria standard: `scarica_letture.py` (ENA) e
+  `dati/riferimento/scarica_riferimento.py` (SILVA 138 da Zenodo e l'elenco dei suoi
+  taxa difettosi, in una cartella comune ai dataset, con `FONTI.tsv` e
+  `impronte.md5`) scaricano verificando l'MD5 e riprendendo uno scarico interrotto; `ricostruisci_lotto.py` ricostruisce il file del
   lotto dai metadati Qiita pubblicati dagli autori, fissati a un commit. Il README
   della cartella riporta il comando per eseguire la pipeline nel container e i
   requisiti misurati;
@@ -727,7 +738,14 @@ Sono realizzati:
   ferma S3 con `E-S3-03`; letture con un solo valore di qualità, da cui nessuna
   funzione può stimare il modello, con `E-S3-04` (e in quel caso `E-S1-03` non
   suggerisce una funzione); ogni altra stima fallita, con più valori di qualità,
-  con `E-S3-05`, che riporta il messaggio originale della funzione di stima. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
+  con `E-S3-05`, che riporta il messaggio originale della funzione di stima. S1 chiude
+  anche il limite noto di G07: prima dei profili conta su tutte le letture di ogni
+  file i segni di coppia che G07 cerca nelle prime (`/1` e `/2`, `1:N:` e `2:N:`, lo
+  stesso nome ripetuto), con la stessa funzione e la stessa tolleranza
+  (`io_layer/reads.py`), li registra per campione in `coppie.tsv` e si ferma con
+  `E-S1-04` se un file contiene le due letture di ogni coppia, o le sole seconde: un
+  file con tutte le prime letture seguite da tutte le seconde supera G07 quando le
+  letture ispezionate non arrivano al secondo blocco. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
   `filter.truncLen_shortfall_warn`, che prima registrava S0 dalla stima;
 - **la fase S2, filtro e troncamento** (`steps/s02_filter.py`, `R/02_filter.R`), con
   `dada2::filterAndTrim` e i parametri del gruppo `filter`; scrive in `03_filtered/`
@@ -874,17 +892,29 @@ Sono realizzati:
   media. La profondità minima è quella a cui la curva raggiunge
   `katharoseq.target_sensitivity` (0,90). Il livello di diluizione viene dai dati, la
   colonna `katharoseq.cell_count_column` (del file del lotto o della tabella di studio), non dai nomi dei
-  campioni. Si adattano la curva aggregata e una per piastra, e si sceglie il modello
-  con la bontà maggiore fra quelli ammissibili; una curva vale se ha almeno
+  campioni. Si adattano la curva aggregata e una per piastra sugli stessi punti (i
+  controlli utilizzabili delle piastre con almeno `ctrl.min_positives` punti), e si
+  preferisce il modello con il criterio di Akaike minore (quello per piastra è la
+  somma delle sue curve); una curva vale se ha almeno
   `ctrl.min_positives` punti, R² non inferiore a `katharoseq.min_r2`, la soglia
   dentro le profondità osservate e determinata dai dati: almeno un'osservazione deve
   cadere fra il punto medio della curva, dove la fedeltà vale 1/2, e la soglia,
   altrimenti la posizione della soglia verrebbe solo dalla forma del modello. La soglia è un artefatto, `soglia.json`, per
-  piastra, e ogni valore porta lo stadio a cui si applica: la soglia derivata sulle
-  letture dell'oggetto integrato (senza chimere, `katharoseq.read_stage`), il
-  ripiego `qc.min_reads_raw` sulle letture grezze. Una piastra senza curva valida
-  ripiega con `E-S11-02` e il motivo (bontà insufficiente, soglia non determinata,
-  controlli insufficienti, colonna dei livelli assente). Un controllo è conforme se fedeltà e profondità non
+  piastra e per i campioni senza piastra, e ogni valore porta lo stadio, l'origine e
+  il motivo: ogni soglia vale sulle letture dell'oggetto integrato (senza chimere,
+  `katharoseq.read_stage`), e nessuna sulle letture grezze. Se l'aggregato è
+  preferito ed è valido, tutte le piastre usano la sua soglia (origine `aggregata`);
+  altrimenti una piastra con la curva valida usa la propria (`propria`), e una senza
+  usa l'aggregata se valida, o la mediana delle soglie proprie arrotondata all'intero
+  superiore (`mediana`); un campione senza piastra segue la stessa strada. Chi non usa
+  una curva propria è dichiarato con `E-S11-02`, con origine e motivo (bontà
+  insufficiente, soglia non determinata, controlli insufficienti). Se nessuna curva è
+  valida (nessun controllo positivo, colonna dei livelli assente, nessuna piastra con
+  abbastanza punti) non c'è alcuna soglia (`nessuna`, `E-S11-05`) e in S13 resta il
+  solo `qc.min_reads_final`; con `qc.min_reads_mode: none` le curve si riportano come
+  diagnostica e nessuna soglia si applica. `soglia.json` registra anche gli AIC dei
+  due modelli, i punti comuni, l'R² dichiarato (dell'aggregato, o delle sole piastre
+  che usano la propria curva) e la mediana, arrotondata e no. Un controllo è conforme se fedeltà e profondità non
   si discostano da quelle dei controlli dello stesso livello di concentrazione
   nelle altre piastre (z modificato entro 3,5): ai livelli diluiti la fedeltà attesa
   è bassa e i contaminanti non lo rendono non conforme. Sotto
@@ -942,10 +972,11 @@ Sono realizzati:
   positivi e negativi li consegna S14, dall'oggetto integrato di S10, in
   `ps_controlli.rds`.
   I filtri, in quest'ordine: (1) **profondità**, sui campioni: ogni biologico si
-  confronta con la soglia della sua piastra in `soglia.json` di S11, allo stadio che
-  la soglia dichiara, con le letture del tracciamento (senza chimere da S7, o grezze
-  da S2 per il ripiego), non con la profondità dell'oggetto decontaminato, che non è
-  la grandezza su cui la soglia è stata stimata; (2) **tassonomico**, sulle varianti:
+  confronta con la soglia della sua piastra in `soglia.json` di S11 sulle letture
+  senza chimere del tracciamento (S7), non con la profondità dell'oggetto
+  decontaminato, che non è la grandezza su cui la soglia è stata stimata; dove S11 non
+  dà una soglia il filtro non si applica, e `filtri_riepilogo.json` lo dichiara
+  (`profondita_applicata`); (2) **tassonomico**, sulle varianti:
   senza phylum (`filt.remove_na_phylum`) e i taxa di `filt.exclude_taxa` cercati in
   ogni rango, confrontati senza il prefisso di rango che alcuni riferimenti portano
   (`p__`, `o__`); se la tassonomia non ha il rango Phylum il primo non si applica, e
@@ -1066,7 +1097,11 @@ Sono realizzati:
     pipeline che genera il documento, e la versione di dada2 con la correzione;
   - *decisioni prese automaticamente*, lette dagli artefatti che le registrano:
     tentativi ripetuti con l'aggiustamento applicato e degradazioni (manifesti), soglia
-    di profondità per piastra con i ripieghi (`soglia.json`), modalità di
+    di profondità effettiva per piastra e per i campioni senza piastra, con stadio,
+    origine, biologici in ingresso e conservati, e sopra il modello scelto, gli AIC,
+    l'R² dichiarato e la mediana (`soglia.json`, `profondita_campioni.tsv`),
+    troncamento suggerito con la regola di S1 (lunghezza senza perdite, lunghezza
+    ammessa per classe, perdita peggiore per singolo campione), modalità di
     decontaminazione (`decontam_riepilogo.json`), campioni riclassificati dalla regola
     `ctrl.blank_override_*` (`crosswalk.tsv`), campioni e varianti esclusi dai filtri
     finali con il motivo (`esclusioni.tsv`, `varianti_rimosse.tsv`);

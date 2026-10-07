@@ -1,14 +1,14 @@
 ================================================================================
 GUIDA OPERATIVA E METODOLOGICA ALLA SUITE DI TEST DEL PROGETTO AMPLICON16S
 Dataset di riferimento: NASA GeneLab OSD-734 (Stazione Spaziale Internazionale)
-Piano Operativo: Settimane W1 - W28 (Fasi F0-F8, con l'anticipazione di attivita'
+Piano Operativo: Settimane W1 - W29 (Fasi F0-F8, con l'anticipazione di attivita'
 della fase F9 sulla riproducibilita')
 ================================================================================
 
 Questo documento costituisce la specifica tecnica e metodologica della suite di
 test della pipeline amplicon16s (OSD-734), documentando la copertura funzionale,
 i vincoli biologici e le scelte architetturali implementate nelle Settimane
-W1 - W28 del Piano Operativo.
+W1 - W29 del Piano Operativo.
 
 1. INTESTAZIONE E ISTRUZIONI DI AVVIO GLOBALE
 ================================================================================
@@ -42,40 +42,17 @@ sequenza:
 
     pytest tests/ -n 0
 
-Totale complessivo della suite: 1234 test su 32 moduli:
-  * 1080 passed e 154 skipped in ambiente locale standard (R base + jsonlite, senza
-    Bioconductor e senza dati reali), in circa un minuto; lo stesso esito su un
-    solo processore ('taskset -c 0 pytest tests/'), in circa 9 minuti;
+Totale complessivo della suite: 1263 test su 33 moduli:
+  * 1096 passed e 167 skipped in ambiente locale standard (R base + jsonlite, senza
+    Bioconductor e senza dati reali), in circa un minuto e mezzo;
   * nel container CI standard (senza dati reali OSD-734), su quattro processi:
-    1176 passed e 50 skipped in circa 24 minuti con la macchina occupata da
-    un'altra esecuzione, nell'immagine costruita dal
-    Dockerfile come nella CI (l'ultima esecuzione della CI, run 37447520163
-    sulla suite precedente di 1007 test, ha dato 956 passed e 43 skipped in
-    circa 11 minuti). I
-    salti sono 34 test sui dati reali OSD-734, 1 test
-    sull'allocazione R legata alla lingua, 1 test che richiede il repository
-    .git, i 7 test di 'tests/test_w24_riproduzione.py' che usano i checksum
-    pubblicati in dati/ (uno dei quali e' il trentacinquesimo sui dati reali),
-    1 test di 'tests/test_w25_immagine.py' che legge la configurazione in dati/,
-    3 test di 'tests/test_w26_congelamento.py' che leggono docs/ e dati/,
-    2 test di 'tests/test_w27_ingressi.py' che leggono dati/
-    e il modulo 'tests/test_w21_dati_osd734.py',
-    che nell'immagine si salta per intero e conta come un solo salto al posto
-    dei suoi 9 test (la cartella dati/ non vi e' copiata): per questo i test
-    contati sono 1226;
-  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 35 test che li
-    richiedono, tutti sullo stesso processo ('pytest -m dati_reali'). Il 7
-    ottobre 2026, nell'immagine pubblicata con il repository montato e il
-    limite di 24 GB: 34 passed e 1 failed in 95 minuti. Il test fallito, di
-    'tests/test_w07_dati_reali.py', cercava nel messaggio di E-S0-09 una
-    lunghezza che il messaggio non riporta piu' per forza (elenca i cinque
-    file piu' colpiti di ciascuna classe): l'asserzione e' stata corretta e
-    il modulo rieseguito sui dati reali, 22 passed in 78 secondi. Fra i 34
-    passati c'e' il confronto della catena completa con i checksum
-    pubblicati. La suite intera con i dati reali (1234 test) non e' stata
-    rieseguita: l'ultima misura, del 6 ottobre 2026 sulla suite di 1045
-    test, e' di 1042 passed e 3 skipped in 76 minuti e mezzo, con picco di
-    memoria di 16,0 GB.
+    @@CI@@
+  * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 37 test che li
+    richiedono, tutti sullo stesso processo ('pytest -m dati_reali'): i 35
+    precedenti e i due di 'tests/test_w29_soglia.py', uno dei quali legge i
+    file del secondo dataset dalla cartella indicata con
+    AMPLICON16S_DATI_OSD276 e senza di essa si salta.
+    @@REALI@@
 
 Per includere anche i test end-to-end sui 960 file FASTQ reali di OSD-734,
 impostare la variabile d'ambiente che punta al file di configurazione reale:
@@ -216,7 +193,7 @@ predisporre i seguenti 5 blocchi funzionali di file:
 
 
 ================================================================================
-2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W28)
+2. SCHEDE DETTAGLIATE ORGANIZZATE PER SETTIMANA (W1 - W29)
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -346,7 +323,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
 --------------------------------------------------------------------------------
 
-5.1 Catalogo centralizzato degli errori (75 codici catalogati)
+5.1 Catalogo centralizzato degli errori (76 codici catalogati)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   * SETTIMANA E FASE:
     Settimana W5 (esteso in W11 e W13), Fase F1/F4 (Tassonomia formale degli
@@ -356,9 +333,9 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     tests/test_w05_errors_catalog.py
 
   * COSA VALUTA:
-    Ispeziona sistematicamente tutti i 75 codici del catalogo ('CATALOGO': 54
+    Ispeziona sistematicamente tutti i 76 codici del catalogo ('CATALOGO': 55
     codici di fase S0-S14 inclusi 'E-S0-16', 'E-S0-17', 'E-S0-18', 'E-S0-19',
-    'E-S1-02', 'E-S3-02', 'E-S3-05', 'E-S10-02', 'E-S11-04', 'E-S12-04',
+    'E-S1-02', 'E-S1-04', 'E-S3-02', 'E-S3-05', 'E-S10-02', 'E-S11-04', 'E-S12-04',
     'E-S12-05' ed 'E-S13-03', 13 codici di configurazione G15 compreso
     'E-G15-14', 4 codici del ponte verso R 'E-R-01..04', 1 codice del
     grafo 'E-GRAFO-01' e 3 codici della regola rigorosa sulla provenienza
@@ -369,13 +346,13 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     sottoclasse corretta di 'ErrorePipeline'. Verifica inoltre che la whitelist
     dei codici ripetibili ('AMMESSI_AL_RETRY') sia chiusa ermeticamente ai soli
     4 codici tecnici 'E-S2-03', 'E-S3-01', 'E-S4-02', 'E-S5-01' e che i restanti
-    71 codici non ammettano mai il retry.
+    72 codici non ammettano mai il retry.
 
   * COMANDO BASH:
     pytest tests/test_w05_errors_catalog.py -v
 
   * RISULTATO ATTESO:
-    410 passed in ~0.35s
+    415 passed in ~0.35s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
@@ -785,8 +762,8 @@ SETTIMANA 11 (W11) : FASE S1 (PROFILO DELLE LETTURE) E SOTTOINSIEME OSD-734
     campioni di Airlock/aria/superfici) e collauda l'esecuzione della Fase S1
     ('src/amplicon16s/steps/s01_profile.py' e 'R/01_profile.R' tramite
     Bioconductor 'ShortRead'). Controlla la produzione in '02_qc_profiles/' dei
-    4 artefatti ('lunghezze.tsv', 'qualita.tsv', 'letture_grezze.tsv',
-    'riepilogo.json'), la chiusura del limite noto del
+    suoi artefatti ('lunghezze.tsv', 'qualita.tsv', 'letture_grezze.tsv',
+    'riepilogo.json', 'valori_qualita.tsv', 'coppie.tsv'), la chiusura del limite noto del
     Gate G09 mediante verifica di 'filter.truncLen' sul minimo reale dell'intero
     file (arresto a revisione umana con 'E-S1-02' se 'truncLen > lunghezza_minima')
     e la registrazione della degradazione 'E-S1-01' quando la lunghezza utile
@@ -1200,11 +1177,11 @@ SETTIMANA 19 (W19) : FASE S11 (VALIDAZIONE DELLA CORSA DAI CONTROLLI POSITIVI)
     anomala per il suo livello si'; un livello con meno di 'ctrl.min_positives'
     controlli non e' valutabile); che S11 sul sottoinsieme di prova adatti la
     curva aggregata e quelle per piastra, motivi la scelta e scriva la soglia
-    per piastra con lo stadio delle letture a cui si applica, ripiegando con
-    'E-S11-02' dove la curva manca, con gli stessi byte in due esecuzioni; che
-    bonta' insufficiente, colonna dei livelli assente o controlli insufficienti
-    facciano ripiegare tutte le piastre con 'E-S11-02' e il motivo, e
-    'qc.min_reads_mode: fixed' senza degradazione; che su un oggetto costruito
+    per piastra sulle letture senza chimere con la sua origine, dichiarando
+    con 'E-S11-02' le piastre senza curva propria, con gli stessi byte in due
+    esecuzioni; che bonta' insufficiente o controlli insufficienti lascino
+    tutte le piastre senza soglia con 'E-S11-05' e il motivo, e
+    'qc.min_reads_mode: none' senza degradazione; che su un oggetto costruito
     controlli conformi alla concentrazione non facciano scattare nulla e una
     piastra di controlli non conformi faccia scattare 'E-S11-03' con
     'ctrl.positive_gate' vero e l'avviso 'E-S11-04' con falso; sul dataset
@@ -1220,14 +1197,14 @@ SETTIMANA 19 (W19) : FASE S11 (VALIDAZIONE DELLA CORSA DAI CONTROLLI POSITIVI)
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. La soglia di profondita' e' un risultato dei controlli, non una scelta:
-       va scritta con lo stadio delle letture a cui si applica, perche' il
-       ripiego sulle letture grezze e la soglia sulle letture senza chimere
-       non sono confrontabili.
+       va scritta con lo stadio delle letture a cui si applica e con la sua
+       origine, perche' una soglia su un'altra grandezza non sarebbe
+       confrontabile fra le piastre.
     2. Ai livelli piu' diluiti della serie i contaminanti prevalgono per
        costruzione: giudicare un controllo senza la sua concentrazione darebbe
        un falso allarme proprio dove la curva prevede una fedelta' bassa.
-    3. Un ripiego non passa inosservato: il motivo resta negli artefatti e
-       nel manifesto.
+    3. Una soglia presa altrove, o l'assenza di ogni soglia, non passa
+       inosservata: il motivo resta negli artefatti e nel manifesto.
 
 
 --------------------------------------------------------------------------------
@@ -1735,8 +1712,8 @@ SETTIMANA 28 (W28) : GENERALITA' DELLE FASI DI CALCOLO E DEL REPORT
     solo valore di qualita' con 'E-S3-04' e ogni altra stima fallita con
     'E-S3-05', e che la variante monotona regga due, tre e quattro valori di
     qualita'. Che S11 senza
-    controlli positivi dichiari 'E-S11-05' e non adatti curve, e non si fermi
-    per un controllo senza piastra o con una sola lettura; che S12 con pochi
+    controlli positivi dichiari 'E-S11-05' e non adatti curve ne' dia soglie,
+    e non si fermi per un controllo senza piastra o con una sola lettura; che S12 con pochi
     negativi dichiari 'E-S12-03' e non tolga nulla, senza biologici con
     letture si fermi con 'E-S12-04' e con sole varianti contaminanti con
     'E-S12-05'; che la colonna dei
@@ -1771,6 +1748,70 @@ SETTIMANA 28 (W28) : GENERALITA' DELLE FASI DI CALCOLO E DEL REPORT
        report.
     3. Nella cartella consegnata stanno solo i file che si consegnano, tutti
        coperti da un checksum.
+
+
+--------------------------------------------------------------------------------
+SETTIMANA 29 (W29) : SOGLIA DI PROFONDITA' OMOGENEA E LETTURE DI COPPIA
+--------------------------------------------------------------------------------
+  * SETTIMANA E FASE:
+    Settimana W29, Fase F8 (un filtro di profondita' confrontabile fra le
+    piastre; i file con le due letture di ogni coppia riconosciuti su tutte
+    le letture; lo strumento di sensibilita' senza valori di un dataset; il
+    riferimento tassonomico in una cartella comune).
+
+  * FILE DI TEST:
+    tests/test_w29_soglia.py
+
+  * COSA VALUTA:
+    Che lo schema respinga 'qc.min_reads_raw' e 'qc.min_reads_mode: fixed'
+    con un messaggio che spiega il cambiamento e accetti 'none'; che
+    'E-S11-02', 'E-S11-05' ed 'E-S1-04' abbiano nel catalogo la categoria e
+    l'azione attese; che S11 e S13 non dipendano piu' da S2. Su oggetti
+    costruiti, la regola della soglia: con piastre dalla curva valida e
+    aggregato non valido, le piastre senza curva e il campione senza piastra
+    usano la mediana delle soglie proprie, arrotondata all'intero superiore,
+    con il valore non arrotondato registrato; con l'aggregato valido ma non
+    preferito usano la soglia aggregata; se l'AIC preferisce l'aggregato
+    valido lo usano tutte, anche chi ha una curva propria; senza alcuna curva
+    valida non c'e' soglia ('E-S11-05'); una curva che non converge non fa
+    preferire l'aggregato. Che l'AIC dei due modelli sia calcolato sugli
+    stessi punti, quello per piastra come somma delle curve. Che in ogni caso
+    la soglia attesa si applichi alle letture senza chimere, con la funzione
+    di S13. Che con 'qc.min_reads_mode: none' le curve restino diagnostica e
+    S13 dichiari il filtro non applicato. Che il report abbia una riga per
+    piastra e una per i campioni senza piastra, con biologici in ingresso e
+    conservati, e il troncamento suggerito per classe, anche con una classe
+    minoritaria di sole letture corte. Che un nome in tre copie non spenga il
+    riconoscimento delle coppie per nome, che sotto le venti letture le sole
+    seconde non cedano a un record, che un file a blocchi sfugga a G07 e non
+    al conteggio su tutte le letture, e che S1 lo fermi con 'E-S1-04'
+    registrando i conteggi in 'coppie.tsv'. Che lo strumento di sensibilita'
+    legga griglie e modalita' dal file e il valore corrente dalla
+    configurazione, e che solo un arresto previsto dalla regola renda un
+    valore non ammissibile. Che le due configurazioni pubblicate puntino al
+    riferimento comune. Sui dati reali: i 15 file ENA del secondo dataset si
+    fermano tutti in S0 o in S1, le forward ricavate e i file del dataset di
+    riferimento no.
+
+  * COMANDO BASH:
+    pytest tests/test_w29_soglia.py -v
+
+  * RISULTATO ATTESO:
+    24 test (11 passed e 13 skipped in ambiente locale senza Bioconductor; 22
+    passed e 2 skipped nel container senza dati reali; 24 passed con i dati
+    reali e AMPLICON16S_DATI_OSD276)
+
+  * RAZIONALE SCIENTIFICO E SISTEMISTICO:
+    1. Una soglia che in alcune piastre vale sulle letture senza chimere e in
+       altre sulle letture grezze seleziona i campioni in modo diverso da
+       piastra a piastra: e' un effetto di lotto introdotto dal filtro.
+    2. La scelta fra curva aggregata e curve per piastra e' un confronto fra
+       modelli, che vale solo sugli stessi punti.
+    3. Un file con le due letture di ogni coppia trattato come single-end da'
+       il doppio delle letture senza alcun errore: va riconosciuto su tutte le
+       letture, non solo sulle prime.
+    4. Un guasto dello strumento di analisi non e' una misura: contarlo come
+       valore non ammissibile lo nasconderebbe nella tabella delle decisioni.
 
 
 --------------------------------------------------------------------------------
@@ -1840,7 +1881,7 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   ----------+---------------------------------------+------+-------------------------------------------------
   W1 - W2   | tests/test_w01_w02_import.py          |   10 | pytest tests/test_w01_w02_import.py -v
   W3 - W4   | tests/test_w03_w04_config_schema.py   |  107 | pytest tests/test_w03_w04_config_schema.py -v
-  W5        | tests/test_w05_errors_catalog.py      |  410 | pytest tests/test_w05_errors_catalog.py -v
+  W5        | tests/test_w05_errors_catalog.py      |  415 | pytest tests/test_w05_errors_catalog.py -v
   W5        | tests/test_w05_artifacts.py           |   25 | pytest tests/test_w05_artifacts.py -v
   W5        | tests/test_w05_logging.py             |   14 | pytest tests/test_w05_logging.py -v
   W6        | tests/test_w06_crosswalk.py           |   43 | pytest tests/test_w06_crosswalk.py -v
@@ -1869,7 +1910,8 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W26       | tests/test_w26_congelamento.py        |   20 | pytest tests/test_w26_congelamento.py -v
   W27       | tests/test_w27_ingressi.py            |   37 | pytest tests/test_w27_ingressi.py -v
   W28       | tests/test_w28_calcolo.py             |   44 | pytest tests/test_w28_calcolo.py -v
+  W29       | tests/test_w29_soglia.py              |   24 | pytest tests/test_w29_soglia.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (32 moduli)              | 1234 | pytest tests/ -v
+  TOTALE    | Intera suite (33 moduli)              | 1263 | pytest tests/ -v
 ================================================================================
