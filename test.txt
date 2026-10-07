@@ -362,7 +362,7 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     sottoclasse corretta di 'ErrorePipeline'. Verifica inoltre che la whitelist
     dei codici ripetibili ('AMMESSI_AL_RETRY') sia chiusa ermeticamente ai soli
     4 codici tecnici 'E-S2-03', 'E-S3-01', 'E-S4-02', 'E-S5-01' e che i restanti
-    59 codici non ammettano mai il retry.
+    66 codici non ammettano mai il retry.
 
   * COMANDO BASH:
     pytest tests/test_w05_errors_catalog.py -v

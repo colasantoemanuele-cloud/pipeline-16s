@@ -412,12 +412,36 @@ def test_la_catena_sul_dataset_completo_da_i_checksum_pubblicati(catena_reale, c
     diverse = [riga.split()[0] for riga in uscita.splitlines() if "differenze" in riga]
     assert set(diverse) <= {"S0", "S1", "S13", "S14"}, uscita
     assert esito == (1 if diverse else 0)
+    # Ogni riga di differenza dev'essere una di quelle dichiarate, per nome:
+    # nient'altro puo' cambiare, mancare o comparire.
+    pubblicati = _pubblicati()
+    di_s1 = {r["nome"] for r in pubblicati if r["fase"] == "S1"}
+    di_s13 = {r["nome"]: r["sha256"] for r in pubblicati if r["fase"] == "S13"}
+    spostati = set(di_s13) - {"ps_controlli.rds"}
+    ammesse = (
+        {("S0", "gates.json", "contenuto diverso"), ("S14", "checksum.sha256", "contenuto diverso"),
+         ("S14", "ps_controlli.rds", "non atteso"), ("S1", "valori_qualita.tsv", "non atteso")}
+        | {("S1", nome, "manca") for nome in di_s1}
+        | {("S13", nome, "manca") for nome in spostati}
+    )
+    fase = None
     for riga in uscita.splitlines():
-        if "contenuto diverso" in riga:
-            assert riga.split(":")[0].strip() in ("gates.json", "checksum.sha256"), riga
+        if riga[:1] == "S" and "artefatti attesi" in riga:
+            fase = riga.split()[0]
+        elif riga.startswith(" ") and ": " in riga:
+            nome, stato = (parte.strip() for parte in riga.rsplit(": ", 1))
+            assert (fase, nome, stato) in ammesse, riga
+    # Gli intermedi di S13 hanno gli stessi byte, nella loro cartella nuova; i
+    # file consegnati pubblicati coincidono, e sono le prime righe dell'elenco.
     finale = Path(run.config.io.out_root) / "12_final"
-    for riga in confronto.ATTESI_FINALI.read_text(encoding="utf-8").splitlines():
+    for nome in spostati:
+        assert confronto.sha256(finale / "intermedi" / nome) == di_s13[nome], nome
+    assert confronto.sha256(finale / "ps_controlli.rds") == di_s13["ps_controlli.rds"]
+    attesi_finali = confronto.ATTESI_FINALI.read_text(encoding="utf-8").splitlines()
+    for riga in attesi_finali:
         impronta, nome = riga.split(maxsplit=1)
         assert confronto.sha256(finale / nome) == impronta, nome
+    elenco = (finale / "checksum.sha256").read_text(encoding="utf-8").splitlines()
+    assert elenco[:len(attesi_finali)] == attesi_finali and len(elenco) == len(attesi_finali) + 1
     attesi = sum(r["fase"] != "S1" for r in _pubblicati())
     assert uscita.count("identica") == len(confronto.ORDINE) - 1 - len(diverse) and attesi > 1000

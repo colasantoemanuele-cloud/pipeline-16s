@@ -664,7 +664,8 @@ serve.**
   predefinita) o `loess_monotono` (loess pesato sui conteggi, reso non crescente con
   la qualità). S1 conta i valori di qualità distinti e con quattro o meno lo dichiara
   (`E-S1-03`). Una corsa senza letture filtrate ferma S3 con un codice proprio
-  (`E-S3-03`).
+  (`E-S3-03`); letture con un solo valore di qualità, da cui nessuna funzione può
+  stimare il modello, la fermano con `E-S3-04`.
 - Motivazione: con pochi valori di qualità la stima standard può dare un tasso di
   errore che cresce con la qualità, e l'inferenza tratterebbe come più affidabili le
   basi peggiori. La scelta resta di chi conduce l'analisi: la pipeline segnala, non
