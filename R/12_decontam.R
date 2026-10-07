@@ -149,6 +149,10 @@ esegui_fase(function(parametri, cartella) {
     "%s: rimuove %.4f delle letture dei biologici, %s qc.max_frac_contaminant (%s)",
     if (modalita == "batch") "per piastra" else "aggregata", rimossa_bio,
     if (entro) "entro" else "oltre", format(max_frazione))
+  if (is.na(rimossa_bio)) {
+    esito <- paste0("nessun campione biologico ha letture nell'oggetto integrato: ",
+                    "la frazione rimossa non e' calcolabile")
+  }
   if (insufficienti) {
     entro <- TRUE
     esito <- sprintf(

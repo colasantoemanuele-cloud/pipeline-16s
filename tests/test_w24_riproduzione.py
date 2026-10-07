@@ -393,8 +393,13 @@ def test_i_checksum_pubblicati_sono_coerenti():
 def test_la_catena_sul_dataset_completo_da_i_checksum_pubblicati(catena_reale, capsys):
     """
     **Obiettivo**: Verificare che gli artefatti della catena S0-S14 eseguita
-    dalla suite sul dataset completo coincidano tutti con i checksum attesi
-    pubblicati, tranne quelli di S1, che la catena condivisa non esegue.
+    dalla suite sul dataset completo coincidano con i checksum attesi
+    pubblicati, tranne quelli di S1, che la catena condivisa non esegue, e le
+    differenze per costruzione dichiarate in ``dati/osd734/README.md`` finche'
+    i checksum pubblicati non si rigenerano: l'ordine dei gate in S0, gli
+    intermedi di S13 spostati in ``12_final/intermedi``, e in S14 l'elenco dei
+    checksum con ``ps_controlli.rds``. I cinque file consegnati pubblicati
+    devono coincidere.
 
     **Razionale scientifico e sistemistico**: E' la regressione piu' stretta
     che la suite possa esprimere: lo stesso dato, la stessa configurazione e il
@@ -405,7 +410,14 @@ def test_la_catena_sul_dataset_completo_da_i_checksum_pubblicati(catena_reale, c
     esito = confronto.main(["--uscita", str(run.config.io.out_root)])
     uscita = capsys.readouterr().out
     diverse = [riga.split()[0] for riga in uscita.splitlines() if "differenze" in riga]
-    assert diverse in ([], ["S1"]), uscita
+    assert set(diverse) <= {"S0", "S1", "S13", "S14"}, uscita
     assert esito == (1 if diverse else 0)
+    for riga in uscita.splitlines():
+        if "contenuto diverso" in riga:
+            assert riga.split(":")[0].strip() in ("gates.json", "checksum.sha256"), riga
+    finale = Path(run.config.io.out_root) / "12_final"
+    for riga in confronto.ATTESI_FINALI.read_text(encoding="utf-8").splitlines():
+        impronta, nome = riga.split(maxsplit=1)
+        assert confronto.sha256(finale / nome) == impronta, nome
     attesi = sum(r["fase"] != "S1" for r in _pubblicati())
     assert uscita.count("identica") == len(confronto.ORDINE) - 1 - len(diverse) and attesi > 1000

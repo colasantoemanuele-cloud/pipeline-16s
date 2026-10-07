@@ -21,7 +21,7 @@ del catalogo e mai con un errore generico di R).
 * ``src/amplicon16s/steps/s14_finale.py``, ``R/14_finale.R``
 * ``src/amplicon16s/report/builder.py`` (troncamento suggerito, classi vuote)
 * ``src/amplicon16s/errors/catalog.py`` (``E-S1-03``, ``E-S3-03``,
-  ``E-S11-05``, ``E-S12-03``, ``E-S13-04``, ``E-S13-05``)
+  ``E-S3-04``, ``E-S11-05``, ``E-S12-03``, ``E-S13-04``, ``E-S13-05``)
 
 3. Cosa valuta questo file
 --------------------------
@@ -32,7 +32,8 @@ del catalogo e mai con un errore generico di R).
 - il modello di errore: ``err.error_function`` accetta ``loess`` e
   ``loess_monotono``, la variante monotona da' tassi non crescenti con la
   qualita'; S1 avvisa con ``E-S1-03`` se le qualita' distinte sono poche; una
-  corsa senza letture filtrate ferma S3 con ``E-S3-03``;
+  corsa senza letture filtrate ferma S3 con ``E-S3-03``, e letture con un solo
+  valore di qualita' con ``E-S3-04``;
 - un dataset senza controlli: S11 senza positivi dichiara ``E-S11-05`` e non
   adatta curve, non si ferma per un controllo senza piastra o con una sola
   lettura; S12 con pochi negativi dichiara ``E-S12-03`` e non toglie nulla;
@@ -296,8 +297,9 @@ def test_s1_non_si_ferma_per_poche_letture_corte(bioc, tmp_path):
     campioni controllati e' piu' corto) S1 si concluda e registri nel
     manifesto la frazione per classe; e che con ``qc.max_frac_short_reads`` a
     0,01 la stessa quota fermi l'esecuzione, gia' in S0 con ``E-S0-09`` perche'
-    G09 qui legge tutte le letture (l'arresto di S1 con ``E-S1-02`` oltre la
-    testa dei file e' verificato in ``test_w11_s01_profile.py``).
+    G09 qui legge tutte le letture; e che, quando G09 guarda la sola prima
+    lettura di ogni file (``qc.head_reads`` 1, troncamento a 149), sia S1 a
+    fermarsi con ``E-S1-02``, con la frazione per classe nel dettaglio.
 
     **Razionale scientifico e sistemistico**: S1 legge tutte le letture e
     chiude il limite di G09: la sua regola dev'essere la stessa, la frazione e
@@ -318,6 +320,14 @@ def test_s1_non_si_ferma_per_poche_letture_corte(bioc, tmp_path):
     esito = Esecutore(severa, fino_a=Passo.S1).esegui()
     assert esito.conclusione is Conclusione.ARRESTATA
     assert esito.punto.codice == "E-S0-09" and "qc.max_frac_short_reads" in esito.punto.dettaglio
+
+    oltre_la_testa = ProjectRun(valida(dati_config(
+        tmp_path / "c", filter={"truncLen": 149},
+        qc={"max_frac_short_reads": 0.01, "head_reads": 1})))
+    esito = Esecutore(oltre_la_testa, fino_a=Passo.S1).esegui()
+    assert esito.conclusione is Conclusione.ARRESTATA
+    assert [r.passo for r in esito.eseguite] == [Passo.S0]
+    assert esito.punto.codice == "E-S1-02" and "Per classe: biologico" in esito.punto.dettaglio
 
 
 # --------------------------------------------------------------------------- #
@@ -363,7 +373,9 @@ def test_con_poche_qualita_distinte_s1_avvisa_con_e_s1_03(bioc, tmp_path):
     """
     **Obiettivo**: Verificare che su letture con un solo valore di qualita' S1
     si concluda registrando la degradazione ``E-S1-03``, con i valori trovati
-    e l'indicazione di ``err.error_function``, e scriva ``valori_qualita.tsv``.
+    e l'indicazione di ``err.error_function``, e scriva ``valori_qualita.tsv``;
+    e che proseguendo S3 si fermi con ``E-S3-04``, di revisione umana, con
+    entrambe le funzioni di errore, e non con un errore generico del ponte.
 
     **Razionale scientifico e sistemistico**: Le piattaforme a qualita'
     raggruppate danno pochi valori distinti, su cui la stima standard del
@@ -379,6 +391,14 @@ def test_con_poche_qualita_distinte_s1_avvisa_con_e_s1_03(bioc, tmp_path):
     assert "1 valori" in degradazione["dettaglio"] and "loess" in degradazione["dettaglio"]
     valori = _tsv(run.albero.cartella(Fase.QC_PROFILES) / "valori_qualita.tsv")
     assert [v["qualita"] for v in valori] == ["40"]
+
+    # Con un solo valore di qualita' nessuna funzione ha una curva da adattare.
+    for funzione in ("loess", "loess_monotono"):
+        copia = copia_esecuzione((run, esito), tmp_path / funzione, err={"error_function": funzione})
+        fermo = Esecutore(copia, fino_a=Passo.S3).esegui()
+        assert fermo.conclusione is Conclusione.ARRESTATA, funzione
+        assert fermo.punto.passo is Passo.S3 and fermo.punto.codice == "E-S3-04", fermo.punto
+        assert fermo.punto.categoria == "revisione_umana"
 
 
 def test_una_corsa_senza_letture_filtrate_ferma_con_e_s3_03(bioc, ridotta_calcolata, tmp_path):
@@ -410,8 +430,9 @@ def test_una_corsa_senza_letture_filtrate_ferma_con_e_s3_03(bioc, ridotta_calcol
 def test_la_funzione_di_errore_monotona_si_usa_in_s3(bioc, ridotta_calcolata, tmp_path):
     """
     **Obiettivo**: Verificare che cambiare ``err.error_function`` in
-    ``loess_monotono`` rifaccia S3, che la fase si concluda, e che il
-    manifesto registri la configurazione con la funzione scelta.
+    ``loess_monotono`` rifaccia S3, che la fase si concluda, che la funzione
+    arrivi allo script e che i modelli stimati siano diversi da quelli della
+    funzione standard.
 
     **Razionale scientifico e sistemistico**: Il parametro deve arrivare a
     ``learnErrors``: dichiarato e non usato, darebbe il modello standard con
@@ -424,6 +445,15 @@ def test_la_funzione_di_errore_monotona_si_usa_in_s3(bioc, ridotta_calcolata, tm
     richiesta = json.loads(
         (run.albero.cartella(Fase.ERROR_MODELS) / "rbridge_richiesta_S3.json").read_text())
     assert "loess_monotono" in json.dumps(richiesta)
+
+    def modelli(esecuzione) -> dict[str, str]:
+        return {v["nome"]: v["checksum"]
+                for v in esecuzione.albero.manifesto_passo(Passo.S3, Fase.ERROR_MODELS).artefatti
+                if v["nome"].endswith(".rds")}
+
+    standard, monotona = modelli(ridotta_calcolata[0]), modelli(run)
+    assert standard and set(standard) == set(monotona)
+    assert all(standard[n] != monotona[n] for n in standard)
 
 
 # --------------------------------------------------------------------------- #
@@ -710,7 +740,8 @@ def test_s14_toglie_i_file_consegnati_di_un_esecuzione_precedente(
     """
     **Obiettivo**: Verificare che, rifatta S14 con ``out.export_flat`` falso
     su un'esecuzione che aveva gli export e un ``albero.nwk`` rimasto da una
-    configurazione precedente, in ``12_final`` restino solo i file elencati
+    configurazione precedente e i file che S13 scriveva nella stessa cartella
+    prima di averne una propria, in ``12_final`` restino solo i file elencati
     in ``checksum.sha256`` (l'oggetto finale e i controlli), il manifesto e i
     file del ponte, e la sottocartella degli intermedi.
 
@@ -722,6 +753,10 @@ def test_s14_toglie_i_file_consegnati_di_un_esecuzione_precedente(
     run = copia_esecuzione(finale_calcolata, tmp_path, out={"export_flat": False})
     finale = run.albero.cartella(Fase.FINAL)
     (finale / "albero.nwk").write_text("(a,b);\n", encoding="utf-8")
+    # Una cartella prodotta quando S13 scriveva qui: i suoi file non sono di
+    # questa esecuzione.
+    for vecchio in ("esclusioni.tsv", "ps_filtrato.rds", "manifest_S13.json"):
+        (finale / vecchio).write_text("vecchio\n", encoding="utf-8")
     assert (finale / "conteggi.tsv").is_file()
     esito = Esecutore(run, fino_a=Passo.S14).esegui()
     assert esito.conclusione is Conclusione.COMPLETATA
@@ -732,6 +767,7 @@ def test_s14_toglie_i_file_consegnati_di_un_esecuzione_precedente(
                   if p.is_file() and not p.name.startswith(("rbridge_", "manifest"))}
     assert consegnati == elencati | {"checksum.sha256"}
     assert {p.name for p in finale.iterdir() if p.is_dir()} == {"intermedi"}
+    assert not (finale / "manifest_S13.json").exists()
 
 
 # --------------------------------------------------------------------------- #
@@ -819,20 +855,56 @@ def _insieme_ridotto(cartella: Path, tieni, *, senza_lotto: bool = False) -> dic
     }
 
 
+def _senza_curve(run) -> None:
+    """Senza controlli positivi: nessun controllo valutato, nessuna curva."""
+    cartella = run.albero.cartella(Fase.CONTROLS)
+    assert _tsv(cartella / "positivi.tsv") == [] and _tsv(cartella / "curve.tsv") == []
+
+
+def _nulla_rimosso(run) -> None:
+    """Senza controlli negativi: nessuna variante tolta dalla decontaminazione."""
+    riepilogo = json.loads(
+        (run.albero.cartella(Fase.CONTROLS) / "decontam_riepilogo.json").read_text())
+    assert riepilogo["contaminanti_rimossi"] == 0 and riepilogo["confronto"]["negativi"] == 0
+
+
+def _livelli_dalla_tabella_di_studio(run) -> None:
+    """Senza file del lotto: i livelli dei positivi arrivano a S11 dalla tabella
+    di studio, e nessun campione ha piastra o corsa.
+    """
+    colonne = _tsv(run.albero.cartella(Fase.PHYLOSEQ) / "colonne_metadati.tsv")
+    (livelli,) = [c for c in colonne if c["colonna_originale"] == "katharoseq_cell_count"]
+    assert "studio" in livelli["origine"]
+    positivi = _tsv(run.albero.cartella(Fase.CONTROLS) / "positivi.tsv")
+    assert len(positivi) == 9 and all(p["cellule"] and p["piastra"] == "" for p in positivi)
+    soglia = json.loads((run.albero.cartella(Fase.CONTROLS) / "soglia.json").read_text())
+    assert not soglia["per_piastra"]
+
+
+def _una_sola_piastra(run) -> None:
+    """Una sola piastra: una sola soglia per piastra, e i controlli consegnati."""
+    soglia = json.loads((run.albero.cartella(Fase.CONTROLS) / "soglia.json").read_text())
+    assert list(soglia["per_piastra"]) == ["10"]
+    assert (run.albero.cartella(Fase.FINAL) / NOME_CONTROLLI).is_file()
+
+
 #: Per ogni insieme: quali campioni tenere, se togliere il file del lotto, i
-#: parametri che lo descrivono, e le degradazioni attese per fase.
+#: parametri che lo descrivono, le degradazioni attese per fase e la verifica
+#: di cio' che l'insieme deve dimostrare.
 INSIEMI: dict[str, dict[str, Any]] = {
     "senza_positivi": {
         "tieni": lambda r: r["classe"] != "controllo_positivo",
         "config": {"ctrl": {"positive_values": []},
                    "katharoseq": {"target_taxon": None, "cell_count_column": None}},
         "attese": {Passo.S11: "E-S11-05"},
+        "verifica": _senza_curve,
     },
     "senza_negativi": {
         "tieni": lambda r: r["classe"] != "controllo_negativo",
         "config": {"ctrl": {"blank_values": [], "blank_override_column": None,
                             "blank_override_values": []}},
         "attese": {Passo.S12: "E-S12-03"},
+        "verifica": _nulla_rimosso,
     },
     "senza_lotto": {
         "tieni": lambda r: True,
@@ -841,11 +913,13 @@ INSIEMI: dict[str, dict[str, Any]] = {
                    "decontam": {"batch_column": None},
                    "meta": {"batch_key_column": None, "batch_module_column": None}},
         "attese": {},
+        "verifica": _livelli_dalla_tabella_di_studio,
     },
     "una_piastra": {
         "tieni": lambda r: r["piastra"] == "10",
         "config": {},
         "attese": {},
+        "verifica": _una_sola_piastra,
     },
 }
 
@@ -855,9 +929,11 @@ def test_la_catena_intera_non_da_mai_un_errore_generico_di_r(bioc, tmp_path, nom
     """
     **Obiettivo**: Verificare che la catena S0-S14, su quattro insiemi ricavati
     dal sottoinsieme ridotto (senza controlli positivi, senza controlli
-    negativi, senza file del lotto, con una sola piastra), si concluda o si
-    fermi con un codice del catalogo che non e' del ponte verso R; che le
-    degradazioni attese siano nei manifesti; che senza controlli
+    negativi, senza file del lotto, con una sola piastra), si concluda con
+    tutte le fasi; che nei manifesti ci siano solo codici del catalogo, mai del
+    ponte verso R, e fra essi le degradazioni attese; che ogni insieme mostri
+    cio' che deve (nessuna curva, nessuna variante rimossa, i livelli letti
+    dalla tabella di studio, una sola soglia per piastra); che senza controlli
     ``ps_controlli.rds`` non compaia fra i file consegnati; e che il report si
     generi in ogni caso.
 
@@ -875,23 +951,23 @@ def test_la_catena_intera_non_da_mai_un_errore_generico_di_r(bioc, tmp_path, nom
     run = ProjectRun(valida(dati_config(tmp_path, **sovrascrivi)))
     esito = Esecutore(run).esegui()
 
-    if esito.conclusione is Conclusione.ARRESTATA:
-        assert esito.punto.codice in CATALOGO, esito.punto
-        assert not esito.punto.codice.startswith("E-R-"), esito.punto
-    else:
-        assert esito.conclusione is Conclusione.COMPLETATA
-    concluse = {r.passo for r in esito.eseguite}
+    # Sul sottoinsieme ridotto le quattro catene arrivano in fondo: un arresto,
+    # anche con un codice del catalogo, qui sarebbe una regressione.
+    assert esito.conclusione is Conclusione.COMPLETATA, esito.punto
+    assert [r.passo for r in esito.eseguite] == [p for p in Passo if p is not Passo.S9]
+    for passo in Passo:
+        if passo is not Passo.S9:
+            codici = _degradazioni(run, passo, run.fase(passo).cartella)
+            assert not [c for c in codici if c not in CATALOGO or c.startswith("E-R-")], (passo, codici)
     for passo, codice in insieme["attese"].items():
-        if passo in concluse:
-            assert codice in _degradazioni(run, passo, run.fase(passo).cartella), (passo, codice)
-    if Passo.S14 in concluse:
-        finale = run.albero.cartella(Fase.FINAL)
-        elencati = {r.split("  ")[1] for r in (finale / "checksum.sha256").read_text().splitlines()}
-        assert (NOME_CONTROLLI in elencati) == (finale / NOME_CONTROLLI).is_file()
-        assert (finale / NOME_CONTROLLI).is_file() == any(
-            c.classe.e_controllo for c in run.valuta().inventario)
+        assert codice in _degradazioni(run, passo, run.fase(passo).cartella), (passo, codice)
+    finale = run.albero.cartella(Fase.FINAL)
+    elencati = {r.split("  ")[1] for r in (finale / "checksum.sha256").read_text().splitlines()}
+    assert (NOME_CONTROLLI in elencati) == (finale / NOME_CONTROLLI).is_file()
+    assert (finale / NOME_CONTROLLI).is_file() == any(
+        c.classe.e_controllo for c in run.valuta().inventario)
+    insieme["verifica"](run)
     chiudi()
     report = genera(run.config.io.out_root)
     assert report.is_file() and "Decisioni prese automaticamente" in report.read_text(encoding="utf-8")
-    print(f"\n{nome}: {esito.conclusione.value}, fasi {[str(r.passo) for r in esito.eseguite]}"
-          + (f", arresto {esito.punto.codice}: {esito.punto.dettaglio}" if esito.punto else ""))
+    print(f"\n{nome}: {esito.conclusione.value}, fasi {[str(r.passo) for r in esito.eseguite]}")

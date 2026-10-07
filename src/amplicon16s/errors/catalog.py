@@ -508,6 +508,17 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "imposta err.batch_column a null per stimare un solo modello.",
         _UMANA,
     ),
+    _v(
+        "E-S3-04", "S3",
+        "Il modello d'errore non e' stimabile dalle qualita' delle letture.",
+        "La stima lega il tasso d'errore alla qualita' delle basi: con un solo "
+        "valore di qualita' in tutte le letture (file a qualita' normalizzata, "
+        "come quelli di alcuni archivi pubblici) non c'e' una curva da adattare, "
+        "con nessuna delle funzioni di err.error_function. I valori presenti "
+        "sono in 02_qc_profiles/valori_qualita.tsv. Servono le letture con le "
+        "qualita' originali del sequenziatore.",
+        _UMANA,
+    ),
     # ----------------------------------------------------------------- S4 ---
     _v(
         "E-S4-02", "S4",

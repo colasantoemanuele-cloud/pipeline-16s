@@ -42,12 +42,12 @@ sequenza:
 
     pytest tests/ -n 0
 
-Totale complessivo della suite: 1172 test su 32 moduli:
-  * 1024 passed e 148 skipped in ambiente locale standard (R base + jsonlite, senza
+Totale complessivo della suite: 1177 test su 32 moduli:
+  * 1029 passed e 148 skipped in ambiente locale standard (R base + jsonlite, senza
     Bioconductor e senza dati reali), in circa un minuto; lo stesso esito su un
     solo processore ('taskset -c 0 pytest tests/'), in circa 9 minuti;
   * nel container CI standard (senza dati reali OSD-734), su quattro processi:
-    1117 passed e 47 skipped in circa 9 minuti, nell'immagine costruita dal
+    1122 passed e 47 skipped in circa 9 minuti, nell'immagine costruita dal
     Dockerfile come nella CI (l'ultima esecuzione della CI, run 37447520163
     sulla suite precedente di 1007 test, ha dato 956 passed e 43 skipped in
     circa 11 minuti). I
@@ -61,7 +61,7 @@ Totale complessivo della suite: 1172 test su 32 moduli:
     e il modulo 'tests/test_w21_dati_osd734.py',
     che nell'immagine si salta per intero e conta come un solo salto al posto
     dei suoi 9 test (la cartella dati/ non vi e' copiata): per questo i test
-    contati sono 1114;
+    contati sono 1169;
   * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 35 test che li
     richiedono, tutti sullo stesso processo: 1042 passed e 3 skipped in 76
     minuti e mezzo, con picco di memoria del container di 16,0 GB (limite a
@@ -340,7 +340,7 @@ SETTIMANA 4 (W4) : COERENZA INTERNA (GATE G15) E PARAMETRI DERIVATI
 SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
 --------------------------------------------------------------------------------
 
-5.1 Catalogo centralizzato degli errori (69 codici catalogati)
+5.1 Catalogo centralizzato degli errori (70 codici catalogati)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   * SETTIMANA E FASE:
     Settimana W5 (esteso in W11 e W13), Fase F1/F4 (Tassonomia formale degli
@@ -350,7 +350,7 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     tests/test_w05_errors_catalog.py
 
   * COSA VALUTA:
-    Ispeziona sistematicamente tutti i 69 codici del catalogo ('CATALOGO': 49
+    Ispeziona sistematicamente tutti i 70 codici del catalogo ('CATALOGO': 50
     codici di fase S0-S14 inclusi 'E-S0-16', 'E-S0-17', 'E-S0-18', 'E-S1-02',
     'E-S3-02', 'E-S10-02', 'E-S11-04' ed 'E-S13-03', 12 codici di
     configurazione G15, 4 codici del ponte verso R 'E-R-01..04', 1 codice del
@@ -368,7 +368,7 @@ SETTIMANA 5 (W5) : CATALOGO ERRORI, INTEGRITA' I/O E LOGGING JSONL
     pytest tests/test_w05_errors_catalog.py -v
 
   * RISULTATO ATTESO:
-    380 passed in ~0.35s
+    385 passed in ~0.35s
 
   * RAZIONALE SCIENTIFICO E SISTEMISTICO:
     1. Distinzione tra guasto tecnico e anomalia biologica: la pipeline non
@@ -1704,7 +1704,8 @@ SETTIMANA 28 (W28) : GENERALITA' DELLE FASI DI CALCOLO E DEL REPORT
     vero sia respinto. Che 'err.error_function' scelga fra 'loess' e
     'loess_monotono', che la variante monotona dia tassi non crescenti con la
     qualita', che S1 dichiari le qualita' raggruppate ('E-S1-03') e che una
-    corsa senza letture filtrate fermi S3 con 'E-S3-03'. Che S11 senza
+    corsa senza letture filtrate fermi S3 con 'E-S3-03' e le letture con un
+    solo valore di qualita' con 'E-S3-04'. Che S11 senza
     controlli positivi dichiari 'E-S11-05' e non adatti curve, e non si fermi
     per un controllo senza piastra o con una sola lettura; che S12 con pochi
     negativi dichiari 'E-S12-03' e non tolga nulla; che la colonna dei
@@ -1806,7 +1807,7 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   ----------+---------------------------------------+------+-------------------------------------------------
   W1 - W2   | tests/test_w01_w02_import.py          |   10 | pytest tests/test_w01_w02_import.py -v
   W3 - W4   | tests/test_w03_w04_config_schema.py   |  107 | pytest tests/test_w03_w04_config_schema.py -v
-  W5        | tests/test_w05_errors_catalog.py      |  380 | pytest tests/test_w05_errors_catalog.py -v
+  W5        | tests/test_w05_errors_catalog.py      |  385 | pytest tests/test_w05_errors_catalog.py -v
   W5        | tests/test_w05_artifacts.py           |   25 | pytest tests/test_w05_artifacts.py -v
   W5        | tests/test_w05_logging.py             |   14 | pytest tests/test_w05_logging.py -v
   W6        | tests/test_w06_crosswalk.py           |   43 | pytest tests/test_w06_crosswalk.py -v
@@ -1837,5 +1838,5 @@ MODULO TRASVERSALE DEL DAG : CONTRATTO DELLE DIPENDENZE DI PARAMETRO (S0 - S14)
   W28       | tests/test_w28_calcolo.py             |   22 | pytest tests/test_w28_calcolo.py -v
   DAG (S0+) | tests/test_dipendenze_parametri.py    |   24 | pytest tests/test_dipendenze_parametri.py -v
   ----------+---------------------------------------+------+-------------------------------------------------
-  TOTALE    | Intera suite (32 moduli)              | 1172 | pytest tests/ -v
+  TOTALE    | Intera suite (32 moduli)              | 1177 | pytest tests/ -v
 ================================================================================

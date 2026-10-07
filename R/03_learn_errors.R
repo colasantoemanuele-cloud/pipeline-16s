@@ -51,14 +51,29 @@ esegui_fase(function(parametri, cartella) {
     # impone a learnErrors di leggere i file nella sequenza ricevuta fino al
     # superamento di nbases, rendendo tracciabile al singolo campione il pool
     # di basi usato per discriminare errori fisici di lettura da varianti ASV reali.
-    modello <- dada2::learnErrors(
-      file,
-      nbases = as.numeric(parametri$nbases),
-      randomize = FALSE,
-      errorEstimationFunction = funzione_errore(parametri$funzione_errore),
-      MAX_CONSIST = as.integer(parametri$max_consist),
-      multithread = as.integer(parametri$processi),
-      verbose = 0
+    #
+    # Con un solo valore di qualita' nelle letture (file a qualita'
+    # normalizzata) nessuna funzione di stima ha una curva da adattare: dada2
+    # lo riporta come matrice d'errore nulla. E' una condizione dei dati, con
+    # il suo codice; ogni altro errore prosegue invariato.
+    modello <- tryCatch(
+      dada2::learnErrors(
+        file,
+        nbases = as.numeric(parametri$nbases),
+        randomize = FALSE,
+        errorEstimationFunction = funzione_errore(parametri$funzione_errore),
+        MAX_CONSIST = as.integer(parametri$max_consist),
+        multithread = as.integer(parametri$processi),
+        verbose = 0
+      ),
+      error = function(e) {
+        if (grepl("Error matrix is NULL|span is too small", conditionMessage(e))) {
+          errore_catalogo("E-S3-04", sprintf(
+            "modello %s, err.error_function %s: %s", nome, parametri$funzione_errore,
+            conditionMessage(e)))
+        }
+        stop(e)
+      }
     )
 
     rds <- sprintf("modello_%s.rds", nome)

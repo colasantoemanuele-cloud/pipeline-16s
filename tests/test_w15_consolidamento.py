@@ -426,6 +426,7 @@ COPERTURA: dict[str, str] = {
     "E-S3-01": "test_w13_s03_batch.py::test_la_mancata_convergenza_con_basi_in_piu_si_ritenta",
     "E-S3-02": "test_w13_s03_batch.py::test_un_campione_senza_corsa_con_la_colonna_attiva_ferma",
     "E-S3-03": "test_w28_calcolo.py::test_una_corsa_senza_letture_filtrate_ferma_con_e_s3_03",
+    "E-S3-04": "test_w28_calcolo.py::test_con_poche_qualita_distinte_s1_avvisa_con_e_s1_03",
     "E-S4-02": "test_w14_s04_s07_denoising.py::test_con_memoria_ridotta_scatta_e_s4_02_e_il_retry_dimezza_il_lotto",
     "E-S5-01": "test_w14_s04_s07_denoising.py::test_oltre_qc_max_asv_count_s5_si_ferma_prima_della_tabella",
     "E-S6-01": "test_w15_consolidamento.py::test_s6_oltre_l_arresto_si_ferma_per_la_revisione",

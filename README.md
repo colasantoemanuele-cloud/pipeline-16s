@@ -418,7 +418,7 @@ Sono realizzati:
   manifesto con il proprio checksum. Le durate dei gate vanno nel log strutturato e non
   in `gates.json`: descrivono l'esecuzione, non il risultato, e un artefatto deve avere
   lo stesso checksum fra due esecuzioni sugli stessi ingressi;
-- il catalogo degli errori (69 codici totali): ogni codice porta un messaggio che dice
+- il catalogo degli errori (70 codici totali): ogni codice porta un messaggio che dice
   cosa fare e una categoria di gestione fra revisione umana, retry automatico, retry
   seguito da revisione, e degradazione automatica. Il retry automatico è un elenco chiuso di
   quattro codici, gli stessi dichiarati in `retry.whitelist`. Sono catalogati i codici
@@ -695,7 +695,8 @@ Sono realizzati:
   errore vi è poco affidabile: `err.error_function` sceglie fra la funzione standard
   di dada2 (`loess`) e una variante pesata e monotona (`loess_monotono`,
   `R/lib/errore_loess.R`), usata da S3 e da S4. Una corsa senza letture filtrate
-  ferma S3 con `E-S3-03`. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
+  ferma S3 con `E-S3-03`; letture con un solo valore di qualità, da cui nessuna
+  funzione può stimare il modello, con `E-S3-04`. Registra inoltre E-S1-01, lo scarto del troncamento sotto il minimo oltre
   `filter.truncLen_shortfall_warn`, che prima registrava S0 dalla stima;
 - **la fase S2, filtro e troncamento** (`steps/s02_filter.py`, `R/02_filter.R`), con
   `dada2::filterAndTrim` e i parametri del gruppo `filter`; scrive in `03_filtered/`

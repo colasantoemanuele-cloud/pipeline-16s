@@ -74,6 +74,14 @@ CONSEGNATI: Final = (
 )
 
 
+#: I file che S13 scriveva in 12_final prima di avere una cartella propria.
+INTERMEDI_DI_UNA_VOLTA: Final = (
+    NOME_FILTRATO, NOME_RIEPILOGO, "esclusioni.tsv", "varianti_rimosse.tsv",
+    "letture_finali.tsv", "manifest_S13.json", "rimossi_S13.json",
+    "rbridge_richiesta_S13.json", "rbridge_esito_S13.json",
+)
+
+
 class Serializzazione(PipelineStep):
     """S14: l'oggetto finale serializzato, gli export e la validazione."""
 
@@ -110,8 +118,11 @@ class Serializzazione(PipelineStep):
 
         # Nella cartella consegnata resta solo cio' che questa esecuzione
         # produce: un file di una configurazione precedente non e' un risultato.
-        # Con loro il manifesto della cartella, che le scritture ricostruiscono.
-        for nome in (*CONSEGNATI, NOME_MANIFESTO):
+        # Con loro il manifesto della cartella, che le scritture ricostruiscono,
+        # e gli intermedi di S13 di una cartella prodotta quando S13 scriveva
+        # qui: oggi stanno in 12_final/intermedi, e quelli vecchi non sono di
+        # questa esecuzione.
+        for nome in (*CONSEGNATI, NOME_MANIFESTO, *INTERMEDI_DI_UNA_VOLTA):
             (cartella / nome).unlink(missing_ok=True)
 
         # L'albero c'e' solo con la filogenesi attiva, e viene da S9: come per
