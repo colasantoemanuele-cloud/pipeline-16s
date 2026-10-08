@@ -94,7 +94,8 @@ Due costruzioni non sono identiche byte per byte (date dei file, compressione,
 metadati): un'immagine costruita in locale ha un altro identificativo e non è l'immagine
 pubblicata, anche se contiene gli stessi pacchetti alle stesse versioni, verificati
 contro `renv.lock`. Nelle prove fatte, tre immagini costruite in momenti diversi hanno
-dato gli stessi 1.031 artefatti sul dataset di riferimento.
+dato gli stessi 1.031 artefatti dell'esecuzione di riferimento di allora sul dataset di
+riferimento.
 
 Nei comandi dei test `<immagine>` è il riferimento all'immagine in uso: quella corrente
 del progetto è indicata in `test.txt` (sezione 1.3). Il comando completo per eseguire
@@ -173,7 +174,7 @@ conclusa i risultati si verificano con un comando contro i checksum attesi pubbl
 nella stessa cartella:
 
 ```bash
-python3 dati/osd734/confronta_risultati.py    # 1.031 artefatti, fase per fase
+python3 dati/osd734/confronta_risultati.py    # 1.033 artefatti, fase per fase
 ```
 
 Gli script verificano ogni file contro il checksum della sua fonte, riprendono uno scarico
@@ -285,8 +286,8 @@ Sono realizzati:
   immagini precedenti contiene i pacchetti R delle analisi ecologiche (DESeq2, vegan,
   randomForest): in `renv.lock` sono tre voci in più (DESeq2, locfit, randomForest;
   vegan c'era già, come dipendenza di phyloseq) e nessuna versione cambiata. Con questa
-  immagine la catena completa sul dataset di riferimento dà i 1.031 artefatti dei
-  checksum pubblicati, e sul sottoinsieme di prova gli stessi 99 artefatti
+  immagine la catena completa sul dataset di riferimento dava i 1.031 artefatti dei
+  checksum allora pubblicati (oggi 1.033, con la soglia omogenea), e sul sottoinsieme di prova gli stessi 99 artefatti
   dell'immagine locale. `dati/osd734/config_osd734.yaml` la dichiara in
   `run.container`. La suite di test passa anche su una macchina con un solo
   processore: le esecuzioni di prova chiedono due thread dove ci sono, uno altrimenti
@@ -618,11 +619,11 @@ Sono realizzati:
   percorsi relativi sono resi assoluti come dalla riga di comando. Un valore è non
   ammissibile solo se produce un arresto previsto dalla regola; ogni altro arresto
   ferma lo strumento; `docs/sensibilita.md` riporta parametri, intervalli, misure e
-  decisioni, con le tabelle in `docs/sensibilita/`. Su OSD-734 la regola mantiene i
-  quattro valori correnti, e il confronto fra GTR+G+I e GTR+G con il criterio
+  decisioni, con le tabelle in `docs/sensibilita/`. Su OSD-734 la regola, riapplicata dopo
+  l'introduzione della soglia omogenea, mantiene i quattro valori correnti, e il confronto fra GTR+G+I e GTR+G con il criterio
   d'informazione bayesiano mantiene GTR+G+I come predefinito di `phylo.model`. Con la
   configurazione congelata e la regola rigorosa attiva la catena completa, rieseguita
-  da zero nell'immagine pubblicata, dà i 1.031 artefatti dei checksum pubblicati in
+  da zero nell'immagine pubblicata, dà i 1.033 artefatti dei checksum pubblicati in
   `dati/osd734/`;
 - **l'esecutore e la politica dei tentativi** (`runner/executor.py`,
   `runner/retry.py`). A ogni avvio, con `run` come con `resume`, l'esecutore ripete
@@ -689,14 +690,15 @@ Sono realizzati:
   GB in 2 ore e 48 minuti), SILVA 138 da Zenodo e file del lotto ricostruito, ogni file
   verificato contro il checksum della fonte; catena S0-S14 in 53 minuti e 20 secondi,
   con 12,3 GB di memoria di picco del container. Tutti i 1.031 artefatti dei manifesti
-  di fase sono identici, byte per byte, a quelli dell'esecuzione di riferimento
-  precedente. I checksum attesi sono pubblicati in `dati/osd734/`
+  di fase erano identici, byte per byte, a quelli dell'esecuzione di riferimento
+  di allora. I checksum attesi sono pubblicati in `dati/osd734/`
   (`checksum_finali.sha256` per i file consegnati, `checksum_artefatti.tsv` per tutti
   gli artefatti), e `confronta_risultati.py` li confronta con un'esecuzione indicando,
   se differiscono, la prima fase in cui la differenza compare; legge i manifesti nelle
   sole cartelle delle fasi e in `12_final/intermedi`, e si ferma se una fase ne ha due. Si riferiscono
-  all'immagine pubblicata nel registro, con cui la catena completa è stata rieseguita
-  (1.031 artefatti identici, 48 minuti e 11 secondi, 12,6 GB di picco). La prova ha
+  all'immagine pubblicata nel registro e, dall'8 ottobre 2026, all'esecuzione di
+  riferimento con la soglia di profondità omogenea (1.033 artefatti; due esecuzioni
+  da cloni distinti identiche fra loro). La prova ha
   fatto emergere un difetto, corretto: i percorsi relativi della
   configurazione fermavano S1, perché il processo R di una fase parte nella cartella
   della fase; ora la riga di comando rende assoluti, rispetto alla cartella di lancio,
@@ -926,13 +928,16 @@ Sono realizzati:
   conformi non entrano nella curva. `profondita_campioni.tsv` dice per ogni campione
   se cadrebbe sotto la sua soglia, come misura: il filtro è di S13. Due esecuzioni
   danno gli stessi byte. Sul dataset di riferimento S11 impiega 5 secondi: 74
-  controlli conformi su 80; il modello per piastra (R² complessivo 0,925) prevale
-  sull'aggregato (0,566), con soglie fra 6.376 e 41.968 letture nelle piastre 3-10.
-  Le piastre 1 e 2 ripiegano su 1.000 letture grezze: nella 1, dove un contaminante
-  cloroplastico gonfia la profondità dei controlli diluiti, la curva è un gradino in
-  un tratto senza osservazioni, fra 49.417 e 99.521 letture, e la soglia non è
-  determinata; nella 2 l'R² è 0,532. Sotto la propria soglia cadrebbero 278 campioni
-  biologici su 770;
+  controlli conformi su 80, tutti e 74 punti comuni ai due modelli; il modello per
+  piastra (AIC -143,56) è preferito all'aggregato (24,14), che non è valido (R²
+  0,566), con soglie proprie fra 6.376 e 41.968 letture nelle piastre 3-10 (R²
+  dichiarato 0,967). Le piastre 1 e 2 non hanno una curva valida e usano la mediana
+  delle otto soglie proprie, 15.048,5, cioè 15.049 letture senza chimere: nella 1,
+  dove un contaminante cloroplastico gonfia la profondità dei controlli diluiti, la
+  curva è un gradino in un tratto senza osservazioni, fra 49.417 e 99.521 letture, e
+  la soglia non è determinata; nella 2 l'R² è 0,532. Sotto la propria soglia cadono
+  319 campioni biologici su 770 (8 nella piastra 1 e 34 nella 2; erano 1 e nessuno
+  con la soglia fissa di 1.000 letture grezze in uso fino al 7 ottobre 2026);
 - **la fase S12, la decontaminazione dai controlli negativi** (`steps/s12_decontam.py`,
   `R/12_decontam.R`, `R/lib/decontaminazione.R`), in `11_controls/` accanto a S11, con
   i propri file del ponte e il proprio manifesto. Con `decontam::isContaminant` per
@@ -1021,20 +1026,21 @@ Sono realizzati:
   della sessione, e ogni fase scrive i suoi file `.rds` con `salva_rds`
   (`R/lib/io_json.R`), sempre con una codifica UTF-8. Sul
   dataset di riferimento S13 impiega 9 secondi e S14 7: il filtro per profondità
-  esclude 278 biologici su 770 (277 nelle piastre 3-10, sulle letture senza chimere;
-  uno nella piastra 1, sul ripiego delle letture grezze), gli altri nessuno; il
+  esclude 319 biologici su 770 (277 nelle piastre 3-10, 8 nella piastra 1 e 34 nella
+  2, tutti sulle letture senza chimere), gli altri nessuno; il
   tassonomico toglie 624 varianti su 11.286 (il 3,4% delle letture dei biologici,
-  l'1,1% di quelle dei negativi), la prevalenza, con denominatore 492 e quindi almeno 5 campioni, 8.909
-  varianti (l'1,0%). L'oggetto finale ha 492 campioni e 1.753 varianti, con 21,2
-  milioni di letture, il 92,2% delle loro letture senza chimere; il campione più
-  povero ne ha 1.085;
+  l'1,1% di quelle dei negativi), la prevalenza, con denominatore 451 e quindi almeno 5 campioni, 8.925
+  varianti (l'1,0%). L'oggetto finale ha 451 campioni e 1.737 varianti, con 20,9
+  milioni di letture, il 92,3% delle loro letture senza chimere; il campione più
+  povero ne ha 5.369. Con la soglia fissa sulle letture grezze i campioni erano 492
+  (155 delle piastre 1 e 2, ora 114) e le varianti 1.753;
 - **la fase S9, la filogenesi opzionale** (`steps/s09_phylogeny.py`,
   `R/09_phylogeny.R`, `R/lib/albero.R`), in `09_phylogeny/`. È disattivata per difetto
   (`phylo.enabled` falso): su letture di 137 basi, di un solo tratto del gene, un
   albero costruito da zero è debolmente risolto, e le relazioni profonde non sono
   sostenute dal dato. Attivata, costruisce l'albero delle varianti dell'oggetto
   filtrato di S13, quelle consegnate: sulle varianti di S7 sarebbero 12.045 sul
-  dataset di riferimento, oltre `phylo.max_seqs` (5.000), contro le 1.753 finali.
+  dataset di riferimento, oltre `phylo.max_seqs` (5.000), contro le 1.737 finali.
   **Le due guardie**, a revisione umana, sono nella fase Python, prima di avviare il
   calcolo, sul numero di varianti finali: `E-S9-01` se supera `phylo.max_seqs`,
   `E-S9-02` se sono meno di quattro, perché con tre foglie un albero non ha topologia
@@ -1063,10 +1069,10 @@ Sono realizzati:
   dell'oggetto e che l'albero sia radicato (`E-S14-01` altrimenti), lo aggiunge a
   `ps_final.rds` senza cambiare l'ordine delle varianti e, con `out.export_flat`, lo
   esporta in `12_final/albero.nwk`, elencato in `checksum.sha256`. Sul dataset di
-  riferimento, su una copia dell'esecuzione, S9 impiega 2 minuti e 36 secondi con 12
-  thread per 1.753 varianti (allineamento di 145 colonne): il limite di 5.000 lascia
+  riferimento, su una copia dell'esecuzione di riferimento precedente, S9 impiegava 2
+  minuti e 36 secondi con 12 thread per 1.753 varianti (allineamento di 145 colonne): il limite di 5.000 lascia
   margine. Sulla stessa copia, rieseguite S10-S14 con la filogenesi disattivata, i 29
-  artefatti sono identici a quelli del riferimento;
+  artefatti erano identici a quelli di quel riferimento;
 - il tracciamento delle letture (`runner/tracciamento.py`): ogni fase registra i propri
   passi in file suoi, `letture_<passo>.tsv`, e la tabella completa si ricompone
   leggendo quelli delle fasi concluse nell'ordine del grafo, senza che una fase

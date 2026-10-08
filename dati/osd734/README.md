@@ -19,7 +19,7 @@ ogni file sono in `FONTI.tsv`. Il riferimento tassonomico, comune ai dataset, st
 | `ricostruisci_lotto.py` | si' | ricostruisce il file del lotto in `lotto/` dalla fonte pubblica |
 | `confronta_risultati.py` | si' | confronta i risultati di un'esecuzione con i checksum attesi |
 | `checksum_finali.sha256` | si' | i checksum attesi dei file consegnati di `12_final/`, nella forma di `sha256sum` |
-| `checksum_artefatti.tsv` | si' | i checksum attesi di tutti i 1.031 artefatti dei manifesti di fase, con la fase che li produce |
+| `checksum_artefatti.tsv` | si' | i checksum attesi di tutti i 1.033 artefatti dei manifesti di fase, con la fase che li produce |
 | `fastq/`, `lotto/` | no | i file ottenuti dagli script, esclusi da `.gitignore` |
 | `../riferimento/` | in parte | lo script `scarica_riferimento.py`, `FONTI.tsv` e `impronte.md5` del riferimento tassonomico; i file scaricati sono esclusi da `.gitignore` |
 | `../scaricamento.py` | si' | lo scarico verificato e riprendibile comune agli script |
@@ -178,10 +178,16 @@ il comando qui sopra e `run.threads: 12`: 1.031 artefatti identici ai checksum
 pubblicati, in 48 minuti e 39 secondi. All'avvio la regola ha verificato il commit,
 l'assenza di modifiche al codice e la corrispondenza fra `renv.lock` e l'ambiente R
 installato (R 4.5.2, 109 pacchetti); una ripresa successiva non ha ricalcolato nulla.
-E' questa l'esecuzione di riferimento: e' prodotta dalla configurazione pubblicata
-cosi' com'e', salvo `run.threads`, e la sua provenienza dichiara l'immagine pubblicata.
-I valori scelti coincidono con quelli usati fin qui, quindi i risultati e i checksum
-pubblicati non sono cambiati.
+E' stata l'esecuzione di riferimento fino al 7 ottobre 2026.
+
+**Con la soglia di profondita' omogenea** la catena completa e' stata rieseguita da
+zero l'8 ottobre 2026 da un clone al commit `f99ca84`, nell'immagine pubblicata, con
+la configurazione pubblicata cosi' com'e' (`run.threads` non impostato, dodici
+processori) e la regola rigorosa attiva: 52 minuti e 19 secondi, 1.033 artefatti.
+E' questa l'esecuzione di riferimento, e i checksum pubblicati sono i suoi. I valori
+congelati sono gli stessi: l'analisi di sensibilita', ripetuta su questa esecuzione,
+li ha mantenuti tutti (`docs/sensibilita.md`). Il risultato e' cambiato per la sola
+regola della soglia: 451 campioni, 1.737 varianti, 20.922.721 letture.
 
 La prova ha fatto emergere un difetto, corretto: al commit `59ef39d` i percorsi
 relativi di `config_osd734.yaml` superavano S0 ma fermavano S1 con `E-R-02`, perche' il
@@ -225,30 +231,28 @@ pubblicata compresa, coincidono su tutti gli artefatti. Fuori dal container, con
 i risultati possono differire senza che l'esecuzione sia sbagliata: il confronto prova
 l'identita', non la correttezza.
 
-### Differenze attese con il codice attuale
+### Che cosa e' cambiato rispetto ai checksum precedenti
 
-I checksum pubblicati sono quelli dell'esecuzione di riferimento, prodotta dal commit
-`af82ef9`, e non sono stati aggiornati: lo saranno insieme al riferimento. Con il codice
-attuale lo script segnala quindi differenze in S0, S1, S13 e S14, tutte per costruzione; i
-1.031 artefatti pubblicati esistono ancora, e 1.029 hanno gli stessi byte (catena completa
-rieseguita il 7 ottobre 2026 nell'immagine pubblicata, 63 minuti):
+I checksum pubblicati sono stati rigenerati l'8 ottobre 2026 dall'esecuzione di
+riferimento con la soglia di profondita' omogenea (commit `f99ca84`), e una seconda
+esecuzione completa, da un altro clone, li riproduce tutti. Sostituiscono quelli
+dell'esecuzione del commit `af82ef9`, da cui differiscono per due ragioni distinte.
 
-- `01_input_validation/gates.json` (S0) ha un checksum diverso: elenca i gate nell'ordine
-  di esecuzione, che ora segue le dipendenze fra i gate e non il loro numero. Il contenuto
-  e' lo stesso, gate per gate (descrizione, esito, violazioni, avvisi);
-- i cinque intermedi di S13 (`ps_filtrato.rds`, `esclusioni.tsv`, `varianti_rimosse.tsv`,
-  `filtri_riepilogo.json`, `letture_finali.tsv`) stanno in `12_final/intermedi/` invece
-  che in `12_final/`, con gli stessi byte: lo script, che li cerca nella cartella
-  pubblicata, li da' per mancanti;
-- `ps_controlli.rds` resta in `12_final/` con gli stessi byte, ma lo scrive S14 invece di
-  S13: e' un file consegnato;
-- `12_final/checksum.sha256` (S14) ha una riga in piu', quella di `ps_controlli.rds`; le
-  prime cinque sono quelle pubblicate, e
-  `sha256sum -c ../../../dati/osd734/checksum_finali.sha256` da' ancora cinque OK;
-- `02_qc_profiles/valori_qualita.tsv` (S1) e' un artefatto nuovo, che i checksum
-  pubblicati non elencano.
+Differenze di risultato, dovute alla regola della soglia (`docs/decision_log.md`,
+sezione 4): le piastre 1 e 2, che non hanno una curva valida, usano la mediana delle
+soglie delle altre piastre (15.049 letture senza chimere) invece di 1.000 letture
+grezze. Cambiano gli artefatti di S11 che riportano la soglia (`soglia.json`,
+`curve.tsv`, `profondita_campioni.tsv`, `riepilogo.json`), tutti quelli di S13 e i
+file consegnati da S14: l'oggetto finale ha 451 campioni e 1.737 varianti invece di 492
+e 1.753. `ps_controlli.rds` ha gli stessi byte di prima.
 
-L'oggetto finale, gli export e ogni altra tabella di calcolo sono identici byte per byte.
+Differenze per costruzione, senza effetto sui risultati: `gates.json` (S0) elenca i
+gate nell'ordine delle dipendenze; gli intermedi di S13 stanno in
+`12_final/intermedi/`; `ps_controlli.rds` e' scritto da S14 ed elencato in
+`checksum.sha256` e in `checksum_finali.sha256`, che ha quindi sei righe; S1 ha due
+artefatti nuovi, `valori_qualita.tsv` e `coppie.tsv`. Gli artefatti sono 1.033 invece
+di 1.031. Tutti gli artefatti delle fasi S2-S10 e di S12 hanno gli stessi byte di
+prima.
 
 ### Se i risultati non coincidono
 

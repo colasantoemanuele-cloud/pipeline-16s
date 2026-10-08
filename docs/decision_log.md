@@ -185,7 +185,12 @@ quelli il cui predefinito è tarato su OSD-734 (sezione 3.15); dichiara l'immagi
 container con il suo digest di registro; attiva la regola rigorosa sulla provenienza
 (sezione 3.14).
 
-**Limiti che l'analisi ha messo in evidenza**, da dichiarare con i risultati:
+Questo è l'esito della prima analisi, fatta quando una piastra senza curva valida
+riceveva una soglia fissa sulle letture grezze. L'analisi è stata ripetuta con la
+soglia omogenea della sezione 4: l'esito è nella sezione 2.1, e i numeri correnti
+del risultato sono quelli.
+
+**Limiti che la prima analisi ha messo in evidenza**:
 
 - L'insieme dei campioni analizzati dipende da `katharoseq.target_sensitivity` a ogni
   passo della griglia: fra valori adiacenti cambia stato dal 3% al 12% dei campioni
@@ -202,6 +207,37 @@ container con il suo digest di registro; attiva la regola rigorosa sulla proveni
 - Nel modello GTR+G+I la quota di siti invarianti resta al valore di partenza
   dell'ottimizzazione: il confronto fra i modelli vale per quella quota, non per la sua
   stima di massima verosimiglianza.
+
+### 2.1 Ripetizione con la soglia di profondità omogenea
+
+La stessa regola, non modificata, applicata alle stesse griglie sull'esecuzione di
+riferimento con la soglia omogenea (451 campioni, 1.737 varianti, 20.922.721
+letture). Misure e tabelle in [sensibilita.md](sensibilita.md).
+
+| Parametro | Valore congelato | Esito della regola | Valore indicato |
+|---|---|---|---|
+| `katharoseq.target_sensitivity` | 0,90 | instabile (letture, verso 0,95: 0,063 oltre 0,05 e oltre tre volte la mediana, 0,047); nessuna alternativa in zona stabile | 0,90 |
+| `decontam.threshold` | 0,5 | non instabile | 0,5 |
+| `prev.min_fraction` | 0,01 | non instabile (un'alternativa in zona stabile, 0,025, che la regola non sceglie) | 0,01 |
+| `decontam.mode`, `decontam.batch_combine` | `aggregate`, `minimum` | modalità corrente ammissibile | `aggregate`, `minimum` |
+
+La regola indica per ogni parametro il valore già congelato: la configurazione
+congelata non cambia. Il modello della filogenesi non è stato riconfrontato.
+
+**Limiti da dichiarare con i risultati.**
+
+- `katharoseq.target_sensitivity` è ora instabile secondo la regola, e resta per
+  mancanza di un'alternativa stabile: verso 0,95 escono 57 campioni e il 6,3% delle
+  letture, verso 0,85 cambiano stato 42 campioni. L'insieme dei campioni analizzati
+  (451 su 770) dipende da questo valore più che da ogni altro.
+- Sotto 0,90 le piastre 3 e 4 perdono la curva e ricevono la mediana; sotto 0,80 la
+  mediana si calcola su due o tre piastre e oscilla (12.223, 8.531, 10.173 letture a
+  0,80, 0,75 e 0,70).
+- L'insieme delle varianti finali dipende da `prev.min_fraction` in modo sostanziale
+  e continuo (dal 7% al 20% delle varianti per ogni mezzo punto percentuale): 1.737 è
+  il numero di varianti presenti in almeno 5 campioni su 451. Con il 5% sarebbero 814.
+- Per piastra con `minimum` la decontaminazione si ferma (44,2% delle letture dei
+  biologici); con `fisher` toglie 167 contaminanti invece di 759.
 
 ## 3. Decisioni di metodo
 
@@ -414,8 +450,8 @@ piastra.**
 - Motivazione: è il valore del piano del progetto, più severo dello 0,80 usato dagli
   autori del metodo. L'analisi di sensibilità (sezione 2) lo mantiene e ne dichiara il
   limite.
-- Misure: con 0,90 il filtro per profondità esclude 278 campioni biologici su 770; con
-  0,80 ne esclude 182, ma due piastre in più perdono la curva.
+- Misure: con 0,90 il filtro per profondità esclude 319 campioni biologici su 770; con
+  0,80 ne esclude 281, ma due piastre in più perdono la curva e ricevono la mediana.
 
 **La curva si stima sulle letture senza chimere, compresi i taxa che i filtri finali
 escluderanno.**
@@ -499,17 +535,18 @@ denominatore sullo stesso insieme.**
   posizioni distinte della stazione: una variante caratteristica di una posizione
   compare in pochi campioni per disegno. Il denominatore sono i campioni conservati
   perché quelli esclusi per profondità hanno una composizione non attendibile.
-- Misure: 492 campioni conservati, minimo 5 campioni, 1.753 varianti. Sul totale dei
-  770 biologici il minimo sarebbe 8 e le varianti 1.439. Con il 5% le varianti sarebbero
-  792 (sezione 2).
+- Misure: 451 campioni conservati, minimo 5 campioni, 1.737 varianti. Con il 5% le
+  varianti sarebbero 814 (sezione 2.1). Prima della soglia omogenea i campioni
+  conservati erano 492, con lo stesso minimo di 5 e 1.753 varianti; sul totale dei
+  770 biologici il minimo sarebbe stato 8 e le varianti 1.439.
 
 **Due soglie sulle letture finali, con ruoli diversi.**
 - Decisione: un campione sotto `qc.min_reads_final` letture dopo i filtri è escluso,
   senza arresto; se l'insieme dei campioni finali trattiene meno di
   `qc.min_frac_reads_retained` (0,40) delle letture senza chimere, l'esecuzione si
   ferma.
-- Misure: nessun campione sotto la soglia per campione (minimo 1.085 letture);
-  frazione trattenuta dall'insieme 0,922. La frazione non si applica per campione:
+- Misure: nessun campione sotto la soglia per campione (minimo 5.369 letture);
+  frazione trattenuta dall'insieme 0,923. La frazione non si applica per campione:
   otto campioni sarebbero sotto 0,40 per il 16S mitocondriale tolto dal filtro
   tassonomico, che non è un difetto.
 
@@ -930,3 +967,67 @@ qui perché chi valuta possa giudicarla.
 - **`qc.min_reads_mode: none`.** Le curve si adattano e si riportano come
   diagnostica; nessuna soglia si applica, e non è una degradazione perché è una
   scelta dichiarata.
+
+### 4.8 Esito sul dataset di riferimento
+
+**La previsione della sezione 4.6 è confermata.** L'aggregato non è valido (R² 0,566);
+l'AIC preferisce comunque il modello per piastra (-143,56 contro 24,14, su 74 punti
+comuni, i controlli conformi delle dieci piastre). Le piastre 3-10 usano la propria
+soglia; le piastre 1 e 2, e un eventuale campione senza piastra, la mediana delle otto
+soglie proprie: 15.048,5, applicata come 15.049 letture senza chimere. L'R² dichiarato,
+delle otto piastre che usano la propria curva, è 0,967. L'esecuzione dichiara
+`E-S11-02` per le piastre 1 e 2, con il motivo: nella 1 la soglia non è determinata
+dai dati, nella 2 l'R² è 0,532 e la soglia non è determinata.
+
+**Confronto fra l'esecuzione di riferimento precedente e la nuova.** Stessa
+configurazione, stessi dati, stessa immagine; cambia la regola della soglia.
+
+| | Prima | Dopo | Differenza |
+|---|---|---|---|
+| Campioni | 492 | 451 | -41 |
+| Varianti | 1.753 | 1.737 | -16 |
+| Letture | 21.202.825 | 20.922.721 | -280.104 (-1,3%) |
+| Esclusi per profondità | 278 | 319 | +41 |
+| Denominatore e minimo della prevalenza | 492, 5 campioni | 451, 5 campioni | |
+| Letture finali sulle letture senza chimere dei 770 biologici | 84,2% | 83,1% | |
+| Letture finali sulle letture senza chimere dei campioni conservati | 92,2% | 92,3% | |
+
+| Piastra | Biologici | Soglia prima | Soglia dopo | Conservati prima | Conservati dopo | Profondità mediana dei conservati, prima | dopo | Quota dei 5 generi, prima | dopo |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 77 | 1.000 grezze, fissa | 15.049, mediana | 76 (98,7%) | 69 (89,6%) | 42.968 | 46.622 | 57,5% | 57,3% |
+| 2 | 79 | 1.000 grezze, fissa | 15.049, mediana | 79 (100%) | 45 (57,0%) | 17.597 | 49.530 | 62,8% | 62,7% |
+| 3 | 77 | 9.984, propria | 9.984, propria | 50 (64,9%) | 50 | 38.739,5 | 38.739,5 | 65,4% | 65,4% |
+| 4 | 75 | 6.376, propria | 6.376, propria | 47 (62,7%) | 47 | 24.364 | 24.364 | 58,2% | 58,2% |
+| 5 | 75 | 8.642, propria | 8.642, propria | 47 (62,7%) | 47 | 21.604 | 21.604 | 59,0% | 59,0% |
+| 6 | 74 | 18.063, propria | 18.063, propria | 32 (43,2%) | 32 | 51.598,5 | 51.598,5 | 63,8% | 63,8% |
+| 7 | 75 | 20.948, propria | 20.948, propria | 36 (48,0%) | 36 | 57.628 | 57.628 | 61,3% | 61,3% |
+| 8 | 79 | 41.968, propria | 41.968, propria | 34 (43,0%) | 34 | 85.697,5 | 85.697,5 | 52,7% | 52,7% |
+| 9 | 77 | 12.034, propria | 12.034, propria | 42 (54,5%) | 42 | 35.208,5 | 35.208,5 | 62,7% | 62,7% |
+| 10 | 82 | 19.727, propria | 19.727, propria | 49 (59,8%) | 49 | 46.355 | 46.355 | 56,6% | 56,6% |
+| tutte | 770 | | | 492 (63,9%) | 451 (58,6%) | 39.808,5 | 43.425 | 59,5% | 59,5% |
+
+Le soglie, salvo la fissa, sono in letture senza chimere; la profondità mediana è
+quella delle letture senza chimere dei campioni conservati. I cinque generi sono i più
+abbondanti dell'oggetto finale, gli stessi prima e dopo: Pseudomonas, Staphylococcus,
+Corynebacterium, Streptococcus, Enhydrobacter; la quota è delle letture finali dei
+campioni conservati della piastra.
+
+- **Campioni.** Escono 41 campioni, tutti per profondità: 7 della piastra 1 e 34
+  della piastra 2; nessuno entra. Le piastre 1 e 2 scendono da 155 campioni su 492
+  (31,5%) a 114 su 451 (25,3%), a fronte del 20,3% dei biologici del dataset. La
+  piastra 2 passa dal conservare tutti i suoi campioni al 57,0%, dentro l'intervallo
+  delle altre (dal 43,0% al 64,9%); la piastra 1 resta la più conservata (89,6%)
+  perché i suoi campioni sono profondi (mediana 42.968 letture già prima), non per la
+  soglia.
+- **Varianti.** Escono 16 varianti, tutte per il filtro di prevalenza, e nessuna
+  entra (similarità di Jaccard 0,991). Il minimo non è cambiato (5 campioni, intero
+  superiore di 4,51 come di 4,92): le 16 erano presenti in esattamente 5 campioni, di
+  cui almeno uno fra i 41 usciti. Raccoglievano 1.543 letture su 21,2 milioni.
+- **Composizione.** La quota dei cinque generi più abbondanti non cambia nelle
+  piastre 3-10 e cambia di 0,1-0,2 punti nelle piastre 1 e 2: i campioni tolti, poco
+  profondi, pesavano poco sulle letture.
+- **Che cosa resta dell'effetto di lotto.** Le soglie proprie vanno da 6.376 a 41.968
+  letture, e la quota di campioni conservati dal 43% al 65% (90% nella piastra 1): il
+  filtro è ora applicato a tutte le piastre sulla stessa grandezza, ma non è lo stesso
+  numero per tutte, perché la regola tiene la curva di ogni piastra dove è valida. La
+  piastra resta una variabile da considerare nelle analisi ecologiche.

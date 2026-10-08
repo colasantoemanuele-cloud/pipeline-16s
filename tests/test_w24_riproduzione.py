@@ -383,6 +383,7 @@ def test_i_checksum_pubblicati_sono_coerenti():
     finali = (DATI / "checksum_finali.sha256").read_text(encoding="utf-8").splitlines()
     assert [riga.split()[1] for riga in finali] == [
         "ps_final.rds", "conteggi.tsv", "tassonomia.tsv", "metadati.tsv", "sequenze.fasta",
+        "ps_controlli.rds",
     ]
     for riga in finali:
         impronta, nome = riga.split()
@@ -526,9 +527,20 @@ def test_la_catena_sul_dataset_completo_da_i_checksum_pubblicati(catena_reale, c
         confronto.sha256(DATI / "checksum_artefatti.tsv") == RIFERIMENTO_PRECEDENTE
     )
     if not riferimento_precedente:
-        # Checksum pubblicati rigenerati: le tolleranze cadono, e il resto del
-        # test (scritto per le differenze dal riferimento precedente) non serve.
+        # Checksum pubblicati rigenerati: le tolleranze cadono. Ogni artefatto
+        # della catena deve avere l'impronta pubblicata; le sole righe di
+        # differenza ammesse sono gli artefatti di S1, che mancano perche' la
+        # catena condivisa non esegue S1. Il resto del test, scritto per le
+        # differenze dal riferimento precedente, non serve.
         assert set(diverse) <= {"S1"}, uscita
+        fase = None
+        for riga in uscita.splitlines():
+            if riga[:1] == "S" and "artefatti attesi" in riga:
+                fase = riga.split()[0]
+            elif riga.startswith(" ") and ": " in riga:
+                nome, stato = (parte.strip() for parte in riga.rsplit(": ", 1))
+                assert (fase, nome, stato) in ammesse, riga
+        assert uscita.count("identica") == len(confronto.ORDINE) - 1 - len(diverse)
         return
     assert set(diverse) <= {"S0", "S1", "S13", "S14"}, uscita
     di_s13 = {r["nome"]: r["sha256"] for r in pubblicati if r["fase"] == "S13"}

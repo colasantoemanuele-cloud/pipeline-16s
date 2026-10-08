@@ -11,8 +11,16 @@ configurazione), `passi.tsv` (i cambiamenti fra valori adiacenti), `decisioni.js
 
 **Punto di partenza.** L'esecuzione completa della pipeline su OSD-734 (960 campioni:
 770 biologici, 80 controlli positivi, 110 controlli negativi) con la configurazione
-`dati/osd734/config_osd734.yaml`: oggetto finale di 492 campioni per 1.753 varianti,
-21.202.825 letture.
+`dati/osd734/config_osd734.yaml` e la soglia di profondità omogenea
+([decision_log.md](decision_log.md), sezione 4): oggetto finale di 451 campioni per
+1.737 varianti, 20.922.721 letture.
+
+**Perché l'analisi è stata ripetuta.** La prima analisi è stata fatta quando una
+piastra senza curva valida riceveva una soglia fissa di 1.000 letture grezze. Con la
+soglia omogenea quella piastra riceve la mediana delle soglie delle altre, sulle
+letture senza chimere: cambiano i campioni conservati (da 492 a 451) e con loro il
+denominatore della prevalenza. La regola di decisione è la stessa, non modificata; le
+griglie sono le stesse (`sensibilita/griglie.yaml`).
 
 **Parametri e intervalli.** Si varia un parametro alla volta, tenendo gli altri al
 valore corrente.
@@ -32,16 +40,24 @@ l'esecuzione di partenza con collegamenti fisici, cambia il parametro e riprende
 catena: la pipeline riesegue solo le fasi che dipendono dal parametro cambiato (dalla
 curva dei controlli positivi, dalla decontaminazione o dai filtri finali in poi) e
 riusa le altre. L'esecuzione di partenza non viene modificata: dopo le venti riprese i
-suoi 1.106 file hanno gli stessi inode, le stesse dimensioni e gli stessi istanti di
+suoi file hanno gli stessi inode, le stesse dimensioni e gli stessi istanti di
 modifica di prima. Tutte le riprese sono avvenute nell'immagine pubblicata della
-pipeline.
+pipeline, da un clone senza modifiche, con la regola rigorosa sulla provenienza
+attiva. Lo strumento non contiene valori del dataset: legge le griglie dal file e il
+valore corrente di ogni parametro dalla configurazione.
+
+**Ammissibilità.** Un valore non è ammissibile solo se produce una delle condizioni
+previste dalla regola (letture rimosse come contaminanti oltre
+`qc.max_frac_contaminant`, campioni svuotati dal filtro di prevalenza, frazione di
+letture trattenute sotto `qc.min_frac_reads_retained`). Ogni altro arresto ferma lo
+strumento: in questa analisi non ce ne sono stati.
 
 **Misure.** Per ogni configurazione, sull'oggetto finale: campioni biologici
 conservati e quanti cambiano stato rispetto alla configurazione corrente; varianti
 finali e similarità di Jaccard del loro insieme con quello corrente; letture
-conservate; soglie di profondità per piastra e piastre in cui la curva non è valida e
-si ripiega sulla soglia fissa (`qc.min_reads_raw`, 1.000 letture grezze); contaminanti
-rimossi e frazione delle letture dei campioni biologici che essi raccolgono.
+conservate; soglie di profondità per piastra e piastre che non usano una curva
+propria, con l'origine della soglia; contaminanti rimossi e frazione delle letture dei
+campioni biologici che essi raccolgono.
 
 **Come rieseguire.** Dalla radice del repository, con l'esecuzione di partenza in
 `output/osd734` (si veda `dati/osd734/README.md`) e `<immagine>` l'immagine indicata
@@ -60,6 +76,7 @@ docker run --rm \
   <immagine> \
   python scripts/sensitivity.py \
     --config dati/osd734/config_osd734.yaml \
+    --griglie docs/sensibilita/griglie.yaml \
     --lavoro output/sensibilita \
     --uscita docs/sensibilita
 ```
@@ -67,8 +84,8 @@ docker run --rm \
 Le varianti già calcolate si riusano; `--rifai` le ricalcola. Le riprese partono da
 una copia e cambiano un parametro: con la regola rigorosa sulla provenienza attiva
 nella configurazione, lo strumento va eseguito da un clone senza modifiche non
-committate, come ogni altra esecuzione. Ogni ripresa dura circa tre minuti con dodici
-processori; le copie occupano in tutto 2,3 GB.
+committate, come ogni altra esecuzione. Le venti riprese sono durate in tutto 17
+minuti con dodici processori; le copie occupano 2,3 GB.
 
 ## 2. Risultati
 
@@ -78,26 +95,26 @@ alla corrente" è il rapporto fra le letture conservate.
 
 ### 2.1 `katharoseq.target_sensitivity`
 
-| Valore | Campioni conservati | Campioni che cambiano | Varianti finali | Jaccard con la corrente | Letture conservate | Rispetto alla corrente | Piastre con ripiego |
+| Valore | Campioni conservati | Campioni che cambiano | Varianti finali | Jaccard con la corrente | Letture conservate | Rispetto alla corrente | Piastre senza curva propria |
 |---|---|---|---|---|---|---|---|
-| 0,70 | 697 | 205 | 1.540 | 0,865 | 22.663.111 | 1,069 | 1, 2, 3, 4, 6, 7, 8, 9 |
-| 0,75 | 671 | 179 | 1.619 | 0,900 | 22.576.646 | 1,065 | 1, 2, 3, 4, 6, 7, 8 |
-| 0,80 | 580 | 88 | 1.676 | 0,938 | 22.048.971 | 1,040 | 1, 2, 3, 4 |
-| 0,85 | 560 | 68 | 1.660 | 0,937 | 21.840.454 | 1,030 | 1, 2, 3, 4 |
-| 0,90 (corrente) | 492 | 0 | 1.753 | 1,000 | 21.202.825 | 1,000 | 1, 2 |
-| 0,95 | 450 | 42 | 1.709 | 0,975 | 20.116.186 | 0,949 | 1, 2 |
+| 0,70 | 525 | 88 | 1.657 | 0,945 | 21.984.405 | 1,051 | 1, 2, 3, 4, 6, 7, 8, 9 |
+| 0,75 | 545 | 98 | 1.673 | 0,945 | 22.141.599 | 1,058 | 1, 2, 3, 4, 6, 7, 8 |
+| 0,80 | 489 | 66 | 1.769 | 0,975 | 21.582.124 | 1,032 | 1, 2, 3, 4 |
+| 0,85 | 459 | 42 | 1.743 | 0,986 | 21.253.582 | 1,016 | 1, 2, 3, 4 |
+| 0,90 (corrente) | 451 | 0 | 1.737 | 1,000 | 20.922.721 | 1,000 | 1, 2 |
+| 0,95 | 394 | 57 | 1.829 | 0,937 | 19.611.097 | 0,937 | 1, 2 |
 
-Soglie di profondità per piastra (letture senza chimere; 1.000 indica il ripiego, che
-si applica alle letture grezze):
+Soglie di profondità per piastra, tutte sulle letture senza chimere; (m) indica la
+mediana delle soglie delle piastre con curva propria valida:
 
 | Valore | P1 | P2 | P3 | P4 | P5 | P6 | P7 | P8 | P9 | P10 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 0,70 | 1.000 | 1.000 | 1.000 | 1.000 | 6.284 | 1.000 | 1.000 | 1.000 | 1.000 | 14.061 |
-| 0,75 | 1.000 | 1.000 | 1.000 | 1.000 | 6.663 | 1.000 | 1.000 | 1.000 | 8.531 | 14.962 |
-| 0,80 | 1.000 | 1.000 | 1.000 | 1.000 | 7.127 | 11.562 | 12.884 | 27.878 | 9.323 | 16.074 |
-| 0,85 | 1.000 | 1.000 | 1.000 | 1.000 | 7.738 | 13.969 | 15.828 | 33.168 | 10.394 | 17.542 |
-| 0,90 | 1.000 | 1.000 | 9.984 | 6.376 | 8.642 | 18.063 | 20.948 | 41.968 | 12.034 | 19.727 |
-| 0,95 | 1.000 | 1.000 | 12.480 | 8.105 | 10.360 | 27.763 | 33.513 | 62.071 | 15.320 | 23.916 |
+| 0,70 | 10.173 (m) | 10.173 (m) | 10.173 (m) | 10.173 (m) | 6.284 | 10.173 (m) | 10.173 (m) | 10.173 (m) | 10.173 (m) | 14.061 |
+| 0,75 | 8.531 (m) | 8.531 (m) | 8.531 (m) | 8.531 (m) | 6.663 | 8.531 (m) | 8.531 (m) | 8.531 (m) | 8.531 | 14.962 |
+| 0,80 | 12.223 (m) | 12.223 (m) | 12.223 (m) | 12.223 (m) | 7.127 | 11.562 | 12.884 | 27.878 | 9.323 | 16.074 |
+| 0,85 | 14.899 (m) | 14.899 (m) | 14.899 (m) | 14.899 (m) | 7.738 | 13.969 | 15.828 | 33.168 | 10.394 | 17.542 |
+| 0,90 | 15.049 (m) | 15.049 (m) | 9.984 | 6.376 | 8.642 | 18.063 | 20.948 | 41.968 | 12.034 | 19.727 |
+| 0,95 | 19.618 (m) | 19.618 (m) | 12.480 | 8.105 | 10.360 | 27.763 | 33.513 | 62.071 | 15.320 | 23.916 |
 
 Che cosa si osserva.
 
@@ -105,34 +122,39 @@ Che cosa si osserva.
   soglia cresce con continuità con la sensibilità richiesta. Ma abbassando la
   sensibilità la soglia scende verso il punto medio della curva, e quando fra il punto
   medio e la soglia non resta alcun controllo positivo osservato la curva non è più
-  ritenuta valida: la soglia non sarebbe determinata dai dati, e la piastra ripiega
-  sulla soglia fissa di 1.000 letture grezze. A 0,90 ripiegano le piastre 1 e 2; a 0,85
-  e a 0,80 anche la 3 e la 4; a 0,75 sette piastre; a 0,70 otto su dieci.
-- Per questo i campioni conservati in più ai valori bassi non sono tutti campioni
-  ammessi da una soglia più permissiva letta sulla curva: una parte consistente viene
-  da piastre la cui curva ha smesso di determinare la soglia. A 0,85, 43 dei 68
-  campioni in più rispetto a 0,90 sono delle piastre 3 e 4, passate dalla soglia della
-  curva (9.984 e 6.376 letture) a quella fissa; a 0,80, il valore degli autori del
-  metodo, sono 43 su 88.
-- Il numero di varianti finali non cresce con il numero di campioni: a 0,90 le varianti
-  sono 1.753 con 492 campioni, a 0,80 sono 1.676 con 580. Il filtro di prevalenza chiede
-  una frazione dei campioni conservati: con più campioni il minimo sale, e i campioni
-  aggiunti, poco profondi, portano poche varianti condivise.
-- Le letture cambiano poco (dal 5% in meno al 7% in più), perché i campioni che entrano
-  o escono sono i meno profondi.
+  ritenuta valida: la piastra riceve allora la mediana delle soglie delle piastre
+  rimaste valide. A 0,90 non hanno una curva propria le piastre 1 e 2; a 0,85 e a 0,80
+  anche la 3 e la 4; a 0,75 sette piastre; a 0,70 otto su dieci.
+- Con la soglia omogenea il venir meno di una curva non apre più la piastra a tutti i
+  suoi campioni: la piastra riceve una soglia dello stesso ordine delle altre. A 0,85
+  le piastre 3 e 4 passano dalla propria soglia (9.984 e 6.376 letture) alla mediana
+  (14.899), più alta, e perdono 17 campioni invece di guadagnarne; i 25 campioni in
+  più vengono dalle piastre 6-10, la cui soglia scende lungo la curva. Con il ripiego
+  precedente, a 0,85 le piastre 3 e 4 guadagnavano 43 campioni per il solo passaggio
+  alla soglia fissa.
+- Ai valori bassi la mediana si calcola su poche piastre (tre a 0,75, due a 0,70) e
+  diventa essa stessa instabile: scende da 12.223 a 8.531 fra 0,80 e 0,75 e risale a
+  10.173 a 0,70. I campioni conservati non sono quindi monotoni nel parametro (489,
+  545, 525). Sotto 0,80 la soglia della maggior parte delle piastre non viene più dai
+  loro controlli.
+- Il numero di varianti finali non cresce con il numero di campioni: il filtro di
+  prevalenza chiede una frazione dei campioni conservati, e i campioni aggiunti, poco
+  profondi, portano poche varianti condivise.
+- Verso 0,95 escono 57 campioni, da tutte le piastre, e il 6,3% delle letture: è il
+  cambiamento più ampio attorno al valore corrente.
 - I contaminanti non dipendono da questo parametro: 759 in ogni configurazione.
 
 ### 2.2 `decontam.threshold`
 
 | Valore | Campioni conservati | Varianti finali | Jaccard con la corrente | Letture conservate | Rispetto alla corrente | Contaminanti | Letture dei biologici rimosse come contaminanti |
 |---|---|---|---|---|---|---|---|
-| 0,1 | 492 | 1.991 | 0,880 | 21.680.062 | 1,022 | 136 | 0,2% |
-| 0,2 | 492 | 1.944 | 0,902 | 21.439.265 | 1,011 | 365 | 1,9% |
-| 0,3 | 492 | 1.893 | 0,926 | 21.415.877 | 1,010 | 491 | 2,1% |
-| 0,4 | 492 | 1.829 | 0,958 | 21.255.547 | 1,002 | 645 | 4,5% |
-| 0,5 (corrente) | 492 | 1.753 | 1,000 | 21.202.825 | 1,000 | 759 | 4,9% |
-| 0,6 | 492 | 1.632 | 0,931 | 21.122.378 | 0,996 | 898 | 5,4% |
-| 0,7 | 492 | 1.540 | 0,878 | 21.084.498 | 0,994 | 1.777 | 5,8% |
+| 0,1 | 451 | 1.966 | 0,883 | 21.367.488 | 1,021 | 136 | 0,2% |
+| 0,2 | 451 | 1.920 | 0,905 | 21.146.069 | 1,011 | 365 | 1,9% |
+| 0,3 | 451 | 1.872 | 0,928 | 21.123.748 | 1,010 | 491 | 2,1% |
+| 0,4 | 451 | 1.809 | 0,960 | 20.974.592 | 1,002 | 645 | 4,5% |
+| 0,5 (corrente) | 451 | 1.737 | 1,000 | 20.922.721 | 1,000 | 759 | 4,9% |
+| 0,6 | 451 | 1.617 | 0,931 | 20.844.186 | 0,996 | 898 | 5,4% |
+| 0,7 | 451 | 1.525 | 0,878 | 20.807.209 | 0,995 | 1.777 | 5,8% |
 
 Che cosa si osserva.
 
@@ -142,26 +164,29 @@ Che cosa si osserva.
   2% al 7% delle varianti, e le letture conservate variano di meno del 3% sull'intero
   intervallo.
 - Fra 0,6 e 0,7 i contaminanti raddoppiano (da 898 a 1.777), ma le varianti finali
-  scendono solo da 1.632 a 1.540 e le letture dello 0,2%: le varianti classificate in
+  scendono solo da 1.617 a 1.525 e le letture dello 0,2%: le varianti classificate in
   più sono quasi tutte varianti rare, che il filtro di prevalenza toglierebbe comunque.
 
 ### 2.3 `prev.min_fraction`
 
 | Valore | Campioni conservati | Varianti finali | Jaccard con la corrente | Letture conservate | Rispetto alla corrente |
 |---|---|---|---|---|---|
-| 0,005 | 492 | 2.179 | 0,804 | 21.230.741 | 1,001 |
-| 0,010 (corrente) | 492 | 1.753 | 1,000 | 21.202.825 | 1,000 |
-| 0,015 | 492 | 1.439 | 0,821 | 21.171.310 | 0,999 |
-| 0,020 | 492 | 1.291 | 0,737 | 21.149.651 | 0,998 |
-| 0,025 | 492 | 1.151 | 0,657 | 21.105.891 | 0,995 |
-| 0,030 | 492 | 1.070 | 0,610 | 21.082.665 | 0,994 |
-| 0,050 (fuori dalla griglia di decisione) | 492 | 792 | 0,452 | 20.972.942 | 0,989 |
+| 0,005 | 451 | 2.161 | 0,804 | 20.950.337 | 1,001 |
+| 0,010 (corrente) | 451 | 1.737 | 1,000 | 20.922.721 | 1,000 |
+| 0,015 | 451 | 1.504 | 0,866 | 20.901.461 | 0,999 |
+| 0,020 | 451 | 1.286 | 0,740 | 20.871.507 | 0,998 |
+| 0,025 | 451 | 1.178 | 0,678 | 20.833.210 | 0,996 |
+| 0,030 | 451 | 1.095 | 0,630 | 20.812.245 | 0,995 |
+| 0,050 (fuori dalla griglia di decisione) | 451 | 814 | 0,469 | 20.710.029 | 0,990 |
 
 Che cosa si osserva.
 
 - È il parametro che più cambia l'insieme delle varianti: ogni mezzo punto percentuale
   toglie o aggiunge dal 7% al 20% delle varianti. Con il 5% abituale in letteratura le
-  varianti sarebbero 792, meno della metà.
+  varianti sarebbero 814, meno della metà.
+- Con 451 campioni conservati il minimo è 5 campioni all'1%, come con i 492 di prima
+  (l'intero superiore di 4,51 e di 4,92): il minimo non è cambiato, è cambiato
+  l'insieme dei campioni su cui si conta. A 0,005 è 3 campioni, a 0,015 è 7.
 - Le letture quasi non cambiano: fra 0,005 e 0,05 l'1,2%. Le varianti che il filtro
   decide sono rare per definizione; ciò che cambia è la coda dell'insieme, non la massa
   dei conteggi.
@@ -172,10 +197,10 @@ Che cosa si osserva.
 
 | Modalità | Esito | Campioni conservati | Varianti finali | Jaccard con la corrente | Letture conservate | Contaminanti | Letture dei biologici rimosse come contaminanti |
 |---|---|---|---|---|---|---|---|
-| aggregata (corrente) | completata | 492 | 1.753 | 1,000 | 21.202.825 | 759 | 4,9% |
+| aggregata (corrente) | completata | 451 | 1.737 | 1,000 | 20.922.721 | 759 | 4,9% |
 | per piastra, `minimum` | arresto: letture rimosse oltre `qc.max_frac_contaminant` (`E-S12-02`) | | | | | | |
-| per piastra, `minimum`, con il vincolo sospeso (diagnostica) | completata | 489 | 1.134 | 0,632 | 12.757.037 | 1.138 | 44,2% |
-| per piastra, `fisher` | completata | 492 | 1.895 | 0,916 | 21.587.534 | 167 | 2,1% |
+| per piastra, `minimum`, con il vincolo sospeso (diagnostica) | completata | 451 | 1.115 | 0,631 | 12.593.728 | 1.138 | 44,2% |
+| per piastra, `fisher` | completata | 451 | 1.870 | 0,920 | 21.276.987 | 167 | 2,1% |
 
 Che cosa si osserva.
 
@@ -195,21 +220,21 @@ letture (differenza sulle letture della configurazione corrente).
 
 | Parametro | Da | A | Varianti | Campioni | Letture |
 |---|---|---|---|---|---|
-| `katharoseq.target_sensitivity` | 0,70 | 0,75 | 0,050 | 0,034 | 0,004 |
-| `katharoseq.target_sensitivity` | 0,75 | 0,80 | 0,059 | 0,118 | 0,025 |
-| `katharoseq.target_sensitivity` | 0,80 | 0,85 | 0,009 | 0,026 | 0,010 |
-| `katharoseq.target_sensitivity` | 0,85 | 0,90 | 0,063 | 0,088 | 0,030 |
-| `katharoseq.target_sensitivity` | 0,90 | 0,95 | 0,025 | 0,054 | 0,051 |
-| `decontam.threshold` | 0,1 | 0,2 | 0,024 | 0,000 | 0,011 |
-| `decontam.threshold` | 0,2 | 0,3 | 0,026 | 0,000 | 0,001 |
-| `decontam.threshold` | 0,3 | 0,4 | 0,034 | 0,000 | 0,008 |
-| `decontam.threshold` | 0,4 | 0,5 | 0,042 | 0,000 | 0,003 |
+| `katharoseq.target_sensitivity` | 0,70 | 0,75 | 0,010 | 0,031 | 0,007 |
+| `katharoseq.target_sensitivity` | 0,75 | 0,80 | 0,063 | 0,073 | 0,027 |
+| `katharoseq.target_sensitivity` | 0,80 | 0,85 | 0,015 | 0,039 | 0,016 |
+| `katharoseq.target_sensitivity` | 0,85 | 0,90 | 0,014 | 0,054 | 0,016 |
+| `katharoseq.target_sensitivity` | 0,90 | 0,95 | 0,063 | 0,074 | 0,063 |
+| `decontam.threshold` | 0,1 | 0,2 | 0,023 | 0,000 | 0,011 |
+| `decontam.threshold` | 0,2 | 0,3 | 0,025 | 0,000 | 0,001 |
+| `decontam.threshold` | 0,3 | 0,4 | 0,034 | 0,000 | 0,007 |
+| `decontam.threshold` | 0,4 | 0,5 | 0,040 | 0,000 | 0,003 |
 | `decontam.threshold` | 0,5 | 0,6 | 0,069 | 0,000 | 0,004 |
-| `decontam.threshold` | 0,6 | 0,7 | 0,056 | 0,000 | 0,002 |
+| `decontam.threshold` | 0,6 | 0,7 | 0,057 | 0,000 | 0,002 |
 | `prev.min_fraction` | 0,005 | 0,010 | 0,196 | 0,000 | 0,001 |
-| `prev.min_fraction` | 0,010 | 0,015 | 0,179 | 0,000 | 0,002 |
-| `prev.min_fraction` | 0,015 | 0,020 | 0,103 | 0,000 | 0,001 |
-| `prev.min_fraction` | 0,020 | 0,025 | 0,108 | 0,000 | 0,002 |
+| `prev.min_fraction` | 0,010 | 0,015 | 0,134 | 0,000 | 0,001 |
+| `prev.min_fraction` | 0,015 | 0,020 | 0,145 | 0,000 | 0,001 |
+| `prev.min_fraction` | 0,020 | 0,025 | 0,084 | 0,000 | 0,002 |
 | `prev.min_fraction` | 0,025 | 0,030 | 0,070 | 0,000 | 0,001 |
 
 ## 3. Applicazione della regola
@@ -222,66 +247,78 @@ instabile, e solo con un'alternativa in zona stabile.
 
 | Parametro | Misura | Verso il vicino inferiore | Verso il vicino superiore | Soglia assoluta | Tre volte la mediana | Supera entrambe |
 |---|---|---|---|---|---|---|
-| `katharoseq.target_sensitivity` | varianti | 0,063 | 0,025 | 0,10 | 0,150 | no |
-| | campioni | 0,088 | 0,054 | 0,05 | 0,164 | no (supera la sola soglia assoluta, da entrambi i lati) |
-| | letture | 0,030 | 0,051 | 0,05 | 0,075 | no (supera la sola soglia assoluta, verso 0,95) |
-| `decontam.threshold` | varianti | 0,042 | 0,069 | 0,10 | 0,113 | no |
+| `katharoseq.target_sensitivity` | varianti | 0,014 | 0,063 | 0,10 | 0,044 | no (verso 0,95 supera la sola sproporzione) |
+| | campioni | 0,054 | 0,074 | 0,05 | 0,164 | no (supera la sola soglia assoluta, da entrambi i lati) |
+| | letture | 0,016 | 0,063 | 0,05 | 0,047 | **sì, verso 0,95** |
+| `decontam.threshold` | varianti | 0,040 | 0,069 | 0,10 | 0,110 | no |
 | | campioni | 0,000 | 0,000 | 0,05 | 0,000 | no |
 | | letture | 0,003 | 0,004 | 0,05 | 0,009 | no |
-| `prev.min_fraction` | varianti | 0,196 | 0,179 | 0,10 | 0,325 | no (supera la sola soglia assoluta, da entrambi i lati) |
+| `prev.min_fraction` | varianti | 0,196 | 0,134 | 0,10 | 0,402 | no (supera la sola soglia assoluta, da entrambi i lati) |
 | | campioni | 0,000 | 0,000 | 0,05 | 0,000 | no |
-| | letture | 0,001 | 0,002 | 0,05 | 0,004 | no |
+| | letture | 0,001 | 0,001 | 0,05 | 0,004 | no |
 
 **Decisioni.**
 
 | Parametro | Valore corrente | Instabile secondo la regola | Alternative in zona stabile | Decisione |
 |---|---|---|---|---|
-| `katharoseq.target_sensitivity` | 0,90 | no | nessuna | mantenuto: 0,90 |
+| `katharoseq.target_sensitivity` | 0,90 | sì (letture, verso 0,95) | nessuna | mantenuto: 0,90, con l'instabilità dichiarata come limite |
 | `decontam.threshold` | 0,5 | no | 0,2; 0,3; 0,4; 0,6 | mantenuto: 0,5 |
-| `prev.min_fraction` | 0,01 | no | nessuna | mantenuto: 0,01 |
+| `prev.min_fraction` | 0,01 | no | 0,025 | mantenuto: 0,01 |
 | modalità di decontaminazione | aggregata | ammissibile | | mantenuta: aggregata |
 
-Nessun valore cambia: la configurazione congelata coincide, per questi quattro
-parametri, con quella di partenza, e il risultato finale non cambia.
+Nessun valore cambia: la regola indica per ogni parametro il valore già congelato, e
+la configurazione congelata resta quella.
+
+**Che cosa è cambiato rispetto alla prima analisi.** Allora
+`katharoseq.target_sensitivity` non risultava instabile; ora lo è, per le letture
+verso 0,95 (6,3% contro una soglia di sproporzione del 4,7%). Non è il passo verso
+0,95 a essere cresciuto (era il 5,1%): è la mediana dei passi a essere scesa, da 0,025
+a 0,016, perché con la soglia omogenea i passi fra i valori bassi non sono più
+gonfiati dalle piastre che ricevevano la soglia fissa. La regola chiede in questo caso
+un'alternativa in zona stabile, cioè con due vicini ammissibili e tutti i cambiamenti
+sotto le soglie assolute: non ce n'è nessuna (0,85 cambia il 5,4% dei campioni verso
+0,90; 0,80 il 7,3% verso 0,75; 0,75 il 7,3% verso 0,80). Il valore si mantiene, e
+l'instabilità si dichiara come limite noto.
 
 **Che cosa la regola non dice, e va letto insieme alla decisione.**
 
 - `katharoseq.target_sensitivity`: il valore è mantenuto, ma il risultato non è
-  insensibile a esso. Passando a un valore adiacente cambia stato dal 5% al 9% dei
-  campioni biologici, oltre la soglia assoluta; la regola non lo giudica instabile
-  perché cambiamenti di questa entità avvengono a ogni passo della griglia (mediana
-  0,055), e nessun altro valore della griglia è in una zona stabile. Non esiste, in
-  altre parole, un valore attorno al quale l'insieme dei campioni non dipenda dalla
-  scelta: è un limite del dato (poche osservazioni per curva, otto livelli di
+  insensibile a esso. Verso 0,95 escono 57 campioni e il 6,3% delle letture; verso
+  0,85 cambiano stato 42 campioni. Nessun valore della griglia è in una zona stabile:
+  non esiste un valore attorno al quale l'insieme dei campioni non dipenda dalla
+  scelta. È un limite del dato (poche osservazioni per curva, otto livelli di
   diluizione per piastra) e va dichiarato a chi usa il risultato. Il numero dei
-  campioni analizzati (492 su 770) dipende da questa scelta più che da ogni altra.
-- `katharoseq.target_sensitivity`, valori bassi: il confronto fra 0,90 e 0,80 non è un
-  confronto fra una soglia severa e una permissiva sulla stessa curva. A 0,80 le
-  piastre 3 e 4 perdono la curva e ricevono la soglia fissa, la più bassa possibile:
-  metà degli 88 campioni in più viene da lì. Scegliere 0,80 per conservare più campioni
-  significherebbe, per quelle piastre, rinunciare al criterio dei controlli positivi.
-- `prev.min_fraction`: è mantenuto perché il cambiamento, pur ampio (dal 18% al 20%
-  delle varianti verso i vicini), è dello stesso ordine a ogni passo: nessun valore
-  della griglia è più stabile di un altro. L'insieme delle varianti finali dipende
-  quindi da questa soglia in modo sostanziale e continuo; le letture no (meno dello
-  0,2% per passo). Le analisi a valle che pesano le varianti per abbondanza ne
-  risentono poco; quelle che contano le varianti (ricchezza, presenza o assenza) ne
-  risentono molto, e vanno interpretate sapendo che 1.753 è il numero di varianti
-  presenti in almeno 5 dei 492 campioni, non una proprietà del dataset.
+  campioni analizzati (451 su 770) dipende da questa scelta più che da ogni altra.
+- `katharoseq.target_sensitivity`, valori bassi: sotto 0,90 le piastre 3 e 4 perdono
+  la curva, sotto 0,80 la perdono altre tre o quattro piastre, e la soglia di tutte
+  viene dalla mediana di due o tre curve. Scegliere un valore basso per conservare più
+  campioni significherebbe, per la maggior parte delle piastre, rinunciare al
+  criterio dei propri controlli positivi.
+- `prev.min_fraction`: è mantenuto perché il cambiamento, pur ampio (dal 13% al 20%
+  delle varianti verso i vicini), è dello stesso ordine a ogni passo. Un'alternativa
+  risulta in zona stabile (0,025), ma la regola non la sceglie perché il valore
+  corrente non è instabile; con essa le varianti sarebbero 1.178. L'insieme delle
+  varianti finali dipende da questa soglia in modo sostanziale e continuo; le letture
+  no (meno dello 0,2% per passo). Le analisi a valle che pesano le varianti per
+  abbondanza ne risentono poco; quelle che contano le varianti (ricchezza, presenza o
+  assenza) ne risentono molto, e vanno interpretate sapendo che 1.737 è il numero di
+  varianti presenti in almeno 5 dei 451 campioni, non una proprietà del dataset.
 - `decontam.threshold`: è il parametro attorno al cui valore il risultato è più
   stabile. Anche quattro alternative sono in zona stabile; la regola non le sceglie
   perché il valore corrente non è instabile.
 - Modalità di decontaminazione: la regola mantiene l'aggregata perché è ammissibile, e
   non confronta fra loro le modalità ammissibili. La modalità per piastra con `fisher`
   resta una scelta di metodo difendibile, che toglie meno (167 contaminanti contro
-  759); la differenza sull'insieme finale è di 142 varianti in più e dell'1,8% delle
+  759); la differenza sull'insieme finale è di 133 varianti in più e dell'1,7% delle
   letture.
 
 ## 4. Il modello evolutivo della filogenesi
 
 La fase di filogenesi è disattivata nella configurazione di OSD-734; il confronto
-decide il valore predefinito di `phylo.model`. I due modelli sono stati adattati alle
-1.753 varianti finali dell'esecuzione di partenza con `scripts/confronto_modelli_filogenesi.R`:
+decide il valore predefinito di `phylo.model`. Non è stato ripetuto con la soglia
+omogenea: le misure che seguono sono della prima analisi, sulle 1.753 varianti finali
+dell'esecuzione di riferimento di allora (oggi le varianti finali sono 1.737, di cui
+tutte fra quelle 1.753). I due modelli sono stati adattati con `scripts/confronto_modelli_filogenesi.R`:
 stesso allineamento (145 colonne, 20 costanti), stesso albero di partenza, stessa
 ricerca deterministica della fase.
 
