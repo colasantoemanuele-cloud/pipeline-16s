@@ -235,7 +235,8 @@ l'identita', non la correttezza.
 
 I checksum pubblicati sono stati rigenerati l'8 ottobre 2026 dall'esecuzione di
 riferimento con la soglia di profondita' omogenea (commit `f99ca84`), e una seconda
-esecuzione completa, da un altro clone, li riproduce tutti. Sostituiscono quelli
+esecuzione completa, da un altro clone al commit che li pubblica, li riproduce tutti
+(1.033 artefatti identici). Sostituiscono quelli
 dell'esecuzione del commit `af82ef9`, da cui differiscono per due ragioni distinte.
 
 Differenze di risultato, dovute alla regola della soglia (`docs/decision_log.md`,
@@ -276,9 +277,10 @@ prima.
 ## Requisiti misurati
 
 Misure sulla macchina di sviluppo (Intel Xeon W-10855M, 12 processori logici, 30 GB di
-memoria), con `run.threads: 12`. Dove non e' detto altrimenti vengono dalla
+memoria), con dodici processori. Dove non e' detto altrimenti vengono dalla
 riproduzione da zero del 5 ottobre 2026 (codice del commit `59ef39d`, immagine costruita
-dal suo Dockerfile); quelle con l'immagine pubblicata sono del 6 ottobre 2026.
+dal suo Dockerfile); durata, memoria e uscite sono delle due esecuzioni dell'8 ottobre
+2026 con l'immagine pubblicata e la soglia di profondita' omogenea.
 
 | Che cosa | Misura | Fonte |
 |---|---|---|
@@ -287,9 +289,9 @@ dal suo Dockerfile); quelle con l'immagine pubblicata sono del 6 ottobre 2026.
 | Durata dello scarico | 2 ore e 48 minuti le letture, 44 secondi il riferimento, meno di un secondo il lotto | i tre script, in una cartella vuota; dipende dal collegamento con ENA |
 | Immagine pubblicata | 1,86 GB da scaricare (1.863.204.352 byte compressi, 34 strati); 7,6 GB su disco, strati dell'immagine di partenza di Bioconductor compresi | manifesto del registro; `docker image ls` (colonna DISK USAGE) |
 | Costruzione dell'immagine, in alternativa | 4 minuti e 37 secondi senza cache | `docker build --no-cache`; dipende dalla rete |
-| Uscite dell'esecuzione completa | 2,27 GB, di cui 2,24 GB di letture filtrate (`03_filtered/`) e 32 MB di tutto il resto | `output/osd734/` a catena conclusa |
-| Durata dell'esecuzione completa | 53 minuti e 20 secondi per la catena S0-S14; la fase S4 (denoising) ne occupa 26, S2 9,5, S8 6, S1 5 | il comando di esecuzione qui sopra; 48 minuti e 11 secondi e 48 minuti e 39 secondi con l'immagine pubblicata (la seconda con la configurazione congelata), nelle esecuzioni precedenti 55,5 e 64 minuti |
-| Memoria di picco della pipeline | 12,3 GB (11,5 GiB; 12.304.121.856 byte); 12,6 GB con l'immagine pubblicata | `memory.peak` del cgroup del container, letto al termine della catena, con il limite a 24 GB |
+| Uscite dell'esecuzione completa | 2,27 GB, di cui 2,24 GB di letture filtrate (`03_filtered/`) e 32 MB di tutto il resto; 1.033 artefatti nei manifesti di fase | `output/osd734/` a catena conclusa (esecuzione di riferimento dell'8 ottobre 2026) |
+| Durata dell'esecuzione completa | 52 minuti e 19 secondi per la catena S0-S14 nell'esecuzione di riferimento dell'8 ottobre 2026, 47 minuti e 54 secondi nella seconda; la fase S4 (denoising) ne occupa 24, S2 da 8 a 10, S1 da 5,5 a 6,5 (con il conteggio dei segni di coppia), S8 5, S3 da 3 a 3,5 | il comando di esecuzione qui sopra, con l'immagine pubblicata e dodici processori; nelle esecuzioni precedenti da 48 a 64 minuti |
+| Memoria di picco della pipeline | 13,1 GB (12,2 GiB; 13.093.236.736 byte) nella seconda esecuzione dell'8 ottobre 2026; 12,3 e 12,6 GB nelle misure precedenti | `memory.peak` del cgroup del container, letto al termine della catena, con il limite a 24 GB |
 
 Lo spazio dell'immagine e' misurato con Docker 29.1.3, che usa l'archivio di immagini
 di containerd. Dei 7,59 GB, 5,67 sono strati condivisi con altre immagini della

@@ -946,7 +946,7 @@ qui perché chi valuta possa giudicarla.
   piastra usa la propria curva, e chi non ne ha una usa la stessa curva come
   aggregata.
 - **AIC non calcolabile.** Se la curva di una piastra con abbastanza punti non
-  converge, la somma degli AIC non esiste e l'aggregato non è preferito: le piastre
+  è stimabile (non converge, o ha la stessa fedeltà in tutti i punti), la somma degli AIC non esiste e l'aggregato non è preferito: le piastre
   con una curva valida tengono la propria soglia, le altre seguono i passi 3 e 4.
 - **Aggregato preferito e non valido.** Si passa ai passi 2, 3 e 4.
 - **`E-S11-02` anche quando l'aggregato è scelto dall'AIC.** La sezione 4.4 lo
