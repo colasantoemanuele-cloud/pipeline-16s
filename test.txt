@@ -46,13 +46,34 @@ Totale complessivo della suite: 1270 test su 33 moduli:
   * 1101 passed e 169 skipped in ambiente locale standard (R base + jsonlite, senza
     Bioconductor e senza dati reali), in circa un minuto e mezzo;
   * nel container CI standard (senza dati reali OSD-734), su quattro processi:
-    @@CI@@
+    1209 passed e 53 skipped in circa 13 minuti (8 ottobre 2026), nell'immagine
+    costruita dal Dockerfile come nella CI (l'ultima esecuzione della CI, run
+    37447520163 sulla suite precedente di 1007 test, ha dato 956 passed e 43
+    skipped in circa 11 minuti). I salti sono 36 test sui dati reali OSD-734
+    (uno dei quali, in 'tests/test_w29_soglia.py', chiede anche i file del
+    secondo dataset), 1 test sull'allocazione R legata alla lingua, 1 test che
+    richiede il repository .git, i 7 test di 'tests/test_w24_riproduzione.py'
+    che usano i checksum pubblicati in dati/ (uno dei quali e' il
+    trentasettesimo sui dati reali), 1 test di 'tests/test_w25_immagine.py' che
+    legge la configurazione in dati/, 3 test di 'tests/test_w26_congelamento.py'
+    che leggono docs/ e dati/, 2 test di 'tests/test_w27_ingressi.py' e 1 di
+    'tests/test_w29_soglia.py' che leggono dati/, e il modulo
+    'tests/test_w21_dati_osd734.py', che nell'immagine si salta per intero e
+    conta come un solo salto al posto dei suoi 9 test (la cartella dati/ non
+    vi e' copiata): per questo i test contati sono 1262;
   * con i 2.4 GB di dati reali OSD-734 si eseguono anche i 37 test che li
     richiedono, tutti sullo stesso processo ('pytest -m dati_reali'): i 35
     precedenti e i due di 'tests/test_w29_soglia.py', uno dei quali legge i
     file del secondo dataset dalla cartella indicata con
     AMPLICON16S_DATI_OSD276 e senza di essa si salta.
-    @@REALI@@
+    L'8 ottobre 2026, nell'immagine pubblicata con il repository montato e
+    il limite di 24 GB: 37 passed, nessuno fallito, in 75 minuti e mezzo. Fra
+    essi il confronto della catena completa con i checksum pubblicati, che
+    dopo la rigenerazione dei checksum richiede l'uguaglianza esatta di ogni
+    artefatto. La suite intera con i dati reali (1270 test) non e' stata
+    rieseguita: l'ultima misura, del 6 ottobre 2026 sulla suite di 1045
+    test, e' di 1042 passed e 3 skipped in 76 minuti e mezzo, con picco di
+    memoria di 16,0 GB.
 
 Per includere anche i test end-to-end sui 960 file FASTQ reali di OSD-734,
 impostare la variabile d'ambiente che punta al file di configurazione reale:
