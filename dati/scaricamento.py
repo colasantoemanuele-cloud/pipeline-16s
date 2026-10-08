@@ -89,7 +89,20 @@ def _trasferisci(url: str, parziale: Path) -> None:
     richiesta = urllib.request.Request(url, headers={"User-Agent": "amplicon16s-dati"})
     if gia:
         richiesta.add_header("Range", f"bytes={gia}-")
-    with urllib.request.urlopen(richiesta, timeout=TEMPO_MASSIMO) as risposta:
+    try:
+        risposta = urllib.request.urlopen(richiesta, timeout=TEMPO_MASSIMO)
+    except urllib.error.HTTPError as guasto:
+        # 416: il file parziale e' gia' lungo quanto il file, o di piu' (uno
+        # scarico interrotto fra la fine del trasferimento e la verifica): non
+        # c'e' un resto da chiedere. Si riparte da capo invece di fallire a ogni
+        # rilancio.
+        if not (gia and guasto.code == 416):
+            raise
+        parziale.unlink()
+        gia = 0
+        richiesta.remove_header("Range")
+        risposta = urllib.request.urlopen(richiesta, timeout=TEMPO_MASSIMO)
+    with risposta:
         # 206: il server ha mandato soltanto il resto; altrimenti il file intero.
         ripresa = gia and getattr(risposta, "status", None) == 206
         with open(parziale, "ab" if ripresa else "wb") as file:

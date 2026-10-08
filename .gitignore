@@ -75,3 +75,8 @@ htmlcov/
 # i file di ENA e le letture forward che se ne ricavano.
 dati/osd276/ena/
 dati/osd276/fastq/
+
+# --- Documenti di lavoro -----------------------------------------------------
+# Il repository contiene lo strumento e le istruzioni per usarlo: i documenti
+# di lavoro restano fuori, e una cartella docs/ locale non deve poter entrare.
+docs/

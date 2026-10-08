@@ -15,13 +15,16 @@ sensibilita' senza valori di un dataset, riferimento tassonomico comune.
 * ``src/amplicon16s/errors/catalog.py`` (``E-S1-04``, ``E-S11-02``, ``E-S11-05``)
 * ``src/amplicon16s/report/builder.py`` (soglia per piastra, troncamento suggerito)
 * ``src/amplicon16s/runner/graph.py`` (dipendenze di S11 e S13)
-* ``scripts/sensitivity.py``, ``docs/sensibilita/griglie.yaml``
 * ``dati/riferimento/``, ``dati/osd734/config_osd734.yaml``, ``dati/osd276/config_osd276.yaml``
 
 3. Cosa valuta questo file
 --------------------------
 - lo schema respinge ``qc.min_reads_raw`` e ``qc.min_reads_mode: fixed`` con
   un messaggio che spiega il cambiamento, e accetta ``none``;
+- senza una piastra con abbastanza controlli l'aggregato si adatta su tutti i
+  controlli utilizzabili e, valido, vale per tutti senza degradazione; non
+  valido, nessuna soglia (``E-S11-05``); l'aggregato scelto dall'AIC non
+  dichiara ``E-S11-02``, che resta per i soli ripieghi;
 - la regola della soglia, su oggetti costruiti: piastre con e senza curva
   valida e aggregato non valido (mediana); aggregato valido non preferito
   (le piastre senza curva propria usano l'aggregato); aggregato preferito
@@ -40,8 +43,6 @@ sensibilita' senza valori di un dataset, riferimento tassonomico comune.
   nome; sotto le venti letture le sole seconde letture non cedono a un record;
 - S1 conta i segni di coppia su tutte le letture, li registra in
   ``coppie.tsv`` e ferma con ``E-S1-04`` un file che G07 non vede;
-- lo strumento di sensibilita': griglie lette dal file, valore corrente dalla
-  configurazione, un arresto non previsto ferma lo strumento;
 - le due configurazioni pubblicate puntano al riferimento comune;
 - sui dati reali: i 15 file ENA del secondo dataset si fermano tutti in S0 o
   in S1, le forward ricavate e i file del dataset di riferimento no.
@@ -49,7 +50,7 @@ sensibilita' senza valori di un dataset, riferimento tassonomico comune.
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -83,7 +84,7 @@ sensibilita' senza valori di un dataset, riferimento tassonomico comune.
 
 5. Risultato atteso
 -------------------
-Vedi ``test.txt``, scheda W29.
+I conteggi li da' pytest (``pytest --collect-only -q``).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -102,9 +103,9 @@ Vedi ``test.txt``, scheda W29.
 
 from __future__ import annotations
 
+import functools
 import csv
 import gzip
-import importlib.util
 import json
 import math
 import os
@@ -112,22 +113,26 @@ import statistics
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
-import yaml
-from conftest import Campione, copia_esecuzione, crea_scenario, lettura
-from sottoinsieme import config_ridotta, dati_config, motivo_pacchetti_r_assenti
+from conftest import Campione, copia_esecuzione, crea_scenario, lettura, NEGATIVO, POSITIVO
+from sottoinsieme import config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti
 
 from amplicon16s.config.schema import ErroreConfigurazione, carica
 from amplicon16s.errors.catalog import CATALOGO, Categoria
 from amplicon16s.gates.g01_g15 import Contesto
 from amplicon16s.gates.registry import esegui_gate
 from amplicon16s.io_layer.artifacts import Fase
-from amplicon16s.io_layer.reads import conta_coppie, scansiona_file
+from amplicon16s.io_layer.reads import (
+    SerieDiCompagne,
+    conta_coppie,
+    marcatore_di_coppia,
+    scansiona_file,
+)
 from amplicon16s.logging.logger import chiudi
 from amplicon16s.metadata.models import ClasseCampione
+from amplicon16s.metadata.tabelle import nome_nell_oggetto
 from amplicon16s.rbridge.runner import cartella_r, trova_rscript
 from amplicon16s.report.builder import (
     CARTELLA_REPORT,
@@ -141,6 +146,7 @@ from amplicon16s.runner.graph import GRAFO, Passo
 from amplicon16s.runner.project import ProjectRun
 from amplicon16s.steps.s01_profile import NOME_COPPIE, classi_oltre_soglia, letture_corte
 from amplicon16s.steps.s10_phyloseq import NOME_OGGETTO
+from amplicon16s.steps.s11_controls import livelli_non_valutati
 from amplicon16s.steps.s13_filtri import esclusi_per_profondita
 
 RADICE = Path(__file__).resolve().parents[1]
@@ -161,9 +167,14 @@ def uscite_pulite():
     chiudi()
 
 
-_MOTIVO_BIOC = motivo_pacchetti_r_assenti(
-    "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings"
-)
+@functools.cache
+def _sonda_bioc() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti(
+        "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings"
+    )
 
 
 @pytest.fixture
@@ -171,10 +182,10 @@ def bioc():
     """Richiede R con phyloseq e i pacchetti delle fasi a monte: salta senza, ma in
     CI fallisce.
     """
-    if _MOTIVO_BIOC is not None:
+    if _sonda_bioc() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_BIOC}")
-        pytest.skip(_MOTIVO_BIOC)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_bioc()}")
+        pytest.skip(_sonda_bioc())
 
 
 def _tsv(percorso: Path) -> list[dict[str, str]]:
@@ -315,8 +326,9 @@ tax <- matrix(c("Bacteria", "Bacteria", "Proteobacteria", "Cyanobacteria", "C", 
                 "Comamonadaceae", "F", d$taxon, "G"), nrow = 2,
               dimnames = list(c("Var", "Altro"), c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus")))
 dati <- data.frame(accession = campioni, sample_name = campioni, classe = d$classe,
-                   piastra = d$piastra, katharoseq_cell_count = d$cellule,
+                   piastra = d$piastra,
                    row.names = campioni, stringsAsFactors = FALSE)
+dati[[d$colonna_cellule]] <- d$cellule
 ps <- phyloseq(otu_table(otu, taxa_are_rows = TRUE), tax_table(tax), sample_data(dati))
 saveRDS(ps, d$oggetto)
 """
@@ -327,20 +339,21 @@ def _s11_costruito(base, cartella: Path, positivi: dict[str | None, list[tuple[i
     """Sostituisce l'oggetto di S10 con uno costruito ed esegue il calcolo di S11.
 
     ``positivi`` da' per piastra (``None``: senza piastra) le coppie
-    (profondita', fedelta') dei controlli; ``biologici`` per piastra le
-    profondita' dei campioni. Restituisce l'esecuzione e il contesto, con le
-    degradazioni registrate.
+    (profondita', fedelta') dei controlli, oppure le terne con il livello di
+    concentrazione; senza il livello ogni controllo ne ha uno proprio.
+    ``biologici`` da' per piastra le profondita' dei campioni. Restituisce
+    l'esecuzione e il contesto, con le degradazioni registrate.
     """
     run = copia_esecuzione(base, cartella / "copia", **sovrascrivi)
     righe: dict[str, list[Any]] = {k: [] for k in (
         "accession", "classe", "piastra", "cellule", "letture", "bersaglio")}
     for piastra, punti in positivi.items():
-        for n, fedelta in punti:
+        for n, fedelta, *livello in punti:
             i = len(righe["accession"])
             righe["accession"].append(f"ERXP{i:03d}")
             righe["classe"].append("controllo_positivo")
             righe["piastra"].append(piastra)
-            righe["cellule"].append(str(1000 + i))
+            righe["cellule"].append(str(livello[0]) if livello else str(1000 + i))
             righe["letture"].append(n)
             righe["bersaglio"].append(round(n * fedelta))
     for piastra, profondita in biologici.items():
@@ -355,6 +368,7 @@ def _s11_costruito(base, cartella: Path, positivi: dict[str | None, list[tuple[i
     descrizione = cartella / "descrizione.json"
     descrizione.write_text(json.dumps({
         **righe, "taxon": run.config.katharoseq.target_taxon,
+        "colonna_cellule": nome_nell_oggetto(run.config.katharoseq.cell_count_column),
         "oggetto": str(run.albero.cartella(Fase.PHYLOSEQ) / NOME_OGGETTO),
     }), encoding="utf-8")
     script = cartella / "costruisci.R"
@@ -366,6 +380,14 @@ def _s11_costruito(base, cartella: Path, positivi: dict[str | None, list[tuple[i
     contesto = run.contesto(Passo.S11, run.valuta()).ristretto(fase.parametri)
     fase.calcola(contesto)
     return run, contesto
+
+
+def _codici(contesto) -> list[str]:
+    """I codici delle degradazioni di S11, senza quello dei livelli con pochi
+    controlli: nei casi costruiti ogni controllo ha un livello proprio, e
+    quell'avviso, che ha i suoi test, accompagna ogni caso.
+    """
+    return [d.codice for d in contesto.degradazioni if d.codice != "E-S11-06"]
 
 
 def _esiti(run) -> tuple[dict, dict[str, dict[str, str]], list[dict[str, str]]]:
@@ -563,7 +585,8 @@ def test_l_aic_che_preferisce_l_aggregato_valido_lo_da_a_tutte_le_piastre(
     (ognuna con la propria curva valida), l'AIC preferisca l'aggregato, che
     ha gli stessi residui con un terzo dei parametri; che tutte le piastre e
     il campione senza piastra usino la soglia aggregata, anche se hanno una
-    curva propria valida; e che l'R^2 dichiarato sia quello dell'aggregato.
+    curva propria valida; che l'R^2 dichiarato sia quello dell'aggregato; e
+    che la fase non dichiari alcuna degradazione: e' una scelta di modello.
 
     **Razionale scientifico e sistemistico**: Se una sola curva descrive i
     controlli di tutte le piastre quanto le curve separate, le differenze fra
@@ -588,8 +611,86 @@ def test_l_aic_che_preferisce_l_aggregato_valido_lo_da_a_tutte_le_piastre(
         assert (voce["valore"], voce["origine"], voce["stadio"]) == (aggregata, "aggregata", "nonchimeric")
         assert "AIC dell'aggregato" in voce["motivo"]
     assert modello["r2_dichiarato"] == modello["r2_aggregato"]
-    assert [d.codice for d in contesto.degradazioni] == ["E-S11-02"]
+    # L'aggregato valido scelto dall'AIC non e' un ripiego: nessuna degradazione.
+    assert _codici(contesto) == []
+    assert soglia["degradazione"] is False and soglia["non_proprie"] == []
     _applicata(soglia, campioni)
+
+
+@pytest.mark.parametrize("positivi", [
+    pytest.param({None: None}, id="nessuna_piastra"),
+    pytest.param({"A": slice(0, 2), None: slice(2, 8)}, id="una_piastra_con_pochi_controlli"),
+])
+def test_senza_modello_per_piastra_l_aggregato_valido_vale_per_tutti(
+    bioc, oggetto_calcolato, tmp_path, positivi
+):
+    """
+    **Obiettivo**: Verificare che, quando nessuna piastra ha
+    ``ctrl.min_positives`` controlli utilizzabili (controlli tutti senza
+    piastra; una piastra con due soli controlli e gli altri senza piastra), la
+    curva aggregata si adatti su tutti i controlli utilizzabili, compresi
+    quelli senza piastra; che nessun AIC sia confrontato; che, valida, la sua
+    soglia valga per ogni campione con origine ``aggregata``; e che la fase
+    non dichiari alcuna degradazione.
+
+    **Razionale scientifico e sistemistico**: Un dataset di un solo lotto che
+    non dichiara la piastra ha i controlli per stimare una soglia: senza un
+    modello per piastra da confrontare, restringere i punti alle piastre con
+    abbastanza controlli li toglierebbe tutti, e il filtro di profondita'
+    sparirebbe proprio dove si puo' stimare.
+    """
+    serie = _serie(3.7)
+    casi = {p: serie if taglio is None else serie[taglio] for p, taglio in positivi.items()}
+    biologici = {p: BIOLOGICI for p in (*[k for k in casi if k], None)}
+    run, contesto = _s11_costruito(oggetto_calcolato, tmp_path, casi, biologici)
+    soglia, curve, campioni = _esiti(run)
+
+    assert set(curve) == {"aggregato"} and curve["aggregato"]["valida"] == "si"
+    assert int(curve["aggregato"]["punti"]) == len(serie)
+    modello = soglia["modello"]
+    assert (modello["preferito_aic"], modello["punti_comuni"], modello["piastre_comuni"]) == (
+        "non_confrontato", len(serie), [])
+    assert modello["aic_per_piastra"] is None and modello["aic_aggregato"] is not None
+    assert soglia["scelta"] == "aggregato"
+    assert "non esiste un modello per piastra" in soglia["motivo_scelta"]
+    aggregata = int(curve["aggregato"]["soglia"])
+    voci = (*(soglia["per_piastra"] or {}).values(), soglia["senza_piastra"])
+    assert len(voci) == len(biologici)
+    for voce in voci:
+        assert (voce["valore"], voce["origine"], voce["stadio"]) == (aggregata, "aggregata", "nonchimeric")
+    assert modello["r2_dichiarato"] == modello["r2_aggregato"]
+    assert _codici(contesto) == [] and soglia["degradazione"] is False
+    tenuti = _applicata(soglia, campioni)
+    assert set(tenuti.values()) == {True, False}
+
+
+def test_senza_modello_per_piastra_l_aggregato_non_valido_non_da_soglia(
+    bioc, oggetto_calcolato, tmp_path
+):
+    """
+    **Obiettivo**: Verificare che, con controlli positivi tutti senza piastra
+    e una fedelta' senza relazione con la profondita', la curva aggregata sia
+    adattata su tutti i controlli, risulti non valida, e non ci sia alcuna
+    soglia (origine ``nessuna``): la fase dichiara ``E-S11-05``, non
+    ``E-S11-02``, e il motivo dice che nessuna piastra ha abbastanza controlli.
+
+    **Razionale scientifico e sistemistico**: Senza soglie proprie non esiste
+    una mediana da cui ripiegare: un aggregato non valido lascia il solo
+    minimo sulle letture finali, e va dichiarato come filtro non applicato.
+    """
+    positivi = {None: list(zip(PROFONDITA_DISORDINE, DISORDINE, strict=True))}
+    run, contesto = _s11_costruito(oggetto_calcolato, tmp_path, positivi, {None: BIOLOGICI})
+    soglia, curve, campioni = _esiti(run)
+
+    assert set(curve) == {"aggregato"} and curve["aggregato"]["valida"] == "no"
+    assert int(curve["aggregato"]["punti"]) == len(DISORDINE)
+    assert soglia["modello"]["preferito_aic"] == "non_confrontato"
+    assert soglia["scelta"] == "nessuno"
+    assert "nessuna piastra ha almeno ctrl.min_positives" in soglia["motivo_scelta"]
+    assert "nessuna curva valida" in soglia["motivo_scelta"]
+    assert (soglia["senza_piastra"]["valore"], soglia["senza_piastra"]["origine"]) == (None, "nessuna")
+    assert _codici(contesto) == ["E-S11-05"]
+    assert set(_applicata(soglia, campioni).values()) == {True}
 
 
 def test_senza_alcuna_curva_valida_non_c_e_soglia(bioc, oggetto_calcolato, tmp_path):
@@ -618,10 +719,90 @@ def test_senza_alcuna_curva_valida_non_c_e_soglia(bioc, oggetto_calcolato, tmp_p
     assert soglia["mediana"] is None and soglia["degradazione"] is False
     for voce in (*soglia["per_piastra"].values(), soglia["senza_piastra"]):
         assert (voce["valore"], voce["origine"]) == (None, "nessuna")
-    assert [d.codice for d in contesto.degradazioni] == ["E-S11-05"]
-    assert "qc.min_reads_final" in contesto.degradazioni[0].dettaglio
+    assert _codici(contesto) == ["E-S11-05"]
+    assert "qc.min_reads_final" in next(
+        d.dettaglio for d in contesto.degradazioni if d.codice == "E-S11-05")
     assert set(_applicata(soglia, campioni).values()) == {True}
     assert {r["soglia"] for r in campioni} == {""}
+
+
+def test_i_livelli_non_valutati_si_ricavano_dalla_tabella_dei_positivi():
+    """
+    **Obiettivo**: Verificare che i livelli di concentrazione non valutati si
+    ricavino dalle righe di ``positivi.tsv``: contano i soli controlli non
+    valutabili perche' il loro livello ha troppo pochi controlli, non quelli
+    senza livello ne' quelli valutati, e i livelli escono in ordine numerico.
+
+    **Razionale scientifico e sistemistico**: L'avviso deve dire quali livelli
+    e quanti controlli, senza aggiungere campi agli artefatti di S11: li legge
+    dalla tabella che la fase scrive gia'.
+    """
+    def riga(cellule: str, conformita: str, motivo: str) -> dict[str, str]:
+        return {"cellule": cellule, "conformita": conformita, "motivo": motivo}
+
+    scarso = "livello con 2 controlli, meno di 3"
+    assert livelli_non_valutati([]) == {}
+    assert livelli_non_valutati([
+        riga("500", "non valutabile", scarso), riga("50", "non valutabile", scarso),
+        riga("500", "non valutabile", scarso), riga("50", "non valutabile", scarso),
+        riga("5", "non valutabile", "livello con 1 controlli, meno di 3"),
+        riga("", "non valutabile", "senza livello di concentrazione"),
+        riga("5000", "conforme", ""), riga("5000", "non conforme", "fedelta' bassa per il livello"),
+    ]) == {"5": 1, "50": 2, "500": 2}
+    assert CATALOGO["E-S11-06"].categoria is Categoria.DEGRADAZIONE_AUTOMATICA
+
+
+#: I livelli di concentrazione degli otto controlli di una serie, dal piu' al
+#: meno concentrato.
+LIVELLI = (80, 70, 60, 50, 40, 30, 20, 10)
+
+
+def _serie_con_livelli(quanti: int = len(LIVELLI)) -> list[tuple[int, float, int]]:
+    """I primi ``quanti`` controlli di una serie, ciascuno con il suo livello."""
+    return [(n, f, livello) for (n, f), livello in zip(_serie(3.7), LIVELLI, strict=True)][:quanti]
+
+
+@pytest.mark.parametrize("arresto", [False, True], ids=["avviso", "arresto_dei_non_conformi"])
+def test_un_livello_con_troppo_pochi_controlli_e_dichiarato_con_un_avviso(
+    bioc, oggetto_calcolato, tmp_path, arresto
+):
+    """
+    **Obiettivo**: Verificare che, con tre piastre i cui controlli coprono gli
+    stessi livelli di concentrazione, S11 non dichiari ``E-S11-06``; che,
+    togliendo a una piastra i due controlli meno concentrati, quei due livelli
+    restino con due controlli, sotto ``ctrl.min_positives``, e S11 dichiari
+    ``E-S11-06`` nominando i due livelli, i controlli di ciascuno e il totale;
+    che quei controlli entrino comunque nella curva; e che con
+    ``ctrl.positive_gate`` vero la fase si concluda lo stesso con l'avviso.
+
+    **Razionale scientifico e sistemistico**: Un controllo che nessun
+    confronto ha verificato entra nella curva che fissa la soglia di
+    profondita': se e' anomalo la sposta, e chi legge il risultato deve
+    saperlo. Non e' una non conformita' accertata, quindi non ferma la corsa.
+    """
+    biologici = {p: BIOLOGICI for p in ("A", "B", "C")}
+    completi = {p: _serie_con_livelli() for p in ("A", "B", "C")}
+    run, contesto = _s11_costruito(oggetto_calcolato, tmp_path / "completi", completi, biologici,
+                                   ctrl={"positive_gate": arresto})
+    assert run.config.ctrl.min_positives == 3
+    assert "E-S11-06" not in [d.codice for d in contesto.degradazioni]
+    positivi = _tsv(run.albero.cartella(Fase.CONTROLS) / "positivi.tsv")
+    assert {r["conformita"] for r in positivi} == {"conforme"}
+
+    scarsi = {**completi, "C": _serie_con_livelli(6)}
+    run, contesto = _s11_costruito(oggetto_calcolato, tmp_path / "scarsi", scarsi, biologici,
+                                   ctrl={"positive_gate": arresto})
+    (avviso,) = [d for d in contesto.degradazioni if d.codice == "E-S11-06"]
+    assert avviso.dettaglio.startswith(
+        "4 controlli positivi non valutati, in 2 livelli di concentrazione con meno di "
+        "ctrl.min_positives (3) controlli: ")
+    assert avviso.dettaglio.endswith("livello 10: 2; livello 20: 2")
+    positivi = _tsv(run.albero.cartella(Fase.CONTROLS) / "positivi.tsv")
+    non_valutati = [r for r in positivi if r["conformita"] == "non valutabile"]
+    assert sorted(r["cellule"] for r in non_valutati) == ["10", "10", "20", "20"]
+    assert {r["nella_curva"] for r in non_valutati} == {"si"}
+    assert {r["conformita"] for r in positivi if r not in non_valutati} == {"conforme"}
+    assert "E-S11-03" not in [d.codice for d in contesto.degradazioni]
 
 
 def test_una_curva_che_non_converge_non_fa_preferire_l_aggregato(bioc, oggetto_calcolato, tmp_path):
@@ -875,8 +1056,8 @@ def _campioni() -> list[Campione]:
     return [
         Campione("ERX3000001", "NOD1D4.L1"),
         Campione("ERX3000002", "NOD1D4.L2"),
-        Campione("ERX3000003", "POS.P1.1", materiale="Positive Control", posizione="Not Applicable"),
-        Campione("ERX3000004", "BLANK.P1.1", materiale="blank control", posizione="Not Applicable"),
+        Campione("ERX3000003", "POS.P1.1", materiale=POSITIVO, posizione="Not Applicable"),
+        Campione("ERX3000004", "BLANK.P1.1", materiale=NEGATIVO, posizione="Not Applicable"),
     ]
 
 
@@ -961,6 +1142,199 @@ def test_un_file_a_blocchi_sfugge_a_g07_e_non_al_conteggio_su_tutte_le_letture(t
     assert "la prima lettura di una coppia e 30 la seconda" in tutte.coppie_nello_stesso_file
     forward = conta_coppie(_file_di(scenario, "ERX3000002"))
     assert forward.letture_esaminate == 40 and forward.coppie_nello_stesso_file is None
+
+
+#: Come quattro convenzioni scrivono le due letture della coppia numero ``i``.
+INTERCALATI = {
+    "numero_di_lettura_dopo_il_punto": lambda i: (f"CORSA9.{i}.1", f"CORSA9.{i}.2"),
+    "trattino_basso": lambda i: (f"frammento{i}_1", f"frammento{i}_2"),
+    "trattino_basso_e_R": lambda i: (f"frammento{i}_R1", f"frammento{i}_R2"),
+    "trattino": lambda i: (f"frammento{i}-1", f"frammento{i}-2"),
+}
+
+#: File single-end i cui identificativi finiscono come un marcatore di coppia
+#: senza esserlo.
+SINGOLI = {
+    # Il numero progressivo della lettura in fondo all'identificativo: le
+    # letture 1 e 2 sembrano compagne, e cosi' 11 e 12, 21 e 22, 111 e 112.
+    "numero_progressivo": [f"DEPOSITO7.{i}" for i in range(1, 261)],
+    "numero_di_lettura_sempre_uno": [f"CORSA9.{i}.1" for i in range(1, 61)],
+    "tutte_marcate_uno": [f"frammento{i}_1" for i in range(1, 61)],
+    "due_sole_letture": ["DEPOSITO7.1", "DEPOSITO7.2"],
+}
+
+
+def test_il_marcatore_di_coppia_e_l_ultimo_elemento_dopo_un_separatore():
+    """
+    **Obiettivo**: Verificare che il marcatore di coppia sia riconosciuto solo
+    quando l'identificativo (il primo campo dell'intestazione) finisce con 1,
+    2, R1 o R2 preceduti da un separatore fra ``/``, ``.``, ``_`` e ``-``, e
+    che il prefisso sia l'identificativo senza separatore e marcatore.
+
+    **Razionale scientifico e sistemistico**: Senza il separatore obbligatorio
+    un identificativo che finisce con 11 o 12 porterebbe un marcatore, e ogni
+    file numerato sembrerebbe pieno di coppie.
+    """
+    for intestazione, atteso in (
+        ("@CORSA9.7.1", ("CORSA9.7", "1")),
+        ("@CORSA9.7.2 lunghezza=150", ("CORSA9.7", "2")),
+        ("@frammento_R1", ("frammento", "R1")),
+        ("@frammento-2\tcommento", ("frammento", "2")),
+        ("@frammento/R2", ("frammento", "R2")),
+        ("@DEPOSITO7.11", None),
+        ("@DEPOSITO7.112", None),
+        ("@frammento_3", None),
+        ("@frammentoR1", None),
+        ("@frammento1", None),
+        ("@frammento_r1", None),
+        ("@.1", None),
+        ("@frammento 1", None),
+        ("@", None),
+    ):
+        assert marcatore_di_coppia(intestazione) == atteso, intestazione
+
+
+@pytest.mark.parametrize("stile", sorted(INTERCALATI))
+def test_le_coppie_intercalate_si_riconoscono_dal_marcatore_in_fondo_al_nome(tmp_path, stile):
+    """
+    **Obiettivo**: Verificare che un file con le due letture di ogni coppia
+    intercalate, distinte dal solo marcatore in fondo all'identificativo
+    (quattro convenzioni), sia giudicato un file di coppie sia sulle prime
+    letture, come fa G07, sia su tutte, come fa S1; che le coppie contino fra i
+    nomi ripetuti; e che G07 lo respinga con ``E-S0-07`` nominando la causa.
+
+    **Razionale scientifico e sistemistico**: Queste coppie hanno nomi diversi
+    e nessun marcatore ``/1`` e ``/2``: passerebbero come single-end, con le
+    seconde letture trattate come forward e nessun avviso.
+    """
+    coppie = 40
+    scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
+    percorso = _file_di(scenario, "ERX3000001")
+    nomi = [nome for i in range(1, coppie + 1) for nome in INTERCALATI[stile](i)]
+    _scrivi_record(percorso, [(nome, lettura()) for nome in nomi])
+    for esito in (scansiona_file(percorso, 30, None, None), conta_coppie(percorso)):
+        attese = esito.letture_esaminate // 2
+        assert esito.compagne_per_marcatore == attese == esito.nomi_ripetuti
+        assert (esito.prime_di_coppia, esito.seconde_di_coppia, esito.nomi_oltre_due) == (0, 0, 0)
+        assert "marcatore di coppia" in esito.coppie_nello_stesso_file
+    g07 = esegui_gate("G07", Contesto(scenario.config))
+    assert [v.codice for v in g07.violazioni] == ["E-S0-07"]
+    assert percorso.name in g07.violazioni[0].dettaglio
+    assert "marcatore di coppia" in g07.violazioni[0].dettaglio
+
+
+@pytest.mark.parametrize("stile", sorted(SINGOLI))
+def test_un_file_single_end_numerato_non_e_preso_per_un_file_di_coppie(tmp_path, stile):
+    """
+    **Obiettivo**: Verificare che un file single-end i cui identificativi
+    finiscono come un marcatore di coppia non abbia alcuna coppia contata, ne'
+    sulle prime letture ne' su tutte: letture numerate in fondo
+    all'identificativo (con le coppie apparenti 1-2, 11-12, 21-22, 111-112),
+    numero di lettura sempre uguale a uno, tutte marcate ``_1``, e un file di
+    due sole letture; e che G07 lo accetti.
+
+    **Razionale scientifico e sistemistico**: Gli archivi pubblici numerano
+    cosi' le letture single-end: una regola sul solo suffisso respingerebbe
+    ogni loro file. Contano solo le coppie in serie, con prefissi diversi.
+    """
+    scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
+    percorso = _file_di(scenario, "ERX3000001")
+    _scrivi_record(percorso, [(nome, lettura()) for nome in SINGOLI[stile]])
+    for esito in (scansiona_file(percorso, 20, None, None), conta_coppie(percorso)):
+        assert (esito.compagne_per_marcatore, esito.nomi_ripetuti) == (0, 0)
+        assert esito.coppie_nello_stesso_file is None
+    assert conta_coppie(percorso).letture_esaminate == len(SINGOLI[stile])
+    assert esegui_gate("G07", Contesto(scenario.config)).superato
+
+
+def test_le_coppie_per_marcatore_contano_solo_in_serie_e_senza_doppio_conteggio(tmp_path):
+    """
+    **Obiettivo**: Verificare i confini della regola: una sola coppia in un
+    file di letture singole non conta; due coppie consecutive con lo stesso
+    prefisso non fanno una serie; due coppie consecutive con prefissi diversi
+    contano entrambe; una coppia spostata di una posizione (pari e dispari
+    invece di dispari e pari) non conta; i marcatori 1 poi R2 non sono una
+    coppia; e le coppie marcate ``/1`` e ``/2``, gia' contate per nome, non
+    sono contate una seconda volta.
+
+    **Razionale scientifico e sistemistico**: Il conteggio entra nei nomi
+    ripetuti, la cui soglia decide l'arresto: un conteggio doppio, o una
+    coppia apparente contata, sposterebbe il giudizio su file legittimi.
+    """
+    percorso = tmp_path / "letture.fastq.gz"
+
+    def contate(nomi: list[str]) -> tuple[int, int]:
+        _scrivi_record(percorso, [(nome, lettura()) for nome in nomi])
+        esito = conta_coppie(percorso)
+        return esito.compagne_per_marcatore, esito.nomi_ripetuti
+
+    singole = [f"s{i}" for i in range(10)]
+    assert contate(["a_1", "a_2", *singole]) == (0, 0)
+    # Gli stessi due nomi due volte sono nomi ripetuti, non compagne.
+    assert contate(["a_1", "a_2", "a_1", "a_2", *singole]) == (0, 2)
+    assert contate(["a_1", "a_2", "b_1", "b_2", *singole]) == (2, 2)
+    assert contate(["a_1", "a_2", "b_1", "b_2", "c_1", "c_2"]) == (3, 3)
+    assert contate(["s0", "a_1", "a_2", "b_1", "b_2", "s1"]) == (0, 0)
+    assert contate(["a_1", "a_R2", "b_1", "b_R2"]) == (0, 0)
+    assert contate(["a_2", "a_1", "b_2", "b_1"]) == (0, 0)
+    # Una lettura singola fra due coppie spezza la serie.
+    assert contate(["a_1", "a_2", "s0", "s1", "b_1", "b_2"]) == (0, 0)
+    # Con la barra il nome senza marcatore e' gia' uguale: contano una volta.
+    assert contate(["a/1", "a/2", "b/1", "b/2"]) == (0, 2)
+
+
+def test_la_ricerca_delle_coppie_per_marcatore_ricorda_solo_la_lettura_vicina():
+    """
+    **Obiettivo**: Verificare che il contatore delle coppie per marcatore non
+    conservi le letture gia' viste: dopo molte letture il suo stato ha la
+    stessa dimensione che dopo le prime.
+
+    **Razionale scientifico e sistemistico**: S1 lo applica a ogni lettura di
+    ogni file: una memoria che crescesse con le letture si sommerebbe, per ogni
+    processo, a quella del profilo.
+    """
+    def dimensione(contatore: SerieDiCompagne) -> int:
+        return sum(len(repr(valore)) for valore in vars(contatore).values())
+
+    contatore = SerieDiCompagne()
+    for i in range(4):
+        contatore.aggiungi(f"@f{i % 9}_1", f"f{i % 9}_1")
+        contatore.aggiungi(f"@f{i % 9}_2", f"f{i % 9}_2")
+    all_inizio = dimensione(contatore)
+    for i in range(4, 20000):
+        contatore.aggiungi(f"@f{i % 9}_1", f"f{i % 9}_1")
+        contatore.aggiungi(f"@f{i % 9}_2", f"f{i % 9}_2")
+    assert contatore.contate == 20000
+    assert dimensione(contatore) <= all_inizio + 8
+
+
+def test_le_coppie_intercalate_oltre_le_letture_ispezionate_fermano_s1(bioc, tmp_path):
+    """
+    **Obiettivo**: Verificare che un file che comincia con letture singole e
+    prosegue con coppie intercalate, distinte dal marcatore in fondo
+    all'identificativo, superi G07 e fermi S1 con ``E-S1-04``, e che
+    ``coppie.tsv`` riporti le coppie fra i nomi ripetuti di quel solo file.
+
+    **Razionale scientifico e sistemistico**: La regola e' una sola per G07 e
+    per S1: cio' che il gate non vede nelle prime letture, il conteggio su
+    tutte le letture lo deve vedere con lo stesso criterio.
+    """
+    scenario = crea_scenario(tmp_path, _campioni(), con_arricchimento=True, con_letture=True,
+                             sovrascrivi={"qc": {"head_reads": 20}})
+    percorso = _file_di(scenario, "ERX3000002")
+    nomi = [f"singola{i}" for i in range(30)]
+    nomi += [nome for i in range(1, 31) for nome in INTERCALATI["trattino_basso"](i)]
+    _scrivi_record(percorso, [(nome, lettura()) for nome in nomi])
+    run = ProjectRun(scenario.config)
+    esito = Esecutore(run, fino_a=Passo.S1).esegui()
+    assert [r.passo for r in esito.eseguite] == [Passo.S0]
+    assert esito.conclusione is Conclusione.ARRESTATA
+    assert (esito.punto.passo, esito.punto.codice) == (Passo.S1, "E-S1-04")
+    assert percorso.name in esito.punto.dettaglio and "marcatore di coppia" in esito.punto.dettaglio
+    coppie = {r["campione"]: r for r in _tsv(run.albero.cartella(Fase.QC_PROFILES) / NOME_COPPIE)}
+    assert coppie["ERX3000002"]["nomi_ripetuti"] == "30"
+    assert coppie["ERX3000002"]["coppie_nello_stesso_file"] == "si"
+    assert {r["nomi_ripetuti"] for a, r in coppie.items() if a != "ERX3000002"} == {"0"}
 
 
 def test_un_file_con_le_due_letture_di_ogni_coppia_ferma_s1(bioc, tmp_path):
@@ -1061,155 +1435,6 @@ def test_s1_registra_i_conteggi_di_coppia_fra_i_suoi_artefatti(bioc, ridotta_cal
 
 
 # --------------------------------------------------------------------------- #
-# 5. Lo strumento di sensibilita'                                              #
-# --------------------------------------------------------------------------- #
-
-
-def _strumento():
-    """Il modulo ``scripts/sensitivity.py``, caricato dal file: la cartella degli
-    script non e' un pacchetto.
-    """
-    specifica = importlib.util.spec_from_file_location(
-        "sensitivity_w29", RADICE / "scripts" / "sensitivity.py")
-    modulo = importlib.util.module_from_spec(specifica)
-    specifica.loader.exec_module(modulo)
-    return modulo
-
-
-senza_script = pytest.mark.skipif(
-    not (RADICE / "scripts" / "sensitivity.py").is_file(),
-    reason="la cartella scripts/ non e' presente (nell'immagine non viene copiata)",
-)
-
-
-@senza_script
-def test_lo_strumento_di_sensibilita_legge_griglie_e_valori_correnti(tmp_path):
-    """
-    **Obiettivo**: Verificare che lo strumento non porti nel codice griglie,
-    valori correnti ne' modalita'; che legga le griglie dal file indicato, il
-    valore corrente dalla configurazione e riconosca la modalita' corrente dai
-    parametri; e che una configurazione che corrisponde a nessuna o a piu'
-    modalita' sia un errore dello strumento.
-
-    **Razionale scientifico e sistemistico**: Uno strumento con i valori di un
-    dataset nel codice, applicato a un altro, confronterebbe la configurazione
-    con una griglia che non la riguarda e fallirebbe su un'asserzione.
-    """
-    S = _strumento()
-    for nome in ("GRIGLIE", "FUORI_GRIGLIA", "MODALITA", "MODALITA_CORRENTE"):
-        assert not hasattr(S, nome), nome
-    griglie = tmp_path / "griglie.yaml"
-    griglie.write_text(yaml.safe_dump({
-        "numerici": {"prev.min_fraction": {"griglia": [0.1, 0.2, 0.3], "fuori_griglia": [0.5]},
-                     "filt.remove_na_phylum": {"griglia": [False, True]}},
-        "modalita": {"nome": "confronto", "valori": {
-            "uno": {"decontam.mode": "aggregate"},
-            "due": {"decontam.mode": "batch", "decontam.batch_combine": "fisher"}}},
-    }, sort_keys=False), encoding="utf-8")
-    numerici, nome, modalita = S.leggi_griglie(griglie)
-    assert numerici["prev.min_fraction"] == {"griglia": (0.1, 0.2, 0.3), "fuori_griglia": (0.5,)}
-    assert numerici["filt.remove_na_phylum"]["fuori_griglia"] == ()
-    assert nome == "confronto" and list(modalita) == ["uno", "due"]
-
-    config = config_ridotta(tmp_path, prev={"min_fraction": 0.2})
-    assert S.valore_corrente(config, "prev.min_fraction") == 0.2
-    assert S.modalita_corrente(config, modalita) == "uno"
-    with pytest.raises(S.ErroreSensibilita, match="0 delle modalita'"):
-        S.modalita_corrente(config, {"due": modalita["due"]})
-    with pytest.raises(S.ErroreSensibilita, match="2 delle modalita'"):
-        S.modalita_corrente(config, {"uno": modalita["uno"], "anche": {"decontam.mode": "aggregate"}})
-    assert S._per_gruppo({"decontam.mode": "batch", "decontam.batch_combine": "fisher",
-                          "qc.max_frac_contaminant": 1.0}) == {
-        "decontam": {"mode": "batch", "batch_combine": "fisher"}, "qc": {"max_frac_contaminant": 1.0}}
-
-
-def _esecuzione_finta(cartella: Path, degradazioni: list[str]) -> Path:
-    """Una cartella con i soli artefatti che lo strumento di sensibilita' legge."""
-    (cartella / "11_controls").mkdir(parents=True)
-    (cartella / "12_final" / "intermedi").mkdir(parents=True)
-    (cartella / "11_controls" / "soglia.json").write_text(json.dumps({
-        "scelta": "per_piastra", "per_piastra": {
-            "2": {"valore": 900, "origine": "mediana"}, "10": {"valore": 800, "origine": "propria"}},
-    }), encoding="utf-8")
-    (cartella / "11_controls" / "decontam_riepilogo.json").write_text(json.dumps({
-        "contaminanti_rimossi": 3, "letture_rimosse": {"biologico": 0.05}}), encoding="utf-8")
-    (cartella / "12_final" / "tassonomia.tsv").write_text("asv_id\nASV1\nASV2\n", encoding="utf-8")
-    (cartella / "12_final" / "conteggi.tsv").write_text("asv_id\tA\tB\n", encoding="utf-8")
-    (cartella / "12_final" / "intermedi" / "filtri_riepilogo.json").write_text(json.dumps({
-        "letture": {"finali": 100}, "varianti": {"finali": 2, "rimosse": {"prevalenza": 1}},
-        "campioni": {"finali": 2, "biologici": 4, "esclusi": {"profondita": 2}},
-    }), encoding="utf-8")
-    (cartella / "12_final" / "intermedi" / "manifest_S13.json").write_text(json.dumps({
-        "degradazioni": [{"codice": c} for c in degradazioni]}), encoding="utf-8")
-    return cartella
-
-
-@senza_script
-def test_solo_un_arresto_previsto_dalla_regola_rende_un_valore_non_ammissibile(
-    tmp_path, monkeypatch
-):
-    """
-    **Obiettivo**: Verificare che lo strumento giudichi non ammissibile un
-    valore solo per le condizioni che la regola prevede (arresto ``E-S12-02``
-    o ``E-S14-01``, campioni svuotati dal filtro di prevalenza dichiarati con
-    ``E-S13-02``), e che un arresto con qualunque altro codice lo fermi con
-    un errore che nomina la variante e il codice; che le origini non proprie
-    delle soglie siano riportate per piastra, in ordine numerico.
-
-    **Razionale scientifico e sistemistico**: Un guasto contato come "valore
-    non ammissibile" finirebbe nella tabella come una proprieta' del
-    parametro: la regola sceglierebbe un valore in base a un errore.
-    """
-    S = _strumento()
-    assert set(S.ARRESTI_PREVISTI) == {"E-S12-02", "E-S14-01"}
-    assert S.SVUOTATI_DALLA_PREVALENZA == "E-S13-02"
-    assert {S.ARRESTI_PREVISTI.keys() <= set(CATALOGO), S.SVUOTATI_DALLA_PREVALENZA in CATALOGO} == {True}
-
-    completa = S.misura(_esecuzione_finta(tmp_path / "a", []))
-    assert completa["ammissibile"] and completa["esito"] == "completata"
-    assert completa["origini"] == {"2": "mediana", "10": "propria"}
-    svuotati = S.misura(_esecuzione_finta(tmp_path / "b", ["E-S13-03", "E-S13-02"]))
-    assert not svuotati["ammissibile"] and "E-S13-02" in svuotati["esito"]
-    fermata = S.misura(_esecuzione_finta(tmp_path / "c", []), "E-S12-02")
-    assert not fermata["ammissibile"] and "campioni" not in fermata
-    riga = S._riga("p", 1, completa, completa)
-    assert riga[-3:-1] == ["2: mediana", "2: 900; 10: 800"]
-    assert S._riga("p", 1, fermata, completa)[3:13] == [""] * 10
-
-    origine = _esecuzione_finta(tmp_path / "origine", [])
-    base = dati_config(tmp_path / "base")
-
-    def esecutore_con(codice: str | None, dettaglio: str = ""):
-        punto = None if codice is None else SimpleNamespace(
-            passo=Passo.S12, codice=codice, dettaglio=dettaglio)
-        esito = SimpleNamespace(
-            conclusione=Conclusione.COMPLETATA if codice is None else Conclusione.ARRESTATA,
-            punto=punto, eseguite=[])
-        return lambda run: SimpleNamespace(esegui=lambda: esito)
-
-    import amplicon16s.runner.executor as modulo_esecutore
-
-    monkeypatch.setattr(modulo_esecutore, "Esecutore", esecutore_con("E-S12-02"))
-    prevista = S.esegui_variante("prevista", base, origine, tmp_path / "lavoro", {}, False)
-    assert not prevista["ammissibile"] and prevista["codice_arresto"] == "E-S12-02"
-    monkeypatch.setattr(modulo_esecutore, "Esecutore", esecutore_con("E-R-03"))
-    with pytest.raises(S.ErroreSensibilita, match="imprevista.*E-R-03.*non e' un arresto previsto"):
-        S.esegui_variante("imprevista", base, origine, tmp_path / "lavoro", {}, False)
-    # E-S14-01 e' anche un oggetto finale non valido: e' previsto dalla regola
-    # solo quando riguarda la frazione di letture trattenute.
-    monkeypatch.setattr(modulo_esecutore, "Esecutore", esecutore_con(
-        "E-S14-01", "frazione 0.31 sotto qc.min_frac_reads_retained (0.4)"))
-    trattenute = S.esegui_variante("trattenute", base, origine, tmp_path / "lavoro", {}, False)
-    assert trattenute["codice_arresto"] == "E-S14-01" and not trattenute["ammissibile"]
-    monkeypatch.setattr(modulo_esecutore, "Esecutore", esecutore_con(
-        "E-S14-01", "ps_filtrato.rds di S13 manca o non corrisponde al suo manifesto"))
-    with pytest.raises(S.ErroreSensibilita, match="strutturale.*E-S14-01.*ps_filtrato"):
-        S.esegui_variante("strutturale", base, origine, tmp_path / "lavoro", {}, False)
-    monkeypatch.setattr(modulo_esecutore, "Esecutore", esecutore_con(None))
-    assert S.esegui_variante("conclusa", base, origine, tmp_path / "lavoro", {}, False)["ammissibile"]
-
-
-# --------------------------------------------------------------------------- #
 # 6. Il riferimento tassonomico comune                                         #
 # --------------------------------------------------------------------------- #
 
@@ -1246,7 +1471,6 @@ def test_le_configurazioni_pubblicate_puntano_al_riferimento_comune():
         assert config.tax.ref_fasta.parent == Path("dati/riferimento"), dataset
         assert config.tax.ref_md5 == impronte[config.tax.ref_fasta.name]
         assert "min_reads_raw" not in percorso.read_text(encoding="utf-8")
-        assert config.qc.min_reads_mode == "katharoseq_if_available"
     assert "osd734" not in (DATI / "osd276" / "config_osd276.yaml").read_text(encoding="utf-8")
 
 
@@ -1288,11 +1512,65 @@ def test_i_file_di_ena_del_secondo_dataset_si_fermano_tutti_in_s0_o_in_s1(tmp_pa
         pytest.skip("AMPLICON16S_DATI_OSD276 non impostata: file del secondo dataset non disponibili")
     head_reads = config_ridotta(tmp_path).qc.head_reads
     g07, s1, passano = _giudizi(Path(_OSD276) / "ena", head_reads)
-    assert len(g07) + len(s1) == 15 and passano == []
+    depositati = attesi_dataset()["secondo_dataset"]["file_depositati"]
+    assert len(g07) + len(s1) == depositati and passano == []
     assert s1, "nessun file a blocchi: il conteggio di S1 non sarebbe messo alla prova"
     g07, s1, passano = _giudizi(Path(_OSD276) / "fastq", head_reads)
-    assert (g07, s1) == ([], []) and len(passano) == 15
-    print(f"\nfile ENA fermati da G07 e da S1: {15 - len(s1)} e {len(s1)}")
+    assert (g07, s1) == ([], []) and len(passano) == depositati
+
+
+def _intercala(origine: Path, destinazione: Path, prima: str, seconda: str, coppie: int) -> None:
+    """Scrive le prime ``coppie`` coppie di un file che riporta tutte le prime
+    letture (``/1``) e poi tutte le seconde (``/2``), intercalate e con i
+    marcatori indicati in fondo all'identificativo al posto di ``/1`` e ``/2``.
+    """
+    prime: list[list[str]] = []
+    seconde: list[list[str]] = []
+    with gzip.open(origine, "rt", encoding="utf-8") as file:
+        while len(seconde) < coppie:
+            record = [file.readline() for _ in range(4)]
+            if not record[0]:
+                break
+            testa = record[0].rstrip("\n")
+            if testa.endswith("/1") and len(prime) < coppie:
+                prime.append(record)
+            elif testa.endswith("/2"):
+                seconde.append(record)
+    assert len(prime) == len(seconde) == coppie
+    with gzip.open(destinazione, "wt", encoding="utf-8") as file:
+        for numero, (uno, due) in enumerate(zip(prime, seconde, strict=True), start=1):
+            base = uno[0][1:].split()[0]
+            assert due[0][1:].split()[0] != base, "le seconde letture hanno un identificativo proprio"
+            for record, marcatore in ((uno, prima), (due, seconda)):
+                file.write(f"@lettura{numero}{marcatore}\n" + "".join(record[1:]))
+
+
+@pytest.mark.dati_reali
+@pytest.mark.parametrize("marcatori", [(".1", ".2"), ("_1", "_2"), ("_R1", "_R2")],
+                         ids=["punto", "trattino_basso", "trattino_basso_e_R"])
+def test_un_campione_reale_intercalato_con_altri_marcatori_e_respinto(tmp_path, marcatori):
+    """
+    **Obiettivo**: Verificare, sulle letture depositate di un campione del
+    secondo dataset, che il file con le due letture di ogni coppia intercalate
+    e marcate in fondo all'identificativo con ``.1`` e ``.2``, ``_1`` e ``_2``,
+    ``_R1`` e ``_R2`` sia respinto sia sulle prime letture (G07) sia su tutte
+    (S1), e che le coppie contate siano tutte quelle scritte.
+
+    **Razionale scientifico e sistemistico**: E' il caso che passava come
+    single-end: letture vere di una corsa appaiata, con una convenzione di
+    nomi diversa da ``/1`` e ``/2``.
+    """
+    if not _OSD276 or not (Path(_OSD276) / "ena").is_dir():
+        pytest.skip("AMPLICON16S_DATI_OSD276 non impostata: file del secondo dataset non disponibili")
+    origine = sorted((Path(_OSD276) / "ena").glob("*.fastq.gz"))[0]
+    coppie = 5000
+    destinazione = tmp_path / "intercalato.fastq.gz"
+    _intercala(origine, destinazione, *marcatori, coppie)
+    head_reads = config_ridotta(tmp_path).qc.head_reads
+    for esito in (scansiona_file(destinazione, head_reads, None, None), conta_coppie(destinazione)):
+        assert esito.compagne_per_marcatore == esito.letture_esaminate // 2
+        assert "marcatore di coppia" in esito.coppie_nello_stesso_file
+    assert conta_coppie(destinazione).compagne_per_marcatore == coppie
 
 
 @pytest.mark.dati_reali
@@ -1311,10 +1589,10 @@ def test_nessun_file_del_dataset_di_riferimento_ha_segni_di_coppia():
     from concurrent.futures import ProcessPoolExecutor
 
     file = sorted(Path(carica(_CONFIG_REALE).io.fastq_dir).glob("*.fastq.gz"))
-    assert len(file) >= 900
+    assert len(file) == attesi_dataset()["campioni"]
     with ProcessPoolExecutor(max_workers=len(os.sched_getaffinity(0))) as gruppo:
         esiti = list(gruppo.map(conta_coppie, file))
     assert [s.nome for s in esiti if s.coppie_nello_stesso_file] == []
     assert sum(s.prime_di_coppia + s.seconde_di_coppia + s.nomi_ripetuti + s.nomi_oltre_due
                for s in esiti) == 0
-    print(f"\n{len(file)} file, {sum(s.letture_esaminate for s in esiti)} letture, nessun segno di coppia")
+    assert all(s.valido and s.letture_esaminate > 0 for s in esiti)

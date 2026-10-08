@@ -178,6 +178,7 @@ class RimozioneChimere(PipelineStep):
             contesto.albero,
             self.cartella,
             passo=self.passo,
+            tempo_massimo_s=contesto.config.run.r_timeout_s,
             logger=contesto.logger,
         )
         cartella = contesto.albero.cartella(self.cartella)

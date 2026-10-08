@@ -19,7 +19,6 @@ from typing import Final
 
 __all__ = [
     "ALGORITMO",
-    "checksum_bytes",
     "checksum_file",
     "corrisponde",
 ]
@@ -43,11 +42,6 @@ def checksum_file(percorso: Path | str) -> str:
         while blocco := file.read(_BLOCCO):
             impronta.update(blocco)
     return _formatta(impronta.hexdigest())
-
-
-def checksum_bytes(dati: bytes) -> str:
-    """Checksum di un contenuto già in memoria."""
-    return _formatta(hashlib.new(ALGORITMO, dati).hexdigest())
 
 
 def corrisponde(percorso: Path | str, atteso: str) -> bool:

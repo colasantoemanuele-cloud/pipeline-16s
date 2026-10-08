@@ -15,12 +15,15 @@ io:
   study_table: dati/osd276/metadati/s_OSD-276.txt
   out_root: output/osd276
   batch_table: null
+  fastq_glob: "*.fastq.gz"
   # I file prendono il nome dalla corsa (SRR), che e' anche nel nome del file
   # riportato dalla tabella di assay (GLDS-276_Amplicon_SRR5336316.fastq.gz).
   accession_regex: "SRR[0-9]+"
 meta:
   sample_id_column: "Sample Name"
   accession_column: "Raw Data File"
+  # Dichiarato vero, ma senza module_regex nessun modulo viene derivato.
+  derive_module: true
   # La posizione e' una descrizione libera ("lab fwd air vent"): non c'e' un
   # prefisso da cui derivare il modulo.
   module_regex: null
@@ -32,11 +35,31 @@ filter:
   # Letture tutte di 151 basi, con qualita' mediana mai sotto 33: si toglie la
   # sola ultima base.
   truncLen: 150
+  truncLen_shortfall_warn: 10
   # Le letture non contengono il primer: iniziano a valle del 515F.
   trimLeft: 0
+  maxEE: 2.0
+  truncQ: 2
+  maxN: 0
+  rm_phix: true
 err:
+  error_function: loess
+  nbases: 1.0e+8
+  max_consist: 10
+  randomize: true
   # Una sola corsa di sequenziamento.
   batch_column: null
+dada:
+  pool: pseudo
+  omega_a: 1.0e-40
+chimera:
+  method: consensus
+  min_fold_parent_over_abundance: 2.0
+  min_parent_abundance: 2
+  min_sample_fraction: 0.9
+  allow_one_off: false
+asv:
+  len_tol: 0
 tax:
   ref_fasta: dati/riferimento/silva_nr99_v138_train_set.fa.gz
   ref_md5: "56821dd6f365f64c8518a21e049c3232"
@@ -44,8 +67,22 @@ tax:
   ref_version: "138"
   # 150 basi su circa 253 dell'amplicone V4: bootstrap 50 e niente specie, come
   # per ogni lettura forward di questa lunghezza.
+  classifier: naive_bayes
   min_boot: 50
+  try_rc: true
   assign_species: false
+  ref_bad_taxa: null
+filt:
+  remove_na_phylum: true
+  exclude_taxa:
+    - Chloroplast
+    - Mitochondria
+    - Eukaryota
+phylo:
+  enabled: false
+  max_seqs: 5000
+  aligner: decipher
+  model: "GTR+G+I"
 ctrl:
   column: "Characteristics[Material Type]"
   # Tutti i 15 campioni sono tamponi di superficie, dichiarati "Cells".
@@ -56,27 +93,68 @@ ctrl:
   positive_values: []
   blank_override_column: null
   blank_override_values: []
+  # Senza controlli positivi i tre valori non hanno effetto.
+  min_positives: 3
+  min_positive_pass_frac: 0.75
+  positive_gate: false
 katharoseq:
+  # Senza controlli positivi nessuna curva viene adattata: gli altri valori
+  # del gruppo sono dichiarati per completezza e non hanno effetto.
   target_taxon: null
   cell_count_column: null
+  collapse_rank: Genus
+  curve_model: allosteric_sigmoid
+  target_sensitivity: 0.90
+  min_r2: 0.80
+  read_stage: nonchimeric
 decontam:
   batch_column: null
   # Senza controlli negativi la decontaminazione non ha su che cosa basarsi:
-  # i tre valori sono dichiarati per completezza e non hanno effetto.
+  # i valori sono dichiarati per completezza e non hanno effetto.
   method: prevalence
   threshold: 0.5
+  min_blanks: 5
+  batch_combine: minimum
   mode: aggregate
 prev:
+  apply: true
+  min_count: 2
   # Con 15 campioni l'1% equivarrebbe a un solo campione, cioe' a nessun
   # filtro: una variante deve comparire in almeno 2 campioni su 15.
   min_fraction: 0.1
 qc:
   # Regione V4, primer 515F-806R: lo stesso primer forward e lo stesso motivo
   # conservato a valle.
+  head_reads: 10000
   primer_sequence: GTGYCAGCMGCCGCGGTAA
+  max_primer_hit_frac: 0.05
   conserved_motif: "TAC[AG].AGG..GC.AGCGTT"
   min_motif_frac: 0.25
+  max_frac_short_reads: 0.05
+  max_zeroed_samples: 0
+  max_frac_lost_filter: 0.30
+  max_asv_count: 300000
+  warn_frac_chimeric: 0.25
+  stop_frac_chimeric: 0.50
+  min_frac_phylum: 0.80
+  # Senza controlli positivi la soglia di profondita' non esiste, e la
+  # pipeline lo dichiara.
+  min_reads_mode: katharoseq_if_available
+  max_frac_contaminant: 0.40
+  min_reads_final: 1000
+  min_frac_reads_retained: 0.40
+retry:
+  enabled: true
+  max_attempts: 2
+  whitelist:
+    - E-S2-03
+    - E-S4-02
 out:
+  serialization: rds
+  taxa_are_rows: true
+  asv_id_scheme: abundance_rank
+  sample_id_source: accession
+  export_flat: true
   study_columns:
     - "Factor Value[Spaceflight]"
     - "Parameter Value[Sample Storage Temperature]"
@@ -84,3 +162,8 @@ out:
 run:
   # L'immagine pubblicata con cui la prova e' stata eseguita.
   container: "ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154"
+  lockfile: renv.lock
+  seed: 100
+  batch_size: 24
+  keep_filtered_fastq: true
+  strict_provenance: false

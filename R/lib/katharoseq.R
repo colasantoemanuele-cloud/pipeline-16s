@@ -19,8 +19,9 @@
 # la sigmoide allosterica di KatharoSeq (Minich et al. 2018), con fedelta'
 # massima 1. Si adatta nella forma equivalente f(x) = 1 / (1 + (x50 / x)^h),
 # con k' = x50^h: x50 e' il log10 della profondita' a cui la fedelta' vale 1/2.
-# Sui dati di riferimento k' arriva a 1e9 e x50 resta fra 3 e 5: con k' la
-# stima non converge, con x50 si'. La profondita' minima per una fedelta' s e'
+# k' cresce come una potenza (ordini di grandezza diversi da una curva
+# all'altra) mentre x50 resta dell'ordine del log10 delle profondita': con k'
+# la stima non converge, con x50 si'. La profondita' minima per una fedelta' s e'
 #
 #     n* = 10^(x50 * (s / (1 - s))^(1 / h))
 #
@@ -158,8 +159,8 @@ adatta_curva <- function(profondita, fedelta, sensibilita) {
 # soglia senza sostegno: se fra la meta' della transizione e la soglia non c'e'
 # alcuna osservazione, la posizione della soglia viene solo dalla forma del
 # modello, e qualunque posizione nel tratto vuoto darebbe un adattamento
-# equivalente (sulla piastra 1 del dataset di riferimento la curva e' un
-# gradino, h 110, nel tratto vuoto fra 49.417 e 99.521 letture). La soglia e'
+# equivalente (succede quando la curva e' un gradino, con h molto grande, in
+# un tratto senza controlli). La soglia e'
 # determinata se almeno un'osservazione cade fra il punto medio della curva,
 # 10^x50, dove la fedelta' vale 1/2, e la soglia stessa, estremi inclusi: la
 # soglia e' allora un'interpolazione fra osservazioni dentro la transizione.
@@ -170,7 +171,7 @@ adatta_curva <- function(profondita, fedelta, sensibilita) {
 # gradino quasi perfetto la somma dei quadrati minima e' prossima a zero, la
 # forma rigida della sigmoide colloca il gradino in base ai valori di fedelta'
 # alle due estremita', e l'intervallo risulta stretto proprio dove i dati non
-# dicono nulla (misurato sulla piastra 1: 85.815-92.803 letture).
+# dicono nulla.
 
 soglia_determinata <- function(profondita, curva) {
   esito <- list(punto_medio = NA_real_, osservazioni = 0L, determinata = FALSE, motivo = "")

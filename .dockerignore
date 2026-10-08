@@ -51,3 +51,6 @@ work/
 .Rproj.user/
 .env
 .DS_Store
+
+# Documenti di lavoro locali: non servono ne' alla costruzione ne' al calcolo.
+docs/

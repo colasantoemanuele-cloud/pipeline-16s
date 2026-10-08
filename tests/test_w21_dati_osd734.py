@@ -30,7 +30,7 @@ repository.
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard:
        pytest tests/test_w21_dati_osd734.py -v
@@ -95,6 +95,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
 import pytest
+from sottoinsieme import attesi_dataset
 
 RADICE = Path(__file__).resolve().parents[1]
 DATI = RADICE / "dati" / "osd734"
@@ -177,9 +178,10 @@ def test_l_elenco_delle_letture_copre_la_tabella_di_assay():
     """
     righe = scarica_letture.leggi_elenco()
     assay = ricostruisci_lotto.accession_per_nome()
-    assert len(righe) == 960
+    campioni = attesi_dataset()["campioni"]
+    assert len(righe) == campioni
     assert {r["experiment_accession"] for r in righe} == set(assay.values())
-    assert len({r["run_accession"] for r in righe}) == 960
+    assert len({r["run_accession"] for r in righe}) == campioni
     for riga in righe:
         assert re.findall(r"(?:E|S|D)RX[0-9]{4,}", riga["file"]) == [riga["experiment_accession"]]
         assert re.fullmatch(r"[0-9a-f]{32}", riga["fastq_md5"])

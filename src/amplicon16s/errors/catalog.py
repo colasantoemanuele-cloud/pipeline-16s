@@ -20,15 +20,18 @@ corrisponde a un gate: è l'avviso che G08 emette sulla composizione delle
 piastre, distinto dal proprio codice di errore perché un avviso e un arresto
 non possono condividere una categoria di gestione.
 
-**Il retry automatico è un elenco chiuso.** Solo quattro codici lo ammettono, e
+**Il retry automatico è un elenco chiuso.** Solo due codici lo ammettono, e
 sono gli stessi dichiarati in ``retry.whitelist``. Il criterio non è la gravità
-ma la natura dell'azione correttiva: rileggere un file (E-S2-03), aumentare i
-dati di una stima (E-S3-01) o ridurre la dimensione di un lotto (E-S4-02) non
-modifica alcuna assunzione metodologica, mentre spostare una soglia è una
-decisione scientifica e non può essere presa da un programma. E-S5-01 resta
-ammesso, ma la sua fase dichiara nell'errore che ritentare non servirebbe (la
-memoria della tabella non dipende dal lotto), e l'esecuzione si ferma. Un test
-verifica nei due versi che l'elenco resti quello.
+ma la natura dell'azione correttiva: rileggere un file (E-S2-03) o ridurre la
+dimensione di un lotto (E-S4-02) non modifica alcun risultato, mentre
+aumentare i dati di una stima (E-S3-01) lo cambia, e spostare una soglia è una
+decisione scientifica: nessuna delle due può essere presa da un programma. Un
+test verifica nei due versi che l'elenco resti quello.
+
+**Codici sollevati e codici riservati.** Ogni codice del catalogo è sollevato
+da qualche parte del codice, Python o R, oppure è elencato in
+:data:`RISERVATI` con il motivo per cui esiste senza essere sollevato. Un test
+lo verifica nei due versi: nessun codice sollevato manca dal catalogo.
 
 **I codici del ponte verso R.** I codici ``E-R-*`` non appartengono a una
 fase ma al ponte (:mod:`amplicon16s.rbridge`) che esegue gli script R di tutte
@@ -59,9 +62,8 @@ from typing import Final
 __all__ = [
     "CATALOGO",
     "Categoria",
+    "RISERVATI",
     "VoceCatalogo",
-    "codici_con_retry",
-    "codici_di_fase",
     "voce",
 ]
 
@@ -75,23 +77,13 @@ class Categoria(StrEnum):
     #: Si ritenta entro il limite di retry.max_attempts.
     RETRY_AUTOMATICO = "retry_automatico"
 
-    #: Si ritenta e, se fallisce ancora, l'esecuzione si ferma.
-    RETRY_POI_REVISIONE = "retry_poi_revisione"
-
     #: Si prosegue con un comportamento di ripiego, registrandolo.
     DEGRADAZIONE_AUTOMATICA = "degradazione_automatica"
 
     @property
     def ammette_retry(self) -> bool:
         """Vero per le categorie che prevedono un nuovo tentativo automatico."""
-        return self in (Categoria.RETRY_AUTOMATICO, Categoria.RETRY_POI_REVISIONE)
-
-    @property
-    def ferma_esecuzione(self) -> bool:
-        """Vero per le categorie che, esauriti o esclusi i tentativi, fermano
-        l'esecuzione.
-        """
-        return self in (Categoria.REVISIONE_UMANA, Categoria.RETRY_POI_REVISIONE)
+        return self is Categoria.RETRY_AUTOMATICO
 
 
 @dataclass(frozen=True)
@@ -136,7 +128,6 @@ def _v(
 
 _UMANA = Categoria.REVISIONE_UMANA
 _RETRY = Categoria.RETRY_AUTOMATICO
-_RETRY_UMANA = Categoria.RETRY_POI_REVISIONE
 _DEGRADA = Categoria.DEGRADAZIONE_AUTOMATICA
 
 
@@ -321,9 +312,18 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "I dati non hanno un layout single-end.",
         "Seleziona il sottoinsieme single-end oppure usa una pipeline "
         "paired-end: questa tratta solo letture singole. Se un file contiene le "
-        "due letture di ogni coppia (lo dicono le intestazioni, con /1 e /2 o con "
-        "lo stesso nome due volte), o le sole seconde letture (intestazioni tutte "
-        "con /2), estrai le sole letture forward in un file per campione.",
+        "due letture di ogni coppia (lo dicono le intestazioni: /1 e /2, 1:N: e "
+        "2:N: nel commento, lo stesso nome due volte, oppure letture consecutive "
+        "che si distinguono per il solo marcatore 1 e 2, o R1 e R2, in fondo "
+        "all'identificativo dopo un punto, un trattino o un trattino basso), o "
+        "quasi sole seconde letture, estrai le sole letture forward in un file "
+        "per campione. "
+        "Un file il cui nome finisce con R2 prima dell'estensione e' preso per il "
+        "secondo di una coppia, e uno che finisce con il solo 2 lo e' se nella "
+        "cartella c'e' lo stesso nome con 1: se sono campioni e non letture, "
+        "rinominali. Il marcatore in fondo all'identificativo conta solo in "
+        "letture consecutive e in almeno due coppie di seguito: le letture "
+        "numerate di un file single-end non sono coppie.",
         _UMANA,
     ),
     _v(
@@ -376,8 +376,11 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S0-10", "S0",
         "Le letture contengono ancora il primer.",
-        "Imposta filter.trimLeft alla lunghezza del primer, oppure rimuovilo a "
-        "monte: lasciarlo falsa l'inferenza delle varianti. Con filter.trimLeft "
+        "Se il primer e' in testa a tutte le letture, imposta filter.trimLeft "
+        "alla sua lunghezza; se e' in testa solo a una parte (il dettaglio lo "
+        "dice), e' preceduto da basi di lunghezza variabile e va rimosso per "
+        "sequenza prima della pipeline: lasciarlo falsa l'inferenza delle "
+        "varianti. Con filter.trimLeft "
         "maggiore di zero il gate non cerca piu' il primer in testa e verifica il "
         "motivo conservato a partire da quella posizione.",
         _UMANA,
@@ -493,20 +496,34 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "file con tutte le prime letture seguite da tutte le seconde gli sfugge. "
         "Qui i segni di coppia sono contati su tutte le letture "
         "(02_qc_profiles/coppie.tsv). Se un file contiene le due letture di ogni "
-        "coppia (lo dicono le intestazioni, con /1 e /2 o con lo stesso nome due "
-        "volte), o le sole seconde letture (intestazioni tutte con /2), estrai le "
-        "sole letture forward in un file per campione: questa pipeline tratta "
-        "solo letture singole.",
+        "coppia (lo dicono le intestazioni: /1 e /2, lo stesso nome due volte, "
+        "oppure letture consecutive che si distinguono per il solo marcatore 1 e "
+        "2, o R1 e R2, in fondo all'identificativo), o quasi sole seconde letture "
+        "(intestazioni con /2), estrai le sole letture forward in un file per "
+        "campione: questa pipeline tratta solo letture singole.",
         _UMANA,
     ),
     _v(
         "E-S1-05", "S1",
         "Un file di letture non si legge fino in fondo.",
         "La validazione ispeziona le prime qc.head_reads letture di ogni file; "
-        "letto per intero, il file ha un record incompleto o un archivio che si "
-        "interrompe (il dettaglio dice dove). Riscarica il file dalla sorgente e "
+        "letto per intero, il file ha un record troncato, una riga vuota in mezzo "
+        "al file o un archivio che non si decomprime fino in fondo (il dettaglio "
+        "dice quale dei tre, e dove; le sole righe vuote in fondo sono tollerate). "
+        "Riscarica il file dalla sorgente e "
         "verificane il checksum prima di rieseguire: proseguire userebbe una "
         "parte delle letture senza dirlo.",
+        _UMANA,
+    ),
+    _v(
+        "E-S1-06", "S1",
+        "Memoria esaurita durante il profilo delle letture.",
+        "Il profilo e il conteggio dei segni di coppia leggono un file per "
+        "processo, e ogni processo tiene in memoria un blocco di letture con le "
+        "loro qualita' o i nomi delle letture del file: il sistema ha interrotto "
+        "uno o piu' processi. Aumenta la memoria disponibile al container, oppure "
+        "riduci i processi con run.threads, poi riprendi l'esecuzione: il "
+        "risultato non dipende dal numero di processi.",
         _UMANA,
     ),
     # ----------------------------------------------------------------- S2 ---
@@ -538,10 +555,12 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S3-01", "S3",
         "Il modello d'errore non converge.",
-        "L'apprendimento viene ritentato con piu' basi (err.nbases). Se non "
-        "converge ancora, esamina il lotto indicato da err.batch_column: "
-        "potrebbe raccogliere dati eterogenei che vanno separati.",
-        _RETRY_UMANA,
+        "Nessun nuovo tentativo automatico: aumentare le basi usate dalla stima "
+        "(err.nbases) o le iterazioni (err.max_consist) cambia il modello "
+        "d'errore, quindi i risultati, e va dichiarato nella configurazione. "
+        "Esamina anche il lotto indicato da err.batch_column: potrebbe "
+        "raccogliere dati eterogenei che vanno separati.",
+        _UMANA,
     ),
     _v(
         "E-S3-02", "S3",
@@ -603,13 +622,13 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "E-S5-01", "S5",
         "Le varianti distinte sono troppe per la tabella delle sequenze.",
         "Le varianti distinte superano qc.max_asv_count, oppure la memoria si e' "
-        "esaurita costruendo la tabella. Un nuovo tentativo non cambierebbe "
-        "nulla: la tabella e' una matrice densa campioni x varianti, la cui "
-        "dimensione non dipende da run.batch_size, e la fase lo dichiara. La "
+        "esaurita costruendo la tabella. Nessun nuovo tentativo automatico: la "
+        "tabella e' una matrice densa campioni x varianti, la cui dimensione non "
+        "dipende da run.batch_size. La "
         "decisione e' scientifica: valuta un filtro piu' severo a monte, "
         "anziche' alzare la soglia; solo se il numero di varianti e' plausibile, "
         "aumenta la memoria disponibile al container.",
-        _RETRY_UMANA,
+        _UMANA,
     ),
     # ----------------------------------------------------------------- S6 ---
     _v(
@@ -647,6 +666,18 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "amplificata e che tax.min_boot non sia troppo alto; le misure per classe "
         "sono in 08_taxonomy/riepilogo.json.",
         _UMANA,
+    ),
+    _v(
+        "E-S8-03", "S8",
+        "dada2 e' caricato senza la correzione dei pareggi di assignTaxonomy.",
+        "L'esecuzione prosegue e la tassonomia viene assegnata, ma dove due generi "
+        "hanno la stessa probabilita' la versione ufficiale di dada2 sceglie con un "
+        "generatore che il seme non controlla: quelle assegnazioni non sono "
+        "ripetibili da un'esecuzione all'altra, e i risultati a valle possono "
+        "differire. Per risultati riproducibili esegui nell'immagine pubblicata, "
+        "che porta la versione corretta; il dettaglio e il report riportano la "
+        "versione caricata e quella dichiarata nel file di blocco.",
+        _DEGRADA,
     ),
     # ----------------------------------------------------------------- S9 ---
     _v(
@@ -701,12 +732,15 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     # ---------------------------------------------------------------- S11 ---
     _v(
         "E-S11-02", "S11",
-        "Almeno una piastra, o un campione senza piastra, non usa una soglia "
-        "di profondita' derivata da una curva propria.",
+        "Con il modello per piastra, almeno una piastra o un campione senza "
+        "piastra non ha una curva propria valida e usa una soglia di ripiego.",
         "Si prosegue con la soglia della curva aggregata, se e' valida, altrimenti "
         "con la mediana delle soglie delle piastre con una curva propria valida, "
         "sempre sulle letture senza chimere: il dettaglio e 11_controls/soglia.json "
-        "riportano per ognuno l'origine della soglia e il motivo. Per una curva "
+        "riportano per ognuno l'origine della soglia e il motivo. Non riguarda "
+        "l'aggregato scelto come modello (preferito dall'AIC, o unico possibile "
+        "quando nessuna piastra ha abbastanza controlli): quella e' una scelta, "
+        "non un ripiego. Per una curva "
         "propria servono almeno ctrl.min_positives controlli utilizzabili nella "
         "piastra, una bonta' non inferiore a katharoseq.min_r2 e una soglia dentro "
         "le profondita' osservate e determinata dai dati: le misure di ogni curva "
@@ -741,10 +775,25 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "qc.min_reads_final, sulle letture dell'oggetto finale, e "
         "11_controls/soglia.json ne registra il motivo. Succede senza controlli "
         "positivi, senza la colonna delle cellule seminate "
-        "(katharoseq.cell_count_column), senza una piastra con almeno "
-        "ctrl.min_positives controlli utilizzabili, o se nessuna curva e' valida "
+        "(katharoseq.cell_count_column), con meno di ctrl.min_positives "
+        "controlli utilizzabili in tutto, o se nessuna curva e' valida "
         "(curve.tsv). Va dichiarato con i risultati: i campioni non sono stati "
         "selezionati per profondita'.",
+        _DEGRADA,
+    ),
+    _v(
+        "E-S11-06", "S11",
+        "La conformita' dei controlli positivi di uno o piu' livelli di "
+        "concentrazione non e' stata valutata: il livello ha meno controlli di "
+        "ctrl.min_positives.",
+        "L'esecuzione prosegue, anche con ctrl.positive_gate vero: quei controlli "
+        "non sono stati confrontati con altri dello stesso livello, e poiche' non "
+        "sono giudicati non conformi entrano nella curva che fissa la soglia di "
+        "profondita'. Il dettaglio elenca i livelli e quanti controlli hanno; "
+        "11_controls/positivi.tsv riporta ogni controllo. Guarda la figura della "
+        "curva: un punto lontano dagli altri in uno di quei livelli puo' avere "
+        "spostato la soglia. Succede sempre con meno piastre di ctrl.min_positives, "
+        "se ogni piastra ha un controllo per livello.",
         _DEGRADA,
     ),
     _v(
@@ -867,12 +916,14 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "La regola rigorosa sulla provenienza e' attiva e nessun commit leggibile "
         "identifica il codice eseguito.",
         "Con run.strict_provenance: true l'esecuzione parte solo da un clone del "
-        "repository: il commit e' cio' che identifica il codice eseguito. Lancia la "
-        "pipeline dalla radice di un clone, con il repository montato nel container e "
-        "il comando del README (PYTHONPATH e AMPLICON16S_R_DIR che puntano al clone), "
-        "con lo stesso utente proprietario dei file, altrimenti git rifiuta il "
-        "repository. Senza un clone, disattiva la regola: i risultati non saranno "
-        "certificati rispetto al codice.",
+        "repository: il commit e' cio' che identifica il codice eseguito. Il "
+        "dettaglio dice la causa: il codice in esecuzione e' il pacchetto "
+        "installato e non un clone, git non legge il repository, oppure gli "
+        "script R eseguiti non sono quelli del clone. Lancia la pipeline dalla "
+        "radice di un clone montato nel container, con python3 scripts/esegui.py "
+        "al posto di amplicon16s: esegue il codice e gli script R del clone, senza "
+        "variabili d'ambiente. Senza un clone, disattiva la regola: i risultati "
+        "non saranno certificati rispetto al codice.",
         _UMANA,
     ),
     _v(
@@ -910,7 +961,8 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "E-R-02", "R",
         "Il processo R e' terminato senza dichiarare un esito valido.",
         "Il processo si e' interrotto prima di poter scrivere l'esito: per un "
-        "segnale, per un guasto dell'interprete, o per un errore avvenuto "
+        "segnale diverso da quello della memoria esaurita, per un guasto "
+        "dell'interprete, o per un errore avvenuto "
         "prima che lo script caricasse le funzioni condivise. Il codice di "
         "uscita accompagna l'errore e l'uscita di errore del processo e' nel "
         "log strutturato in 99_logs: parti da li', perche' rieseguire senza "
@@ -935,8 +987,23 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "un'azione correttiva automatica che lasci intatte le sue assunzioni.",
         _UMANA,
     ),
+    _v(
+        "E-R-05", "R",
+        "Un processo R ha superato il tempo massimo ed e' stato interrotto.",
+        "Il processo e il suo gruppo sono stati uccisi allo scadere di "
+        "run.r_timeout_s. Se la fase su questo dataset richiede piu' tempo, "
+        "alza run.r_timeout_s o lascialo nullo (nessun limite), poi riprendi; "
+        "se il tempo era gia' largo, il processo era bloccato: l'uscita di "
+        "errore fino a quel momento e' nel log strutturato in 99_logs.",
+        _UMANA,
+    ),
 )
 
+
+#: Codici del catalogo che nessun punto del codice solleva, con il motivo per
+#: cui restano. Vuoto finche' ogni codice e' sollevato: un codice che smette di
+#: esserlo va tolto dal catalogo o dichiarato qui.
+RISERVATI: Final[dict[str, str]] = {}
 
 #: Il catalogo, indicizzato per codice.
 CATALOGO: Final[dict[str, VoceCatalogo]] = {v.codice: v for v in _VOCI}
@@ -954,11 +1021,3 @@ def voce(codice: str) -> VoceCatalogo:
         raise KeyError(f"codice non presente nel catalogo degli errori: {codice}") from None
 
 
-def codici_con_retry() -> frozenset[str]:
-    """Codici ammessi al retry automatico. È un elenco chiuso."""
-    return frozenset(v.codice for v in _VOCI if v.ammette_retry)
-
-
-def codici_di_fase(fase: str) -> tuple[str, ...]:
-    """Codici appartenenti a una fase, in ordine."""
-    return tuple(v.codice for v in _VOCI if v.fase == fase)

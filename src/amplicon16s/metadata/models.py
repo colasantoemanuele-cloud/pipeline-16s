@@ -29,11 +29,6 @@ class ClasseCampione(StrEnum):
     CONTROLLO_POSITIVO = "controllo_positivo"
     CONTROLLO_NEGATIVO = "controllo_negativo"
 
-    @property
-    def e_controllo(self) -> bool:
-        """Vero per i controlli positivi e negativi."""
-        return self is not ClasseCampione.BIOLOGICO
-
 
 #: Le classi su cui si applicano i controlli di qualita' sul segnale: G10 (il
 #: motivo conservato), S2 (campioni azzerati e letture perse), S6 (frazione
@@ -110,16 +105,6 @@ class Inventario:
     def biologici(self) -> tuple[Campione, ...]:
         """I campioni biologici."""
         return self.di_classe(ClasseCampione.BIOLOGICO)
-
-    @property
-    def controlli_positivi(self) -> tuple[Campione, ...]:
-        """I controlli positivi."""
-        return self.di_classe(ClasseCampione.CONTROLLO_POSITIVO)
-
-    @property
-    def controlli_negativi(self) -> tuple[Campione, ...]:
-        """I controlli negativi."""
-        return self.di_classe(ClasseCampione.CONTROLLO_NEGATIVO)
 
     def denominatore_prevalenza(self) -> int:
         """Numero di campioni su cui si calcolano le prevalenze.

@@ -40,8 +40,8 @@ resta la sua sequenza, conservata fra le sequenze di riferimento e in
 (``out.sample_id_source``); il nome del campione resta fra i metadati.
 
 **I metadati senza rinomine silenziose.** ``data.frame`` in R rende sintattici
-i nomi di colonna senza avvisare: ``Characteristics[Material Type]``
-diventerebbe ``Characteristics.Material.Type.``. I nomi nell'oggetto si
+i nomi di colonna senza avvisare: ``Caratteristiche[Tipo di Campione]``
+diventerebbe ``Caratteristiche.Tipo.di.Campione.``. I nomi nell'oggetto si
 scelgono quindi qui, esplicitamente: le colonne dell'inventario hanno i nomi
 del crosswalk di S0, quelle chieste con ``out.study_columns`` e
 ``out.batch_columns`` un nome sintattico derivato dall'originale
@@ -318,6 +318,7 @@ class AssemblaggioOggetto(PipelineStep):
             albero,
             self.cartella,
             passo=self.passo,
+            tempo_massimo_s=contesto.config.run.r_timeout_s,
             logger=contesto.logger,
         )
         artefatti += esito.artefatti

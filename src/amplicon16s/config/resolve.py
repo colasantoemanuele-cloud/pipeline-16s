@@ -74,6 +74,8 @@ NOME_FILE_RISOLTO: Final = "resolved.yaml"
 #: di calcolo, resta dentro.
 #:
 #: * ``run.threads``: quanti processori usare, non che cosa calcolare;
+#: * ``run.r_timeout_s``: quanto attendere un processo R prima di ucciderlo;
+#:   una fase interrotta non produce risultati, una conclusa da' gli stessi;
 #: * ``io.out_root``: dove scrivere; spostare la cartella di un'esecuzione
 #:   conclusa non deve renderla incompleta;
 #: * ``retry.enabled``, ``retry.max_attempts``: se e quante volte ritentare un
@@ -88,6 +90,7 @@ NOME_FILE_RISOLTO: Final = "resolved.yaml"
 #:   il retry di E-S4-02, che lo dimezza, sia legittimo.
 PARAMETRI_SENZA_EFFETTO: Final[tuple[str, ...]] = (
     "run.threads",
+    "run.r_timeout_s",
     "io.out_root",
     "retry.enabled",
     "retry.max_attempts",

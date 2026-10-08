@@ -61,6 +61,7 @@ from amplicon16s.metadata.tabelle import intestazione as _intestazione
 from amplicon16s.metadata.tabelle import leggi_tsv as _leggi_tsv
 from amplicon16s.metadata.tabelle import (
     nomi_in_collisione,
+    righe_con_valori_in_piu,
     tabella_delle_cellule,
     tabella_di_studio,
     valori_non_tabellari,
@@ -72,10 +73,8 @@ __all__ = [
     "Contesto",
     "Controllo",
     "ErroreGate",
-    "GATE_METADATI",
     "Violazione",
-    "esegui_g15",
-    "esegui_gate_metadati",
+    "controlla_coerenza",
     "rifiuto_di_g15",
 ]
 
@@ -298,6 +297,10 @@ def _codice_per_problema(problema: str) -> str:
     # da se', e il rifiuto e' quello del controllo sulle dipendenze fra parametri.
     if problema.startswith("ctrl:") and "blank_override_column e' nullo" in problema:
         return "E-G15-14"
+    # Un parametro rimosso da una versione precedente: e' un problema di
+    # schema, non il controllo sulle soglie delle chimere che vigila sul gruppo.
+    if "non esiste piu'" in problema:
+        return "E-G15-99"
     for percorso, _tipi, codice in _ATTRIBUZIONI:
         if problema.startswith(".".join(percorso) + ":"):
             return codice
@@ -334,7 +337,7 @@ def _violazione_da_schema(problema: str) -> Violazione:
 # --------------------------------------------------------------------------- #
 
 
-def _controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
+def controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
     """Esegue i controlli che lo schema non copre, sulla configurazione risolta."""
     config = risolta.config
     derivati = risolta.derivati
@@ -522,27 +525,6 @@ def rifiuto_di_g15(errore: ErroreConfigurazione) -> ErroreGate:
     return ErroreGate("G15", [_violazione_da_schema(p) for p in errore.problemi])
 
 
-def esegui_g15(dati: Mapping[str, Any]) -> ConfigRisolta:
-    """Esegue G15 su una configurazione non ancora validata.
-
-    Restituisce la configurazione risolta nella sua parte statica. Solleva
-    :class:`ErroreGate` se un controllo fallisce, con il codice del controllo
-    e il dettaglio di quali parametri sono in conflitto.
-    """
-    try:
-        config = valida(dict(dati))
-    except ErroreConfigurazione as errore:
-        raise rifiuto_di_g15(errore) from errore
-
-    risolta = risolvi(config)
-
-    violazioni = _controlla_coerenza(risolta)
-    if violazioni:
-        raise ErroreGate("G15", violazioni)
-
-    return risolta
-
-
 # =========================================================================== #
 # Gate sui metadati: G04, G05, G06, G03, G11                                  #
 # =========================================================================== #
@@ -710,32 +692,6 @@ def _g11_classi_complete(analisi: Analisi) -> list[Violazione]:
             )
         )
     return violazioni
-
-
-#: I gate sui metadati, nell'ordine in cui vanno eseguiti.
-GATE_METADATI: Final[tuple[tuple[str, Any], ...]] = (
-    ("G04", _g04_accession_estraibile),
-    ("G05", _g05_accession_univoci),
-    ("G06", _g06_insiemi_simmetrici),
-    ("G03", _g03_join_ristretto),
-    ("G11", _g11_classi_complete),
-)
-
-
-def esegui_gate_metadati(config: Config) -> Inventario:
-    """Costruisce l'inventario dei campioni facendolo passare dai cinque gate.
-
-    Solleva :class:`ErroreGate` al primo gate che trova violazioni, con il
-    nome del gate e il codice del catalogo corrispondente.
-    """
-    analisi = analizza(config)
-
-    for nome, controllo in GATE_METADATI:
-        violazioni = controllo(analisi)
-        if violazioni:
-            raise ErroreGate(nome, violazioni)
-
-    return analisi.inventario()
 
 
 # =========================================================================== #
@@ -912,6 +868,13 @@ def _valori_spezzati(
     ]
 
 
+#: Il formato che la pipeline legge, detto a chi ha un file che non si apre.
+_FORMATO_TABELLE: Final = (
+    "Le tabelle devono essere testo UTF-8 separato da tabulazioni: un file salvato da "
+    "un foglio di calcolo in un'altra codifica va convertito (per esempio con iconv)"
+)
+
+
 def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
     """Le tabelle di metadati si aprono e hanno ogni colonna dichiarata.
 
@@ -984,16 +947,44 @@ def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Av
         )
         violazioni += mancanti
         if not mancanti:
+            # Una tabulazione non protetta dentro un valore sposta i successivi
+            # di una colonna. Va detto qui: se il valore spezzato e'
+            # l'identificativo, a valle si vedrebbe solo un campione senza riga.
             try:
-                # Della tabella di studio si guardano le sole righe dei campioni
-                # dell'assay: le altre non entrano in alcun artefatto.
-                solo = None
-                if parametro == "io.study_table":
+                spostate = righe_con_valori_in_piu(percorso)
+            except (OSError, UnicodeDecodeError, csv.Error) as guasto:
+                violazioni.append(
+                    Violazione("E-S0-02", f"{parametro}: {percorso} non si legge: {guasto}")
+                )
+                continue
+            if spostate:
+                violazioni.append(Violazione(
+                    "E-S0-02",
+                    "{} righe di {} ({}) hanno piu' valori delle colonne dell'intestazione: "
+                    "{}. Una tabulazione dentro un valore senza virgolette lo spezza e sposta "
+                    "i successivi sotto la colonna sbagliata; se e' nella colonna "
+                    "identificativa {!r} la riga non corrisponde piu' ad alcun campione. "
+                    "Togli la tabulazione dal valore nel file dei metadati".format(
+                        len(spostate), percorso.name, parametro,
+                        _elenca([f"riga {riga}" for riga in spostate]), uniche[0][1],
+                    ),
+                ))
+                continue
+            # Della tabella di studio si guardano le sole righe dei campioni
+            # dell'assay: le altre non entrano in alcun artefatto. Se la
+            # tabella di assay non si legge lo ha gia' detto la sua voce: non
+            # va attribuito alla tabella di studio.
+            solo = None
+            if parametro == "io.study_table":
+                try:
                     nomi = frozenset(
                         riga.get(config.meta.sample_id_column, "")
                         for riga in _leggi_tsv(Path(config.io.assay_table))
                     )
-                    solo = (colonna_id, nomi)
+                except (OSError, UnicodeDecodeError, csv.Error):
+                    continue
+                solo = (colonna_id, nomi)
+            try:
                 violazioni += _valori_spezzati(
                     percorso, uniche, f"{percorso.name} ({parametro})", "E-S0-02", solo
                 )
@@ -1004,14 +995,39 @@ def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Av
     return violazioni, []
 
 
+#: La frazione di letture che iniziano con il primer oltre la quale lo si
+#: considera in testa a tutte: sotto, e sopra qc.max_primer_hit_frac, e' in
+#: posizione variabile (distanziatori di eterogeneita'), e un taglio fisso non
+#: lo toglie. E' una soglia di riconoscimento, non un valore di un dataset.
+PRIMER_IN_TESTA: Final = 0.5
+
 #: Il secondo file di una coppia, riconosciuto dal marcatore che precede
 #: l'estensione: ``_R2``, ``.R2``, ``_2`` o ``.2``, con un eventuale numero di
 #: blocco (``_001``). Ancorato alla fine del nome: un campione che si chiama
 #: ``LAB_R2D2`` non e' una lettura inversa. Sono convenzioni diffuse, non una
 #: proprieta' di un dataset.
 _LETTURA_INVERSA: Final = re.compile(
-    r"(?:[._]R2|[._]2)(?:_[0-9]+)?\.(?:fastq|fq)(?:\.gz)?$", re.IGNORECASE
+    r"(?P<prima>.*)(?P<segno>[._]R2|[._]2)(?P<dopo>(?:_[0-9]+)?\.(?:fastq|fq)(?:\.gz)?)$",
+    re.IGNORECASE,
 )
+
+
+def _e_lettura_inversa(nome: str, nomi: frozenset[str]) -> bool:
+    """Vero se il nome del file indica la seconda lettura di una coppia.
+
+    ``R2`` basta da solo. Il solo numero (``_2``, ``.2``) e' anche il modo in
+    cui si numerano campioni e repliche di un dataset single-end: conta come
+    lettura inversa solo se nella cartella c'e' il compagno con ``1`` allo
+    stesso posto.
+    """
+    trovato = _LETTURA_INVERSA.match(nome)
+    if trovato is None:
+        return False
+    segno = trovato.group("segno")
+    if segno[1:].upper() == "R2":
+        return True
+    compagno = f"{trovato.group('prima')}{segno[0]}1{trovato.group('dopo')}"
+    return compagno.casefold() in nomi
 
 
 def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
@@ -1038,11 +1054,9 @@ def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[A
             )
         )
 
-    inverse = sorted(
-        percorso.name
-        for percorso in Path(config.io.fastq_dir).glob(config.io.fastq_glob)
-        if _LETTURA_INVERSA.search(percorso.name)
-    )
+    nomi = [p.name for p in Path(config.io.fastq_dir).glob(config.io.fastq_glob)]
+    presenti = frozenset(n.casefold() for n in nomi)
+    inverse = sorted(n for n in nomi if _e_lettura_inversa(n, presenti))
     if inverse:
         violazioni.append(
             Violazione(
@@ -1298,9 +1312,16 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
                 "E-S0-10",
                 f"{len(col_primer)} file di campioni biologici o di controlli positivi "
                 f"hanno piu' di {config.qc.max_primer_hit_frac:.0%} di letture che iniziano con il "
-                f"primer {config.qc.primer_sequence}: {dettaglio}. Imposta "
-                f"filter.trimLeft a {len(config.qc.primer_sequence)}, la lunghezza "
-                f"del primer",
+                f"primer {config.qc.primer_sequence}: {dettaglio}. " + (
+                    f"Imposta filter.trimLeft a {len(config.qc.primer_sequence)}, la "
+                    f"lunghezza del primer"
+                    if peggiori[-1][1].frazione_primer >= PRIMER_IN_TESTA else
+                    "Il primer e' in testa solo in una parte delle letture: e' "
+                    "probabilmente preceduto da basi di lunghezza variabile, e un "
+                    "taglio fisso (filter.trimLeft) non lo toglierebbe. Va rimosso per "
+                    "sequenza prima della pipeline, con uno strumento di rimozione dei "
+                    "primer"
+                ),
             )
         )
         # Con il primer in testa il motivo conservato non puo' stare all'inizio
@@ -1382,7 +1403,16 @@ def _g08_lotto_coerente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
             intestazione = _intestazione(percorso)
         except (OSError, UnicodeDecodeError, csv.Error) as guasto:
             return [
-                Violazione("E-S0-08", f"io.batch_table: {percorso} non si apre: {guasto}")
+                Violazione("E-S0-08", f"io.batch_table: {percorso} non si apre: {guasto}. "
+                                      f"{_FORMATO_TABELLE}")
+            ], []
+        if contesto.analisi.arricchimento_illeggibile is not None:
+            return [
+                Violazione(
+                    "E-S0-08",
+                    f"io.batch_table: {percorso} non si legge fino in fondo: "
+                    f"{contesto.analisi.arricchimento_illeggibile}. {_FORMATO_TABELLE}",
+                )
             ], []
 
         colonne = [
@@ -1505,7 +1535,7 @@ def _g08_lotto_coerente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
 
 def _g15_coerenza_configurazione(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
     """Adattatore di G15 al contesto: la configurazione e' gia' validata."""
-    return _controlla_coerenza(risolvi(contesto.config)), []
+    return controlla_coerenza(risolvi(contesto.config)), []
 
 
 def _g11_classi_e_controlli(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:

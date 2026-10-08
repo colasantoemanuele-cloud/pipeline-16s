@@ -88,12 +88,6 @@ class Decontaminazione(PipelineStep):
         """
         config = contesto.config
         decontam = config.decontam
-        if decontam.method != "prevalence":
-            raise RuntimeError(
-                f"decontam.method {decontam.method!r} non e' realizzato: S12 decontamina "
-                "per prevalenza, e i metadati non hanno la concentrazione del DNA che "
-                "il metodo per frequenza richiede"
-            )
         albero = contesto.albero
         esito = esegui_script(
             cartella_r() / NOME_SCRIPT,
@@ -108,6 +102,7 @@ class Decontaminazione(PipelineStep):
             albero,
             self.cartella,
             passo=self.passo,
+            tempo_massimo_s=contesto.config.run.r_timeout_s,
             logger=contesto.logger,
         )
         riepilogo = json.loads(

@@ -46,7 +46,7 @@ sorgente, e da G12 spostato fra le precondizioni).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -105,6 +105,7 @@ sorgente, e da G12 spostato fra le precondizioni).
 
 from __future__ import annotations
 
+import functools
 import csv
 import hashlib
 import json
@@ -117,7 +118,7 @@ from typing import ClassVar
 
 import pytest
 from conftest import NEGATIVO, POSITIVO, Campione, copia_esecuzione, crea_scenario
-from sottoinsieme import RIFERIMENTO, config_ridotta, motivo_pacchetti_r_assenti
+from sottoinsieme import RIFERIMENTO, config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti
 
 from amplicon16s.config.schema import valida
 from amplicon16s.errors.catalog import Categoria
@@ -155,7 +156,12 @@ def uscite_pulite():
     chiudi()
 
 
-_MOTIVO_ASSENTI = motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "jsonlite")
+@functools.cache
+def _sonda_assenti() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "jsonlite")
 #: La radice del repository, o della sua copia nell'immagine, dalla posizione dei test.
 RADICE = Path(__file__).resolve().parents[1]
 
@@ -163,10 +169,10 @@ RADICE = Path(__file__).resolve().parents[1]
 @pytest.fixture
 def dada2():
     """Richiede R con dada2: salta senza, ma in CI fallisce."""
-    if _MOTIVO_ASSENTI is not None:
+    if _sonda_assenti() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_ASSENTI}")
-        pytest.skip(_MOTIVO_ASSENTI)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_assenti()}")
+        pytest.skip(_sonda_assenti())
 
 
 def _fasi() -> dict[str, PipelineStep]:
@@ -315,7 +321,7 @@ def test_le_esclusioni_dal_sorgente_sono_esplicite_e_non_toccano_gli_artefatti()
         assert {"amplicon16s.io_layer.artifacts", "amplicon16s.io_layer.checksums"} <= moduli, nome
         if fase.script_r is not None:
             assert {"amplicon16s.rbridge.payload", "amplicon16s.rbridge.runner"} <= moduli, nome
-    for nome in ("S2", "S3", "S4", "S5"):
+    for nome in ("S2", "S4"):
         assert "amplicon16s.runner.retry" in moduli_del_calcolo(type(_fasi()[nome]).__module__)
 
 
@@ -825,10 +831,11 @@ def test_s8_sul_dataset_completo_e_variovorax_nei_controlli_positivi(dada2, cate
     run, esito = catena_reale
     assert esito.conclusione is Conclusione.COMPLETATA
     s8 = next(r for r in esito.eseguite if r.passo is Passo.S8)
-    print(f"\nS8: {s8.secondi} s, {dict(s8.metriche)}")
+    attesi = attesi_dataset()
+    assert s8.metriche["dada2"]["corretta"] is True
     cartella = run.albero.cartella(Fase.TAXONOMY)
     genere = {r["sequenza"]: r["Genus"] for r in _tsv(cartella / "tassonomia.tsv")}
-    positivi = {c.accession: c.nome for c in run.valuta().inventario.controlli_positivi}
+    positivi = {c.accession: c.nome for c in run.valuta().inventario.di_classe(ClasseCampione.CONTROLLO_POSITIVO)}
     codice = (
         f"t <- readRDS('{run.albero.cartella(Fase.CHIMERA) / 'tabella_asv.rds'}'); "
         f"p <- intersect(c({', '.join(repr(a) for a in positivi)}), rownames(t)); "
@@ -838,8 +845,10 @@ def test_s8_sul_dataset_completo_e_variovorax_nei_controlli_positivi(dada2, cate
         [str(trova_rscript()), "--vanilla", "-e", codice], capture_output=True, text=True, check=True,
     ).stdout
     dominanti = {positivi[a]: genere[s] or "-" for a, s in (r.split("\t") for r in uscita.splitlines() if r)}
-    assert len(dominanti) == len(positivi) == 80
-    print(" ".join(f"{n}:{g}" for n, g in sorted(dominanti.items())))
-    alti = {n: g for n, g in dominanti.items() if n.rsplit(".", 1)[1] in ("1", "2")}
-    assert len(alti) == 20
-    assert {n: g for n, g in alti.items() if g != "Variovorax"} == {}
+    assert len(dominanti) == len(positivi) == attesi["classi"]["controllo_positivo"]
+    # Nei controlli piu' concentrati domina il taxon atteso della configurazione.
+    concentrati = attesi["lotto"]["positivi_piu_concentrati"]
+    alti = {n: g for n, g in dominanti.items()
+            if n.rsplit(".", 1)[1] in concentrati["suffissi"]}
+    assert len(alti) == concentrati["numero"]
+    assert {n: g for n, g in alti.items() if g != run.config.katharoseq.target_taxon} == {}

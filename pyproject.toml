@@ -60,11 +60,13 @@ testpaths = ["tests"]
 # Quattro processi, come i processori del runner della CI, con i test distribuiti
 # uno per uno: i moduli lunghi non restano su un solo processo. loadgroup fa
 # eccezione per i test di un gruppo, che girano tutti sullo stesso processo: e'
-# il caso dei test sui dati reali (gruppo dati_reali, tests/conftest.py), che in
+# il caso dei test sui dati reali e del confronto con i checksum pubblicati
+# (marcatori dati_reali e riferimento, un solo gruppo, tests/conftest.py), che in
 # parallelo saturavano la memoria. Le catene condivise del sottoinsieme di prova
 # si calcolano una volta sola per tutti i processi. Con -n 0 la suite gira in
 # sequenza.
 addopts = "-ra -n 4 --dist loadgroup"
 markers = [
     "dati_reali: richiede il dataset di riferimento sul filesystem; si salta quando non c'e'",
+    "riferimento: confronta la catena sul dataset di riferimento con i checksum pubblicati; non verifica un comportamento, ma l'identita' con l'esecuzione pubblicata",
 ]

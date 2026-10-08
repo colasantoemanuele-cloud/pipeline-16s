@@ -25,7 +25,7 @@ dei pacchetti, smoke test di integrazione continua e interfaccia CLI di base).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):

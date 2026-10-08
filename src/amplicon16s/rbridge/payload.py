@@ -49,12 +49,13 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any, Final
+
+from amplicon16s.io_layer.artifacts import scrivi_atomico
 
 __all__ = [
     "PROTOCOLLO",
@@ -129,16 +130,7 @@ def _scrivi_atomico(percorso: Path, documento: Mapping[str, Any]) -> None:
         indent=2,
         default=_json_nativo,
     )
-    descrittore, temporaneo = tempfile.mkstemp(
-        prefix=".scrittura-", suffix=".json", dir=percorso.parent
-    )
-    try:
-        with os.fdopen(descrittore, "w", encoding="utf-8") as file:
-            file.write(testo + "\n")
-        os.replace(temporaneo, percorso)
-    except BaseException:
-        Path(temporaneo).unlink(missing_ok=True)
-        raise
+    scrivi_atomico(percorso, testo + "\n")
 
 
 def scrivi_richiesta(

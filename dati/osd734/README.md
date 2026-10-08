@@ -43,10 +43,13 @@ era arrivato.
 Gli script sono ripetibili: a ogni avvio controllano tutti i file e scaricano solo cio'
 che manca o non corrisponde al checksum; uno scarico interrotto riprende dal punto a cui
 era arrivato. Un file presente con il nome giusto ma il contenuto sbagliato non viene
-sovrascritto: e' messo da parte con il suffisso `.md5_errato`. Con `--solo-verifica`
-controllano senza scaricare ne' spostare nulla; con `--cartella` lavorano su un'altra
-cartella, per esempio una che contiene gia' i file. L'esito e' 0 se tutti i file sono
-presenti e integri.
+sovrascritto: e' messo da parte con il suffisso `.md5_errato`. I due script di scarico
+(`scarica_letture.py` e `dati/riferimento/scarica_riferimento.py`) con `--solo-verifica`
+controllano senza scaricare ne' spostare nulla, e con `--cartella` lavorano su un'altra
+cartella, per esempio una che contiene gia' i file; l'esito e' 0 se tutti i file sono
+presenti e integri. `ricostruisci_lotto.py` non ha queste opzioni: ricostruisce il
+file dalla fonte (`--fonte` per una copia locale, `--uscita` per la destinazione), e
+rilanciarlo riscrive lo stesso file.
 
 ## Come eseguire la pipeline
 
@@ -90,10 +93,12 @@ riga di comando li rende assoluti al caricamento, e la configurazione registrata
 - `run.threads` non e' impostato e vale i processori utilizzabili dal processo: va
   indicato solo per usarne meno. Non cambia i risultati: e' fra i parametri senza
   effetto, fuori dall'impronta delle fasi.
-- I parametri che descrivono il dataset (colonne e etichette dei metadati, colonne del
-  file del lotto, primer, motivo conservato, troncamento, riferimento) sono dichiarati
-  tutti: la pipeline non ha per essi alcun valore predefinito, e una configurazione
-  che ne omette uno e' respinta prima di qualunque calcolo (`E-G15-10`).
+- I parametri che dipendono dai dati o dallo studio (colonne e etichette dei metadati,
+  colonne del file del lotto, primer, motivo conservato, troncamento, riferimento,
+  scelte sui controlli, soglie di qualita') sono dichiarati tutti: la pipeline non ha
+  per essi alcun valore predefinito, e una configurazione che ne omette uno e' respinta
+  prima di qualunque calcolo (`E-G15-10`). La configurazione dichiara anche i parametri
+  che un predefinito lo hanno, cosi' che i risultati non dipendano da esso.
 - `run.strict_provenance` e' vero: e' la configurazione congelata, e l'esecuzione parte
   solo se il codice e l'ambiente sono quelli dichiarati. Prima di qualunque fase la
   pipeline verifica che il repository sia un clone git leggibile, che `src/` e `R/`
@@ -108,7 +113,7 @@ riga di comando li rende assoluti al caricamento, e la configurazione registrata
   vengono rifatte.
 - I valori di `katharoseq.target_sensitivity`, `decontam.threshold`, `decontam.mode`,
   `decontam.batch_combine` e `prev.min_fraction` sono dichiarati in modo esplicito:
-  sono quelli scelti con l'analisi di sensibilita' (`docs/sensibilita.md`), e
+  sono quelli scelti con l'analisi di sensibilita', e
   cambiarli cambia i risultati.
 - `run.container` dichiara gia' l'immagine pubblicata, con il suo digest di registro, e
   con quella non va toccato. Il valore non sceglie l'immagine da eseguire, che e'
@@ -132,28 +137,28 @@ docker run --rm \
   --memory=24g \
   --memory-swap=24g \
   -u "$(id -u):$(id -g)" \
-  -e HOME=/tmp \
-  -e PYTHONPATH=/app/src \
-  -e AMPLICON16S_R_DIR=/app/R \
   -v "$(pwd)":/app \
   -w /app \
   <immagine> \
-  amplicon16s run --config dati/osd734/config_osd734.yaml
+  python3 scripts/esegui.py run --config dati/osd734/config_osd734.yaml
 ```
 
 - `-v "$(pwd)":/app -w /app`: il repository montato e' la cartella di lavoro, quindi i
   percorsi relativi della configurazione trovano dati e configurazione, e i risultati
   vanno in `output/osd734/` del repository;
-- `PYTHONPATH` e `AMPLICON16S_R_DIR`: si eseguono il codice Python e gli script R del
-  repository montato; senza la seconda variabile l'immagine eseguirebbe gli script R
-  copiati quando e' stata costruita;
-- `-u` e `HOME`: i file prodotti appartengono all'utente e non a root;
+- `python3 scripts/esegui.py`: esegue il codice Python e gli script R del repository
+  montato, senza variabili d'ambiente. Il comando `amplicon16s` dell'immagine
+  eseguirebbe invece il codice copiato quando l'immagine e' stata costruita, e la
+  regola rigorosa sulla provenienza, attiva in questa configurazione, lo rifiuterebbe
+  dicendolo (`E-PROV-01`);
+- `-u`: i file prodotti appartengono all'utente e non a root, con i permessi della sua
+  umask;
 - `--memory=24g --memory-swap=24g`: un esaurimento della memoria ferma il container e
   non la macchina (vedi i requisiti sotto).
 
-Un'esecuzione interrotta si riprende con lo stesso comando e `amplicon16s resume` al
-posto di `amplicon16s run`; `amplicon16s validate` esegue solo i controlli di avvio e la
-fase S0, in meno di un minuto.
+Un'esecuzione interrotta si riprende con lo stesso comando e `resume` al posto di
+`run` (un arresto stampa il comando di ripresa); `validate` esegue solo i controlli di
+avvio e la fase S0, in meno di un minuto.
 
 **La procedura e' stata eseguita da zero** il 5 ottobre 2026: repository clonato da
 GitHub (commit `59ef39d`), immagine costruita dal suo `container/Dockerfile` senza
@@ -186,7 +191,7 @@ la configurazione pubblicata cosi' com'e' (`run.threads` non impostato, dodici
 processori) e la regola rigorosa attiva: 52 minuti e 19 secondi, 1.033 artefatti.
 E' questa l'esecuzione di riferimento, e i checksum pubblicati sono i suoi. I valori
 congelati sono gli stessi: l'analisi di sensibilita', ripetuta su questa esecuzione,
-li ha mantenuti tutti (`docs/sensibilita.md`). Il risultato e' cambiato per la sola
+li ha mantenuti tutti. Il risultato e' cambiato per la sola
 regola della soglia: 451 campioni, 1.737 varianti, 20.922.721 letture.
 
 La prova ha fatto emergere un difetto, corretto: al commit `59ef39d` i percorsi
@@ -239,8 +244,7 @@ esecuzione completa, da un altro clone al commit che li pubblica, li riproduce t
 (1.033 artefatti identici). Sostituiscono quelli
 dell'esecuzione del commit `af82ef9`, da cui differiscono per due ragioni distinte.
 
-Differenze di risultato, dovute alla regola della soglia (`docs/decision_log.md`,
-sezione 4): le piastre 1 e 2, che non hanno una curva valida, usano la mediana delle
+Differenze di risultato, dovute alla regola della soglia: le piastre 1 e 2, che non hanno una curva valida, usano la mediana delle
 soglie delle altre piastre (15.049 letture senza chimere) invece di 1.000 letture
 grezze. Cambiano gli artefatti di S11 che riportano la soglia (`soglia.json`,
 `curve.tsv`, `profondita_campioni.tsv`, `riepilogo.json`), tutti quelli di S13 e i
@@ -260,16 +264,18 @@ prima.
 1. Guardare la prima fase indicata dallo script: le fasi successive dipendono da
    quella, quindi le loro differenze sono conseguenze, non cause.
 2. Se la prima fase e' S0, S1 o S2, la differenza e' nei dati di ingresso: rilanciare i
-   tre script di scarico con `--solo-verifica`, che devono terminare con esito 0, e
+   due script di scarico con `--solo-verifica`, che devono terminare con esito 0,
+   ricostruire di nuovo il file del lotto con `ricostruisci_lotto.py`, e
    confrontare la configurazione registrata in `output/osd734/00_config/resolved.yaml`
    con `config_osd734.yaml` (devono differire solo i percorsi).
 3. Se e' una fase successiva, la differenza e' nell'ambiente di calcolo: controllare
    di aver eseguito nell'immagine pubblicata, scaricata con il suo digest, con
-   `AMPLICON16S_R_DIR=/app/R` (senza, l'immagine esegue gli script R copiati alla
-   costruzione), e che `amplicon16s report --config dati/osd734/config_osd734.yaml`
-   non riporti avvisi di provenienza ne' artefatti non integri. Il report indica anche
-   la versione di dada2 dichiarata dal file di blocco: deve essere 1.36.0.1, con la
-   correzione dei pareggi, senza la quale la tassonomia (S8) non e' riproducibile.
+   `python3 scripts/esegui.py` (il comando `amplicon16s` dell'immagine esegue il codice
+   copiato alla costruzione), e che il sottocomando `report` non riporti avvisi di
+   provenienza ne' artefatti non integri. Il report indica la versione di dada2
+   caricata da R in S8, accanto a quella dichiarata dal file di blocco: deve essere
+   1.36.0.1, con la correzione dei pareggi presente, senza la quale la tassonomia (S8)
+   non e' ripetibile e l'esecuzione lo dichiara con `E-S8-03`.
 4. Una differenza che resta va segnalata con l'uscita dello script, il report e la
    configurazione registrata: e' un difetto di riproducibilita' della pipeline, non un
    errore di chi la esegue.

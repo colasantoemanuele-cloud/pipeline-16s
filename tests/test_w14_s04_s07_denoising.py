@@ -33,7 +33,7 @@ S06 Rimozione delle chimere e S07 Filtro di lunghezza ASV in ``07_chimera/``).
   ``asv.len_max``) su varianti sintetiche e invarianza sui dati troncati a
   lunghezza fissa;
 - gestione dei retry (dimezzamento di ``run.batch_size`` su ``E-S4-02``) e
-  soppressioni motivate (``RITENTARE_INUTILE`` per ``E-S5-01`` e per ``E-S4-02``
+  soppressioni motivate (``E-S5-01`` a revisione umana, ``RITENTARE_INUTILE`` per ``E-S4-02``
   con ``dada.pool`` vero);
 - ricomposizione completa del tracciamento delle letture da S1 a S7 (la
   riproducibilita' byte per byte della catena e' verificata da
@@ -42,7 +42,7 @@ S06 Rimozione delle chimere e S07 Filtro di lunghezza ASV in ``07_chimera/``).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w14_s04_s07_denoising.py -v
@@ -96,6 +96,7 @@ S06 Rimozione delle chimere e S07 Filtro di lunghezza ASV in ``07_chimera/``).
 
 from __future__ import annotations
 
+import functools
 import csv
 import hashlib
 import json
@@ -105,10 +106,11 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from sottoinsieme import config_ridotta, motivo_pacchetti_r_assenti
+from conftest import rscript_con_limite
+from sottoinsieme import config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti
 
 from amplicon16s.config.schema import valida
-from amplicon16s.errors.exceptions import ErroreRevisioneUmana, ErroreRitentabileConRevisione
+from amplicon16s.errors.exceptions import ErroreRevisioneUmana
 from amplicon16s.io_layer.artifacts import AlberoOutput, Fase
 from amplicon16s.logging.logger import chiudi
 from amplicon16s.rbridge.runner import cartella_r, esegui_script, trova_rscript
@@ -155,22 +157,21 @@ def test_e_s4_02_si_ritenta_con_il_lotto_dimezzato(tmp_path):
     assert politica.decidi("E-S4-02", 1, azione, uno).motivo is Motivo.AZIONE_ESAURITA
 
 
-def test_e_s5_01_dichiarato_inutile_ferma_con_il_motivo(tmp_path):
+def test_e_s5_01_non_si_ritenta(tmp_path):
     """
-    **Obiettivo**: Verificare che S5 non dichiari azioni correttive e che un
-    E-S5-01 che dichiara il retry inutile si fermi con il motivo della fase,
-    anche senza un'azione correttiva.
+    **Obiettivo**: Verificare che S5 non dichiari azioni correttive, che
+    ``E-S5-01`` sia a revisione umana e fuori dalla whitelist predefinita, e
+    che la politica non lo ritenti in nessun caso.
 
     **Razionale scientifico e sistemistico**: La tabella e' una matrice densa
-    campioni x varianti: ridurre il lotto non ne cambia la memoria. Il motivo
-    specifico dice all'operatore perche' non si ritenta.
+    campioni x varianti: ridurre il lotto non ne cambia la memoria, e un
+    codice ammesso al retry che non viene mai ritentato e' una promessa falsa.
     """
     assert TabellaSequenze.aggiustamenti == {}
     config = config_ridotta(tmp_path)
+    assert "E-S5-01" not in config.retry.whitelist
     politica = PoliticaRetry.da_config(config)
-    decisione = politica.decidi("E-S5-01", 1, None, config, "matrice densa")
-    assert decisione.motivo is Motivo.AZIONE_INUTILE
-    assert politica.decidi("E-S5-01", 1, None, config).motivo is Motivo.NESSUNA_AZIONE
+    assert politica.decidi("E-S5-01", 1, None, config).motivo is Motivo.REVISIONE_UMANA
 
 
 # --------------------------------------------------------------------------- #
@@ -231,16 +232,21 @@ def test_oltre_l_avviso_si_degrada_oltre_l_arresto_si_ferma(tmp_path):
 # Le fasi vere, sulla versione ridotta                                        #
 # --------------------------------------------------------------------------- #
 
-_MOTIVO_ASSENTI = motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "jsonlite")
+@functools.cache
+def _sonda_assenti() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "jsonlite")
 
 
 @pytest.fixture
 def dada2():
     """Richiede R con dada2: salta senza, ma in CI fallisce."""
-    if _MOTIVO_ASSENTI is not None:
+    if _sonda_assenti() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_ASSENTI}")
-        pytest.skip(_MOTIVO_ASSENTI)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_assenti()}")
+        pytest.skip(_sonda_assenti())
 
 
 def _copia(base, cartella: Path, **sovrascrivi):
@@ -389,7 +395,7 @@ def test_con_memoria_ridotta_scatta_e_s4_02_e_il_retry_dimezza_il_lotto(
 
     def con_limite(script, parametri, *argomenti, **opzioni):
         lotti.append(parametri["lotto"])
-        opzioni.update(limite_memoria_byte=900 << 20, tempo_massimo_s=600)
+        opzioni.update(rscript=rscript_con_limite(tmp_path, 900 << 20), tempo_massimo_s=600)
         return originale(script, parametri, *argomenti, **opzioni)
 
     monkeypatch.setattr(s04, "esegui_script", con_limite)
@@ -417,7 +423,6 @@ def test_oltre_qc_max_asv_count_s5_si_ferma_prima_della_tabella(dada2, catena, t
     import logging
 
     from amplicon16s.config.resolve import risolvi
-    from amplicon16s.runner.retry import RITENTARE_INUTILE
     from amplicon16s.steps.base import StepContext
 
     run, _ = catena
@@ -432,15 +437,14 @@ def test_oltre_qc_max_asv_count_s5_si_ferma_prima_della_tabella(dada2, catena, t
         risolta=risolvi(config), albero=AlberoOutput(config.io.out_root),
         logger=logging.getLogger("test"), inventario=run.inventario,
     ).ristretto(fase.parametri)
-    with pytest.raises(ErroreRitentabileConRevisione) as info:
+    with pytest.raises(ErroreRevisioneUmana) as info:
         fase.calcola(contesto)
     assert info.value.codice == "E-S5-01"
     assert "oltre le 10 di qc.max_asv_count" in info.value.dettaglio
-    motivo = info.value.contesto[RITENTARE_INUTILE]
-    assert "matrice densa" in motivo
+    assert "matrice densa" in info.value.dettaglio
     assert not (tmp_path / "out" / Fase.SEQTAB.value / "tabella.rds").exists()
-    decisione = PoliticaRetry.da_config(config).decidi("E-S5-01", 1, None, config, motivo)
-    assert decisione.motivo is Motivo.AZIONE_INUTILE
+    decisione = PoliticaRetry.da_config(config).decidi("E-S5-01", 1, None, config)
+    assert decisione.motivo is Motivo.REVISIONE_UMANA
 
 
 def test_la_tabella_prima_delle_chimere_resta_in_s5_e_si_ricostruisce(dada2, catena):
@@ -609,9 +613,12 @@ def test_s4_s7_sul_dataset_completo(dada2, catena_reale):
     """
     run, esito = catena_reale
     assert esito.conclusione is Conclusione.COMPLETATA
-    for risultato in esito.eseguite:
-        print(f"\n{risultato.passo}: {risultato.secondi} s, {dict(risultato.metriche)}")
     s7 = next(r for r in esito.eseguite if r.passo is Passo.S7)
+    # Con letture troncate a lunghezza fissa ogni variante ha quella lunghezza.
     assert s7.metriche["varianti_escluse"] == 0
     tracciamento = ricomponi(run)
-    assert len(tracciamento.letture) == 960
+    assert len(tracciamento.letture) == attesi_dataset()["campioni"]
+    # Nessuna fase crea letture: lungo i passi il conteggio non cresce mai.
+    for campione, letture in tracciamento.letture.items():
+        conteggi = [letture[p] for p in tracciamento.passi if p in letture]
+        assert conteggi == sorted(conteggi, reverse=True), campione

@@ -7,24 +7,25 @@
 #   letture       dati/osd734/fastq/        scarica_letture.py
 #   riferimento   dati/riferimento/         dati/riferimento/scarica_riferimento.py
 #   lotto         dati/osd734/lotto/        ricostruisci_lotto.py
-# E' la configurazione congelata. Dichiara in modo esplicito tutti i parametri
-# che descrivono il dataset (obbligatori: la pipeline non ha per essi alcun
-# valore predefinito) e tutti quelli il cui predefinito e' tarato su OSD-734,
-# compresi i quattro sottoposti ad analisi di sensibilita' (docs/sensibilita.md,
-# docs/decision_log.md); la regola rigorosa sulla provenienza e' attiva. Gli
-# altri parametri hanno il valore predefinito generico. Il fatto accertato che
-# giustifica ciascun valore e' in src/amplicon16s/config/defaults.py.
+# E' la configurazione congelata. Dichiara in modo esplicito ogni parametro:
+# quelli obbligatori, per i quali la pipeline non ha alcun valore predefinito,
+# e anche quelli che un predefinito lo hanno, cosi' che i risultati non
+# dipendano da un predefinito che puo' cambiare. Accanto a ogni valore scelto
+# per questo dataset c'e' il fatto che lo giustifica. La regola rigorosa sulla
+# provenienza e' attiva.
 io:
   fastq_dir: dati/osd734/fastq
   assay_table: "dati/osd734/metadati/a_OSD-734_amplicon-sequencing_16s_Illumina MiSeq.txt"
   study_table: dati/osd734/metadati/s_OSD-734.txt
   out_root: output/osd734
   batch_table: dati/osd734/lotto/plate_well_map_960.tsv
+  fastq_glob: "*.fastq.gz"
   # I file e la tabella di assay riportano l'accession dell'esperimento.
   accession_regex: "[ESD]RX[0-9]{4,}"
 meta:
   sample_id_column: "Sample Name"
   accession_column: "Raw Data File"
+  derive_module: true
   # Il modulo: dal file del lotto (colonna module); senza, dal prefisso della
   # posizione, tre lettere e una cifra (LAB1, NOD2, JLP1).
   module_regex: "^([A-Z]{3}[0-9])"
@@ -37,18 +38,60 @@ meta:
 filter:
   # La lettura piu' corta del dataset: letture di 137-151 basi.
   truncLen: 137
-  # Le letture non contengono il primer.
+  truncLen_shortfall_warn: 10
+  # Le letture non contengono il primer: iniziano nella regione conservata a
+  # valle del 515F.
   trimLeft: 0
+  maxEE: 2.0
+  truncQ: 2
+  maxN: 0
+  rm_phix: true
 err:
+  error_function: loess
+  nbases: 1.0e+8
+  max_consist: 10
+  # I file sono ordinati per accession, cioe' per piastra: il modello d'errore
+  # si stima su campioni scelti a caso, non sui soli primi.
+  randomize: true
+  # Due corse di sequenziamento: un modello d'errore per corsa.
   batch_column: run_prefix
+dada:
+  # Bassa biomassa: le varianti rare presenti in piu' campioni vanno recuperate.
+  pool: pseudo
+  omega_a: 1.0e-40
+chimera:
+  method: consensus
+  min_fold_parent_over_abundance: 2.0
+  min_parent_abundance: 2
+  min_sample_fraction: 0.9
+  allow_one_off: false
+asv:
+  len_tol: 0
 tax:
   ref_fasta: dati/riferimento/silva_nr99_v138_train_set.fa.gz
   ref_md5: "56821dd6f365f64c8518a21e049c3232"
   ref_name: SILVA
   ref_version: "138"
   ref_bad_taxa: dati/riferimento/silva_138_v2_bad-taxa.csv
+  classifier: naive_bayes
+  # Le letture coprono 137 delle circa 253 basi dell'amplicone V4: niente
+  # specie, e il bootstrap minimo resta quello del pacchetto.
   min_boot: 50
+  try_rc: true
   assign_species: false
+filt:
+  remove_na_phylum: true
+  # Il 16S di cloroplasti e mitocondri e cio' che non e' un procariote.
+  exclude_taxa:
+    - Chloroplast
+    - Mitochondria
+    - Eukaryota
+phylo:
+  # Su 137 basi un albero costruito da zero e' debolmente risolto.
+  enabled: false
+  max_seqs: 5000
+  aligner: decipher
+  model: "GTR+G+I"
 ctrl:
   column: "Characteristics[Material Type]"
   blank_values:
@@ -61,12 +104,42 @@ ctrl:
   blank_override_column: "Factor Value[Sample Location]"
   blank_override_values:
     - Unopened 3DMM Swab Tube
+  # Ogni piastra ha otto controlli positivi, ogni livello di diluizione dieci.
+  min_positives: 3
+  min_positive_pass_frac: 0.75
+  positive_gate: false
 qc:
+  head_reads: 10000
   # 515F e il motivo conservato a valle, con cui iniziano le letture.
   primer_sequence: GTGYCAGCMGCCGCGGTAA
+  max_primer_hit_frac: 0.05
   conserved_motif: "TAC[AG].AGG..GC.AGCGTT"
+  # Sulla mediana: sei campioni biologici legittimi hanno il motivo sotto il
+  # 25% delle letture, uno al 5,8%.
   min_motif_frac: 0.25
+  max_frac_short_reads: 0.05
+  max_zeroed_samples: 0
+  max_frac_lost_filter: 0.30
+  max_asv_count: 300000
+  warn_frac_chimeric: 0.25
+  stop_frac_chimeric: 0.50
+  min_frac_phylum: 0.80
+  min_reads_mode: katharoseq_if_available
+  max_frac_contaminant: 0.40
+  min_reads_final: 1000
+  min_frac_reads_retained: 0.40
+retry:
+  enabled: true
+  max_attempts: 2
+  whitelist:
+    - E-S2-03
+    - E-S4-02
 out:
+  serialization: rds
+  taxa_are_rows: true
+  asv_id_scheme: abundance_rank
+  sample_id_source: accession
+  export_flat: true
   study_columns:
     - "Factor Value[Spaceflight]"
     - "Parameter Value[Sample Preservation Method]"
@@ -96,18 +169,37 @@ run:
   # file di blocco e immagine dichiarata entrano nell'impronta di ogni fase.
   # Altrimenti l'avvio e' rifiutato (E-PROV-01, E-PROV-02, E-PROV-03).
   strict_provenance: true
-# I valori scelti con l'analisi di sensibilita'. Coincidono con i predefiniti;
-# sono dichiarati perche' la configurazione congelata non dipenda da essi.
+  lockfile: renv.lock
+  seed: 100
+  batch_size: 24
+  keep_filtered_fastq: true
+# I valori di target_sensitivity, threshold, mode, batch_combine e min_fraction
+# sono quelli scelti con l'analisi di sensibilita'.
 katharoseq:
   target_sensitivity: 0.90
   # I controlli positivi: un solo ceppo, Variovorax sp. OAS795, in diluizione.
   target_taxon: Variovorax
+  collapse_rank: Genus
   cell_count_column: katharoseq_cell_count
+  curve_model: allosteric_sigmoid
+  min_r2: 0.80
+  read_stage: nonchimeric
 decontam:
+  # I metadati non riportano una concentrazione del DNA per campione.
   method: prevalence
+  # Le piastre hanno da 5 a 8 controlli negativi dichiarati: per piastra, con
+  # questa soglia, si toglierebbe circa la meta' delle letture dei biologici.
   mode: aggregate
   batch_combine: minimum
+  # Bassa biomassa: i controlli negativi hanno profondita' paragonabili ai
+  # biologici, e la contaminazione da reagente e' una quota rilevante.
   threshold: 0.5
+  min_blanks: 5
+  # Dieci piastre di estrazione da 96.
   batch_column: extraction_plate_num
 prev:
+  apply: true
+  # I campioni vengono da oltre cento posizioni distinte della stazione: una
+  # variante propria di poche posizioni e' segnale, non rumore.
   min_fraction: 0.01
+  min_count: 2

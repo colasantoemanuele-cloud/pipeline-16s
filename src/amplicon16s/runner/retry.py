@@ -31,8 +31,9 @@ il valore dichiarato e quello usato, con il codice che ha causato il cambio,
 mentre la validità della fase alla ripresa si giudica sulla configurazione
 dichiarata. È coerente solo se il parametro aggiustato non incide sui
 risultati: è l'assunzione su cui si regge la whitelist. Per
-``run.batch_size`` è verificata byte per byte; per ``err.nbases`` l'effetto
-è misurato e trascurabile (vedi :data:`PARAMETRI_AGGIUSTABILI`).
+``run.batch_size`` è verificata byte per byte (vedi
+:data:`PARAMETRI_AGGIUSTABILI`); un'azione che cambierebbe i risultati, come
+aumentare le basi della stima del modello d'errore, non è ammessa.
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ from enum import StrEnum
 from typing import Any, Final
 
 from amplicon16s.config.schema import Config, valida
-from amplicon16s.errors.catalog import Categoria, voce
+from amplicon16s.errors.catalog import voce
 
 __all__ = [
     "PARAMETRI_AGGIUSTABILI",
@@ -54,7 +55,6 @@ __all__ = [
     "RITENTARE_INUTILE",
     "applica",
     "dimezza",
-    "raddoppia",
     "senza_modifiche",
     "spiega_arresto",
     "valore",
@@ -63,26 +63,21 @@ __all__ = [
 #: I parametri che un'azione correttiva può cambiare. Un aggiustamento su un
 #: parametro fuori elenco è un difetto della fase.
 #:
-#: Sono quelli che i messaggi del catalogo indicano per i codici ripetibili:
-#: ``run.batch_size`` per E-S4-02, ``err.nbases`` per E-S3-01. E-S2-03, un
-#: errore di lettura, si ritenta invece senza modifiche (:func:`senza_modifiche`):
-#: se era transitorio basta rileggere. E-S5-01 non ha azione correttiva: la
-#: tabella delle sequenze chiede la stessa memoria con qualunque lotto, e S5
-#: dichiara inutile il retry.
+#: E' quello che il catalogo indica per l'unico codice ripetibile con
+#: un'azione correttiva: ``run.batch_size`` per E-S4-02. E-S2-03, un errore di
+#: lettura, si ritenta invece senza modifiche (:func:`senza_modifiche`): se era
+#: transitorio basta rileggere.
 #:
 #: ``run.batch_size`` non incide sui risultati, ed e' fra i parametri esclusi
 #: dall'impronta. S4 realizza il pseudo-pooling di dada2 in due passate
 #: esplicite, entrambe a lotti, e cio' che attraversa i lotti sono somme di
 #: conteggi interi: il test lo verifica byte per byte con due lotti diversi, e
 #: verifica che il risultato sia quello di ``dada(pool = "pseudo")`` in una
-#: sola chiamata. ``err.nbases`` cambia per definizione la stima del modello
-#: d'errore, e resta nell'impronta; il retry di E-S3-01 che lo raddoppia resta
-#: ammesso, perche' cambia i dati usati per la stima e non il metodo. Sul
-#: dataset di riferimento, da 1e8 a 2e8, le varianti dopo S7 passano da 12.045
-#: a 12.048 (12.044 comuni), le varianti non comuni raccolgono meno di cento
-#: letture su 31 milioni, e la distanza di Bray-Curtis per campione ha mediana 0
-#: e massimo 0,004. Il valore usato e' registrato nel manifesto.
-PARAMETRI_AGGIUSTABILI: Final[tuple[str, ...]] = ("run.batch_size", "err.nbases")
+#: sola chiamata. ``err.nbases`` non e' aggiustabile: cambia per definizione la
+#: stima del modello d'errore, cioe' i risultati, mentre la configurazione
+#: registrata riporterebbe il valore dichiarato. Un modello che non converge
+#: (E-S3-01) si ferma per la revisione.
+PARAMETRI_AGGIUSTABILI: Final[tuple[str, ...]] = ("run.batch_size",)
 
 
 def valore(config: Config, parametro: str) -> Any:
@@ -160,11 +155,6 @@ def dimezza(parametro: str, minimo: int = 1) -> Aggiustamento:
     )
 
 
-def raddoppia(parametro: str) -> Aggiustamento:
-    """Raddoppia un parametro."""
-    return Aggiustamento(parametro, lambda v: v * 2, f"{parametro} raddoppiato")
-
-
 class Motivo(StrEnum):
     """Perché si ritenta, o perché no."""
 
@@ -182,8 +172,8 @@ class Motivo(StrEnum):
 
 #: Chiave del contesto di un errore con cui la fase dichiara che l'azione
 #: correttiva non cambierebbe l'esito, e perche'. Solo la fase lo sa: per
-#: esempio err.nbases raddoppiato non serve se la stima usava gia' tutte le
-#: basi disponibili.
+#: esempio dimezzare il lotto non serve se l'inferenza elabora tutti i
+#: campioni insieme.
 RITENTARE_INUTILE: Final = "ritentare_inutile"
 
 
@@ -258,7 +248,6 @@ def spiega_arresto(
     codice: str, motivo: Motivo, tentativi: int, massimi: int, inutile: str | None = None
 ) -> str:
     """Perché l'esecuzione si è fermata, secondo la categoria del codice."""
-    categoria = voce(codice).categoria
     if motivo is Motivo.AZIONE_INUTILE:
         return (
             "Il codice ammetterebbe il retry, ma l'azione correttiva non cambierebbe "
@@ -279,12 +268,6 @@ def spiega_arresto(
         return (
             "L'azione correttiva non puo' piu' cambiare il parametro: e' gia' al "
             "suo limite."
-        )
-    if categoria is Categoria.RETRY_POI_REVISIONE:
-        return (
-            f"Tentativi automatici esauriti ({tentativi} su {massimi}). Per questo "
-            "codice, esauriti i tentativi, serve la revisione umana prima di "
-            "riprendere: la causa va capita, non ritentata."
         )
     return (
         f"Tentativi automatici esauriti ({tentativi} su {massimi}). Il codice "

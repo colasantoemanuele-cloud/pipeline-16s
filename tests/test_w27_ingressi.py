@@ -8,14 +8,14 @@ calcolo).
 
 2. Moduli sorgente coperti
 --------------------------
-* ``src/amplicon16s/config/defaults.py`` (``OBBLIGATORI``, ``ESEMPIO_OSD734``,
-  ``FATTI_OSD734``), ``src/amplicon16s/config/schema.py``,
+* ``src/amplicon16s/config/defaults.py`` (``OBBLIGATORI``,
+  ``STANDARD_DEL_METODO``), ``src/amplicon16s/config/schema.py``,
   ``src/amplicon16s/config/resolve.py`` (``registra_risolta``)
 * ``src/amplicon16s/gates/g01_g15.py``, ``src/amplicon16s/gates/registry.py``
 * ``src/amplicon16s/metadata/tabelle.py``, ``src/amplicon16s/metadata/crosswalk.py``
 * ``src/amplicon16s/io_layer/reads.py``
 * ``src/amplicon16s/steps/s00_validate.py``, ``src/amplicon16s/cli.py``,
-  ``src/amplicon16s/steps/s02_filter.py`` (``archivio_incompleto``),
+  ``src/amplicon16s/steps/s02_filter.py`` (``esamina_archivio``),
   ``src/amplicon16s/steps/s11_controls.py`` (``colonna_dei_livelli``)
 * ``src/amplicon16s/report/builder.py`` (parametri tarati e non dichiarati)
 * ``config/config.example.yaml``, ``dati/osd734/config_osd734.yaml``,
@@ -65,7 +65,7 @@ calcolo).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -96,7 +96,7 @@ calcolo).
 
 5. Risultato atteso
 -------------------
-Vedi ``test.txt``, scheda W27.
+I conteggi li da' pytest (``pytest --collect-only -q``).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -110,6 +110,8 @@ Vedi ``test.txt``, scheda W27.
 
 from __future__ import annotations
 
+import csv
+
 import copy
 import gzip
 import json
@@ -121,18 +123,22 @@ from typing import Any
 import pytest
 import yaml
 from conftest import (
-    INIZIO_CON_MOTIVO,
-    INIZIO_CON_PRIMER,
-    NEGATIVO,
-    POSITIVO,
     Campione,
+    FORMATO,
     crea_scenario,
     dichiarazione_minima,
+    esegui_g15,
+    INIZIO_CON_MOTIVO,
+    INIZIO_CON_PRIMER,
     lettura,
-    parametri_osd734,
+    NEGATIVO,
+    nomi_dei_gate,
+    parametri_del_formato,
+    POSITIVO,
+    scelte_del_formato,
     scrivi_fastq,
 )
-from sottoinsieme import dati_esempio
+from conftest import configurazione_di_prova as dati_esempio
 
 import amplicon16s.cli as cli
 from amplicon16s.config import defaults
@@ -148,8 +154,8 @@ from amplicon16s.config.schema import (
     valida,
 )
 from amplicon16s.errors.catalog import CATALOGO, Categoria
-from amplicon16s.gates.g01_g15 import Contesto, ErroreGate, esegui_g15
-from amplicon16s.gates.registry import esegui_gate, esegui_tutti, nomi_dei_gate
+from amplicon16s.gates.g01_g15 import Contesto, ErroreGate
+from amplicon16s.gates.registry import esegui_gate, esegui_tutti
 from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.io_layer.reads import scansiona_file
 from amplicon16s.logging.logger import chiudi
@@ -162,7 +168,7 @@ from amplicon16s.metadata.tabelle import intestazione, leggi_tsv, tabella_di_stu
 from amplicon16s.report.builder import CARTELLA_REPORT, NOME_REPORT
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.s00_validate import ValidazioneIngressi, esegui_s0
-from amplicon16s.steps.s02_filter import archivio_incompleto
+from amplicon16s.steps.s02_filter import esamina_archivio
 
 RADICE = Path(__file__).resolve().parents[1]
 PRIMER = "GTGYCAGCMGCCGCGGTAA"
@@ -259,7 +265,9 @@ def _dataset_diverso(radice: Path, *, con_studio: bool = True, **gruppi: dict[st
                  "study_sample_id_column": "id" if con_studio else None,
                  "module_regex": None, "module_column": None, "non_surface_positions": [],
                  "batch_key_column": None, "batch_module_column": None},
-        "filter": {"truncLen": 100},
+        # Le scelte di analisi che questo dataset richiede sono dichiarate: il
+        # primer non e' nelle letture e non c'e' una piastra per cui decontaminare.
+        "filter": {"truncLen": 100, "trimLeft": 0},
         "err": {"batch_column": None},
         "tax": {"ref_fasta": str(riferimento),
                 "ref_md5": hashlib.md5(riferimento.read_bytes()).hexdigest(),
@@ -268,11 +276,15 @@ def _dataset_diverso(radice: Path, *, con_studio: bool = True, **gruppi: dict[st
                  "biological_values": ["tampone"], "blank_override_column": None,
                  "blank_override_values": []},
         "katharoseq": {"target_taxon": "Escherichia", "cell_count_column": "nota"},
-        "decontam": {"batch_column": None, "min_blanks": 1},
+        "decontam": {"batch_column": None, "min_blanks": 1, "mode": "aggregate"},
         "qc": {"primer_sequence": PRIMER, "conserved_motif": "TAC[AG].AGG..GC.AGCGTT"},
         "out": {"study_columns": ["nota"], "batch_columns": []},
         "run": {"threads": 1},
     }
+    # Le soglie e le altre scelte obbligatorie che questo dataset non cambia.
+    for gruppo, valori in scelte_del_formato().items():
+        for nome, valore in valori.items():
+            dati.setdefault(gruppo, {}).setdefault(nome, valore)
     for gruppo, valori in gruppi.items():
         dati.setdefault(gruppo, {}).update(valori)
     return valida(dati)
@@ -287,14 +299,14 @@ def test_senza_i_parametri_obbligatori_g15_respinge_con_l_elenco_dei_mancanti(tm
     """
     **Obiettivo**: Verificare che una configurazione con i soli percorsi sia
     respinta da G15 con ``E-G15-10`` e una sola violazione che elenca tutti i
-    25 parametri obbligatori; che togliendone tre da una configurazione
+    parametri obbligatori; che togliendone tre da una configurazione
     completa siano elencati quei tre e solo quelli; che la riga di comando
     esca con il codice della configurazione non valida, stampando il codice,
     l'elenco e l'azione del catalogo, senza scrivere nulla.
 
     **Razionale scientifico e sistemistico**: Chi descrive un dataset nuovo
     deve vedere in una volta tutto cio' che manca: un parametro alla volta
-    costerebbe venticinque avvii, e un predefinito al suo posto darebbe un
+    costerebbe decine di avvii, e un predefinito al suo posto darebbe un
     risultato plausibile su una colonna sbagliata.
     """
     soli_percorsi = {
@@ -302,12 +314,13 @@ def test_senza_i_parametri_obbligatori_g15_respinge_con_l_elenco_dei_mancanti(tm
         "tax": {"ref_fasta": "c", "ref_md5": "0" * 32},
     }
     assert obbligatori_mancanti(soli_percorsi) == list(defaults.OBBLIGATORI)
-    assert len(defaults.OBBLIGATORI) == 25
+    quanti = len(defaults.OBBLIGATORI)
+    assert quanti == 63
     with pytest.raises(ErroreGate) as rifiuto:
         esegui_g15(soli_percorsi)
     assert rifiuto.value.gate == "G15" and rifiuto.value.codice == "E-G15-10"
     (violazione,) = rifiuto.value.violazioni
-    assert violazione.dettaglio.startswith(f"{INTESTAZIONE_MANCANTI} (25): ")
+    assert violazione.dettaglio.startswith(f"{INTESTAZIONE_MANCANTI} ({quanti}): ")
     for chiave in defaults.OBBLIGATORI:
         assert chiave in violazione.dettaglio, chiave
     assert CATALOGO["E-G15-10"].categoria is Categoria.REVISIONE_UMANA
@@ -365,7 +378,30 @@ def test_un_parametro_obbligatorio_dichiarato_nullo_o_vuoto_e_dichiarato(tmp_pat
         gruppo, nome = chiave.split(".")
         campo = Config.model_fields[gruppo].annotation.model_fields[nome]
         assert campo.is_required(), chiave
-    assert not set(defaults.OBBLIGATORI) & set(defaults.FATTI_OSD734)
+    assert not set(defaults.OBBLIGATORI) & set(defaults.STANDARD_DEL_METODO)
+
+
+@pytest.mark.parametrize("chiave", defaults.OBBLIGATORI)
+def test_ogni_parametro_obbligatorio_mancante_ferma_g15_che_lo_nomina(chiave):
+    """
+    **Obiettivo**: Verificare, per ciascun parametro obbligatorio, che una
+    configurazione completa a cui manca solo quello sia respinta da G15 con
+    ``E-G15-10`` e una sola violazione che nomina quel parametro e nessun
+    altro.
+
+    **Razionale scientifico e sistemistico**: Un parametro che dipende dai dati
+    o dallo studio non ha predefinito: se manca, la pipeline non deve poter
+    proseguire con un valore scelto per un altro dataset, e deve dire quale
+    parametro va dichiarato.
+    """
+    dati = dati_esempio()
+    gruppo, nome = chiave.split(".")
+    del dati[gruppo][nome]
+    with pytest.raises(ErroreGate) as rifiuto:
+        esegui_g15(dati)
+    assert rifiuto.value.gate == "G15" and rifiuto.value.codice == "E-G15-10"
+    (violazione,) = rifiuto.value.violazioni
+    assert violazione.dettaglio.startswith(f"{INTESTAZIONE_MANCANTI} (1): {chiave}.")
 
 
 def test_g15_respinge_le_colonne_del_lotto_senza_il_file_in_s0_non_in_s10(tmp_path, capsys):
@@ -567,7 +603,7 @@ def test_g02_verifica_ogni_colonna_dichiarata_delle_tabelle(tmp_path):
     """
     scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
     casi = {
-        "out.study_columns": {"out": {"study_columns": ["katharoseq_cell_count",
+        "out.study_columns": {"out": {"study_columns": [FORMATO.colonna_cellule,
                                                         "Colonna che non c'e'"]}},
         "ctrl.blank_override_column": {"ctrl": {"blank_override_column": "Altra colonna"}},
     }
@@ -594,13 +630,13 @@ def test_g02_verifica_ogni_colonna_dichiarata_delle_tabelle(tmp_path):
     studio.write_text("\n".join(r + "\tx\ty" if i and r else r for i, r in enumerate(righe)),
                       encoding="utf-8")
     esito = _esiti(_con(scenario.config,
-                        out={"study_columns": ["katharoseq_cell_count", "nota"]}))["G02"]
+                        out={"study_columns": [FORMATO.colonna_cellule, "nota"]}))["G02"]
     assert "compare 2 volte" in esito.violazioni[0].dettaglio
 
-    for colonne in ({"study_columns": ["katharoseq_cell_count", "Classe"]},
-                    {"study_columns": ["katharoseq_cell_count", "Var Uno", "Var-Uno"]},
-                    {"study_columns": ["katharoseq_cell_count"],
-                     "batch_columns": ["katharoseq_cell_count"]}):
+    for colonne in ({"study_columns": [FORMATO.colonna_cellule, "Classe"]},
+                    {"study_columns": [FORMATO.colonna_cellule, "Var Uno", "Var-Uno"]},
+                    {"study_columns": [FORMATO.colonna_cellule],
+                     "batch_columns": [FORMATO.colonna_cellule]}):
         esito = esegui_gate("G15", Contesto(_con(scenario.config, out=colonne)))
         assert "E-G15-13" in [v.codice for v in esito.violazioni], colonne
 
@@ -776,7 +812,7 @@ def test_le_etichette_si_confrontano_senza_distinzione_di_maiuscole(tmp_path):
     altrimenti "Blank" e "blank" in due elenchi passerebbero lo schema e uno
     dei due vincerebbe in silenzio.
     """
-    dati = parametri_osd734()
+    dati = parametri_del_formato()
     with pytest.raises(ValueError, match="due categorie"):
         Config.model_fields["ctrl"].annotation.model_validate(
             {**dati["ctrl"], "blank_values": ["Blank"], "biological_values": ["blank ", "swab"]}
@@ -790,7 +826,7 @@ def test_le_etichette_si_confrontano_senza_distinzione_di_maiuscole(tmp_path):
 @pytest.mark.parametrize(("nome", "inversa"), [
     ("ERX3000009_x_R2.fastq.gz", True),
     ("ERX3000009_x.R2.fastq.gz", True),
-    ("ERX3000009_x_2.fastq.gz", True),
+    ("ERX3000009_x_2.fastq.gz", False),
     ("ERX3000009_x_R2_001.fastq.gz", True),
     ("ERX3000009_LAB_R2D2.fastq.gz", False),
     ("ERX3000009_R2_coda.fastq.gz", False),
@@ -800,9 +836,10 @@ def test_le_etichette_si_confrontano_senza_distinzione_di_maiuscole(tmp_path):
 def test_g07_riconosce_le_letture_inverse_dal_marcatore_prima_dell_estensione(tmp_path, nome, inversa):
     """
     **Obiettivo**: Verificare che G07 consideri lettura inversa un file il cui
-    nome termina, prima dell'estensione, con ``_R2``, ``.R2`` o ``_2`` (anche
-    seguito dal numero di blocco), e non un file che contiene ``_R2`` o ``_2``
-    in un altro punto del nome.
+    nome termina, prima dell'estensione, con ``_R2`` o ``.R2`` (anche seguito
+    dal numero di blocco), e non un file che contiene ``_R2`` o ``_2`` in un
+    altro punto del nome, ne' un file che termina con il solo ``_2`` senza il
+    compagno ``_1`` nella cartella (un campione numerato, non una lettura).
 
     **Razionale scientifico e sistemistico**: Il marcatore cercato ovunque nel
     nome respingeva come paired-end un campione chiamato ``LAB_R2D2``: il nome
@@ -843,10 +880,10 @@ def test_un_fastq_si_riconosce_dai_primi_byte_non_dall_estensione(tmp_path):
         assert misure == attese == (True, 5, 100, 100, 0, 5), nome
         # Il controllo di S2 prima del filtro legge il file allo stesso modo:
         # un FASTQ non compresso non e' un archivio corrotto.
-        assert archivio_incompleto(tmp_path / nome) is None, nome
+        assert esamina_archivio(tmp_path / nome)[0] is None, nome
     troncato = tmp_path / "troncato.fastq.gz"
     troncato.write_bytes(compresso.read_bytes()[:-20])
-    assert archivio_incompleto(troncato) is not None
+    assert esamina_archivio(troncato)[0] is not None
 
 
 # --------------------------------------------------------------------------- #
@@ -880,7 +917,7 @@ def test_s0_dichiara_i_controlli_che_il_dataset_non_ha(tmp_path):
     g11 = next(e for e in risultato.esiti if e.gate == "G11")
     assert [a.codice for a in g11.avvisi] == ["E-S0-17", "E-S0-17"]
     testi = " | ".join(a.dettaglio for a in g11.avvisi)
-    minimo = defaults.DECONTAM_MIN_BLANKS
+    minimo = senza.config.decontam.min_blanks
     assert f"0 controlli negativi, meno dei {minimo}" in testi
     assert "ctrl.blank_values e' vuoto" in testi
     assert "non ha controlli positivi (ctrl.positive_values e' vuoto)" in testi
@@ -930,58 +967,41 @@ def test_i_thread_valgono_i_processori_disponibili_e_l_immagine_e_facoltativa(tm
 
 
 # --------------------------------------------------------------------------- #
-# 8. Report: i parametri tarati e non dichiarati                               #
+# 8. Report: l'origine dei parametri                                          #
 # --------------------------------------------------------------------------- #
 
 
-def test_il_report_elenca_solo_i_parametri_tarati_presi_per_difetto(tmp_path, capsys):
+def test_il_report_non_ha_predefiniti_di_un_dataset_da_segnalare(tmp_path, capsys):
     """
-    **Obiettivo**: Verificare che con una configurazione che dichiara solo i
-    parametri obbligatori il report elenchi in apertura gli otto parametri con
-    un predefinito tarato su OSD-734, ciascuno con il suo fatto, e nessun
-    parametro obbligatorio; che dichiarandone uno al suo stesso valore e
-    riprendendo l'esecuzione ne restino sette; che dichiarandoli tutti la
-    sezione dica in una riga che non ce ne sono.
+    **Obiettivo**: Verificare che con una configurazione che dichiara i soli
+    parametri obbligatori il report non segnali in apertura alcun predefinito
+    da riesaminare, e che la tabella dei parametri riporti come dichiarati
+    tutti gli obbligatori e come predefiniti i soli valori standard, le forme
+    uniche e i parametri dello strumento.
 
-    **Razionale scientifico e sistemistico**: La segnalazione serve a far
-    riesaminare le scelte di metodo ereditate: deve contenere solo quelle, e
-    sparire quando chi esegue le ha fatte proprie dichiarandole, altrimenti
-    resterebbe sempre accesa e nessuno la leggerebbe.
+    **Razionale scientifico e sistemistico**: Cio' che dipende dai dati non
+    ha predefinito, quindi non puo' essere ereditato: una segnalazione sempre
+    spenta non serve, e la tabella basta a dire da dove viene ogni valore.
     """
-    scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
+    scenario = crea_scenario(tmp_path, _campioni(), con_arricchimento=True, con_letture=True)
     percorso = tmp_path / "c.yaml"
-    dati = dichiarazione_minima(scenario.config)
+    percorso.write_text(yaml.safe_dump(dichiarazione_minima(scenario.config), sort_keys=False),
+                        encoding="utf-8")
     radice = Path(scenario.config.io.out_root)
-
-    def report(dichiarazione: dict[str, Any]) -> tuple[str, str]:
-        percorso.write_text(yaml.safe_dump(dichiarazione, sort_keys=False), encoding="utf-8")
-        assert cli.main(["validate", "--config", str(percorso)]) == 0
-        capsys.readouterr()
-        assert cli.main(["report", "--config", str(percorso)]) == 0
-        return capsys.readouterr().out, (radice / CARTELLA_REPORT / NOME_REPORT).read_text()
-
-    uscita, documento = report(dati)
-    assert len(defaults.FATTI_OSD734) == 8
-    assert "8 parametri non dichiarati valgono il predefinito tarato su OSD-734" in uscita
-    for chiave, riferimento in defaults.FATTI_OSD734.items():
-        assert f">{chiave}<" in documento, chiave
-    assert defaults.FATTI_OSD734["decontam.threshold"].fatto.split(":")[0] in documento
-    tabella = documento[documento.index("Parametri non dichiarati che valgono"):]
-    tabella = tabella[: tabella.index("</table>")]
-    for chiave in defaults.OBBLIGATORI:
-        assert f">{chiave}<" not in tabella, chiave
-
-    dati.setdefault("prev", {})["min_fraction"] = defaults.PREV_MIN_FRACTION
-    uscita, documento = report(dati)
-    assert "7 parametri non dichiarati" in uscita
-
-    for chiave, riferimento in defaults.FATTI_OSD734.items():
-        gruppo, nome = chiave.split(".")
-        dati.setdefault(gruppo, {})[nome] = riferimento.valore
-    uscita, documento = report(dati)
-    assert "tarato su OSD-734" not in uscita
-    assert "Nessun parametro vale un predefinito tarato su OSD-734" in documento
+    assert cli.main(["validate", "--config", str(percorso)]) == 0
+    capsys.readouterr()
+    assert cli.main(["report", "--config", str(percorso)]) == 0
+    uscita = capsys.readouterr().out
+    documento = (radice / CARTELLA_REPORT / NOME_REPORT).read_text(encoding="utf-8")
+    assert "tarat" not in uscita and "tarat" not in documento
     assert "Parametri non dichiarati che valgono" not in documento
+    with open(radice / CARTELLA_REPORT / "tabelle" / "parametri.tsv", encoding="utf-8",
+              newline="") as file:
+        origine = {r["parametro"]: r["origine"] for r in csv.DictReader(file, delimiter="\t")}
+    assert {c for c, o in origine.items() if o == "dichiarato"} >= set(defaults.OBBLIGATORI)
+    predefiniti = {c for c, o in origine.items() if o == "predefinito"}
+    assert set(defaults.STANDARD_DEL_METODO) <= predefiniti
+    assert not predefiniti & set(defaults.OBBLIGATORI)
 
 
 # --------------------------------------------------------------------------- #
@@ -994,8 +1014,8 @@ def test_il_report_elenca_solo_i_parametri_tarati_presi_per_difetto(tmp_path, ca
 def test_le_configurazioni_dei_due_dataset_dichiarano_tutto():
     """
     **Obiettivo**: Verificare che ``dati/osd734/config_osd734.yaml`` dichiari
-    tutti i parametri obbligatori e tutti quelli tarati su OSD-734, con i
-    valori di ``ESEMPIO_OSD734`` e di ``FATTI_OSD734``; che
+    ogni parametro che ha un valore, obbligatorio o con un predefinito (i
+    valori li verifica il solo test dedicato); che
     ``dati/osd276/config_osd276.yaml`` sia valida, dichiari tutti gli
     obbligatori e descriva un dataset senza controlli e senza file del lotto;
     e che nessun valore proprio del secondo dataset compaia nel codice.
@@ -1007,11 +1027,11 @@ def test_le_configurazioni_dei_due_dataset_dichiarano_tutto():
     """
     osd734 = carica(RADICE / "dati" / "osd734" / "config_osd734.yaml")
     dichiarati = set(parametri_dichiarati(osd734))
-    assert set(defaults.OBBLIGATORI) | set(defaults.FATTI_OSD734) <= dichiarati
-    for chiave, riferimento in {**defaults.ESEMPIO_OSD734, **defaults.FATTI_OSD734}.items():
-        gruppo, nome = chiave.split(".")
-        atteso = list(riferimento.valore) if isinstance(riferimento.valore, tuple) else riferimento.valore
-        assert getattr(getattr(osd734, gruppo), nome) == atteso, chiave
+    con_valore = {
+        f"{gruppo}.{campo}" for gruppo, valori in osd734.model_dump().items()
+        for campo, valore in valori.items() if valore is not None
+    }
+    assert con_valore <= dichiarati and set(defaults.OBBLIGATORI) <= dichiarati
     esegui_g15(yaml.safe_load((RADICE / "dati/osd734/config_osd734.yaml").read_text(encoding="utf-8")))
 
     percorso = RADICE / "dati" / "osd276" / "config_osd276.yaml"

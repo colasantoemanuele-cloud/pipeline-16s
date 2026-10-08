@@ -33,10 +33,16 @@ inverse mescolate. Il conteggio precede i profili: è una lettura dei soli
 nomi, e un dataset da respingere si respinge prima del calcolo.
 
 **Un file che non si legge fino in fondo ferma la fase, E-S1-05.** La stessa
-lettura completa trova un record troncato o un archivio che si interrompe
-oltre le letture ispezionate da S0. Il profilo in R non lo direbbe: il lettore
+lettura completa trova un record troncato, una riga vuota in mezzo al file o
+un archivio che non si decomprime fino in fondo, oltre le letture ispezionate
+da S0; le sole righe vuote in fondo al file sono tollerate. Il profilo in R non lo direbbe: il lettore
 a blocchi scarta in silenzio un record incompleto, e il conteggio dei segni di
 coppia, fermo al punto del guasto, non varrebbe per il file intero.
+
+**Memoria esaurita, E-S1-06.** Il profilo legge un file per processo
+(``run.threads``), ognuno con un blocco di letture in memoria: se il sistema
+ne uccide alcuni, il ponte lo riconosce e la fase si ferma con ``E-S1-06``, a
+revisione umana, che suggerisce più memoria o meno processi.
 
 **Segnala le qualità raggruppate, E-S1-03.** Con quattro valori di qualità
 distinti o meno (``valori_qualita.tsv``) le letture vengono da un
@@ -57,11 +63,12 @@ import csv
 import json
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from typing import Any, ClassVar, Final
 
 from amplicon16s.config.schema import thread_effettivi
 from amplicon16s.errors.exceptions import errore
-from amplicon16s.io_layer.reads import StatisticheFile, conta_coppie
+from amplicon16s.io_layer.reads import StatisticheFile, conta_coppie, senza_righe_vuote_finali
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
@@ -136,8 +143,12 @@ class ProfiloLetture(PipelineStep):
     #: controllata, non sulle due riunite. 4: conta su tutte le letture i segni
     #: di coppia che G07 cerca nelle prime, li scrive in coppie.tsv e ferma un
     #: file con le due letture di ogni coppia (E-S1-04). 5: ferma un file che
-    #: non si legge fino in fondo (E-S1-05).
-    versione: ClassVar[int] = 5
+    #: non si legge fino in fondo (E-S1-05). 6: le righe vuote in fondo a un
+    #: file sono tollerate; ogni guasto di decompressione e' E-S1-05; la
+    #: memoria esaurita nel profilo e' dichiarata con E-S1-06. 7: fra i nomi
+    #: ripetuti contano le letture consecutive che si distinguono per il solo
+    #: marcatore di coppia in fondo all'identificativo.
+    versione: ClassVar[int] = 7
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("grezze",)
     #: I profili dipendono solo dalle letture, cioe' da S0; il troncamento, la
@@ -162,8 +173,18 @@ class ProfiloLetture(PipelineStep):
         processi = thread_effettivi(contesto.config)
         # Un processo per file: la decompressione e la lettura dei nomi non
         # condividono nulla, e i nomi di un file vivono solo nel suo processo.
-        with ProcessPoolExecutor(max_workers=processi) as gruppo:
-            coppie = dict(zip(campioni, gruppo.map(conta_coppie, campioni.values())))
+        try:
+            with ProcessPoolExecutor(max_workers=processi) as gruppo:
+                coppie = dict(zip(campioni, gruppo.map(conta_coppie, campioni.values())))
+        except BrokenProcessPool as guasto:
+            # Un processo del conteggio e' stato ucciso dal sistema: tiene in
+            # memoria i nomi delle letture del suo file, e con molti processi
+            # su file grandi la memoria puo' non bastare.
+            raise errore(
+                "E-S1-06",
+                "un processo del conteggio dei segni di coppia e' stato interrotto dal "
+                f"sistema operativo, di norma per memoria esaurita ({guasto})",
+            ) from guasto
         # Un file che non si legge per intero non ha un conteggio: fermarsi
         # prima di scriverlo, perche' zero segni su una lettura interrotta non
         # dicono che il file e' single-end.
@@ -173,7 +194,8 @@ class ProfiloLetture(PipelineStep):
             raise errore(
                 "E-S1-05",
                 f"{len(guasti)} file su {len(coppie)} non si leggono fino in fondo: {elenco}"
-                + ("" if len(guasti) <= 5 else f"; e altri {len(guasti) - 5}"),
+                + ("" if len(guasti) <= 5 else f"; e altri {len(guasti) - 5}")
+                + ". Riscarica i file dalla sorgente e verificane il checksum",
                 campioni=sorted(guasti),
             )
         tabella = contesto.albero.scrivi_testo(self.cartella, NOME_COPPIE, self._tsv_coppie(coppie))
@@ -190,14 +212,29 @@ class ProfiloLetture(PipelineStep):
                 + f". I conteggi di ogni file sono in {NOME_COPPIE}",
                 campioni=sorted(respinti),
             )
-        esito = esegui_script(
-            cartella_r() / NOME_SCRIPT,
-            {"campioni": campioni, "processi": processi},
-            contesto.albero,
-            self.cartella,
-            passo=self.passo,
-            logger=contesto.logger,
-        )
+        # Le righe vuote in fondo a un file sono tollerate, ma il lettore a
+        # blocchi di R le rifiuta: quei soli file gli arrivano in copia ripulita.
+        vuote = [c for c, s in coppie.items() if s.righe_vuote_finali]
+        if vuote:
+            contesto.logger.info(
+                f"{len(vuote)} file hanno righe vuote in fondo: tollerate, lette da una "
+                "copia temporanea senza quelle righe",
+                extra={"passo": "S1", "campioni": sorted(vuote)},
+            )
+        with senza_righe_vuote_finali(campioni, vuote) as leggibili:
+            esito = esegui_script(
+                cartella_r() / NOME_SCRIPT,
+                {"campioni": leggibili, "processi": processi},
+                contesto.albero,
+                self.cartella,
+                passo=self.passo,
+                # Un processo per file, ognuno con un blocco di letture e le
+                # loro qualita' in memoria: con molti processi e poca memoria
+                # il sistema ne uccide alcuni.
+                codice_memoria="E-S1-06",
+                tempo_massimo_s=contesto.config.run.r_timeout_s,
+                logger=contesto.logger,
+            )
 
         cartella = contesto.albero.cartella(self.cartella)
         riepilogo = json.loads((cartella / NOME_RIEPILOGO).read_text(encoding="utf-8"))

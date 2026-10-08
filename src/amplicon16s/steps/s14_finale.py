@@ -164,6 +164,7 @@ class Serializzazione(PipelineStep):
             albero,
             self.cartella,
             passo=self.passo,
+            tempo_massimo_s=contesto.config.run.r_timeout_s,
             logger=contesto.logger,
         )
 

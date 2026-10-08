@@ -136,6 +136,12 @@ def ricava_forward(deposito: Path, destinazione: Path) -> int:
     """
     destinazione.parent.mkdir(parents=True, exist_ok=True)
     descrittore, temporaneo = tempfile.mkstemp(dir=destinazione.parent, prefix=".scrittura-")
+    # mkstemp crea il file leggibile dal solo proprietario: gli si danno i
+    # permessi di un file creato normalmente, secondo la umask dell'utente,
+    # perche' un container avviato con un altro utente lo possa leggere.
+    maschera = os.umask(0)
+    os.umask(maschera)
+    os.fchmod(descrittore, 0o666 & ~maschera)
     scritti = 0
     try:
         with (

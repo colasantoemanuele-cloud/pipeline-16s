@@ -127,13 +127,10 @@ docker run --rm \
   --memory=24g \
   --memory-swap=24g \
   -u "$(id -u):$(id -g)" \
-  -e HOME=/tmp \
-  -e PYTHONPATH=/app/src \
-  -e AMPLICON16S_R_DIR=/app/R \
   -v "$(pwd)":/app \
   -w /app \
   <immagine> \
-  amplicon16s run --config dati/osd276/config_osd276.yaml
+  python3 scripts/esegui.py run --config dati/osd276/config_osd276.yaml
 ```
 
 Le uscite vanno in `output/osd276/`.
@@ -153,6 +150,6 @@ sulle letture dell'oggetto finale.
 
 ## Stato della prova
 
-L'esito della prova della pipeline su questo dataset (dove si fermava con i valori
-predefiniti di OSD-734, e fin dove arriva con questa configurazione) e' descritto
-nella sezione "Stato dell'implementazione" del README principale.
+Con questa configurazione la pipeline arriva in fondo alla catena: l'oggetto finale ha
+15 campioni e 1.005 varianti. Gli avvisi dichiarati sono quelli attesi per un dataset
+senza controlli e senza file del lotto: due `E-S0-17`, `E-S11-05` ed `E-S12-03`.

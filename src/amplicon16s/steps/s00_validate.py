@@ -217,7 +217,14 @@ class ValidazioneIngressi(PipelineStep):
     #: non e' un segno di coppia, e servono almeno due letture con il segno.
     #: 11: i nomi oltre le due copie si tollerano entro la stessa frazione degli
     #: altri segni, e le sole seconde letture tollerano almeno un record.
-    versione: ClassVar[int] = 11
+    #: 12: le righe vuote in fondo a un file di letture sono tollerate; un file
+    #: del lotto non UTF-8 ferma G08 (E-S0-08) invece di un errore imprevisto;
+    #: G02 riconosce la riga di studio con una tabulazione nell'identificativo.
+    #: 13: G07 riconosce le due letture di una coppia anche dal marcatore in
+    #: fondo all'identificativo, in letture consecutive; G02 respinge le righe
+    #: con piu' valori dell'intestazione e ogni identificativo con una
+    #: tabulazione o un a capo.
+    versione: ClassVar[int] = 13
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre

@@ -41,7 +41,7 @@ lunghezze; sottoinsieme di prova OSD-734).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalita' locale standard (senza dati reali ne' Bioconductor R):
        pytest tests/test_w11_s01_profile.py -v
@@ -107,6 +107,7 @@ lunghezze; sottoinsieme di prova OSD-734).
 
 from __future__ import annotations
 
+import functools
 import csv
 import gzip
 import hashlib
@@ -120,8 +121,8 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from conftest import copia_esecuzione
-from sottoinsieme import RIDOTTO, config_ridotta, manifesto, selezione
+from conftest import copia_esecuzione, esegui_gate_metadati
+from sottoinsieme import RIDOTTO, attesi_dataset, config_ridotta, manifesto, selezione
 
 from amplicon16s.config.schema import carica, valida
 from amplicon16s.io_layer.artifacts import Fase
@@ -130,6 +131,7 @@ from amplicon16s.rbridge.runner import trova_rscript
 from amplicon16s.runner.executor import Conclusione, Esecutore
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import ProjectRun
+from amplicon16s.metadata.models import ClasseCampione
 
 RADICE = Path(__file__).resolve().parents[1]
 
@@ -169,33 +171,45 @@ def test_la_selezione_e_motivata_campione_per_campione():
         assert riga["run_ena"].startswith("ERR")
 
 
-def test_la_selezione_esercita_decontaminazione_e_calibrazione():
+def test_la_selezione_esercita_decontaminazione_e_calibrazione(tmp_path):
     """Verifica il bilanciamento sperimentale di classi, corse e piastre nella selezione.
 
-    * **Obiettivo**: accertare che i 28 campioni coprano 9 biologici, 9 controlli
-      positivi e 10 controlli negativi distribuiti su 2 corse e 2 piastre (piastre
-      4 e 10, ciascuna con 5 blank e campioni biologici associati), oltre alla
-      serie completa di 8 diluizioni di controllo positivo nella piastra 10.
-    * **Razionale scientifico e sistemistico**: assicura che il sottoinsieme
-      soddisfi il requisito statistico ``decontam.min_blanks = 5`` per batch e
-      fornisca l'intera curva di calibrazione della mock community per le fasi
-      successive (S11 e S12).
+    * **Obiettivo**: accertare che la classe di ogni campione della selezione
+      sia quella che la pipeline gli assegna con la configurazione della
+      versione ridotta, compreso il tampone mai aperto che la regola di
+      riclassificazione rende controllo negativo; che le tre classi e due
+      corse siano presenti; che almeno due piastre abbiano i controlli negativi
+      che ``decontam.min_blanks`` richiede, con campioni biologici accanto; e
+      che una piastra porti una serie di calibrazione di almeno otto livelli.
+    * **Razionale scientifico e sistemistico**: una selezione che dichiara
+      biologico un campione che la pipeline tratta da controllo negativo conta
+      male i negativi di ogni sottoinsieme costruito su di essa. Il
+      bilanciamento assicura che il sottoinsieme eserciti decontaminazione e
+      calibrazione nelle fasi successive (S11 e S12).
     """
     righe = selezione()
-    # Le tre classi e le due corse.
-    assert Counter(r["classe"] for r in righe) == {
-        "biologico": 9, "controllo_positivo": 9, "controllo_negativo": 10,
-    }
+    config = config_ridotta(tmp_path)
+    inventario = esegui_gate_metadati(config)
+    assert {r["accession"]: r["classe"] for r in righe} == {
+        c.accession: c.classe.value for c in inventario}
+    riclassificati = [c for c in inventario
+                      if c.classe is ClasseCampione.CONTROLLO_NEGATIVO
+                      and c.materiale in config.ctrl.biological_values]
+    assert riclassificati, "la selezione deve contenere un tampone riclassificato"
+    assert {r["classe"] for r in righe} == {c.value for c in ClasseCampione}
     assert len({r["corsa"] for r in righe}) == 2
-    # Due piastre con i cinque negativi che decontam.min_blanks richiede, e
-    # biologici della stessa piastra con cui confrontarli.
-    for piastra in ("4", "10"):
-        della = [r for r in righe if r["piastra"] == piastra]
-        assert sum(r["classe"] == "controllo_negativo" for r in della) == 5
-        assert any(r["classe"] == "biologico" for r in della)
-    # Una serie di calibrazione completa, otto livelli nella stessa piastra.
-    serie = [r for r in righe if r["classe"] == "controllo_positivo" and r["piastra"] == "10"]
-    assert len(serie) == 8
+    # Piastre con i negativi che decontam.min_blanks richiede, e biologici
+    # della stessa piastra con cui confrontarli.
+    complete = [
+        piastra for piastra in sorted({r["piastra"] for r in righe})
+        if sum(r["classe"] == "controllo_negativo" and r["piastra"] == piastra for r in righe)
+        >= config.decontam.min_blanks
+        and any(r["classe"] == "biologico" and r["piastra"] == piastra for r in righe)
+    ]
+    assert len(complete) >= 2
+    # Una serie di calibrazione completa nella stessa piastra.
+    serie = Counter(r["piastra"] for r in righe if r["classe"] == "controllo_positivo")
+    assert max(serie.values()) >= 8
 
 
 def test_la_selezione_contiene_i_casi_noti():
@@ -331,16 +345,21 @@ def _motivo_bioconductor_assente() -> str | None:
     return None
 
 
-_MOTIVO_BIOC_ASSENTE = _motivo_bioconductor_assente()
+@functools.cache
+def _sonda_bioc_assente() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return _motivo_bioconductor_assente()
 
 
 @pytest.fixture
 def bioconductor():
     """Richiede R con Bioconductor: salta senza, ma in CI fallisce."""
-    if _MOTIVO_BIOC_ASSENTE is not None:
+    if _sonda_bioc_assente() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_BIOC_ASSENTE}")
-        pytest.skip(_MOTIVO_BIOC_ASSENTE)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_bioc_assente()}")
+        pytest.skip(_sonda_bioc_assente())
 
 
 def _fino_a_s1(config):
@@ -581,10 +600,14 @@ def test_s1_sul_dataset_completo(bioconductor, tmp_path):
     run, esito = _fino_a_s1(valida(dati))
     assert esito.conclusione is Conclusione.COMPLETATA
     riepilogo = json.loads((_profili(run) / "riepilogo.json").read_text())
-    assert riepilogo["campioni"] == 960
-    assert riepilogo["lunghezza_minima"] == 137
-    assert riepilogo["moda"] == 151
-    assert riepilogo["qualita_mediana_minima"] >= 25
+    attesi = attesi_dataset()
+    assert riepilogo["campioni"] == attesi["campioni"]
+    assert riepilogo["lunghezza_minima"] == attesi["letture"]["lunghezza_minima"]
+    assert riepilogo["moda"] == attesi["letture"]["moda"]
+    assert riepilogo["qualita_mediana_minima"] >= attesi["letture"]["qualita_mediana_minima"]
+    # Il troncamento dichiarato non supera la lettura piu' corta: nessuna
+    # lettura e' scartata per lunghezza.
+    assert run.config.filter.truncLen <= riepilogo["lunghezza_minima"]
 
 
 @pytest.mark.dati_reali

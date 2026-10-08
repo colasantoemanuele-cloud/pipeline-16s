@@ -135,7 +135,9 @@ class FiltriFinali(PipelineStep):
     #: 3: una tassonomia di un solo rango non ferma il filtro sui taxa.
     #: 4: la soglia si confronta con le sole letture senza chimere; senza
     #: soglia il filtro per profondita' non si applica e il riepilogo lo dice.
-    versione: ClassVar[int] = 4
+    #: 5: il minimo della prevalenza non risente piu' dell'errore di virgola
+    #: mobile del prodotto (0,07 x 100 dava 8 campioni invece di 7).
+    versione: ClassVar[int] = 5
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("finali",)
     #: I filtri tassonomici (filt), quello di prevalenza (prev) e le letture
@@ -186,6 +188,7 @@ class FiltriFinali(PipelineStep):
             albero,
             self.cartella,
             passo=self.passo,
+            tempo_massimo_s=contesto.config.run.r_timeout_s,
             logger=contesto.logger,
         )
         riepilogo = json.loads(

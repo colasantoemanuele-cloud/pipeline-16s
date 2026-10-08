@@ -1,0 +1,154 @@
+# I fatti del dataset di riferimento che i test sui dati reali verificano.
+#
+# E' l'unico punto dei test in cui stanno i numeri del dataset completo: i
+# moduli li leggono da qui (tests/sottoinsieme.py, attesi_dataset) e verificano
+# invarianti, non stampano misure. Sono proprieta' dei dati, accertate una
+# volta sulle sorgenti pubbliche: non cambiano con il codice. I risultati
+# dell'esecuzione (campioni e varianti finali, artefatti) non stanno qui: li
+# fissano i checksum pubblicati in dati/osd734/, confrontati dal test con il
+# marcatore "riferimento".
+
+campioni: 960
+classi:
+  biologico: 770
+  controllo_positivo: 80
+  controllo_negativo: 110
+# Campioni dichiarati biologici che la regola di configurazione rende controlli
+# negativi (tamponi mai aperti).
+riclassificati: 33
+# Un materiale della tabella di studio che appartiene a un altro assay.
+materiale_di_un_altro_assay: solvent control
+
+lotto:
+  piastre: 10
+  campioni_per_piastra: 96
+  corse: 2
+  campioni_per_corsa: 480
+  # Controlli negativi dichiarati per piastra, e la sola piastra che ne ha un
+  # numero diverso.
+  negativi_dichiarati_per_piastra: 8
+  piastra_diversa: {nome: "10", negativi_dichiarati: 5}
+  # Controlli negativi per piastra dopo la riclassificazione: minimo e massimo.
+  negativi_per_piastra: [6, 14]
+  # Controlli positivi dei due livelli piu' concentrati, in tutte le piastre:
+  # il taxon atteso (katharoseq.target_taxon) vi domina.
+  positivi_piu_concentrati: {suffissi: ["1", "2"], numero: 20}
+
+# I due campioni risequenziati, che si distinguono solo per accession.
+repliche: [LAB1P3.L1, NOD2S4.R6]
+
+moduli:
+  dal_file_del_lotto: [Airlock, Columbus, JLP, JPM, Node 1, Node 2, Node 3, PMM, US Lab]
+  derivati_dalla_posizione: [COL1, JLP1, JPM1, LAB1, NOD1, NOD2, NOD3, PMM1]
+  # Il modulo che l'espressione sulla posizione non riconosce, e i suoi campioni.
+  non_derivabile: {prefisso: A/L, campioni: 16}
+  senza_modulo_con_il_file_del_lotto: 223
+  senza_modulo_senza_il_file_del_lotto: 239
+
+letture:
+  lunghezza_minima: 137
+  moda: 151
+  # Un troncamento oltre la lettura piu' lunga: ogni lettura e' piu' corta.
+  troncamento_oltre_il_massimo: 152
+  qualita_mediana_minima: 25
+  # Frazione delle letture con il motivo conservato: i controlli negativi lo
+  # portano quanto i biologici, e alcuni biologici stanno molto sotto la soglia.
+  motivo_minimo_nei_negativi: 0.70
+  motivo_di_un_biologico_sotto: 0.10
+
+# La variante piu' abbondante nei campioni biologici non e' un contaminante.
+varianti_non_contaminanti: [ASV1]
+
+# Il secondo dataset: i file come depositati contengono le due letture di ogni
+# coppia, e nessuno deve superare la validazione e il profilo.
+secondo_dataset:
+  file_depositati: 15
+
+# I valori dei parametri che il dataset di riferimento dichiara perche'
+# dipendono dai suoi dati o dallo studio: tutti i parametri obbligatori, piu' i
+# due con un predefinito standard che lo studio ha sottoposto a una scelta
+# registrata (tax.min_boot, decontam.batch_combine). Un solo test li confronta
+# con dati/osd734/config_osd734.yaml.
+parametri:
+  io.fastq_glob: '*.fastq.gz'
+  io.accession_regex: '[ESD]RX[0-9]{4,}'
+  meta.sample_id_column: Sample Name
+  meta.accession_column: Raw Data File
+  meta.derive_module: true
+  meta.module_regex: ^([A-Z]{3}[0-9])
+  meta.module_column: Factor Value[Sample Location]
+  meta.non_surface_positions:
+  - Air Sample
+  - Unopened 3DMM Swab Tube
+  meta.batch_key_column: experiment_accession
+  meta.batch_module_column: module
+  err.batch_column: run_prefix
+  decontam.batch_column: extraction_plate_num
+  ctrl.column: Characteristics[Material Type]
+  ctrl.blank_values:
+  - blank control
+  ctrl.positive_values:
+  - Positive Control
+  ctrl.biological_values:
+  - Surface swab
+  ctrl.blank_override_column: Factor Value[Sample Location]
+  ctrl.blank_override_values:
+  - Unopened 3DMM Swab Tube
+  katharoseq.cell_count_column: katharoseq_cell_count
+  out.study_columns:
+  - Factor Value[Spaceflight]
+  - Parameter Value[Sample Preservation Method]
+  out.batch_columns:
+  - extraction_plate_id
+  - well_id
+  - extraction_date
+  - primer_plate
+  - run_date
+  - katharoseq_cell_count
+  filter.truncLen: 137
+  filter.truncLen_shortfall_warn: 10
+  filter.trimLeft: 0
+  qc.primer_sequence: GTGYCAGCMGCCGCGGTAA
+  qc.conserved_motif: TAC[AG].AGG..GC.AGCGTT
+  tax.ref_name: SILVA
+  tax.ref_version: '138'
+  tax.try_rc: true
+  err.randomize: true
+  dada.pool: pseudo
+  chimera.min_fold_parent_over_abundance: 2.0
+  filt.remove_na_phylum: true
+  filt.exclude_taxa:
+  - Chloroplast
+  - Mitochondria
+  - Eukaryota
+  phylo.enabled: false
+  phylo.max_seqs: 5000
+  prev.min_fraction: 0.01
+  prev.min_count: 2
+  prev.apply: true
+  ctrl.min_positives: 3
+  ctrl.min_positive_pass_frac: 0.75
+  ctrl.positive_gate: false
+  katharoseq.target_taxon: Variovorax
+  katharoseq.collapse_rank: Genus
+  katharoseq.target_sensitivity: 0.9
+  katharoseq.min_r2: 0.8
+  decontam.threshold: 0.5
+  decontam.min_blanks: 5
+  decontam.mode: aggregate
+  qc.head_reads: 10000
+  qc.max_primer_hit_frac: 0.05
+  qc.min_motif_frac: 0.25
+  qc.max_frac_short_reads: 0.05
+  qc.max_zeroed_samples: 0
+  qc.max_frac_lost_filter: 0.3
+  qc.max_asv_count: 300000
+  qc.warn_frac_chimeric: 0.25
+  qc.stop_frac_chimeric: 0.5
+  qc.min_frac_phylum: 0.8
+  qc.min_reads_mode: katharoseq_if_available
+  qc.max_frac_contaminant: 0.4
+  qc.min_reads_final: 1000
+  qc.min_frac_reads_retained: 0.4
+  tax.min_boot: 50
+  decontam.batch_combine: minimum

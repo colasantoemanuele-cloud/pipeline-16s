@@ -49,8 +49,6 @@ __all__ = [
     "processori_disponibili",
     "thread_effettivi",
     "carica",
-    "chiavi_schema",
-    "gruppi_schema",
     "valida",
 ]
 
@@ -85,12 +83,30 @@ def _regex_valida(valore: str) -> str:
     return valore
 
 
+def _glob_di_soli_nomi(valore: str) -> str:
+    """Rifiuta un modello con un separatore di percorso: i file di letture si
+    cercano nella sola cartella ``io.fastq_dir``.
+    """
+    if "/" in valore or "\\" in valore:
+        raise ValueError(
+            "il modello si applica ai nomi dei file dentro io.fastq_dir e non puo' "
+            "contenere separatori di percorso: metti la cartella in io.fastq_dir e "
+            "raccogli i file in una sola cartella"
+        )
+    return valore
+
+
 Regex = Annotated[str, Field(min_length=1), AfterValidator(_regex_valida)]
 StringaNonVuota = Annotated[str, Field(min_length=1)]
-InteroPositivo = Annotated[int, Field(gt=0)]
-InteroNonNegativo = Annotated[int, Field(ge=0)]
-RealePositivo = Annotated[float, Field(gt=0)]
-Frazione = Annotated[float, Field(ge=0.0, le=1.0)]
+# Interi in senso stretto: YAML legge "true" e "false" come booleani, che per
+# Python sono anche gli interi 1 e 0, e un refuso diventerebbe un valore valido
+# (un solo thread, un lotto di un campione, zero controlli richiesti).
+InteroPositivo = Annotated[int, Field(gt=0, strict=True)]
+InteroNonNegativo = Annotated[int, Field(ge=0, strict=True)]
+# Finiti: un infinito non si scrive nel JSON con cui i parametri arrivano a R,
+# e la prima fase che lo riceve si fermerebbe con un errore fuori catalogo.
+RealePositivo = Annotated[float, Field(gt=0, allow_inf_nan=False)]
+Frazione = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)]
 ElencoNonVuoto = Annotated[list[StringaNonVuota], Field(min_length=1)]
 
 #: Riferimento a un'immagine container ancorata per digest. Un tag può essere
@@ -179,7 +195,10 @@ class Io(_Gruppo):
     # sequenziamento. E' facoltativo: quando manca, entrambe restano nulle e la
     # pipeline procede in modalita' a corsa singola e senza lotto.
     batch_table: Path | None = None
-    fastq_glob: StringaNonVuota = d.IO_FASTQ_GLOB
+    # Un modello sui soli nomi dei file di io.fastq_dir: le sottocartelle non
+    # sono ammesse, perche' l'inventario registra il nome del file e le fasi lo
+    # cercano in io.fastq_dir.
+    fastq_glob: Annotated[StringaNonVuota, AfterValidator(_glob_di_soli_nomi)]
     # Obbligatorio: estrae dal nome di ogni file la chiave del campione, che e'
     # la corrispondenza intera oppure, se l'espressione ha un gruppo di
     # cattura, il primo gruppo. La stessa chiave si ricava dal valore di
@@ -191,14 +210,15 @@ class Meta(_Gruppo):
     """Lettura della tabella dei metadati e derivazione dei campi."""
 
     # I parametri senza predefinito sono obbligatori (defaults.OBBLIGATORI):
-    # descrivono il formato dei metadati. Quelli che ammettono il valore nullo
-    # si dichiarano nulli quando il dataset non ha l'informazione.
+    # in tutto lo schema, un campo senza valore dipende dai dati o dallo
+    # studio e va dichiarato. Quelli che ammettono il valore nullo si
+    # dichiarano nulli quando il dataset non ha l'informazione.
     sample_id_column: StringaNonVuota
     accession_column: StringaNonVuota
     # Colonna del nome del campione nella tabella di studio, quando ha un nome
     # diverso da quello della tabella di assay; nullo: lo stesso nome.
     study_sample_id_column: StringaNonVuota | None = None
-    derive_module: StrictBool = d.META_DERIVE_MODULE
+    derive_module: StrictBool
     module_regex: Regex | None
     module_column: StringaNonVuota | None
     # Posizioni che non sono superfici. Vale in entrambe le vie di
@@ -225,8 +245,8 @@ class Filter(_Gruppo):
     """Filtraggio e troncamento delle letture grezze."""
 
     truncLen: InteroPositivo  # obbligatorio: dipende dalle letture del dataset
-    truncLen_shortfall_warn: InteroNonNegativo = d.FILTER_TRUNCLEN_SHORTFALL_WARN
-    trimLeft: InteroNonNegativo = d.FILTER_TRIMLEFT
+    truncLen_shortfall_warn: InteroNonNegativo
+    trimLeft: InteroNonNegativo
     maxEE: RealePositivo = d.FILTER_MAXEE
     truncQ: InteroNonNegativo = d.FILTER_TRUNCQ
     maxN: InteroNonNegativo = d.FILTER_MAXN
@@ -255,7 +275,7 @@ class Err(_Gruppo):
     error_function: Literal["loess", "loess_monotono"] = d.ERR_ERROR_FUNCTION
     nbases: RealePositivo = d.ERR_NBASES
     max_consist: InteroPositivo = d.ERR_MAX_CONSIST
-    randomize: StrictBool = d.ERR_RANDOMIZE
+    randomize: StrictBool
     # Obbligatorio, anche nullo. Colonna di io.batch_table con la
     # corsa di sequenziamento: un modello d'errore per corsa. Con null, o senza
     # io.batch_table, si stima un solo modello su tutti i campioni.
@@ -267,7 +287,7 @@ class Dada(_Gruppo):
 
     # dada2 accetta TRUE, FALSE oppure "pseudo": il parametro e' passato cosi'
     # com'e' ed eredita il vocabolario della libreria.
-    pool: StrictBool | Literal["pseudo"] = d.DADA_POOL
+    pool: StrictBool | Literal["pseudo"]
     omega_a: RealePositivo = d.DADA_OMEGA_A
 
 
@@ -276,9 +296,10 @@ class Chimera(_Gruppo):
 
     # Vocabolario di dada2::removeBimeraDenovo.
     method: Literal["consensus", "pooled", "per-sample"] = d.CHIMERA_METHOD
-    min_fold_parent_over_abundance: Annotated[float, Field(ge=1.0)] = (
-        d.CHIMERA_MIN_FOLD_PARENT_OVER_ABUNDANCE
-    )
+    # Obbligatorio: quanto un genitore deve essere piu' abbondante della
+    # chimera. Il predefinito del pacchetto dipende dal metodo e dalla
+    # versione, e il valore adatto dalla profondita' dei campioni.
+    min_fold_parent_over_abundance: Annotated[float, Field(ge=1.0)]
     min_parent_abundance: InteroPositivo = d.CHIMERA_MIN_PARENT_ABUNDANCE
     min_sample_fraction: Frazione = d.CHIMERA_MIN_SAMPLE_FRACTION
     allow_one_off: StrictBool = d.CHIMERA_ALLOW_ONE_OFF
@@ -301,14 +322,13 @@ class Tax(_Gruppo):
     ref_md5: Md5
     # Obbligatori e senza valore predefinito: ereditare in silenzio un
     # riferimento tassonomico renderebbe il risultato non riconducibile ai
-    # dati che l'hanno prodotto. I valori dello studio di riferimento sono
-    # documentati in defaults.py e compaiono in config.example.yaml.
+    # dati che l'hanno prodotto.
     ref_name: StringaNonVuota
     ref_version: StringaNonVuota
     # Insieme chiuso: va esteso quando un altro classificatore viene realizzato.
     classifier: Literal["naive_bayes"] = d.TAX_CLASSIFIER
-    min_boot: Annotated[int, Field(ge=0, le=100)] = d.TAX_MIN_BOOT
-    try_rc: StrictBool = d.TAX_TRY_RC
+    min_boot: Annotated[int, Field(ge=0, le=100, strict=True)] = d.TAX_MIN_BOOT
+    try_rc: StrictBool
     assign_species: StrictBool = d.TAX_ASSIGN_SPECIES
 
     @model_validator(mode="after")
@@ -331,19 +351,17 @@ class Tax(_Gruppo):
 class Filt(_Gruppo):
     """Filtraggio tassonomico successivo all'assegnazione."""
 
-    remove_na_phylum: StrictBool = d.FILT_REMOVE_NA_PHYLUM
-    exclude_taxa: list[StringaNonVuota] = Field(
-        default_factory=lambda: list(d.FILT_EXCLUDE_TAXA)
-    )
+    remove_na_phylum: StrictBool
+    exclude_taxa: list[StringaNonVuota]
 
 
 class Phylo(_Gruppo):
     """Costruzione dell'albero filogenetico."""
 
-    enabled: StrictBool = d.PHYLO_ENABLED
+    enabled: StrictBool
     # Varianti dell'oggetto filtrato (S13) oltre le quali S9 si ferma prima del
     # calcolo (E-S9-01).
-    max_seqs: InteroPositivo = d.PHYLO_MAX_SEQS
+    max_seqs: InteroPositivo
     # Insiemi chiusi: vanno estesi quando un'altra forma viene realizzata.
     # L'allineatore multiplo (DECIPHER::AlignSeqs) e il modello evolutivo
     # dell'albero di massima verosimiglianza (phangorn): GTR con eterogeneita'
@@ -356,9 +374,8 @@ class Ctrl(_Gruppo):
     """Riconoscimento di controlli negativi, positivi e campioni biologici, e
     validazione della corsa dai controlli positivi.
 
-    La colonna, le etichette e la regola di riclassificazione sono derivate dal
-    dataset di riferimento: sono quelle usate in quello studio, non una
-    proprietà della pipeline.
+    La colonna, le etichette e la regola di riclassificazione descrivono il
+    dataset, non la pipeline: sono tutte da dichiarare.
     """
 
     # Obbligatori. Le etichette dei controlli possono essere elenchi vuoti (un
@@ -376,9 +393,9 @@ class Ctrl(_Gruppo):
     blank_override_column: StringaNonVuota | None
     blank_override_values: list[StringaNonVuota]
     # Validazione della corsa dai controlli positivi (S11).
-    min_positives: InteroPositivo = d.CTRL_MIN_POSITIVES
-    min_positive_pass_frac: Frazione = d.CTRL_MIN_POSITIVE_PASS_FRAC
-    positive_gate: StrictBool = d.CTRL_POSITIVE_GATE
+    min_positives: InteroPositivo
+    min_positive_pass_frac: Frazione
+    positive_gate: StrictBool
 
     @model_validator(mode="after")
     def _categorie_disgiunte(self) -> Ctrl:
@@ -421,16 +438,12 @@ class Katharoseq(_Gruppo):
     # diluizione; nome originale della colonna, cercata nel file di
     # arricchimento e poi nella tabella di studio (S10 la porta nell'oggetto).
     cell_count_column: StringaNonVuota | None
-    collapse_rank: Literal["Phylum", "Class", "Order", "Family", "Genus"] = (
-        d.KATHAROSEQ_COLLAPSE_RANK
-    )
+    collapse_rank: Literal["Phylum", "Class", "Order", "Family", "Genus"]
     # Insiemi chiusi: vanno estesi quando un'altra forma viene realizzata.
     curve_model: Literal["allosteric_sigmoid"] = d.KATHAROSEQ_CURVE_MODEL
     # Strettamente fra 0 e 1: a fedelta' 1 la profondita' richiesta e' infinita.
-    target_sensitivity: Annotated[float, Field(gt=0.0, lt=1.0)] = (
-        d.KATHAROSEQ_TARGET_SENSITIVITY
-    )
-    min_r2: Frazione = d.KATHAROSEQ_MIN_R2
+    target_sensitivity: Annotated[float, Field(gt=0.0, lt=1.0)]
+    min_r2: Frazione
     read_stage: Literal["nonchimeric"] = d.KATHAROSEQ_READ_STAGE
 
 
@@ -438,17 +451,19 @@ class Decontam(_Gruppo):
     """Rimozione dei contaminanti a partire dai controlli negativi."""
 
     # Vocabolario di decontam::isContaminant.
-    method: Literal[
-        "auto", "frequency", "prevalence", "combined", "minimum", "either", "both"
-    ] = d.DECONTAM_METHOD
-    threshold: Frazione = d.DECONTAM_THRESHOLD
-    min_blanks: InteroPositivo = d.DECONTAM_MIN_BLANKS
+    # Insieme chiuso: la sola decontaminazione realizzata e' quella per
+    # prevalenza, che non richiede la concentrazione del DNA per campione. Gli
+    # altri metodi di decontam vanno aggiunti qui quando una fase li realizza:
+    # accettarli prima fermerebbe la catena in S12, dopo tutto il calcolo.
+    method: Literal["prevalence"] = d.DECONTAM_METHOD
+    threshold: Frazione
+    min_blanks: InteroPositivo
     # batch.combine di decontam::isContaminant, per la decontaminazione per piastra.
     batch_combine: Literal["minimum", "product", "fisher"] = d.DECONTAM_BATCH_COMBINE
     # Modalita' che decide i contaminanti rimossi: aggregate (tutti i biologici
     # contro tutti i negativi) o batch (per piastra, con batch_combine). L'altra
     # si calcola come diagnostica.
-    mode: Literal["aggregate", "batch"] = d.DECONTAM_MODE
+    mode: Literal["aggregate", "batch"]
     # Obbligatorio, anche nullo: la colonna di io.batch_table con la piastra.
     batch_column: StringaNonVuota | None
 
@@ -456,9 +471,9 @@ class Decontam(_Gruppo):
 class Prev(_Gruppo):
     """Filtro di prevalenza sulle varianti."""
 
-    min_fraction: Frazione = d.PREV_MIN_FRACTION
-    min_count: InteroNonNegativo = d.PREV_MIN_COUNT
-    apply: StrictBool = d.PREV_APPLY
+    min_fraction: Frazione
+    min_count: InteroNonNegativo
+    apply: StrictBool
 
 
 class Qc(_Gruppo):
@@ -466,30 +481,30 @@ class Qc(_Gruppo):
 
     # katharoseq_if_available: le soglie di S11, sulle letture senza chimere;
     # none: nessuna soglia di profondita', resta min_reads_final.
-    min_reads_mode: Literal["katharoseq_if_available", "none"] = d.QC_MIN_READS_MODE
+    min_reads_mode: Literal["katharoseq_if_available", "none"]
     # Frazione massima delle letture dei biologici rimossa come contaminante (S12).
-    max_frac_contaminant: Frazione = d.QC_MAX_FRAC_CONTAMINANT
+    max_frac_contaminant: Frazione
     # Per campione, sulle letture dell'oggetto finale (S13): sotto, il campione
     # esce dall'oggetto finale.
-    min_reads_final: InteroNonNegativo = d.QC_MIN_READS_FINAL
+    min_reads_final: InteroNonNegativo
     # Per l'insieme dei campioni finali: letture finali su letture senza chimere
     # (S14, E-S14-01).
-    min_frac_reads_retained: Frazione = d.QC_MIN_FRAC_READS_RETAINED
-    max_asv_count: InteroPositivo = d.QC_MAX_ASV_COUNT
+    min_frac_reads_retained: Frazione
+    max_asv_count: InteroPositivo
     # Controlli sul risultato del filtro (S2), applicati ai campioni biologici
     # e ai controlli positivi, non ai negativi: vedi steps/s02_filter.py.
-    max_zeroed_samples: InteroNonNegativo = d.QC_MAX_ZEROED_SAMPLES
-    max_frac_lost_filter: Frazione = d.QC_MAX_FRAC_LOST_FILTER
-    max_frac_short_reads: Frazione = d.QC_MAX_FRAC_SHORT_READS
-    warn_frac_chimeric: Frazione = d.QC_WARN_FRAC_CHIMERIC
-    stop_frac_chimeric: Frazione = d.QC_STOP_FRAC_CHIMERIC
+    max_zeroed_samples: InteroNonNegativo
+    max_frac_lost_filter: Frazione
+    max_frac_short_reads: Frazione
+    warn_frac_chimeric: Frazione
+    stop_frac_chimeric: Frazione
     # Frazione minima di varianti con il phylum assegnato (S8, E-S8-02): vedi
     # steps/s08_taxonomy.py per le classi a cui si applica.
-    min_frac_phylum: Frazione = d.QC_MIN_FRAC_PHYLUM
+    min_frac_phylum: Frazione
     # Letture ispezionate per file dai gate che leggono le sequenze.
-    head_reads: InteroPositivo = d.QC_HEAD_READS
-    max_primer_hit_frac: Frazione = d.QC_MAX_PRIMER_HIT_FRAC
-    min_motif_frac: Frazione = d.QC_MIN_MOTIF_FRAC
+    head_reads: InteroPositivo
+    max_primer_hit_frac: Frazione
+    min_motif_frac: Frazione
     # Obbligatori: dipendono dalla regione amplificata. Il motivo puo' essere
     # nullo, per una regione senza un motivo noto: G10 verifica allora la sola
     # assenza del primer.
@@ -558,6 +573,19 @@ class Out(_Gruppo):
     serialization: Literal["rds"] = d.OUT_SERIALIZATION
     asv_id_scheme: Literal["abundance_rank"] = d.OUT_ASV_ID_SCHEME
     taxa_are_rows: StrictBool = d.OUT_TAXA_ARE_ROWS
+
+    @model_validator(mode="after")
+    def _orientamento_realizzato(self) -> Out:
+        """Respinge ``taxa_are_rows`` falso: i filtri finali lavorano con le
+        varianti sulle righe, e accettare l'altro orientamento fermerebbe la
+        catena dopo tutto il calcolo.
+        """
+        if not self.taxa_are_rows:
+            raise ValueError(
+                "taxa_are_rows: false non e' realizzato: le fasi dopo l'oggetto "
+                "integrato lavorano con le varianti sulle righe. Imposta true"
+            )
+        return self
     export_flat: StrictBool = d.OUT_EXPORT_FLAT
     # Da dove vengono gli identificativi dei campioni nell'oggetto integrato.
     sample_id_source: Literal["accession"] = d.OUT_SAMPLE_ID_SOURCE
@@ -581,15 +609,20 @@ class Run(_Gruppo):
     # qui perche' cosi' finisce nella configurazione risolta e nel suo digest,
     # e due esecuzioni diventano confrontabili anche rispetto alle versioni R.
     lockfile: StringaNonVuota = d.RUN_LOCKFILE
-    seed: int = d.RUN_SEED
+    # Entro gli interi di R, a cui il seme viene passato.
+    seed: Annotated[int, Field(strict=True, ge=-2147483647, le=2147483647)] = d.RUN_SEED
     # Nullo per difetto, cioe' automatico: si usano i processori utilizzabili
     # dal processo, contati all'uso (thread_effettivi). Il valore ricavato dalla
     # macchina non entra nella configurazione ne' nel suo digest, che resta lo
     # stesso su macchine diverse; un valore fisso per difetto fermerebbe G14
     # sulle macchine piu' piccole.
-    # Intero in senso stretto: YAML legge "true" come booleano, che per Python
-    # e' anche l'intero 1, e un refuso diventerebbe un solo thread.
-    threads: Annotated[int, Field(gt=0, strict=True)] | None = None
+    threads: InteroPositivo | None = None
+    # Tempo massimo, in secondi, di ogni processo R di una fase. Nullo per
+    # difetto: nessun limite, perche' la durata di una fase dipende dal dataset
+    # e dalla macchina. Allo scadere il ponte uccide il processo e il suo
+    # gruppo (E-R-05). Non incide sui risultati: o la fase si conclude, o si
+    # ferma.
+    r_timeout_s: InteroPositivo | None = None
     batch_size: InteroPositivo = d.RUN_BATCH_SIZE
     # Se conservare le letture filtrate da S2 a esecuzione conclusa. Con false
     # si rimuovono solo quando tutte le fasi sono concluse, e la rimozione e'
@@ -647,16 +680,16 @@ class Config(_Gruppo):
     meta: Meta
     filter: Filter
     err: Err
-    dada: Dada = Field(default_factory=Dada)
-    chimera: Chimera = Field(default_factory=Chimera)
+    dada: Dada
+    chimera: Chimera
     asv: Asv = Field(default_factory=Asv)
     tax: Tax
-    filt: Filt = Field(default_factory=Filt)
-    phylo: Phylo = Field(default_factory=Phylo)
+    filt: Filt
+    phylo: Phylo
     ctrl: Ctrl
     katharoseq: Katharoseq
     decontam: Decontam
-    prev: Prev = Field(default_factory=Prev)
+    prev: Prev
     qc: Qc
     retry: Retry = Field(default_factory=Retry)
     out: Out
@@ -673,26 +706,6 @@ class Config(_Gruppo):
 # --------------------------------------------------------------------------- #
 # Ispezione dello schema                                                       #
 # --------------------------------------------------------------------------- #
-
-
-def gruppi_schema() -> tuple[str, ...]:
-    """Nomi dei gruppi dichiarati, nell'ordine in cui compaiono nello schema."""
-    return tuple(Config.model_fields)
-
-
-def chiavi_schema() -> frozenset[str]:
-    """Tutte le chiavi dello schema nella forma ``gruppo.parametro``.
-
-    Serve a confrontare lo schema con un file di configurazione senza
-    riscrivere a mano l'elenco dei parametri, che si disallineerebbe al primo
-    cambiamento.
-    """
-    chiavi: set[str] = set()
-    for nome_gruppo, campo_gruppo in Config.model_fields.items():
-        classe = campo_gruppo.annotation
-        for nome_campo in classe.model_fields:
-            chiavi.add(f"{nome_gruppo}.{nome_campo}")
-    return frozenset(chiavi)
 
 
 # --------------------------------------------------------------------------- #
@@ -831,9 +844,11 @@ def _voce_mancanti(mancanti: list[str]) -> str:
     """La voce che elenca i parametri obbligatori non dichiarati."""
     return (
         f"{INTESTAZIONE_MANCANTI} ({len(mancanti)}): {', '.join(mancanti)}. Descrivono il "
-        "dataset e non hanno un valore predefinito: vanno dichiarati tutti nel file di "
-        "configurazione, nulli o vuoti quando non sono pertinenti (per esempio le "
-        "etichette dei controlli positivi in un dataset che non ne ha)"
+        "dataset o le scelte di analisi che ne dipendono, e non hanno un valore "
+        "predefinito: vanno dichiarati tutti nel file di configurazione, nulli o vuoti "
+        "quando non sono pertinenti e lo schema lo ammette (per esempio le etichette dei "
+        "controlli positivi in un dataset che non ne ha). Che cosa significa ciascuno e "
+        "come si sceglie e' in config/config.example.yaml"
     )
 
 
@@ -873,13 +888,42 @@ def valida(dati: dict[str, Any], origine: str | None = None) -> Config:
         raise ErroreConfigurazione(problemi, origine) from errore
 
 
+class _LettoreSenzaRipetizioni(yaml.SafeLoader):
+    """Il lettore YAML sicuro, che in piu' rifiuta una chiave ripetuta.
+
+    PyYAML tiene in silenzio l'ultima occorrenza: un gruppo scritto due volte
+    perderebbe i parametri del primo blocco, che tornerebbero ai predefiniti
+    senza alcun messaggio. E' lo stesso rischio di un refuso in una chiave.
+    """
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        viste: set[Any] = set()
+        for chiave_nodo, _ in node.value:
+            chiave = self.construct_object(chiave_nodo, deep=deep)
+            if chiave in viste:
+                raise yaml.constructor.ConstructorError(
+                    None, None,
+                    f"la chiave {chiave!r} compare due volte nella stessa mappa: i "
+                    "parametri di un gruppo vanno scritti in un solo blocco",
+                    chiave_nodo.start_mark,
+                )
+            viste.add(chiave)
+        return super().construct_mapping(node, deep=deep)
+
+
 def carica(percorso: str | Path) -> Config:
     """Carica e valida un file di configurazione YAML."""
     percorso = Path(percorso)
-    testo = percorso.read_text(encoding="utf-8")
+    try:
+        testo = percorso.read_text(encoding="utf-8")
+    except UnicodeDecodeError as errore:
+        raise ErroreConfigurazione(
+            [f"il file non e' testo UTF-8: {errore}. Salvalo in UTF-8 (per esempio con iconv)"],
+            str(percorso),
+        ) from errore
 
     try:
-        dati = yaml.safe_load(testo)
+        dati = yaml.load(testo, Loader=_LettoreSenzaRipetizioni)  # noqa: S506 - deriva da SafeLoader
     except yaml.YAMLError as errore:
         raise ErroreConfigurazione([f"YAML non leggibile: {errore}"], str(percorso)) from errore
 

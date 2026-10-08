@@ -17,8 +17,8 @@
 # leggere in parallelo), blocco (letture per blocco di lettura).
 #
 # Le tabelle sono in formato lungo, una riga per campione e per valore: si
-# leggono con qualunque programma, e 960 campioni restano tre file invece di
-# tremila.
+# leggono con qualunque programma, e un dataset di molti campioni resta in
+# pochi file invece di alcuni per campione.
 
 for (f in c("io_json.R", "errors.R", "letture.R")) {
   source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
@@ -104,6 +104,9 @@ esegui_fase(function(parametri, cartella) {
     campioni, profila, blocco = blocco,
     mc.cores = processi, mc.preschedule = FALSE
   )
+  # Ogni processo tiene in memoria un blocco di letture con le sue qualita':
+  # con molti processi e poca memoria il sistema ne uccide alcuni.
+  verifica_figli(profili, names(campioni))
   guasti <- vapply(profili, inherits, logical(1), what = "try-error")
   if (any(guasti)) {
     stop("profilo non calcolabile per ", paste(names(campioni)[guasti], collapse = ", "),

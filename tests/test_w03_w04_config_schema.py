@@ -38,7 +38,7 @@ Settimane 3 e 4 (W3/W4), Fase F1: schema di validazione della configurazione
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -93,10 +93,11 @@ import copy
 from pathlib import Path
 
 import pytest
+from conftest import FORMATO, chiavi_schema, esegui_g15
 import yaml
 
 from amplicon16s.errors.catalog import Categoria, voce
-from sottoinsieme import dati_esempio as _esempio_compilato
+from conftest import configurazione_di_prova as _esempio_compilato
 
 from amplicon16s.config import defaults
 from amplicon16s.config.resolve import (
@@ -111,38 +112,50 @@ from amplicon16s.config.schema import (
     Config,
     ErroreConfigurazione,
     carica,
-    chiavi_schema,
-    gruppi_schema,
-    obbligatori_mancanti,
+            obbligatori_mancanti,
     valida,
 )
-from amplicon16s.gates.g01_g15 import CONTROLLI, ErroreGate, esegui_g15
+from amplicon16s.gates.g01_g15 import CONTROLLI, ErroreGate
 from amplicon16s.io_layer.artifacts import Fase
 
 RADICE = Path(__file__).resolve().parents[1]
 ESEMPIO = RADICE / "config" / "config.example.yaml"
 
-#: I 25 parametri che descrivono il dataset e non hanno un predefinito. L'elenco
-#: e' scritto qui per esteso, e non letto da ``defaults.OBBLIGATORI``: e' il
-#: codice che il test deve verificare, e un parametro tolto da li' per errore
-#: sparirebbe anche dall'atteso.
+#: I parametri che dipendono dai dati o dallo studio e non hanno un
+#: predefinito. L'elenco e' scritto qui per esteso, e non letto da
+#: ``defaults.OBBLIGATORI``: e' il codice che il test deve verificare, e un
+#: parametro tolto da li' per errore sparirebbe anche dall'atteso.
 DEL_DATASET = (
     # come si riconoscono file e campioni
-    "io.accession_regex", "meta.sample_id_column", "meta.accession_column",
+    "io.fastq_glob", "io.accession_regex", "meta.sample_id_column", "meta.accession_column",
     # il formato dei metadati
-    "meta.module_regex", "meta.module_column", "meta.non_surface_positions",
-    "meta.batch_key_column", "meta.batch_module_column",
+    "meta.derive_module", "meta.module_regex", "meta.module_column",
+    "meta.non_surface_positions", "meta.batch_key_column", "meta.batch_module_column",
     "err.batch_column", "decontam.batch_column",
     "ctrl.column", "ctrl.blank_values", "ctrl.positive_values", "ctrl.biological_values",
     "ctrl.blank_override_column", "ctrl.blank_override_values",
     "katharoseq.cell_count_column", "out.study_columns", "out.batch_columns",
-    # l'esperimento
-    "filter.truncLen", "qc.primer_sequence", "qc.conserved_motif",
-    "katharoseq.target_taxon", "tax.ref_name", "tax.ref_version",
+    # la regione amplificata, le letture e il riferimento
+    "filter.truncLen", "filter.truncLen_shortfall_warn", "filter.trimLeft",
+    "qc.primer_sequence", "qc.conserved_motif", "tax.ref_name", "tax.ref_version", "tax.try_rc",
+    # le scelte di analisi che dipendono dallo studio
+    "err.randomize", "dada.pool", "chimera.min_fold_parent_over_abundance",
+    "filt.remove_na_phylum", "filt.exclude_taxa", "phylo.enabled", "phylo.max_seqs",
+    "prev.min_fraction", "prev.min_count", "prev.apply",
+    # i controlli sperimentali
+    "ctrl.min_positives", "ctrl.min_positive_pass_frac", "ctrl.positive_gate",
+    "katharoseq.target_taxon", "katharoseq.collapse_rank", "katharoseq.target_sensitivity",
+    "katharoseq.min_r2", "decontam.threshold", "decontam.min_blanks", "decontam.mode",
+    # le soglie di qualita'
+    "qc.head_reads", "qc.max_primer_hit_frac", "qc.min_motif_frac", "qc.max_frac_short_reads",
+    "qc.max_zeroed_samples", "qc.max_frac_lost_filter", "qc.max_asv_count",
+    "qc.warn_frac_chimeric", "qc.stop_frac_chimeric", "qc.min_frac_phylum",
+    "qc.min_reads_mode", "qc.max_frac_contaminant", "qc.min_reads_final",
+    "qc.min_frac_reads_retained",
 )
 
 #: Elenco tassativo dei parametri privi di valore predefinito nello schema: i
-#: percorsi e il checksum del riferimento, piu' i 25 che descrivono il dataset.
+#: percorsi e il checksum del riferimento, piu' quelli di ``DEL_DATASET``.
 OBBLIGATORI = (
     "io.fastq_dir",
     "io.assay_table",
@@ -152,10 +165,53 @@ OBBLIGATORI = (
     *DEL_DATASET,
 )
 
+#: I parametri con un predefinito che non e' il valore standard di un metodo:
+#: quelli di cui la pipeline realizza una sola forma, e quelli dello strumento
+#: (come si esegue e in che forma si scrive). Con ``defaults.STANDARD_DEL_METODO``
+#: e i nulli sono tutti i predefiniti ammessi.
+UNICA_FORMA = (
+    "tax.classifier", "tax.assign_species", "phylo.aligner", "phylo.model",
+    "katharoseq.curve_model", "katharoseq.read_stage", "decontam.method",
+    "out.serialization", "out.asv_id_scheme", "out.taxa_are_rows", "out.sample_id_source",
+)
+DELLO_STRUMENTO = (
+    "asv.len_tol", "out.export_flat", "retry.enabled", "retry.max_attempts", "retry.whitelist",
+    "run.lockfile", "run.seed", "run.batch_size", "run.keep_filtered_fastq",
+    "run.strict_provenance",
+)
+#: Facoltativi il cui predefinito e' l'assenza.
+NULLI = (
+    "io.study_table", "io.batch_table", "meta.study_sample_id_column", "tax.ref_bad_taxa",
+    "run.container", "run.threads", "run.r_timeout_s",
+)
+
+
+def _modello() -> dict[str, set[str]]:
+    """Le chiavi ``gruppo.parametro`` del modello di configurazione, per specie:
+    quelle con un valore, e quelle lasciate in commento con il loro marcatore
+    (``[OBBLIGATORIO]``) o senza (``commentate``).
+    """
+    import re
+
+    chiavi: dict[str, set[str]] = {"con_valore": set(), "obbligatorie": set(), "commentate": set(),
+                                   "standard": set()}
+    gruppo = None
+    for riga in ESEMPIO.read_text(encoding="utf-8").splitlines():
+        if trovato := re.match(r"^([a-z]+):", riga):
+            gruppo = trovato.group(1)
+        elif trovato := re.match(r"^  ([A-Za-z_0-9]+):", riga):
+            chiavi["con_valore"].add(f"{gruppo}.{trovato.group(1)}")
+            if "[STANDARD]" in riga:
+                chiavi["standard"].add(f"{gruppo}.{trovato.group(1)}")
+        elif trovato := re.match(r"^  # ([A-Za-z_0-9]+):\s*(#.*|\d+)?$", riga):
+            specie = "obbligatorie" if "[OBBLIGATORIO]" in riga else "commentate"
+            chiavi[specie].add(f"{gruppo}.{trovato.group(1)}")
+    return chiavi
+
 
 @pytest.fixture
 def dati_esempio() -> dict:
-    """Carica in un dizionario mutabile indipendente il file ``config.example.yaml``."""
+    """Una configurazione completa e valida, come dizionario mutabile indipendente."""
     return _esempio_compilato()
 
 
@@ -183,16 +239,15 @@ def test_esempio_esiste():
     assert ESEMPIO.is_file(), f"file di esempio non trovato in {ESEMPIO}"
 
 
-def test_esempio_si_carica_e_valida():
+def test_il_modello_non_parte_e_una_configurazione_completa_si_valida():
     """
     **Obiettivo**: Verificare che ``config.example.yaml`` cosi' com'e' sia
-    respinto, perche' lascia da dichiarare i parametri obbligatori, e che
-    compilato con i valori d'esempio riportati nei suoi commenti superi
-    l'intera validazione producendo un'istanza valida di ``Config``.
+    respinto con l'elenco dei parametri obbligatori da dichiarare, e che una
+    configurazione che li dichiara tutti sia valida.
 
-    **Razionale scientifico e sistemistico**: L'esempio deve restare allineato
-    allo schema, ma non deve poter essere eseguito senza che chi lo usa abbia
-    dichiarato i parametri del proprio dataset.
+    **Razionale scientifico e sistemistico**: Il modello non porta valori di
+    alcun dataset: chi lo copia deve dichiarare cio' che dipende dai suoi
+    dati, e la pipeline deve dirgli che cosa manca prima di ogni calcolo.
     """
     with pytest.raises(ErroreConfigurazione) as respinta:
         carica(ESEMPIO)
@@ -234,60 +289,53 @@ def test_esempio_dichiara_versione_come_stringa(dati_esempio):
 # --------------------------------------------------------------------------- #
 
 
-def _chiavi_del_file(dati: dict) -> set[str]:
-    """Estrae l'insieme di tutte le chiavi ``gruppo.campo`` presenti nel dizionario YAML."""
-    return {
-        f"{gruppo}.{campo}"
-        for gruppo, contenuto in dati.items()
-        if isinstance(contenuto, dict)
-        for campo in contenuto
-    }
 
 
-def test_nessuna_chiave_dello_schema_manca_nel_file(dati_esempio):
+
+def test_nessuna_chiave_dello_schema_manca_nel_file():
     """
-    **Obiettivo**: Verificare che ogni parametro definito nello schema Pydantic
-    ``Config`` sia esplicitamente documentato in ``config/config.example.yaml``.
+    **Obiettivo**: Verificare che ogni parametro dello schema ``Config`` sia
+    documentato in ``config/config.example.yaml``: con il suo valore
+    predefinito, oppure in commento se e' obbligatorio o facoltativo senza
+    valore.
 
-    **Razionale scientifico e sistemistico**: Evita la presenza di "parametri
-    nascosti" nel codice Python di cui il biologo computazionale ignora
-    l'esistenza consultando il file di configurazione di riferimento.
+    **Razionale scientifico e sistemistico**: Il modello e' la sola
+    descrizione dei parametri per chi configura un dataset nuovo: un parametro
+    che non vi compare non verrebbe mai rivisto.
     """
-    mancanti = chiavi_schema() - _chiavi_del_file(dati_esempio)
-    # run.threads e' documentato ma lasciato in commento: il suo predefinito
-    # sono i processori della macchina, e un numero fisso la fermerebbe altrove.
-    assert "  # threads:" in ESEMPIO.read_text(encoding="utf-8")
-    mancanti -= {"run.threads"}
+    modello = _modello()
+    presenti = modello["con_valore"] | modello["obbligatorie"] | modello["commentate"]
+    mancanti = chiavi_schema() - presenti
     assert not mancanti, f"chiavi dello schema assenti dal file: {sorted(mancanti)}"
+    # run.threads e run.r_timeout_s sono nulli per difetto: restano in commento.
+    assert modello["commentate"] == {"run.threads", "run.r_timeout_s"}
 
 
-def test_nessuna_chiave_del_file_e_sconosciuta_allo_schema(dati_esempio):
+def test_nessuna_chiave_del_file_e_sconosciuta_allo_schema():
     """
     **Obiettivo**: Verificare che ``config.example.yaml`` non contenga alcuna
-    chiave obsoleta o estranea allo schema ``Config``.
+    chiave, attiva o in commento, che lo schema non conosce.
 
-    **Razionale scientifico e sistemistico**: Garantisce la sincronia bidirezionale
-    1:1 tra documentazione YAML e modello formale di validazione.
+    **Razionale scientifico e sistemistico**: Una chiave superata rimasta nel
+    modello verrebbe copiata e poi respinta alla prima esecuzione.
     """
-    estranee = _chiavi_del_file(dati_esempio) - chiavi_schema()
+    modello = _modello()
+    estranee = (modello["con_valore"] | modello["obbligatorie"] | modello["commentate"]) \
+        - chiavi_schema()
     assert not estranee, f"chiavi del file assenti dallo schema: {sorted(estranee)}"
 
 
-def test_tutti_i_gruppi_compaiono_nel_file(dati_esempio):
+def test_tutti_i_gruppi_compaiono_nel_file():
     """
-    **Obiettivo**: Verificare che tutti i 22 gruppi di primo livello (inclusi i
-    5 gruppi ecologici ``norm``, ``glom``, ``beta``, ``ord``, ``stat`` privi di
-    sotto-chiavi) siano presenti in ``config.example.yaml``.
+    **Obiettivo**: Verificare che i gruppi di ``config.example.yaml`` siano
+    esattamente quelli dello schema ``Config``.
 
-    **Razionale scientifico e sistemistico**: Poiché i gruppi riservati alle
-    analisi ecologiche a valle sono mappe vuote ``{}``, un controllo basato solo
-    sulle foglie ``gruppo.campo`` non li vedrebbe; questo test assicura che
-    l'intera architettura a 22 sezioni sia rappresentata nel file di esempio.
+    **Razionale scientifico e sistemistico**: Lo schema e' a chiave chiusa: un
+    gruppo in piu' o in meno nel modello produrrebbe una configurazione
+    respinta o incompleta.
     """
-    mancanti = set(gruppi_schema()) - set(dati_esempio)
-    assert not mancanti, f"gruppi assenti dal file: {sorted(mancanti)}"
-    estranei = set(dati_esempio) - set(gruppi_schema())
-    assert not estranei, f"gruppi del file assenti dallo schema: {sorted(estranei)}"
+    gruppi = set(yaml.safe_load(ESEMPIO.read_text(encoding="utf-8")))
+    assert gruppi == set(Config.model_fields)
 
 
 # --------------------------------------------------------------------------- #
@@ -314,7 +362,7 @@ def test_elenco_obbligatori_coincide_con_lo_schema():
     letterale perche' un elenco letto dal codice verificherebbe il codice
     contro se stesso.
     """
-    assert len(DEL_DATASET) == 25 and len(set(DEL_DATASET)) == 25
+    assert len(DEL_DATASET) == 63 and len(set(DEL_DATASET)) == 63
     assert defaults.OBBLIGATORI == DEL_DATASET
     assert not {"io.study_table", "run.container"} & set(OBBLIGATORI)
     dallo_schema = {
@@ -355,7 +403,7 @@ def test_gruppo_obbligatorio_mancante_viene_segnalato(dati_esempio):
     tramite ``default_factory`` e deve bloccare l'esecuzione.
     """
     del dati_esempio["io"]
-    with pytest.raises(ErroreConfigurazione, match="io"):
+    with pytest.raises(ErroreConfigurazione, match=r"io\.fastq_dir"):
         valida(dati_esempio)
 
 
@@ -593,7 +641,7 @@ def test_tolleranza_non_puo_raggiungere_il_troncamento(dati_esempio):
     usata dal Gate G09 per avvisare di un troncamento eccessivamente conservativo
     (``E-S1-01``) resti inferiore alla lunghezza dell'amplicone prodotto.
     """
-    dati_esempio["filter"]["truncLen_shortfall_warn"] = 137
+    dati_esempio["filter"]["truncLen_shortfall_warn"] = dati_esempio["filter"]["truncLen"]
     with pytest.raises(ErroreConfigurazione, match="truncLen_shortfall_warn"):
         valida(dati_esempio)
 
@@ -609,7 +657,7 @@ def test_categorie_di_controllo_devono_essere_disgiunte(dati_esempio):
     autentici del microbioma come contaminanti da reagente, sottraendoli
     sistematicamente dal dataset finale.
     """
-    dati_esempio["ctrl"]["blank_values"] = ["Surface swab"]
+    dati_esempio["ctrl"]["blank_values"] = list(dati_esempio["ctrl"]["biological_values"])
     with pytest.raises(ErroreConfigurazione, match="ctrl"):
         valida(dati_esempio)
 
@@ -666,7 +714,7 @@ def test_file_vuoto_viene_segnalato(tmp_path):
     **Razionale scientifico e sistemistico**: Gestisce con chiarezza il caso di un
     file di configurazione appena creato con ``touch`` o troncato per errore.
     """
-    percorso = tmp_path / "vuoto.yaml"
+    percorso = tmp_path / "config.yaml"
     percorso.write_text("", encoding="utf-8")
     with pytest.raises(ErroreConfigurazione, match="vuoto"):
         carica(percorso)
@@ -693,94 +741,97 @@ def test_yaml_malformato_viene_segnalato(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def test_chiavi_derivate_dal_dataset_esistono_nello_schema():
+def test_ogni_predefinito_e_di_una_specie_ammessa():
     """
-    **Obiettivo**: Verificare che tutte le chiavi elencate nel registro
-    ``defaults.DERIVATI_DAL_DATASET`` corrispondano a campi reali dello schema.
+    **Obiettivo**: Verificare che ogni parametro dello schema con un
+    predefinito sia il valore standard di un metodo
+    (``defaults.STANDARD_DEL_METODO``, con la fonte), oppure un parametro di
+    cui la pipeline realizza una sola forma, oppure un parametro dello
+    strumento, oppure un facoltativo nullo; e che nessun parametro
+    obbligatorio sia fra questi.
 
-    **Razionale scientifico e sistemistico**: ``DERIVATI_DAL_DATASET`` censisce i
-    parametri il cui valore e' stato scelto sulla base di un fatto accertato su
-    **OSD-734**: questo test impedisce che rinomine nello schema rendano orfano
-    quel registro.
+    **Razionale scientifico e sistemistico**: Un predefinito scelto guardando
+    un dataset verrebbe ereditato in silenzio da un altro: e' ammesso solo cio'
+    che vale per qualunque dataset, e ogni aggiunta deve passare da qui.
     """
-    ignote = set(defaults.DERIVATI_DAL_DATASET) - chiavi_schema()
-    assert not ignote, f"chiavi inesistenti nello schema: {sorted(ignote)}"
+    con_predefinito = {
+        f"{gruppo}.{campo}": sotto.get_default(call_default_factory=True)
+        for gruppo, descrittore in Config.model_fields.items()
+        for campo, sotto in descrittore.annotation.model_fields.items()
+        if not sotto.is_required()
+    }
+    ammessi = set(defaults.STANDARD_DEL_METODO) | set(UNICA_FORMA) | set(DELLO_STRUMENTO) | set(NULLI)
+    assert set(con_predefinito) == ammessi
+    assert not ammessi & set(DEL_DATASET)
+    assert {c for c in NULLI if con_predefinito[c] is not None} == set()
+    for chiave, fonte in defaults.STANDARD_DEL_METODO.items():
+        assert "::" in fonte or "tutorial" in fonte, chiave
+    # Una sola forma: lo schema respinge ogni altro valore.
+    dati = _esempio_compilato()
+    for chiave in UNICA_FORMA:
+        gruppo, campo = chiave.split(".")
+        altro = copy.deepcopy(dati)
+        attuale = altro[gruppo][campo]
+        altro[gruppo][campo] = (not attuale) if isinstance(attuale, bool) else "un_altro_valore"
+        with pytest.raises(ErroreConfigurazione):
+            valida(altro)
 
 
-def test_i_marcatori_dell_esempio_coincidono_con_i_derivati_dal_dataset():
+def test_i_marcatori_del_modello_coincidono_con_il_codice():
     """
-    **Obiettivo**: Verificare che i parametri marcati ``[OSD-734]`` sulla loro
-    riga in ``config/config.example.yaml`` siano esattamente quelli di
-    ``defaults.DERIVATI_DAL_DATASET``, e che per ciascuno
-    ``defaults.FATTI_OSD734`` porti il fatto accertato e lo stesso valore
-    dell'esempio.
+    **Obiettivo**: Verificare che i parametri lasciati da dichiarare in
+    ``config/config.example.yaml`` (``[OBBLIGATORIO]``) siano esattamente
+    ``defaults.OBBLIGATORI``, e che quelli marcati ``[STANDARD]`` siano
+    esattamente ``defaults.STANDARD_DEL_METODO``, con il valore dello schema.
 
-    **Razionale scientifico e sistemistico**: Il criterio e' uno solo: un
-    parametro e' marcato, e sta nell'elenco, se il suo valore e' stato scelto
-    sulla base di un fatto accertato sul dataset di riferimento, e va quindi
-    rivisto su un altro. Due elenchi tenuti a mano divergono: chi adatta
-    l'esempio a un altro dataset guarda i marcatori, chi scrive un report
-    l'elenco.
+    **Razionale scientifico e sistemistico**: Il modello dice a chi configura
+    che cosa deve scegliere e che cosa puo' lasciare: se divergesse dal codice
+    direbbe di poter omettere un parametro che la pipeline pretende, o
+    viceversa.
+    """
+    modello = _modello()
+    assert modello["obbligatorie"] == set(defaults.OBBLIGATORI)
+    assert modello["standard"] == set(defaults.STANDARD_DEL_METODO)
+    scritti = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
+    for chiave in (*defaults.STANDARD_DEL_METODO, *UNICA_FORMA, *DELLO_STRUMENTO):
+        gruppo, campo = chiave.split(".")
+        predefinito = Config.model_fields[gruppo].annotation.model_fields[campo].get_default(
+            call_default_factory=True)
+        assert scritti[gruppo][campo] == predefinito, chiave
+
+
+def test_il_modello_lascia_da_dichiarare_ogni_parametro_obbligatorio():
+    """
+    **Obiettivo**: Verificare che nel modello ogni parametro obbligatorio sia
+    in commento e senza valore, che il file letto cosi' com'e' li dia tutti per
+    mancanti, e che non nomini alcun dataset.
+
+    **Razionale scientifico e sistemistico**: Un valore d'esempio accanto a un
+    parametro obbligatorio viene copiato: il modello dice come si sceglie, non
+    che cosa scegliere.
     """
     import re
 
-    marcati, gruppo = set(), None
-    for riga in ESEMPIO.read_text(encoding="utf-8").splitlines():
-        if trovato := re.match(r"^([a-z]+):", riga):
-            gruppo = trovato.group(1)
-        elif (trovato := re.match(r"^  ([A-Za-z_]+):", riga)) and "[OSD-734]" in riga:
-            marcati.add(f"{gruppo}.{trovato.group(1)}")
-    assert marcati == set(defaults.DERIVATI_DAL_DATASET)
-
-    # La motivazione sta accanto all'elenco, in FATTI_OSD734, e non nei
-    # commenti dell'esempio: ogni parametro marcato ha il suo fatto accertato, e
-    # il valore di OSD-734 e' quello che l'esempio, istanza completa per quel
-    # dataset, riporta.
-    assert tuple(defaults.FATTI_OSD734) == defaults.DERIVATI_DAL_DATASET
-    esempio = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
-    for chiave, riferimento in defaults.FATTI_OSD734.items():
-        gruppo, nome = chiave.split(".")
-        assert len(riferimento.fatto) > 20, chiave
-        atteso = list(riferimento.valore) if isinstance(riferimento.valore, tuple) else riferimento.valore
-        assert esempio[gruppo][nome] == atteso, chiave
-
-
-def test_esempio_usa_i_valori_del_dataset_di_riferimento(dati_esempio):
-    """
-    **Obiettivo**: Verificare che ``config/config.example.yaml`` riporti, come
-    esempio in commento di ciascun parametro obbligatorio, il valore che il
-    parametro ha per OSD-734 in ``defaults.ESEMPIO_OSD734``; che i parametri
-    obbligatori siano esattamente quelli marcati; e che nel file cosi' com'e'
-    nessuno di essi sia dichiarato.
-
-    **Razionale scientifico e sistemistico**: Garantisce che l'esempio resti
-    allineato ai valori del dataset di riferimento senza derive silenziose, e
-    che non possa essere eseguito ereditandoli.
-    """
-    assert tuple(defaults.ESEMPIO_OSD734) == defaults.OBBLIGATORI
-    for chiave, riferimento in defaults.ESEMPIO_OSD734.items():
-        gruppo, nome = chiave.split(".")
-        atteso = list(riferimento.valore) if isinstance(riferimento.valore, tuple) else riferimento.valore
-        assert dati_esempio[gruppo][nome] == atteso, chiave
-        assert riferimento.fatto
     testo = ESEMPIO.read_text(encoding="utf-8")
-    assert testo.count("[OBBLIGATORIO] Da dichiarare") == len(defaults.OBBLIGATORI)
-    grezzo = yaml.safe_load(testo)
-    assert obbligatori_mancanti(grezzo) == list(defaults.OBBLIGATORI)
+    righe = [r for r in testo.splitlines() if "[OBBLIGATORIO]" in r and r.startswith("  # ")]
+    assert len(righe) == len(defaults.OBBLIGATORI)
+    for riga in righe:
+        assert re.fullmatch(r"  # [A-Za-z_0-9]+: +# \[OBBLIGATORIO\]( oppure (null|\[\]))?", riga), riga
+    assert obbligatori_mancanti(yaml.safe_load(testo)) == list(defaults.OBBLIGATORI)
+    assert not re.search(r"OSD|GLDS", testo)
 
 
 def test_whitelist_dei_ritentativi_non_dipende_dal_dataset():
     """
-    **Obiettivo**: Verificare che ``retry.whitelist`` NON compaia in
-    ``defaults.DERIVATI_DAL_DATASET``.
+    **Obiettivo**: Verificare che ``retry.whitelist`` abbia un predefinito e
+    non sia fra i parametri obbligatori.
 
-    **Razionale scientifico e sistemistico**: La whitelist dei 4 codici ripetibili
-    (``E-S2-03``, ``E-S3-01``, ``E-S4-02``, ``E-S5-01``) è un invariante
-    architetturale della pipeline (ammette il retry automatico solo dove
-    l'azione correttiva non altera alcuna assunzione biologica) e non deve mai
-    essere considerata un parametro da ritarare cambiando dataset.
+    **Razionale scientifico e sistemistico**: L'elenco dei codici ammessi al
+    nuovo tentativo e' una scelta metodologica dello strumento: si ritenta solo
+    dove l'azione correttiva non cambia alcuna assunzione, su qualunque dataset.
     """
-    assert "retry.whitelist" not in defaults.DERIVATI_DAL_DATASET
+    assert "retry.whitelist" not in defaults.OBBLIGATORI
+    assert "retry.whitelist" in DELLO_STRUMENTO
 
 
 def test_esempio_resta_allineato_alla_whitelist_predefinita(dati_esempio):
@@ -850,7 +901,7 @@ def test_registro_dei_controlli_e_coerente():
     """
     **Obiettivo**: Verificare che il registro dichiarativo ``CONTROLLI`` del
     Gate G15 non contenga codici duplicati e dichiari per ciascuno l'origine
-    (``"schema"`` o ``"gate"``) e la descrizione.
+    (``"schema"`` o ``"gate"``).
 
     **Razionale scientifico e sistemistico**: Garantisce la tracciabilità formale
     di ogni regola di validazione tra il modello Pydantic e il controllo G15.
@@ -859,7 +910,6 @@ def test_registro_dei_controlli_e_coerente():
     assert len(codici) == len(set(codici)), "codici duplicati"
     for controllo in CONTROLLI:
         assert controllo.implementato_da in ("schema", "gate")
-        assert controllo.descrizione
 
 
 # --------------------------------------------------------------------------- #
@@ -1006,8 +1056,8 @@ def test_derivati_statici_assumono_i_valori_attesi(dati_esempio):
     """
     derivati = esegui_g15(dati_esempio).derivati
     assert not hasattr(derivati, "filter_minLen")
-    assert derivati.asv_len_min == 137
-    assert derivati.asv_len_max == 137
+    assert derivati.asv_len_min == FORMATO.troncamento
+    assert derivati.asv_len_max == FORMATO.troncamento
 
 
 def test_derivati_seguono_i_parametri_da_cui_discendono(dati_esempio):
@@ -1039,7 +1089,7 @@ def test_la_risoluzione_e_utilizzabile_senza_il_gate(dati_esempio):
     risoluzione algebrica (`resolve.py`) dal registro dei gate (`g01_g15.py`).
     """
     risolta = risolvi(valida(dati_esempio))
-    assert risolta.derivati.asv_len_min == 137
+    assert risolta.derivati.asv_len_min == FORMATO.troncamento
 
 
 @pytest.mark.parametrize("chiave", ["prev.min_samples", "qc.min_reads_filtered"])
@@ -1155,16 +1205,22 @@ def test_il_digest_non_dipende_dall_ordine_delle_chiavi(dati_esempio):
 
 def test_il_digest_cambia_se_cambia_un_derivato(dati_esempio):
     """
-    **Obiettivo**: Verificare che una variazione di ``asv.len_tol`` (che sposta
-    ``asv.len_min`` e ``asv.len_max``) modifichi il digest finale.
+    **Obiettivo**: Verificare che, a parita' di parametri dichiarati, due
+    configurazioni risolte con valori derivati diversi abbiano digest diversi;
+    e che una variazione di ``asv.len_tol`` sposti i derivati.
 
     **Razionale scientifico e sistemistico**: Assicura che l'impronta crittografica
     copra tanto i parametri dichiarati quanto i valori derivati effettivamente
-    applicati nel calcolo.
+    applicati nel calcolo: un derivato calcolato in un altro modo da una
+    versione successiva non deve dare lo stesso digest.
     """
-    originale = esegui_g15(copy.deepcopy(dati_esempio)).digest
+    import dataclasses
+
+    risolta = esegui_g15(copy.deepcopy(dati_esempio))
+    spostati = dataclasses.replace(risolta.derivati, asv_len_min=risolta.derivati.asv_len_min - 1)
+    assert dataclasses.replace(risolta, derivati=spostati).digest != risolta.digest
     dati_esempio["asv"]["len_tol"] = 3
-    assert esegui_g15(dati_esempio).digest != originale
+    assert esegui_g15(dati_esempio).derivati != risolta.derivati
 
 
 def test_il_digest_ha_la_forma_attesa(dati_esempio):
@@ -1225,8 +1281,8 @@ def test_resolved_contiene_i_parametri_derivati(dati_esempio, tmp_path):
 
     parametri = documento["parametri"]
     assert "minLen" not in parametri["filter"]
-    assert parametri["asv"]["len_min"] == 137
-    assert parametri["asv"]["len_max"] == 137
+    assert parametri["asv"]["len_min"] == FORMATO.troncamento
+    assert parametri["asv"]["len_max"] == FORMATO.troncamento
     assert set(documento["derivati"]) == set(PARAMETRI_DERIVATI)
 
 

@@ -13,7 +13,7 @@ suite eseguibile su una macchina con un solo processore).
 * ``tests/sottoinsieme.py`` (``processori_disponibili``, ``THREAD_DI_PROVA``)
 * ``src/amplicon16s/gates/g01_g15.py`` (G14, ``E-S0-14``)
 * ``dati/osd734/config_osd734.yaml`` (``run.container``), ``README.md``,
-  ``dati/osd734/README.md``, ``test.txt`` (sezione 1.3)
+  ``dati/osd734/README.md``
 
 3. Cosa valuta questo file
 --------------------------
@@ -28,12 +28,12 @@ suite eseguibile su una macchina con un solo processore).
 - nell'immagine i pacchetti delle analisi ecologiche si caricano, alle versioni
   di ``renv.lock``;
 - la configurazione di OSD-734 dichiara in ``run.container`` un digest di
-  registro reale, e i due README e ``test.txt`` indicano la stessa immagine.
+  registro reale, e i due README indicano la stessa immagine.
 
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -64,7 +64,7 @@ suite eseguibile su una macchina con un solo processore).
 
 5. Risultato atteso
 -------------------
-Vedi ``test.txt``, scheda W25.
+I conteggi li da' pytest (``pytest --collect-only -q``).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -213,8 +213,8 @@ def test_la_configurazione_di_osd734_dichiara_il_digest_di_registro():
     """
     **Obiettivo**: Verificare che ``run.container`` di ``config_osd734.yaml``
     sia un riferimento a un'immagine in un registro ancorato per digest, non il
-    segnaposto ne' un identificativo locale, e che il README principale, quello
-    della cartella dei dati e ``test.txt`` indichino quella stessa immagine.
+    segnaposto ne' un identificativo locale, e che il README principale e quello
+    della cartella dei dati indichino quella stessa immagine.
 
     **Razionale scientifico e sistemistico**: Il digest di registro identifica
     gli stessi byte per chiunque scarichi l'immagine; il nome puo' cambiare, il
@@ -228,5 +228,5 @@ def test_la_configurazione_di_osd734_dichiara_il_digest_di_registro():
     assert DIGEST_DI_REGISTRO.match(immagine), immagine
     assert not immagine.endswith("0" * 64)
     valida({**config, "run": {**config["run"]}})
-    for documento in ("README.md", "dati/osd734/README.md", "test.txt"):
+    for documento in ("README.md", "dati/osd734/README.md"):
         assert immagine in (RADICE / documento).read_text(encoding="utf-8"), documento

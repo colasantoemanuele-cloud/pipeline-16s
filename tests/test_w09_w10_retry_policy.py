@@ -17,7 +17,7 @@ aggiustamenti correttivi, punto di ripresa e CLI ``run``, ``resume``,
 3. Cosa valuta questo file
 --------------------------
 - retry ammesso solo per i 4 codici della whitelist (``E-S2-03``,
-  ``E-S3-01``, ``E-S4-02``, ``E-S5-01``): conteggio dei tentativi totali,
+  ``E-S4-02``; ``E-S3-01`` ed ``E-S5-01`` a revisione umana): conteggio dei tentativi totali,
   aggiustamento applicato (dimezzamento di ``run.batch_size``, raddoppio di
   ``err.nbases``), nessun ritentativo identico senza azione correttiva o con
   l'azione al limite, whitelist incoerente respinta prima di ogni fase;
@@ -43,7 +43,7 @@ aggiustamenti correttivi, punto di ripresa e CLI ``run``, ``resume``,
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -116,11 +116,11 @@ from amplicon16s.runner.executor import Conclusione, Esecutore
 from amplicon16s.runner.graph import GRAFO, Passo
 from amplicon16s.runner.project import ProjectRun, StatoPasso
 from amplicon16s.runner.retry import (
+    PARAMETRI_AGGIUSTABILI,
     Aggiustamento,
     PoliticaRetry,
     dimezza,
-    raddoppia,
-)
+    )
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 from amplicon16s.steps.s00_validate import ValidazioneIngressi
 
@@ -425,21 +425,28 @@ def test_tre_tentativi_totali_con_due_fallimenti(scenario, registro):
     assert usati == [12, 6]
 
 
-def test_il_modello_d_errore_si_ritenta_con_piu_basi(scenario, registro):
+def test_il_modello_d_errore_che_non_converge_non_si_ritenta(scenario, registro):
     r"""
     **Obiettivo**: Verificare che un fallimento di convergenza ``E-S3-01`` in
-    ``S3`` attivi l'aggiustamento ``raddoppia("err.nbases")`` passando da
-    ``1e8`` a ``2e8`` basi campionate.
+    ``S3`` fermi l'esecuzione al primo tentativo, a revisione umana, senza
+    alcun nuovo tentativo e senza alcun aggiustamento di ``err.nbases``; e
+    che ``err.nbases`` non sia fra i parametri aggiustabili.
 
-    **Razionale scientifico e sistemistico**: In DADA2 ``learnErrors`` (Fase S3),
-    la mancata convergenza del modello parametrico Phred si risolve fornendo un
-    campione più ampio di nucleotidi (``nbases`` da $10^8$ a $2 \times 10^8$).
+    **Razionale scientifico e sistemistico**: Aumentare le basi usate da
+    ``learnErrors`` cambia il modello d'errore, quindi le varianti inferite,
+    mentre la configurazione registrata riporterebbe il valore dichiarato: un
+    risultato calcolato con un parametro diverso da quello agli atti. La
+    decisione spetta a chi configura l'analisi.
     """
-    fragile = {"codice": "E-S3-01", "fallimenti": 1,
-               "aggiustamenti": {"E-S3-01": raddoppia("err.nbases")}}
+    fragile = {"codice": "E-S3-01", "fallimenti": 1}
     _, esito = _esegui(scenario.config, registro, S3=fragile)
-    assert esito.conclusione is Conclusione.COMPLETATA
-    assert [n for p, _, n in registro if p is Passo.S3] == [1e8, 2e8]
+    assert esito.conclusione is Conclusione.ARRESTATA
+    assert (esito.punto.passo, esito.punto.tentativi) == (Passo.S3, 1)
+    assert esito.punto.categoria == "revisione_umana"
+    assert len([p for p, _, _ in registro if p is Passo.S3]) == 1
+    assert PARAMETRI_AGGIUSTABILI == ("run.batch_size",)
+    with pytest.raises(ValueError, match="non e' un parametro aggiustabile"):
+        Aggiustamento("err.nbases", lambda v: v * 2, "err.nbases raddoppiato")
 
 
 # --------------------------------------------------------------------------- #
@@ -540,18 +547,16 @@ def test_un_codice_ripetibile_fuori_whitelist_si_ferma_al_primo(scenario, regist
 
 def test_con_retry_disattivato_nessun_codice_viene_ritentato(scenario, registro):
     """
-    **Obiettivo**: Verificare che con ``retry.enabled = False`` qualsiasi errore
-    ritentabile (``E-S3-01``) fermi la pipeline al 1° tentativo citando ``retry.enabled``.
+    **Obiettivo**: Verificare che con ``retry.enabled = False`` un errore
+    ritentabile (``E-S4-02``) fermi la pipeline al 1° tentativo citando ``retry.enabled``.
 
     **Razionale scientifico e sistemistico**: Rispetta l'interruttore globale
     ``retry.enabled`` quando si desidera un'esecuzione strettamente a singolo tentativo.
     """
     config = _variante(scenario.config, retry__enabled=False)
-    fragile_s3 = {"codice": "E-S3-01", "fallimenti": 1,
-                  "aggiustamenti": {"E-S3-01": raddoppia("err.nbases")}}
-    _, esito = _esegui(config, registro, S3=fragile_s3, S4=FRAGILE_S4)
+    _, esito = _esegui(config, registro, S4=FRAGILE_S4)
     assert esito.conclusione is Conclusione.ARRESTATA
-    assert esito.punto.passo is Passo.S3 and esito.punto.tentativi == 1
+    assert esito.punto.passo is Passo.S4 and esito.punto.tentativi == 1
     assert "retry.enabled" in esito.punto.motivo
 
 
@@ -586,29 +591,27 @@ def test_un_azione_correttiva_al_limite_non_si_ripete(scenario, registro):
     assert "limite" in esito.punto.motivo
 
 
-def test_il_messaggio_distingue_retry_e_retry_poi_revisione(scenario, registro):
+def test_il_messaggio_distingue_la_revisione_umana_dal_retry_esaurito(scenario, registro):
     """
-    **Obiettivo**: Verificare che all'esaurimento dei tentativi il motivo in
-    ``punto_di_ripresa`` indichi ``serve la revisione umana`` per ``E-S3-01``
-    (``retry_poi_revisione``) e ``ammette il retry`` per ``E-S4-02`` (``retry_automatico``).
+    **Obiettivo**: Verificare che il motivo in ``punto_di_ripresa`` dica
+    «revisione umana: nessun tentativo automatico» per ``E-S3-01`` e, esauriti
+    i tentativi, «ammette il retry» per ``E-S4-02`` (``retry_automatico``).
 
-    **Razionale scientifico e sistemistico**: Comunica fedelmente all'operatore la
-    differenza tra un mancato raggiungimento della convergenza statistica in S3
-    (che dopo il retry richiede l'ispezione dei profili Phred da parte del
-    biologo) e un limite puramente hardware di RAM in S4.
+    **Razionale scientifico e sistemistico**: Comunica all'operatore la
+    differenza fra una mancata convergenza statistica in S3, che richiede
+    l'ispezione dei profili di qualita' e una scelta dichiarata, e un limite
+    di memoria in S4, che si risolve con le risorse.
     """
-    s3 = {"codice": "E-S3-01", "fallimenti": 99,
-          "aggiustamenti": {"E-S3-01": raddoppia("err.nbases")}}
+    s3 = {"codice": "E-S3-01", "fallimenti": 99}
     _, dopo_s3 = _esegui(scenario.config, registro, S3=s3)
-    assert dopo_s3.punto.categoria == "retry_poi_revisione"
-    assert "serve la revisione umana" in dopo_s3.punto.motivo
+    assert dopo_s3.punto.categoria == "revisione_umana" and dopo_s3.punto.tentativi == 1
+    assert "nessun tentativo automatico" in dopo_s3.punto.motivo
 
     _, dopo_s4 = _esegui(
         _variante(scenario.config, io__out_root=Path(scenario.radice) / "altra"),
         registro, S4={**FRAGILE_S4, "fallimenti": 99},
     )
     assert dopo_s4.punto.categoria == "retry_automatico"
-    assert "serve la revisione umana" not in dopo_s4.punto.motivo
     assert "ammette il retry" in dopo_s4.punto.motivo
 
 

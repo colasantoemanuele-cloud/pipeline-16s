@@ -23,7 +23,7 @@ Settimana 6 (W6), Fase F2 (crosswalk e metadati, Gate G03: join ristretto).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -76,11 +76,13 @@ lascerebbe il campione senza classe né posizione.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
-from conftest import BIOLOGICO, NEGATIVO, POSITIVO, Campione, crea_scenario
+from conftest import BIOLOGICO, Campione, crea_scenario, esegui_gate_metadati, NEGATIVO, POSITIVO
 
 from amplicon16s.errors.catalog import Categoria
-from amplicon16s.gates.g01_g15 import ErroreGate, esegui_gate_metadati
+from amplicon16s.gates.g01_g15 import ErroreGate
 from amplicon16s.metadata.crosswalk import analizza
 
 #: Righe che appartengono ad altri assay dello stesso studio: nomi che
@@ -89,7 +91,7 @@ from amplicon16s.metadata.crosswalk import analizza
 ALTRI_ASSAY = [
     ("MS.SOLV.01", "solvent control", "Not Applicable"),
     ("MS.SOLV.02", "solvent control", "Not Applicable"),
-    ("WGS.SWAB.01", "Surface swab", "NOD2D1"),
+    ("WGS.SWAB.01", BIOLOGICO, "NOD2D1"),
 ]
 
 
@@ -167,9 +169,9 @@ def test_l_inventario_ha_la_dimensione_dell_assay_non_dello_studio(tmp_path):
 
     inventario = esegui_gate_metadati(scenario.config)
 
-    righe_di_studio = len(campioni) + len(ALTRI_ASSAY)
-    assert righe_di_studio == 7
-    assert len(inventario) == 4, "l'insieme di riferimento è la tabella di assay"
+    studio = Path(scenario.config.io.study_table).read_text(encoding="utf-8").splitlines()
+    assert len(studio) - 1 == len(campioni) + len(ALTRI_ASSAY) > len(campioni)
+    assert len(inventario) == len(campioni), "l'insieme di riferimento è la tabella di assay"
 
 
 # --------------------------------------------------------------------------- #

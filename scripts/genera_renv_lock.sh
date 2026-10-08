@@ -15,7 +15,7 @@ set -euo pipefail
 if [ "$#" -ne 1 ] || [ -z "$1" ]; then
   echo "uso: scripts/genera_renv_lock.sh <immagine>" >&2
   echo "  <immagine>: il nome dell'immagine costruita da container/Dockerfile, per" >&2
-  echo "  esempio quella indicata in test.txt (sezione 1.3)" >&2
+  echo "  esempio quella indicata nel README" >&2
   exit 2
 fi
 IMMAGINE="$1"

@@ -33,7 +33,7 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S2:
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w12_s02_filter.py -v
@@ -96,6 +96,7 @@ sezione valida S2 sui 960 campioni completi di OSD-734.
 
 from __future__ import annotations
 
+import functools
 import gzip
 import json
 import os
@@ -106,7 +107,8 @@ from typing import Any, ClassVar
 import pytest
 import yaml
 from conftest import NEGATIVO, POSITIVO, Campione, crea_scenario
-from sottoinsieme import RIDOTTO, config_ridotta, motivo_pacchetti_r_assenti, dati_esempio
+from conftest import configurazione_di_prova as dati_esempio
+from sottoinsieme import RIDOTTO, config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti
 
 from amplicon16s.config.resolve import PARAMETRI_SENZA_EFFETTO, risolvi
 from amplicon16s.config.schema import Config, valida
@@ -122,7 +124,7 @@ from amplicon16s.runner.tracciamento import ricomponi
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 from amplicon16s.steps.s00_validate import ValidazioneIngressi
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE
-from amplicon16s.steps.s02_filter import archivio_incompleto, controlla_filtro
+from amplicon16s.steps.s02_filter import FiltroLetture, controlla_filtro, esamina_archivio
 
 ESEMPIO = Path(__file__).resolve().parents[1] / "config" / "config.example.yaml"
 TUTTE = tuple(Passo)
@@ -374,12 +376,9 @@ class FiltroDoppione(Doppione):
     passo: ClassVar[Passo] = Passo.S2
     nome: ClassVar[str] = "ERX3000001_filt.fastq.gz"
 
-    def artefatti_temporanei(self, manifesto: ManifestoPasso, config: Config) -> tuple[str, ...]:
-        """Le letture filtrate, rimovibili quando ``run.keep_filtered_fastq`` è falso.
-        """
-        if config.run.keep_filtered_fastq:
-            return ()
-        return tuple(n for n in manifesto.nomi if n.endswith("_filt.fastq.gz"))
+    #: La regola e' quella della fase vera, non una sua copia: i test
+    #: sull'esecutore verificano cosi' il codice che decide che cosa rimuovere.
+    artefatti_temporanei = FiltroLetture.artefatti_temporanei
 
 
 def _passi(registro, **speciali: dict[str, Any]) -> dict[Passo, PipelineStep]:
@@ -598,7 +597,7 @@ def test_nessuna_rimozione_prima_della_fine(tmp_path):
 def test_un_archivio_troncato_non_si_decomprime_per_intero(tmp_path):
     """
     **Obiettivo**:
-        Verificare che ``archivio_incompleto()`` restituisca ``None`` su un
+        Verificare che ``esamina_archivio()[0]`` restituisca ``None`` su un
         archivio ``.fastq.gz`` integro del sottoinsieme OSD-734 e restituisca
         una descrizione di errore quando il file viene troncato al 70% dei byte.
     **Razionale scientifico e sistemistico**:
@@ -610,24 +609,29 @@ def test_un_archivio_troncato_non_si_decomprime_per_intero(tmp_path):
     troncato = tmp_path / originale.name
     dati = originale.read_bytes()
     troncato.write_bytes(dati[: len(dati) * 7 // 10])
-    assert archivio_incompleto(originale) is None
-    assert archivio_incompleto(troncato) is not None
+    assert esamina_archivio(originale)[0] is None
+    assert esamina_archivio(troncato)[0] is not None
 
 
 # --------------------------------------------------------------------------- #
 # S2 vera, sulla versione ridotta                                              #
 # --------------------------------------------------------------------------- #
 
-_MOTIVO_ASSENTI = motivo_pacchetti_r_assenti("dada2", "ShortRead", "Biostrings", "jsonlite")
+@functools.cache
+def _sonda_assenti() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti("dada2", "ShortRead", "Biostrings", "jsonlite")
 
 
 @pytest.fixture
 def dada2():
     """Richiede R con dada2: salta senza, ma in CI fallisce."""
-    if _MOTIVO_ASSENTI is not None:
+    if _sonda_assenti() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_ASSENTI}")
-        pytest.skip(_MOTIVO_ASSENTI)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_assenti()}")
+        pytest.skip(_sonda_assenti())
 
 
 @pytest.fixture(scope="module")
@@ -854,17 +858,46 @@ def test_s2_sul_dataset_completo(dada2, tmp_path):
     esito = Esecutore(run, fino_a=Passo.S2).esegui()
     assert esito.conclusione is Conclusione.COMPLETATA, esito.punto and esito.punto.testo()
     s2 = next(r for r in esito.eseguite if r.passo is Passo.S2)
-    print("\nS2 sul dataset completo:", json.dumps(dict(s2.metriche), indent=1), f"{s2.secondi} s")
-
-    assert s2.metriche["campioni"] == 960
+    attesi = attesi_dataset()
+    assert s2.metriche["campioni"] == attesi["campioni"]
     assert all(not v for v in s2.metriche["azzerati"].values())
-    assert s2.metriche["perdita_media_controllata"] < 0.05
 
     def lunghezze(percorso: Path) -> set[int]:
         with gzip.open(percorso, "rt") as file:
             return {len(r.rstrip("\n")) for i, r in enumerate(file) if i % 4 == 1}
 
     file = list(run.albero.cartella(Fase.FILTERED).glob("*_filt.fastq.gz"))
-    assert len(file) == 960
+    assert len(file) == attesi["campioni"]
+    # Dopo il filtro ogni lettura ha la lunghezza del troncamento dichiarato.
     with ThreadPoolExecutor(max_workers=8) as esecutore:
-        assert set().union(*esecutore.map(lunghezze, file)) == {137}
+        assert set().union(*esecutore.map(lunghezze, file)) == {
+            run.config.filter.truncLen - run.config.filter.trimLeft}
+    # Il filtro non crea letture, e il troncamento dichiarato non ne scarta
+    # per lunghezza: la perdita resta sotto il massimo ammesso.
+    assert s2.metriche["letture_uscita"] <= s2.metriche["letture_ingresso"]
+    assert s2.metriche["perdita_media_controllata"] <= run.config.qc.max_frac_lost_filter
+
+
+def test_la_fase_vera_dichiara_temporanee_le_sole_letture_filtrate(tmp_path):
+    """
+    **Obiettivo**: Verificare sulla fase S2 vera, non su un doppione, che con
+    ``run.keep_filtered_fastq`` vero nessun artefatto sia temporaneo, e con
+    falso lo siano le sole letture filtrate del manifesto, non le tabelle del
+    tracciamento.
+
+    **Razionale scientifico e sistemistico**: Le letture filtrate occupano
+    quanto i dati di ingresso e a catena conclusa non servono piu'; le tabelle
+    del tracciamento servono al report. Se la regola della fase ignorasse il
+    parametro, o prendesse un file in piu', lo si vedrebbe solo a esecuzione
+    finita.
+    """
+    from types import SimpleNamespace
+
+    nomi = ("A_filt.fastq.gz", "B_filt.fastq.gz", "letture_filtrate.tsv", "letture_prefiltro.tsv")
+    manifesto = SimpleNamespace(nomi=nomi)
+    fase = FiltroLetture()
+    tiene = config_ridotta(tmp_path)
+    assert tiene.run.keep_filtered_fastq is True
+    assert fase.artefatti_temporanei(manifesto, tiene) == ()
+    toglie = config_ridotta(tmp_path, run={"keep_filtered_fastq": False})
+    assert fase.artefatti_temporanei(manifesto, toglie) == ("A_filt.fastq.gz", "B_filt.fastq.gz")

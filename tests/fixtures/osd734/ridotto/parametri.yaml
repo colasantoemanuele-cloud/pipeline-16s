@@ -1,0 +1,103 @@
+# La configurazione della versione ridotta del sottoinsieme di prova: tutti i
+# parametri obbligatori, con i valori del dataset da cui i 28 campioni sono
+# stati estratti. Stanno qui, accanto ai dati: la pipeline non ha per essi
+# alcun predefinito, e i test sul sottoinsieme non dipendono da altro. Percorsi,
+# riferimento sintetico e taxon atteso li aggiunge tests/sottoinsieme.py.
+io:
+  accession_regex: '[ESD]RX[0-9]{4,}'
+  fastq_glob: '*.fastq.gz'
+meta:
+  sample_id_column: Sample Name
+  accession_column: Raw Data File
+  module_regex: ^([A-Z]{3}[0-9])
+  module_column: Factor Value[Sample Location]
+  non_surface_positions:
+  - Air Sample
+  - Unopened 3DMM Swab Tube
+  batch_key_column: experiment_accession
+  batch_module_column: module
+  derive_module: true
+err:
+  batch_column: run_prefix
+  randomize: true
+decontam:
+  batch_column: extraction_plate_num
+  method: prevalence
+  threshold: 0.5
+  mode: aggregate
+  min_blanks: 5
+ctrl:
+  column: Characteristics[Material Type]
+  blank_values:
+  - blank control
+  positive_values:
+  - Positive Control
+  biological_values:
+  - Surface swab
+  blank_override_column: Factor Value[Sample Location]
+  blank_override_values:
+  - Unopened 3DMM Swab Tube
+  min_positives: 3
+  min_positive_pass_frac: 0.75
+  positive_gate: false
+katharoseq:
+  cell_count_column: katharoseq_cell_count
+  target_taxon: Variovorax
+  collapse_rank: Genus
+  target_sensitivity: 0.9
+  min_r2: 0.8
+out:
+  study_columns:
+  - Factor Value[Spaceflight]
+  - Parameter Value[Sample Preservation Method]
+  batch_columns:
+  - extraction_plate_id
+  - well_id
+  - extraction_date
+  - primer_plate
+  - run_date
+  - katharoseq_cell_count
+filter:
+  truncLen: 137
+  trimLeft: 0
+  truncLen_shortfall_warn: 10
+qc:
+  primer_sequence: GTGYCAGCMGCCGCGGTAA
+  conserved_motif: TAC[AG].AGG..GC.AGCGTT
+  min_motif_frac: 0.25
+  head_reads: 10000
+  max_primer_hit_frac: 0.05
+  max_frac_short_reads: 0.05
+  max_zeroed_samples: 0
+  max_frac_lost_filter: 0.3
+  max_asv_count: 300000
+  warn_frac_chimeric: 0.25
+  stop_frac_chimeric: 0.5
+  min_frac_phylum: 0.8
+  min_reads_mode: katharoseq_if_available
+  max_frac_contaminant: 0.4
+  min_reads_final: 1000
+  min_frac_reads_retained: 0.4
+tax:
+  ref_name: SILVA
+  ref_version: '138'
+  min_boot: 50
+  assign_species: false
+  try_rc: true
+prev:
+  min_fraction: 0.01
+  apply: true
+  min_count: 2
+dada:
+  pool: pseudo
+chimera:
+  min_fold_parent_over_abundance: 2.0
+filt:
+  remove_na_phylum: true
+  exclude_taxa:
+  - Chloroplast
+  - Mitochondria
+  - Eukaryota
+phylo:
+  enabled: false
+  max_seqs: 5000

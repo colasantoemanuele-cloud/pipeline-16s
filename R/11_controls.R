@@ -36,9 +36,18 @@
 # stessi punti: i controlli con un livello noto, con piu' di una lettura e non
 # giudicati non conformi, delle piastre che ne hanno almeno min_positivi. Solo a
 # parita' di punti le verosimiglianze dei due modelli sono confrontabili. Un
-# controllo senza piastra, o di una piastra con meno punti, non entra in alcuna
-# curva; uno con una sola lettura nemmeno, perche' la curva e' definita sul
+# controllo senza piastra, o di una piastra con meno punti, non entra allora in
+# alcuna curva; uno con una sola lettura mai, perche' la curva e' definita sul
 # logaritmo della profondita', che per una lettura e' zero.
+#
+# SENZA MODELLO PER PIASTRA. Se nessuna piastra ha min_positivi controlli
+# utilizzabili (nessun file del lotto, una sola piastra con pochi controlli,
+# controlli senza piastra) non c'e' un modello per piastra con cui confrontare
+# l'aggregato, e restringere i punti toglierebbe ogni punto a un dataset che ha
+# i controlli per stimare una soglia. La curva aggregata si adatta allora su
+# tutti i controlli utilizzabili, compresi quelli senza piastra, e se e' valida
+# la sua soglia vale per ogni campione (origine "aggregata"); nessun AIC si
+# confronta (preferito_aic "non_confrontato").
 #
 # LA VALIDITA'. Una curva e' valida se converge, ha almeno min_positivi punti, ha
 # R^2 non inferiore a min_r2, la sua soglia cade dentro l'intervallo di
@@ -49,12 +58,14 @@
 # LA SCELTA DEL MODELLO. Si preferisce il modello con l'AIC minore; l'AIC del
 # modello per piastra e' la somma degli AIC delle sue curve. L'aggregato e'
 # preferito solo se il suo AIC e' strettamente minore: a parita' (una sola
-# piastra), o se una delle curve non converge e la somma non e' calcolabile,
+# piastra), o se una delle curve non e' stimabile e la somma non e' calcolabile,
 # vale il modello per piastra, che usa la curva di ogni piastra dove esiste.
 #
 # LA SOGLIA DI OGNI PIASTRA, nell'ordine:
-#   1. se l'aggregato e' preferito ed e' valido, tutte le piastre usano la
-#      soglia aggregata (origine "aggregata");
+#   1. se l'aggregato e' il modello scelto (preferito dall'AIC, o unico
+#      modello possibile) ed e' valido, tutti i campioni usano la soglia
+#      aggregata (origine "aggregata"): e' una scelta di modello, non un
+#      ripiego, e non e' una degradazione;
 #   2. altrimenti una piastra con la propria curva valida usa la propria
 #      (origine "propria");
 #   3. una piastra senza curva valida usa la soglia aggregata, se l'aggregato e'
@@ -66,13 +77,15 @@
 #   5. un campione senza piastra segue i passi 3 e 4;
 #   6. se nessuna curva e' valida non c'e' alcuna soglia (origine "nessuna"):
 #      resta il solo qc.min_reads_final di S13.
+# Il ripiego (degradazione, E-S11-02 nella fase) e' dei soli passi 3, 4 e 5:
+# con il modello per piastra, chi non ha una curva propria valida.
 # La bonta' dichiarata e' l'R^2 dell'aggregato al passo 1; altrimenti l'R^2
 # complessivo delle sole piastre che usano la propria curva, ciascuna con le
 # previsioni della propria.
 #
-# SENZA CONTROLLI POSITIVI, senza la colonna dei livelli o senza una piastra
-# con abbastanza punti non si adatta alcuna curva: la scelta e' "nessuno" con il
-# motivo. Con qc.min_reads_mode "none" le curve si adattano e si riportano come
+# SENZA CONTROLLI POSITIVI, senza la colonna dei livelli o con meno di
+# min_positivi controlli utilizzabili in tutto non si adatta alcuna curva: la
+# scelta e' "nessuno" con il motivo. Con qc.min_reads_mode "none" le curve si adattano e si riportano come
 # diagnostica, ma nessuna soglia si applica.
 
 for (f in c("io_json.R", "errors.R", "katharoseq.R")) {
@@ -119,7 +132,17 @@ esegui_fase(function(parametri, cartella) {
     bersaglio <- rep(FALSE, nrow(tax))
     motivo_globale <- "katharoseq.target_taxon non dichiarato"
   } else if (rango %in% colnames(tax)) {
-    bersaglio <- !is.na(tax[, rango]) & tax[, rango] == parametri$taxon
+    # Senza il prefisso di rango che alcuni riferimenti portano (g__Nome), come
+    # nel filtro tassonomico di S13: il taxon dichiarato si confronta col nome.
+    senza_prefisso <- function(x) sub("^[A-Za-z]__", "", x)
+    bersaglio <- !is.na(tax[, rango]) &
+      senza_prefisso(tax[, rango]) == senza_prefisso(parametri$taxon)
+    if (!any(bersaglio)) {
+      motivo_globale <- sprintf(paste0(
+        "nessuna variante e' assegnata al taxon atteso %s al rango %s ",
+        "(katharoseq.target_taxon, katharoseq.collapse_rank): la fedelta' dei ",
+        "controlli positivi non e' misurabile"), parametri$taxon, rango)
+    }
   } else {
     bersaglio <- rep(FALSE, nrow(tax))
     motivo_globale <- c(motivo_globale, sprintf("rango %s assente nella tassonomia", rango))
@@ -185,13 +208,13 @@ esegui_fase(function(parametri, cartella) {
     # Senza alcuna piastra la tabella e' vuota e non ha nomi.
     piastre_comuni <- sort(as.character(names(punti_per_piastra)[punti_per_piastra >= min_positivi]),
                            method = "radix")
-    comuni <- which(nella_curva & piastra[positivi] %in% piastre_comuni)
-    if (length(comuni) == 0L) {
-      motivo_globale <- sprintf(paste0(
-        "nessuna piastra ha almeno ctrl.min_positives (%d) controlli positivi ",
-        "utilizzabili per la curva"), min_positivi)
-    }
+    # Senza una piastra con abbastanza punti non esiste un modello per piastra:
+    # l'aggregato si adatta su tutti i controlli utilizzabili, anche senza piastra.
+    comuni <- if (length(piastre_comuni)) {
+      which(nella_curva & piastra[positivi] %in% piastre_comuni)
+    } else which(nella_curva)
   }
+  modello_per_piastra <- length(piastre_comuni) > 0L
   if (length(motivo_globale) == 0L) {
     curve[["aggregato"]] <- valuta("aggregato", comuni)
     for (p in piastre_comuni) {
@@ -218,6 +241,8 @@ esegui_fase(function(parametri, cartella) {
     sum(vapply(per_piastra, function(cv) cv$aic, numeric(1)))
   } else NA_real_
   preferito <- if (is.null(aggregato)) "nessuno" else if (
+    !modello_per_piastra
+  ) "non_confrontato" else if (
     !is.na(aic_aggregato) && !is.na(aic_per_piastra) && aic_aggregato < aic_per_piastra
   ) "aggregato" else "per_piastra"
   aic_testo <- function(v) if (is.na(v)) "non calcolabile" else sprintf("%.2f", v)
@@ -231,7 +256,7 @@ esegui_fase(function(parametri, cartella) {
   proprie <- Filter(function(cv) cv$valida, per_piastra)
   valori_propri <- vapply(proprie, function(cv) ceiling(cv$soglia), numeric(1))
   mediana <- if (length(valori_propri)) stats::median(valori_propri) else NA_real_
-  usa_aggregato <- preferito == "aggregato" && aggregato_valido
+  usa_aggregato <- aggregato_valido && (preferito == "aggregato" || !modello_per_piastra)
   # Passi 3, 4 e 6: la soglia di chi non ha una curva propria.
   senza_curva <- function(motivo) {
     if (aggregato_valido) {
@@ -250,6 +275,12 @@ esegui_fase(function(parametri, cartella) {
   } else if (length(motivo_globale)) {
     scelta <- "nessuno"
     motivo_scelta <- paste(motivo_globale, collapse = "; ")
+  } else if (usa_aggregato && !modello_per_piastra) {
+    scelta <- "aggregato"
+    motivo_scelta <- sprintf(paste0(
+      "nessuna piastra ha almeno ctrl.min_positives (%d) controlli positivi utilizzabili: ",
+      "non esiste un modello per piastra da confrontare, e la curva aggregata e' ",
+      "adattata su tutti i %d controlli utilizzabili"), min_positivi, length(comuni))
   } else if (usa_aggregato) {
     scelta <- "aggregato"
     motivo_scelta <- sprintf("AIC dell'aggregato %s, minore di %s del modello per piastra",
@@ -266,7 +297,11 @@ esegui_fase(function(parametri, cartella) {
                    aic_testo(aic_per_piastra), aic_testo(aic_aggregato))
   } else {
     scelta <- "nessuno"
-    motivo_scelta <- paste0("nessuna curva valida: ", paste(vapply(curve, function(cv) {
+    motivo_scelta <- paste0(if (modello_per_piastra) "" else sprintf(paste0(
+      "nessuna piastra ha almeno ctrl.min_positives (%d) controlli positivi ",
+      "utilizzabili, e la curva aggregata su tutti i %d controlli utilizzabili non ",
+      "e' valida; "), min_positivi, length(comuni)),
+      "nessuna curva valida: ", paste(vapply(curve, function(cv) {
       sprintf("%s: %s", cv$modello, cv$motivo_validita)
     }, character(1)), collapse = " | "))
   }
@@ -295,7 +330,10 @@ esegui_fase(function(parametri, cartella) {
     senza_curva("campione senza piastra")
   }
   applicate <- c(soglie, if (anyNA(piastra)) list("senza piastra" = senza_piastra))
-  non_proprie <- Filter(function(s) s$origine %in% c("aggregata", "mediana"), applicate)
+  # Il ripiego e' di chi, con il modello per piastra, non ha una curva propria.
+  # Con l'aggregato come modello scelto tutti usano la sua soglia per scelta.
+  non_proprie <- if (scelta == "aggregato") list() else Filter(
+    function(s) s$origine %in% c("aggregata", "mediana"), applicate)
   degrada <- length(non_proprie) > 0L
   usano_la_propria <- per_piastra[paste0("piastra ", names(Filter(
     function(s) s$origine == "propria", soglie)))]

@@ -27,6 +27,7 @@ __all__ = [
     "nome_nell_oggetto",
     "nomi_in_collisione",
     "pulisci",
+    "righe_con_valori_in_piu",
     "valori_non_tabellari",
     "tabella_delle_cellule",
     "tabella_di_studio",
@@ -54,12 +55,22 @@ def leggi_tsv(percorso: Path) -> list[dict[str, str]]:
     """Le righe di una tabella separata da tabulazioni, con nomi delle colonne e
     valori ripuliti. Le colonne senza nome si ignorano.
     """
+    return [riga for _, riga in _righe_numerate(percorso)]
+
+
+def _righe_numerate(percorso: Path) -> list[tuple[int, dict[str, str]]]:
+    """Le righe di dati con il loro numero d'ordine (la prima e' la 2), senza
+    quelle in cui ogni valore e' vuoto: un foglio di calcolo esporta spesso
+    righe finali di sole tabulazioni, che non descrivono alcun campione.
+    """
     with open(percorso, encoding=_CODIFICA, newline="") as file:
-        return [
-            {nome: pulisci(valore) for chiave, valore in riga.items()
-             if chiave and (nome := pulisci(chiave))}
-            for riga in csv.DictReader(file, delimiter="\t")
-        ]
+        righe = []
+        for numero, grezza in enumerate(csv.DictReader(file, delimiter="\t"), start=2):
+            riga = {nome: pulisci(valore) for chiave, valore in grezza.items()
+                    if chiave and (nome := pulisci(chiave))}
+            if any(riga.values()):
+                righe.append((numero, riga))
+        return righe
 
 
 def valori_non_tabellari(
@@ -79,13 +90,44 @@ def valori_non_tabellari(
     """
     attese = set(colonne)
     trovati = []
-    for numero, riga in enumerate(leggi_tsv(percorso), start=2):
-        if solo is not None and riga.get(solo[0], "") not in solo[1]:
+    for numero, riga in _righe_numerate(percorso):
+        if solo is not None and not _appartiene(riga.get(solo[0], ""), solo[1]):
             continue
         for nome, valore in riga.items():
             if nome in attese and any(c in valore for c in "\t\n\r"):
                 trovati.append((numero, nome))
     return trovati
+
+
+def righe_con_valori_in_piu(percorso: Path) -> list[int]:
+    """Le righe di dati con piu' valori delle colonne dell'intestazione; la
+    prima riga di dati e' la 2. Le righe in cui ogni valore e' vuoto non
+    contano: sono le righe finali di sole tabulazioni di un foglio di calcolo.
+
+    Una tabulazione dentro un valore non protetto da virgolette spezza il
+    valore in due e sposta i successivi di una colonna: l'ultimo resta senza
+    colonna. Se il valore spezzato e' l'identificativo del campione, la riga
+    non corrisponde piu' ad alcun campione e gli altri valori sono letti sotto
+    il nome sbagliato.
+    """
+    with open(percorso, encoding=_CODIFICA, newline="") as file:
+        righe = csv.reader(file, delimiter="\t")
+        colonne = len(next(righe, []))
+        return [
+            numero for numero, riga in enumerate(righe, start=2)
+            if len(riga) > colonne and any(pulisci(valore) for valore in riga)
+        ]
+
+
+def _appartiene(identificativo: str, ammessi: frozenset[str]) -> bool:
+    """Vero se la riga e' di uno dei campioni ammessi, o se proprio il suo
+    identificativo contiene una tabulazione o un a capo: di una riga cosi' non
+    si puo' dire a quale campione appartenga, il controllo passerebbe e il
+    join a valle direbbe soltanto che a un campione manca la riga.
+    """
+    if identificativo in ammessi:
+        return True
+    return any(c in identificativo for c in "\t\n\r")
 
 
 def tabella_di_studio(config: Config) -> tuple[Path, str]:
@@ -121,8 +163,8 @@ def nome_nell_oggetto(originale: str) -> str:
     """Il nome sintattico di una colonna dei metadati nell'oggetto.
 
     Minuscole, e ogni sequenza di caratteri diversi da lettere e cifre
-    diventa un trattino basso: ``Factor Value[Spaceflight]`` diventa
-    ``factor_value_spaceflight``. Un nome che non comincia con una lettera
+    diventa un trattino basso: ``Valore[Gruppo di Studio]`` diventa
+    ``valore_gruppo_di_studio``. Un nome che non comincia con una lettera
     prende il prefisso ``x_``. Il risultato e' un nome che R non altera.
     """
     nome = re.sub(r"[^a-z0-9]+", "_", originale.casefold()).strip("_")

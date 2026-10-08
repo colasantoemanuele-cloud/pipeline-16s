@@ -7,10 +7,9 @@ lo scrive in ``09_phylogeny/`` in formato Newick, con le foglie che portano gli
 identificativi delle varianti. S14 lo aggiunge all'oggetto finale e lo esporta.
 
 **Dopo S13, non dopo S7.** Sulle varianti di S7 l'albero conterrebbe anche
-contaminanti, mitocondri, cloroplasti e varianti rare che i filtri tolgono, e
-sul dataset di riferimento sarebbero 12.045 sequenze contro le 1.753
-consegnate: oltre ``phylo.max_seqs``, e per un albero che nessuna analisi
-userebbe. Il numero della fase e della cartella resta quello del piano; l'ordine
+contaminanti, mitocondri, cloroplasti e varianti rare che i filtri tolgono:
+molte più sequenze delle varianti finali, anche oltre ``phylo.max_seqs``, per
+un albero che nessuna analisi userebbe. Il numero della fase e della cartella resta quello del piano; l'ordine
 di esecuzione è quello del grafo.
 
 **Le due guardie** sono qui, prima di avviare qualunque calcolo, sul numero di
@@ -114,6 +113,7 @@ class Filogenesi(PipelineStep):
             albero,
             self.cartella,
             passo=self.passo,
+            tempo_massimo_s=contesto.config.run.r_timeout_s,
             logger=contesto.logger,
         )
         riepilogo = json.loads(

@@ -29,7 +29,7 @@ Settimana 9 (W9, Fase F3).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -81,13 +81,15 @@ from __future__ import annotations
 
 import json
 
+import hashlib
+
 import pytest
+from conftest import fase_completa
 
 from amplicon16s.io_layer.artifacts import NOME_MANIFESTO, AlberoOutput, Fase
 from amplicon16s.io_layer.checksums import (
     ALGORITMO,
-    checksum_bytes,
-    checksum_file,
+        checksum_file,
     corrisponde,
 )
 
@@ -97,6 +99,14 @@ CARTELLE_ATTESE = (
     "08_taxonomy", "09_phylogeny", "10_phyloseq", "11_controls", "12_final",
     "12_final/intermedi", "99_logs",
 )
+
+
+def checksum_bytes(dati: bytes) -> str:
+    """Il checksum atteso di un contenuto in memoria, calcolato con ``hashlib``
+    senza passare dal modulo sotto prova.
+    """
+    return f"{ALGORITMO}:{hashlib.new(ALGORITMO, dati).hexdigest()}"
+
 
 
 @pytest.fixture
@@ -128,11 +138,11 @@ def test_il_checksum_dichiara_il_proprio_algoritmo(tmp_path):
 def test_checksum_di_file_e_di_byte_coincidono(tmp_path):
     """
     **Obiettivo**: Verificare l'identità matematica tra l'hash calcolato su un
-    buffer in memoria (``checksum_bytes``) e quello calcolato leggendo il file da
-    disco (``checksum_file``).
+    buffer in memoria con ``hashlib``, in modo indipendente, e quello calcolato
+    leggendo il file da disco (``checksum_file``).
 
     **Razionale scientifico e sistemistico**: Quando ``AlberoOutput.scrivi_testo``
-    o ``scrivi_bytes`` persiste un artefatto, calcola il checksum dai byte in
+    persiste un artefatto, calcola il checksum dai byte in
     memoria, mentre alla ripresa (`resume`) ``ProjectRun`` ricalcola il checksum
     leggendo il file dal disco: se le due funzioni divergessero, ogni ripresa
     invaliderebbe falsamente tutte le fasi completate.
@@ -143,7 +153,7 @@ def test_checksum_di_file_e_di_byte_coincidono(tmp_path):
     assert checksum_file(file) == checksum_bytes(dati)
 
 
-def test_contenuti_diversi_hanno_checksum_diversi():
+def test_contenuti_diversi_hanno_checksum_diversi(tmp_path):
     """
     **Obiettivo**: Verificare la sensibilità della funzione di hashing alla
     variazione di un singolo byte del payload.
@@ -153,7 +163,10 @@ def test_contenuti_diversi_hanno_checksum_diversi():
     anche una minima modifica ad una tabella di abbondanza ASV o tassonomica
     venga intercettata dal controllo di integrità.
     """
-    assert checksum_bytes(b"a") != checksum_bytes(b"b")
+    (tmp_path / "a").write_bytes(b"a")
+    (tmp_path / "b").write_bytes(b"b")
+    assert checksum_file(tmp_path / "a") != checksum_file(tmp_path / "b")
+    assert checksum_file(tmp_path / "a") == checksum_bytes(b"a")
 
 
 def test_un_file_grande_non_viene_caricato_in_memoria(tmp_path):
@@ -395,7 +408,7 @@ def test_un_artefatto_alterato_non_e_integro(albero):
 
     assert not artefatto.integro
     assert albero.non_integri(Fase.FINAL) == ("ps_final.txt",)
-    assert not albero.fase_completa(Fase.FINAL)
+    assert not fase_completa(albero, Fase.FINAL)
 
 
 def test_un_artefatto_rimosso_non_e_integro(albero):
@@ -411,7 +424,7 @@ def test_un_artefatto_rimosso_non_e_integro(albero):
     (albero.cartella(Fase.CHIMERA) / "chimere.tsv").unlink()
 
     assert albero.non_integri(Fase.CHIMERA) == ("chimere.tsv",)
-    assert not albero.fase_completa(Fase.CHIMERA)
+    assert not fase_completa(albero, Fase.CHIMERA)
 
 
 def test_un_troncamento_viene_rilevato(albero):
@@ -442,7 +455,7 @@ def test_una_fase_con_artefatti_integri_risulta_completa(albero):
     """
     albero.scrivi_testo(Fase.CONTROLS, "katharoseq.tsv", "x")
     albero.scrivi_testo(Fase.CONTROLS, "positivi.tsv", "y")
-    assert albero.fase_completa(Fase.CONTROLS)
+    assert fase_completa(albero, Fase.CONTROLS)
     assert albero.non_integri(Fase.CONTROLS) == ()
 
 
@@ -455,7 +468,7 @@ def test_una_fase_mai_eseguita_non_risulta_completa(albero):
     integri (insieme vuoto su cartella mai eseguita) venga scambiata per
     completamento con successo.
     """
-    assert not albero.fase_completa(Fase.ASV_INFERENCE)
+    assert not fase_completa(albero, Fase.ASV_INFERENCE)
 
 
 def test_un_manifesto_parziale_non_significa_fase_conclusa(albero):
@@ -469,8 +482,8 @@ def test_un_manifesto_parziale_non_significa_fase_conclusa(albero):
     il controllo sull'insieme atteso impedisce riprese su output parziali.
     """
     albero.scrivi_testo(Fase.SEQTAB, "seqtab.tsv", "x")
-    assert albero.fase_completa(Fase.SEQTAB)
-    assert not albero.fase_completa(Fase.SEQTAB, attesi=["seqtab.tsv", "conteggi.tsv"])
+    assert fase_completa(albero, Fase.SEQTAB)
+    assert not fase_completa(albero, Fase.SEQTAB, attesi=["seqtab.tsv", "conteggi.tsv"])
 
 
 # --------------------------------------------------------------------------- #
@@ -498,7 +511,7 @@ def test_un_file_scritto_da_altri_puo_essere_registrato(albero):
 
     assert artefatto.integro
     assert albero.manifesto(Fase.PHYLOSEQ)["ps.rds"]["checksum"] == artefatto.checksum
-    assert albero.fase_completa(Fase.PHYLOSEQ)
+    assert fase_completa(albero, Fase.PHYLOSEQ)
 
 
 def test_registrare_un_file_inesistente_e_un_errore(albero):
@@ -517,14 +530,16 @@ def test_registrare_un_file_inesistente_e_un_errore(albero):
 
 def test_artefatti_binari(albero):
     """
-    **Obiettivo**: Verificare che ``scrivi_bytes`` persista flussi binari grezzi
-    preservandone i byte esatti e registrandone il relativo checksum SHA-256.
+    **Obiettivo**: Verificare che un file binario gia' scritto nella cartella
+    di fase venga registrato preservandone i byte esatti e con il relativo
+    checksum SHA-256.
 
     **Razionale scientifico e sistemistico**: Garantisce che file binari non
     testuali (come archivi compressi o strutture serializzate) non subiscano
     alterazioni di codifica UTF-8 o conversioni di fine riga.
     """
     dati = b"\x00\x01\x02 contenuto binario"
-    artefatto = albero.scrivi_bytes(Fase.SEQTAB, "seqtab.bin", dati)
+    (albero.prepara(Fase.SEQTAB) / "seqtab.bin").write_bytes(dati)
+    artefatto = albero.registra(Fase.SEQTAB, "seqtab.bin")
     assert artefatto.percorso.read_bytes() == dati
     assert artefatto.checksum == checksum_bytes(dati)

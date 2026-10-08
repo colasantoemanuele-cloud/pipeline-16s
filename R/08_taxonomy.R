@@ -18,11 +18,14 @@
 #
 # Riproducibilita'. Il bootstrap di assignTaxonomy estrae i k-meri con
 # runif di R, prima del calcolo parallelo: fissato il seme con set.seed, il
-# sottocampionamento non dipende dal numero di thread. Resta casuale, con un
-# generatore che il seme non controlla (std::random_device), la scelta fra
-# generi a pari probabilita' in get_best_genus (src/taxonomy.cpp di dada2
-# 1.36.0). Che su questi dati non incida e' verificato confrontando i byte di
-# due esecuzioni, anche con un numero di thread diverso.
+# sottocampionamento non dipende dal numero di thread. Nella versione
+# ufficiale di dada2 resta casuale, con un generatore che il seme non controlla
+# (std::random_device), la scelta fra generi a pari probabilita' in
+# get_best_genus (src/taxonomy.cpp): la versione corretta dell'immagine usa un
+# generatore con seme dal seme di R, dall'indice della sequenza e dal caso.
+# Quale delle due R carichi lo accerta la fase prima di chiamare questo script
+# (steps/s08_taxonomy.py): senza la correzione l'assegnazione nei pareggi fra
+# generi non e' ripetibile, e la fase lo dichiara (E-S8-03).
 
 for (f in c("io_json.R", "errors.R")) {
   source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))

@@ -8,7 +8,7 @@ ERX12083130	ERR12709143	BLANK.3DMM.P4.8H	controllo_negativo	4	3DMM_Plates_1-5_S1
 ERX12083262	ERR12709275	KATHARO.P4.2	controllo_positivo	4	3DMM_Plates_1-5_S1_L001	265	151	f7e226b357d20babbdf300511baa709f	positivo anomalo: 265 letture al livello 400000 cellule
 ERX12083172	ERR12709185	JLP1A1.R4	biologico	4	3DMM_Plates_1-5_S1_L001	47261	139	eae32acfa07fe3d75c1c18a9faf08a26	biologico JLP1A1 a motivo basso (20%), nella piastra dei negativi
 ERX12083285	ERR12709298	LAB1D5.R2	biologico	4	3DMM_Plates_1-5_S1_L001	44	141	8e0bb2551d63311d9683bb7766052712	biologico piu' povero del dataset, 44 letture
-ERX12083329	ERR12709342	NOD1.N5	biologico	4	3DMM_Plates_1-5_S1_L001	519	149	e8c7c6c46282dcca80d53be6165544b9	tubo Unopened: biologico che funziona da controllo di campo
+ERX12083329	ERR12709342	NOD1.N5	controllo_negativo	4	3DMM_Plates_1-5_S1_L001	519	149	e8c7c6c46282dcca80d53be6165544b9	tampone mai aperto: dichiarato biologico nei metadati, controllo negativo per la regola di riclassificazione
 ERX12083515	ERR12709528	NOD3F5.R6	biologico	4	3DMM_Plates_1-5_S1_L001	88344	138	0bbc5874cf11900fd6d2e787aeb2741f	biologico di superficie profondo nella piastra dei negativi
 ERX12084006	ERR12710019	NOD3O2.L9	biologico	8	3DMM_rerun_Plates_6-10_S1_L001	228431	137	4dca9ab4cb6c13865276194b3c481b91	biologico piu' profondo del dataset, 228431 letture, minimo 137
 ERX12083590	ERR12709603	BLANK.3DMM.P10.12H	controllo_negativo	10	3DMM_rerun_Plates_6-10_S1_L001	6120	148	07a15d51b33fbe8932fd71bd51105b5e	negativo della piastra 10, che ne ha esattamente 5

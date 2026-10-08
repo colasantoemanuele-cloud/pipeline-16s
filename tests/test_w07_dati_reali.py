@@ -47,7 +47,7 @@ Proprietà verificate:
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -108,19 +108,24 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
+from conftest import esegui_gate_metadati, fase_completa, nomi_dei_gate
+from sottoinsieme import attesi_dataset
 import yaml
 
 from amplicon16s.config.schema import carica, valida
-from amplicon16s.gates.g01_g15 import esegui_gate_metadati
 from amplicon16s.metadata.crosswalk import analizza
 from amplicon16s.metadata.models import ClasseCampione
 
 VARIABILE = "AMPLICON16S_CONFIG_DATI_REALI"
 
-CAMPIONI_ATTESI = 960
-BIOLOGICI_ATTESI = 770
-POSITIVI_ATTESI = 80
-NEGATIVI_ATTESI = 110
+#: I fatti del dataset di riferimento: un solo file per tutti i test sui dati reali.
+ATTESI = attesi_dataset()
+CAMPIONI_ATTESI = ATTESI["campioni"]
+BIOLOGICI_ATTESI = ATTESI["classi"]["biologico"]
+POSITIVI_ATTESI = ATTESI["classi"]["controllo_positivo"]
+NEGATIVI_ATTESI = ATTESI["classi"]["controllo_negativo"]
+LOTTO = ATTESI["lotto"]
+MODULI = ATTESI["moduli"]
 
 pytestmark = pytest.mark.dati_reali
 
@@ -250,7 +255,7 @@ def test_il_join_ristretto_esclude_il_materiale_di_altri_assay(configurazione):
         (r.get(configurazione.ctrl.column) or "").strip().strip('"') for r in righe_studio
     )
     assert len(righe_studio) > CAMPIONI_ATTESI, "la tabella di studio è più grande"
-    assert materiali.get("solvent control", 0) > 0, "contiene righe di un altro assay"
+    assert materiali.get(ATTESI["materiale_di_un_altro_assay"], 0) > 0, "contiene righe di un altro assay"
     assert analizza(configurazione).materiali_non_mappati == {}
 
 
@@ -271,9 +276,9 @@ def test_dieci_piastre_da_96_e_due_corse(inventario, configurazione):
     """
     if configurazione.io.batch_table is None:
         pytest.skip("la configurazione non indica il file di arricchimento")
-    assert len(inventario.piastre) == 10
-    assert len(inventario.corse) == 2
-    assert set(inventario.campioni_per_piastra().values()) == {96}
+    assert len(inventario.piastre) == LOTTO["piastre"]
+    assert len(inventario.corse) == LOTTO["corse"]
+    assert set(inventario.campioni_per_piastra().values()) == {LOTTO["campioni_per_piastra"]}
     assert inventario.senza_lotto == ()
 
 
@@ -293,8 +298,8 @@ def test_il_file_di_arricchimento_copre_dieci_piastre_da_96(configurazione):
         )
     )
     per_piastra = Counter(r[configurazione.decontam.batch_column] for r in righe)
-    assert len(per_piastra) == 10
-    assert set(per_piastra.values()) == {96}
+    assert len(per_piastra) == LOTTO["piastre"]
+    assert set(per_piastra.values()) == {LOTTO["campioni_per_piastra"]}
 
 
 def test_i_campioni_replicati_ricevono_lotti_distinti(inventario, configurazione):
@@ -311,14 +316,13 @@ def test_i_campioni_replicati_ricevono_lotti_distinti(inventario, configurazione
     if configurazione.io.batch_table is None:
         pytest.skip("la configurazione non indica il file di arricchimento")
 
-    repliche = {c.nome: c for c in inventario if "_rep" in c.nome}
+    repliche = {c.nome: c for c in inventario
+                if any(c.nome.startswith(f"{radice}_") for radice in ATTESI["repliche"])}
     assert set(repliche) == {
-        "LAB1P3.L1_rep1", "LAB1P3.L1_rep2",
-        "NOD2S4.R6_rep1", "NOD2S4.R6_rep2",
-    }
+        f"{radice}_rep{n}" for radice in ATTESI["repliche"] for n in (1, 2)}
     assert all(c.piastra is not None and c.corsa is not None for c in repliche.values())
 
-    for radice in ("LAB1P3.L1", "NOD2S4.R6"):
+    for radice in ATTESI["repliche"]:
         prima, seconda = repliche[f"{radice}_rep1"], repliche[f"{radice}_rep2"]
         assert prima.piastra != seconda.piastra
         assert prima.corsa != seconda.corsa
@@ -378,11 +382,14 @@ def test_la_piastra_a_composizione_diversa_non_produce_avvisi(inventario, config
         if campione.classe is ClasseCampione.CONTROLLO_NEGATIVO:
             negativi[campione.piastra] += 1
 
-    anomale = [p for p, n in negativi_dichiarati.items() if n != 8]
-    assert anomale == ["10"], "una sola piastra ha una composizione diversa"
-    assert negativi_dichiarati["10"] == 5
+    diversa = LOTTO["piastra_diversa"]
+    anomale = [p for p, n in negativi_dichiarati.items()
+               if n != LOTTO["negativi_dichiarati_per_piastra"]]
+    assert anomale == [diversa["nome"]], "una sola piastra ha una composizione diversa"
+    assert negativi_dichiarati[diversa["nome"]] == diversa["negativi_dichiarati"]
     assert min(negativi.values()) >= configurazione.decontam.min_blanks
-    assert (min(negativi.values()), max(negativi.values())) == (6, 14)
+    assert [min(negativi.values()), max(negativi.values())] == LOTTO["negativi_per_piastra"]
+    assert sum(negativi.values()) - sum(negativi_dichiarati.values()) == ATTESI["riclassificati"]
     assert sum(negativi.values()) == NEGATIVI_ATTESI
     assert len(inventario) == CAMPIONI_ATTESI
 
@@ -400,10 +407,7 @@ def test_con_arricchimento_i_moduli_sono_nove_con_i_nomi_originali(
     """
     if configurazione.io.batch_table is None:
         pytest.skip("la configurazione non indica il file di arricchimento")
-    assert inventario.moduli == (
-        "Airlock", "Columbus", "JLP", "JPM",
-        "Node 1", "Node 2", "Node 3", "PMM", "US Lab",
-    )
+    assert inventario.moduli == tuple(MODULI["dal_file_del_lotto"])
 
 
 def test_senza_arricchimento_i_moduli_sono_otto_e_manca_l_airlock(configurazione):
@@ -421,17 +425,16 @@ def test_senza_arricchimento_i_moduli_sono_otto_e_manca_l_airlock(configurazione
     dati["io"]["batch_table"] = None
     inventario = esegui_gate_metadati(valida(dati))
 
-    assert inventario.moduli == (
-        "COL1", "JLP1", "JPM1", "LAB1", "NOD1", "NOD2", "NOD3", "PMM1",
-    )
-    assert "A/L1" not in inventario.moduli
+    assert inventario.moduli == tuple(MODULI["derivati_dalla_posizione"])
+    prefisso = MODULI["non_derivabile"]["prefisso"]
+    assert not any(m.startswith(prefisso) for m in inventario.moduli)
 
     senza_modulo = [c for c in inventario if c.modulo is None]
     per_classe = Counter(c.classe for c in senza_modulo)
     assert per_classe[ClasseCampione.CONTROLLO_POSITIVO] == POSITIVI_ATTESI
     assert per_classe[ClasseCampione.CONTROLLO_NEGATIVO] == NEGATIVI_ATTESI
-    airlock = [c for c in senza_modulo if (c.posizione or "").startswith("A/L")]
-    assert len(airlock) == 16
+    airlock = [c for c in senza_modulo if (c.posizione or "").startswith(prefisso)]
+    assert len(airlock) == MODULI["non_derivabile"]["campioni"]
 
 
 def test_le_due_modalita_differiscono_solo_per_l_airlock(inventario, configurazione):
@@ -462,17 +465,19 @@ def test_le_due_modalita_differiscono_solo_per_l_airlock(inventario, configurazi
     ]
 
     assert con_modulo_solo_senza_file == []
-    assert len(con_modulo_solo_col_file) == 16
+    non_derivabile = MODULI["non_derivabile"]
+    assert len(con_modulo_solo_col_file) == non_derivabile["campioni"]
     assert all(
-        (c.posizione or "").startswith("A/L") for c in con_modulo_solo_col_file
+        (c.posizione or "").startswith(non_derivabile["prefisso"])
+        for c in con_modulo_solo_col_file
     )
 
     senza_col_file = {c.accession for c in inventario if c.modulo is None}
     senza_derivato = {c.accession for c in derivato if c.modulo is None}
-    assert len(senza_col_file) == 223
-    assert len(senza_derivato) == 239
+    assert len(senza_col_file) == MODULI["senza_modulo_con_il_file_del_lotto"]
+    assert len(senza_derivato) == MODULI["senza_modulo_senza_il_file_del_lotto"]
     assert senza_col_file < senza_derivato
-    assert len(senza_derivato - senza_col_file) == 16
+    assert len(senza_derivato - senza_col_file) == non_derivabile["campioni"]
 
 
 # --------------------------------------------------------------------------- #
@@ -500,7 +505,7 @@ def test_s0_supera_tutti_i_gate_sul_dataset_reale(risultato_s0):
     supera tutti i controlli formali, relazionali e bioinformatici di ingresso.
     """
     assert risultato_s0.superata, [e.gate for e in risultato_s0.falliti]
-    assert len(risultato_s0.esiti) == 15
+    assert [e.gate for e in risultato_s0.esiti] == list(nomi_dei_gate())
     assert all(e.eseguito for e in risultato_s0.esiti)
 
 
@@ -536,7 +541,7 @@ def test_s0_produce_gli_artefatti_con_checksum(risultato_s0, configurazione):
         "gates.json", "crosswalk.tsv", "inventario.json", "letture_ispezionate.tsv"
     }
     albero = AlberoOutput(risultato_s0.artefatti[0].parent.parent)
-    assert albero.fase_completa(Fase.INPUT_VALIDATION)
+    assert fase_completa(albero, Fase.INPUT_VALIDATION)
     assert albero.non_integri(Fase.INPUT_VALIDATION) == ()
 
 
@@ -626,12 +631,15 @@ def test_il_motivo_non_distingue_segnale_e_contaminazione(risultato_s0, configur
     negativi = per_classe[ClasseCampione.CONTROLLO_NEGATIVO]
     biologici = per_classe[ClasseCampione.BIOLOGICO]
 
-    assert min(negativi) > 0.70, "i bianchi portano il motivo quanto i biologici"
+    assert min(negativi) > ATTESI["letture"]["motivo_minimo_nei_negativi"], (
+        "i bianchi portano il motivo quanto i biologici")
     assert statistics.median(negativi) > statistics.median(biologici) * 0.9
 
     sotto_soglia = [f for f in biologici if f < configurazione.qc.min_motif_frac]
     assert sotto_soglia, "ci sono biologici sotto la soglia"
-    assert min(sotto_soglia) < 0.10
+    assert min(sotto_soglia) < ATTESI["letture"]["motivo_di_un_biologico_sotto"]
+    # La soglia si giudica sulla mediana: i biologici sotto non fermano G10.
+    assert statistics.median(biologici) >= configurazione.qc.min_motif_frac
 
 
 def test_g09_fallisce_se_il_troncamento_supera_il_minimo(configurazione, tmp_path):
@@ -651,7 +659,9 @@ def test_g09_fallisce_se_il_troncamento_supera_il_minimo(configurazione, tmp_pat
 
     dati = configurazione.model_dump(mode="python")
     dati["io"]["out_root"] = str(tmp_path / "out")
-    dati["filter"]["truncLen"] = 152
+    oltre = ATTESI["letture"]["troncamento_oltre_il_massimo"]
+    assert oltre > ATTESI["letture"]["moda"] >= configurazione.filter.truncLen
+    dati["filter"]["truncLen"] = oltre
     risultato = esegui_s0(valida(dati), solleva=False)
 
     g09 = next(e for e in risultato.esiti if e.gate == "G09")
@@ -663,11 +673,14 @@ def test_g09_fallisce_se_il_troncamento_supera_il_minimo(configurazione, tmp_pat
     # di 137 bp si legge dalle statistiche delle letture ispezionate.
     testi = [str(v) for v in g09.violazioni]
     assert "classe biologico" in testi[0] and "classe controllo_positivo" in testi[1]
-    assert all("il 100.0%" in testo and "filter.truncLen vale 152" in testo for testo in testi)
+    assert all("il 100.0%" in testo and f"filter.truncLen vale {oltre}" in testo
+               for testo in testi)
     with open(tmp_path / "out" / "01_input_validation" / "letture_ispezionate.tsv",
               encoding="utf-8", newline="") as file:
         minime = [int(r["lunghezza_minima"]) for r in csv.DictReader(file, delimiter="\t")]
-    assert min(minime) == 137
+    assert min(minime) == ATTESI["letture"]["lunghezza_minima"]
+    # Il troncamento dichiarato non scarta alcuna lettura ispezionata.
+    assert configurazione.filter.truncLen <= min(minime)
 
 
 def test_le_letture_non_contengono_il_primer(risultato_s0, configurazione):

@@ -23,7 +23,6 @@ __all__ = [
     "ErrorePipeline",
     "ErroreRevisioneUmana",
     "ErroreRitentabile",
-    "ErroreRitentabileConRevisione",
     "errore",
 ]
 
@@ -109,12 +108,6 @@ class ErroreRitentabile(ErrorePipeline):
     categorie_ammesse = (Categoria.RETRY_AUTOMATICO,)
 
 
-class ErroreRitentabileConRevisione(ErrorePipeline):
-    """Si ritenta e, se fallisce ancora, l'esecuzione si ferma."""
-
-    categorie_ammesse = (Categoria.RETRY_POI_REVISIONE,)
-
-
 class DegradazioneRichiesta(ErrorePipeline):
     """Si prosegue con un comportamento di ripiego, registrandolo.
 
@@ -129,7 +122,6 @@ class DegradazioneRichiesta(ErrorePipeline):
 _PER_CATEGORIA: dict[Categoria, type[ErrorePipeline]] = {
     Categoria.REVISIONE_UMANA: ErroreRevisioneUmana,
     Categoria.RETRY_AUTOMATICO: ErroreRitentabile,
-    Categoria.RETRY_POI_REVISIONE: ErroreRitentabileConRevisione,
     Categoria.DEGRADAZIONE_AUTOMATICA: DegradazioneRichiesta,
 }
 

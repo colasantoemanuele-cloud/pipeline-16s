@@ -62,7 +62,7 @@ del catalogo e mai con un errore generico di R).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -93,7 +93,7 @@ del catalogo e mai con un errore generico di R).
 
 5. Risultato atteso
 -------------------
-Vedi ``test.txt``, scheda W28.
+I conteggi li da' pytest (``pytest --collect-only -q``).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -107,6 +107,7 @@ Vedi ``test.txt``, scheda W28.
 
 from __future__ import annotations
 
+import functools
 import csv
 import gzip
 import json
@@ -116,8 +117,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import NEGATIVO, POSITIVO, Campione, copia_esecuzione, crea_scenario, lettura, scrivi_fastq
-from sottoinsieme import RIDOTTO, dati_config, motivo_pacchetti_r_assenti, selezione
+import yaml
+from conftest import BIOLOGICO, FORMATO, NEGATIVO, POSITIVO, Campione, copia_esecuzione, crea_scenario, lettura, scrivi_fastq
+from sottoinsieme import PARAMETRI, RIDOTTO, dati_config, motivo_pacchetti_r_assenti, selezione
 
 from amplicon16s.config.resolve import risolvi
 from amplicon16s.config.schema import Config, ErroreConfigurazione, valida
@@ -128,6 +130,7 @@ from amplicon16s.gates.registry import esegui_gate
 from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.logging.logger import chiudi
 from amplicon16s.metadata.models import ClasseCampione
+from amplicon16s.metadata.tabelle import righe_con_valori_in_piu
 from amplicon16s.rbridge.runner import cartella_r, trova_rscript
 from amplicon16s.report.builder import _pct, genera, troncamento_suggerito
 from amplicon16s.runner.executor import Conclusione, Esecutore
@@ -148,28 +151,38 @@ def uscite_pulite():
     chiudi()
 
 
-_MOTIVO_R = motivo_pacchetti_r_assenti("jsonlite")
-_MOTIVO_BIOC = motivo_pacchetti_r_assenti(
-    "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings", "decontam"
-)
+@functools.cache
+def _sonda_r() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti("jsonlite")
+@functools.cache
+def _sonda_bioc() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti(
+        "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings", "decontam"
+    )
 
 
 @pytest.fixture
 def r():
     """Richiede R con jsonlite: salta senza, ma in CI fallisce."""
-    if _MOTIVO_R is not None:
+    if _sonda_r() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_R") == "1":
-            pytest.fail(f"R e' richiesto in questo ambiente: {_MOTIVO_R}")
-        pytest.skip(_MOTIVO_R)
+            pytest.fail(f"R e' richiesto in questo ambiente: {_sonda_r()}")
+        pytest.skip(_sonda_r())
 
 
 @pytest.fixture
 def bioc():
     """Richiede R con i pacchetti di tutte le fasi: salta senza, ma in CI fallisce."""
-    if _MOTIVO_BIOC is not None:
+    if _sonda_bioc() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_BIOC}")
-        pytest.skip(_MOTIVO_BIOC)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_bioc()}")
+        pytest.skip(_sonda_bioc())
 
 
 def _tsv(percorso: Path) -> list[dict[str, str]]:
@@ -598,7 +611,9 @@ def test_un_controllo_senza_piastra_o_con_una_lettura_non_ferma_s11(
     **Obiettivo**: Verificare che S11 si concluda con un codice del catalogo,
     e non con un errore di R, quando un controllo positivo non ha la piastra e
     un altro ha una sola lettura; e che quando nessun campione ha la piastra
-    nessuna curva si adatti e la fase lo dichiari con ``E-S11-05``.
+    non esista un modello per piastra: l'aggregato si adatta su tutti i
+    controlli utilizzabili, nessun AIC si confronta e la fase non dichiara mai
+    il ripiego ``E-S11-02``.
 
     **Razionale scientifico e sistemistico**: La curva e' definita sul
     logaritmo della profondita', che per una lettura vale zero, e le curve per
@@ -612,7 +627,7 @@ m[, pos[2]] <- 0L; m[1, pos[2]] <- 1L
 """
     run = _con_oggetto_riscritto(oggetto_calcolato, tmp_path / "a", modifica)
     contesto = _calcola(run, Passo.S11)
-    assert {d.codice for d in contesto.degradazioni} <= {"E-S11-02", "E-S11-04", "E-S11-05"}
+    assert {d.codice for d in contesto.degradazioni} <= {"E-S11-02", "E-S11-04", "E-S11-05", "E-S11-06"}
     positivi = _tsv(run.albero.cartella(Fase.CONTROLS) / "positivi.tsv")
     assert [p["nella_curva"] for p in positivi if p["profondita"] == "1"] == ["no"]
     assert sum(1 for p in positivi if p["piastra"] == "") == 1
@@ -620,11 +635,25 @@ m[, pos[2]] <- 0L; m[1, pos[2]] <- 1L
     senza = _con_oggetto_riscritto(oggetto_calcolato, tmp_path / "b", "dati$piastra <- NA_character_")
     contesto = _calcola(senza, Passo.S11)
     soglia = json.loads((senza.albero.cartella(Fase.CONTROLS) / "soglia.json").read_text())
-    # Le curve si adattano sui controlli delle piastre con abbastanza punti:
-    # senza piastre non c'e' alcun punto comune, quindi nessuna soglia.
-    assert not soglia["per_piastra"] and soglia["senza_piastra"]["valore"] is None
-    assert [d.codice for d in contesto.degradazioni if d.codice != "E-S11-04"] == ["E-S11-05"]
+    # Senza piastre non c'e' un modello per piastra da confrontare: la curva
+    # aggregata si adatta su tutti i controlli utilizzabili. Se e' valida vale
+    # per tutti, senza degradazione; altrimenti non c'e' soglia (E-S11-05).
+    positivi = _tsv(senza.albero.cartella(Fase.CONTROLS) / "positivi.tsv")
+    utilizzabili = sum(p["nella_curva"] == "si" for p in positivi)
+    assert utilizzabili >= senza.config.ctrl.min_positives
+    assert not soglia["per_piastra"]
+    modello = soglia["modello"]
+    assert (modello["preferito_aic"], modello["punti_comuni"], modello["piastre_comuni"]) == (
+        "non_confrontato", utilizzabili, [])
+    assert modello["aic_per_piastra"] is None
     assert "nessuna piastra ha almeno ctrl.min_positives" in soglia["motivo_scelta"]
+    codici = [d.codice for d in contesto.degradazioni if d.codice not in ("E-S11-04", "E-S11-06")]
+    if modello["aggregato_valido"]:
+        assert (soglia["scelta"], soglia["senza_piastra"]["origine"]) == ("aggregato", "aggregata")
+        assert codici == [] and soglia["degradazione"] is False
+    else:
+        assert (soglia["scelta"], soglia["senza_piastra"]["valore"]) == ("nessuno", None)
+        assert codici == ["E-S11-05"]
 
 
 def test_con_pochi_negativi_s12_dichiara_e_s12_03(bioc, oggetto_calcolato, tmp_path):
@@ -858,6 +887,8 @@ def _insieme_ridotto(cartella: Path, tieni, *, senza_lotto: bool = False) -> dic
     """
     scelti = {r["accession"]: r["campione"] for r in selezione() if tieni(r)}
     metadati = RIDOTTO / "metadati"
+    parametri = yaml.safe_load(PARAMETRI.read_text(encoding="utf-8"))
+    CELLULE_RIDOTTO = parametri["katharoseq"]["cell_count_column"]
     cartella.mkdir(parents=True)
     (cartella / "fastq").mkdir()
     for file in sorted((RIDOTTO / "fastq").iterdir()):
@@ -870,16 +901,17 @@ def _insieme_ridotto(cartella: Path, tieni, *, senza_lotto: bool = False) -> dic
         indice = righe[0].index(colonna)
         tenute = [righe[0]] + [r for r in righe[1:] if r[indice] in valori]
         if aggiunta is not None:
-            tenute = [tenute[0] + ["katharoseq_cell_count"]] + [
+            tenute = [tenute[0] + [CELLULE_RIDOTTO]] + [
                 r + [aggiunta.get(r[indice], "")] for r in tenute[1:]]
         with open(cartella / nome, "w", encoding="utf-8", newline="") as file:
             csv.writer(file, delimiter="\t", lineterminator="\n").writerows(tenute)
 
     lotto = _tsv(metadati / "lotti.tsv")
-    cellule = {r["sample_name_ena"]: r["katharoseq_cell_count"] for r in lotto}
-    filtra("assay.txt", "Sample Name", set(scelti.values()))
-    filtra("studio.txt", "Sample Name", set(scelti.values()), cellule if senza_lotto else None)
-    filtra("lotti.tsv", "experiment_accession", set(scelti))
+    cellule = {r["sample_name_ena"]: r[CELLULE_RIDOTTO] for r in lotto}
+    filtra("assay.txt", parametri["meta"]["sample_id_column"], set(scelti.values()))
+    filtra("studio.txt", parametri["meta"]["sample_id_column"], set(scelti.values()),
+           cellule if senza_lotto else None)
+    filtra("lotti.tsv", parametri["meta"]["batch_key_column"], set(scelti))
     return {
         "fastq_dir": str(cartella / "fastq"), "assay_table": str(cartella / "assay.txt"),
         "study_table": str(cartella / "studio.txt"),
@@ -917,12 +949,23 @@ def _livelli_dalla_tabella_di_studio(run) -> None:
     di studio, e nessun campione ha piastra o corsa.
     """
     colonne = _tsv(run.albero.cartella(Fase.PHYLOSEQ) / "colonne_metadati.tsv")
-    (livelli,) = [c for c in colonne if c["colonna_originale"] == "katharoseq_cell_count"]
+    (livelli,) = [c for c in colonne
+                  if c["colonna_originale"] == run.config.katharoseq.cell_count_column]
     assert "studio" in livelli["origine"]
     positivi = _tsv(run.albero.cartella(Fase.CONTROLS) / "positivi.tsv")
-    assert len(positivi) == 9 and all(p["cellule"] and p["piastra"] == "" for p in positivi)
+    attesi = sum(r["classe"] == "controllo_positivo" for r in selezione())
+    assert len(positivi) == attesi and all(p["cellule"] and p["piastra"] == "" for p in positivi)
     soglia = json.loads((run.albero.cartella(Fase.CONTROLS) / "soglia.json").read_text())
     assert not soglia["per_piastra"]
+    # Senza un modello per piastra da confrontare l'aggregato, adattato su
+    # tutti i controlli, e' il modello: se valido da' la soglia a tutti.
+    assert soglia["modello"]["preferito_aic"] == "non_confrontato"
+    assert soglia["modello"]["punti_comuni"] == sum(p["nella_curva"] == "si" for p in positivi)
+    if soglia["modello"]["aggregato_valido"]:
+        assert (soglia["scelta"], soglia["senza_piastra"]["origine"]) == ("aggregato", "aggregata")
+        assert soglia["degradazione"] is False
+    else:
+        assert soglia["scelta"] == "nessuno"
 
 
 def _una_sola_piastra(run) -> None:
@@ -956,9 +999,9 @@ INSIEMI: dict[str, dict[str, Any]] = {
         "config": {"out": {"batch_columns": []}, "err": {"batch_column": None},
                    "decontam": {"batch_column": None},
                    "meta": {"batch_key_column": None, "batch_module_column": None}},
-        # Senza piastre nessuna ha abbastanza controlli per una curva: nessun
-        # punto comune ai due modelli, quindi nessuna soglia.
-        "attese": {Passo.S11: "E-S11-05"},
+        # Senza piastre non esiste un modello per piastra: la curva aggregata
+        # si adatta su tutti i controlli, e la sua soglia non e' un ripiego.
+        "attese": {},
         "verifica": _livelli_dalla_tabella_di_studio,
     },
     "una_piastra": {
@@ -1011,12 +1054,11 @@ def test_la_catena_intera_non_da_mai_un_errore_generico_di_r(bioc, tmp_path, nom
     elencati = {r.split("  ")[1] for r in (finale / "checksum.sha256").read_text().splitlines()}
     assert (NOME_CONTROLLI in elencati) == (finale / NOME_CONTROLLI).is_file()
     assert (finale / NOME_CONTROLLI).is_file() == any(
-        c.classe.e_controllo for c in run.valuta().inventario)
+        c.classe is not ClasseCampione.BIOLOGICO for c in run.valuta().inventario)
     insieme["verifica"](run)
     chiudi()
     report = genera(run.config.io.out_root)
     assert report.is_file() and "Decisioni prese automaticamente" in report.read_text(encoding="utf-8")
-    print(f"\n{nome}: {esito.conclusione.value}, fasi {[str(r.passo) for r in esito.eseguite]}")
 
 
 # --------------------------------------------------------------------------- #
@@ -1211,12 +1253,12 @@ def test_un_valore_con_tabulazione_o_a_capo_fra_virgolette_ferma_s0(tmp_path):
             csv.writer(file, delimiter="\t", lineterminator="\n").writerows(righe)
         return scenario
 
-    posizione = "Factor Value[Sample Location]"
+    posizione = FORMATO.colonna_posizione
     for nome, tabella, colonna, valore, gate, codice in (
         ("a_capo", "study_table", posizione, "riga uno\nriga due", "G02", "E-S0-02"),
         ("tabulazione", "study_table", posizione, "prima\tdopo", "G02", "E-S0-02"),
-        ("assay", "assay_table", "Sample Name", "NOD1D4\n.L2", "G02", "E-S0-02"),
-        ("lotto", "batch_table", "run_prefix", "corsa\tA", "G08", "E-S0-08"),
+        ("assay", "assay_table", FORMATO.colonna_campione, "NOD1D4\n.L2", "G02", "E-S0-02"),
+        ("lotto", "batch_table", FORMATO.colonna_corsa, "corsa\tA", "G08", "E-S0-08"),
     ):
         scenario = con_valore(tmp_path / nome, tabella, colonna, valore)
         esito = esegui_gate(gate, Contesto(scenario.config))
@@ -1235,8 +1277,69 @@ def test_un_valore_con_tabulazione_o_a_capo_fra_virgolette_ferma_s0(tmp_path):
 
     # Una riga della tabella di studio che non e' di un campione dell'assay.
     estranea = crea_scenario(tmp_path / "estranea", _campioni(), con_letture=True,
-                             righe_studio_extra=[("ALTRO.1", "Surface swab", "prima\tdopo")])
+                             righe_studio_extra=[("ALTRO.1", BIOLOGICO, "prima\tdopo")])
     assert esegui_gate("G02", Contesto(estranea.config)).superato
+
+
+@pytest.mark.parametrize("caso", ["fra_virgolette", "senza_virgolette", "in_testa",
+                                  "di_un_altro_assay"])
+def test_una_tabulazione_nell_identificativo_di_studio_ferma_g02_con_la_causa(tmp_path, caso):
+    """
+    **Obiettivo**: Verificare che una tabulazione nella colonna identificativa
+    della tabella di studio fermi G02 con ``E-S0-02`` e un messaggio che nomina
+    la causa, la riga e la colonna, e non G03 con un campione senza riga: sia
+    dentro un campo fra virgolette, anche quando l'identificativo cosi'
+    alterato non corrisponde piu' ad alcun campione, sia senza virgolette, in
+    mezzo o in testa all'identificativo, dove sposta i valori successivi.
+
+    **Razionale scientifico e sistemistico**: G03 direbbe soltanto che a un
+    campione manca la riga di studio, e chi corregge cercherebbe una riga
+    assente invece di un carattere di troppo in una riga presente.
+    """
+    scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
+    percorso = Path(scenario.config.io.study_table)
+    righe = percorso.read_text(encoding="utf-8").split("\n")
+    colonna = FORMATO.colonna_campione
+    identificativo, resto = righe[2].split("\t", 1)
+    if caso == "fra_virgolette":
+        righe[2] = f'"{identificativo[:3]}\tx{identificativo[3:]}"\t{resto}'
+    elif caso == "senza_virgolette":
+        righe[2] = f"{identificativo[:3]}\t{identificativo[3:]}\t{resto}"
+    elif caso == "in_testa":
+        righe[2] = f"\t{identificativo}\t{resto}"
+    else:
+        # Una riga in piu', che non e' di un campione dell'assay.
+        righe.insert(3, f'"altro\tcampione"\t{resto}')
+    percorso.write_text("\n".join(righe), encoding="utf-8")
+
+    contesto = Contesto(scenario.config)
+    esito = esegui_gate("G02", contesto)
+    assert [v.codice for v in esito.violazioni] == ["E-S0-02"], caso
+    dettaglio = esito.violazioni[0].dettaglio
+    assert "tabulazione" in dettaglio and "riga " in dettaglio and repr(colonna) in dettaglio
+    assert ("riga 4" if caso == "di_un_altro_assay" else "riga 3") in dettaglio
+    fermo = Esecutore(ProjectRun(scenario.config), fino_a=Passo.S0).esegui()
+    assert fermo.conclusione is Conclusione.ARRESTATA and fermo.punto.codice == "E-S0-02"
+
+
+def test_una_tabella_con_righe_finali_di_sole_tabulazioni_supera_g02(tmp_path):
+    """
+    **Obiettivo**: Verificare che righe finali di sole tabulazioni, anche piu'
+    lunghe dell'intestazione, e valori vuoti in coda a una riga non siano
+    presi per valori spostati.
+
+    **Razionale scientifico e sistemistico**: Un foglio di calcolo esporta
+    spesso righe e colonne vuote in fondo: non descrivono alcun campione e non
+    spostano alcun valore.
+    """
+    scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
+    percorso = Path(scenario.config.io.study_table)
+    testo = percorso.read_text(encoding="utf-8").rstrip("\n")
+    colonne = testo.split("\n")[0].count("\t") + 1
+    percorso.write_text(testo + "\n" + "\t" * (colonne + 2) + "\n" + "\t" * colonne + "\n",
+                        encoding="utf-8")
+    assert righe_con_valori_in_piu(percorso) == []
+    assert esegui_gate("G02", Contesto(scenario.config)).superato
 
 
 @pytest.mark.parametrize("osservate", [(2, 12, 23, 37), (12, 23, 37), (12, 37)])

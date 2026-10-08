@@ -111,11 +111,6 @@ REGISTRO: Final[tuple[_Voce, ...]] = (
 )
 
 
-def nomi_dei_gate() -> tuple[str, ...]:
-    """I nomi dei gate, nell'ordine di esecuzione."""
-    return tuple(voce.nome for voce in REGISTRO)
-
-
 def esegui_tutti(
     contesto: Contesto,
     gia_eseguiti: Mapping[str, EsitoGate] | None = None,

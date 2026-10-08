@@ -38,7 +38,7 @@ studio ISA-Tab e la tabella facoltativa dei lotti (``io.batch_table``):
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -92,10 +92,18 @@ from __future__ import annotations
 import re
 
 import pytest
-from conftest import BIOLOGICO, NEGATIVO, POSITIVO, Campione, crea_scenario
+from conftest import (
+    BIOLOGICO,
+    Campione,
+    crea_scenario,
+    esegui_gate_metadati,
+    FORMATO,
+    NEGATIVO,
+    POSITIVO,
+)
 
 from amplicon16s.errors.catalog import Categoria
-from amplicon16s.gates.g01_g15 import Contesto, ErroreGate, esegui_gate_metadati
+from amplicon16s.gates.g01_g15 import Contesto, ErroreGate
 from amplicon16s.gates.registry import esegui_gate
 from amplicon16s.metadata.controls_map import MappaControlli
 from amplicon16s.metadata.crosswalk import (
@@ -442,7 +450,8 @@ def test_g11_fallisce_su_un_materiale_vuoto(tmp_path):
 def test_la_classificazione_tollera_maiuscole_e_spazi(tmp_path):
     """
     **Obiettivo**: Verificare che ``MappaControlli`` classifichi correttamente
-    ``"  positive control  "`` come ``CONTROLLO_POSITIVO`` ignorando differenze
+    l'etichetta dei controlli positivi scritta in maiuscolo e fra spazi come
+    ``CONTROLLO_POSITIVO``, ignorando differenze
     di maiuscole/minuscole e spazi bianchi periferici.
 
     **Razionale scientifico e sistemistico**: Le tabelle ISA-Tab sono compilate
@@ -451,7 +460,7 @@ def test_la_classificazione_tollera_maiuscole_e_spazi(tmp_path):
     falsi blocchi del Gate G11.
     """
     campioni = _tre_campioni()
-    campioni[1].materiale = "  positive control  "
+    campioni[1].materiale = f"  {POSITIVO.upper()}  "
     scenario = crea_scenario(tmp_path, campioni)
     inventario = esegui_gate_metadati(scenario.config)
     assert inventario["ERX1000002"].classe is ClasseCampione.CONTROLLO_POSITIVO
@@ -478,63 +487,57 @@ def test_la_mappa_non_inventa_una_categoria_di_ripiego(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def test_il_nome_del_campione_si_ripete_fra_repliche_l_accession_no(tmp_path):
+def test_due_repliche_restano_due_campioni_ciascuno_con_il_proprio_lotto(tmp_path):
     """
-    **Obiettivo**: Verificare che due repliche tecniche con lo stesso
-    ``Sample Name`` (``LAB1P3.L1``) ma accession distinti (``ERX1000001`` ed
-    ``ERX1000002``) rimangano due entità separate nel crosswalk mentre
-    collasserebbero in una sola se indicizzate per nome.
+    **Obiettivo**: Verificare che due repliche dello stesso prelievo, con nomi
+    che differiscono per il solo suffisso, stessa posizione e accession
+    distinti, restino nell'inventario due campioni, ciascuno con il proprio
+    file, la propria piastra e la propria corsa presi dal file del lotto per
+    accession.
 
-    **Razionale scientifico e sistemistico**: In studi come OSD-734 alcune
-    superfici spaziali sono state sequenziate in replicato tecnico (stesso
-    campione biologico nella Study Table, due corse distinte nell'Assay Table).
-    Usare il ``Sample Name`` come chiave primaria farebbe collassare le due
-    repliche su un'unica voce del dizionario, scartando metà dei dati di
-    sequenziamento o accoppiando il file FASTQ sbagliato alla piastra sbagliata.
+    **Razionale scientifico e sistemistico**: Un campione risequenziato ha due
+    librerie in due corse: agganciare il lotto per nome, o per la parte comune
+    del nome, darebbe a entrambe la piastra e il modello d'errore di una sola.
     """
     campioni = [
-        Campione("ERX1000001", "LAB1P3.L1", posizione="LAB1P3"),
-        Campione("ERX1000002", "LAB1P3.L1", posizione="LAB1P3"),
+        Campione("ERX1000001", "LAB1P3.L1_rep1", posizione="LAB1P3", piastra="3",
+                 corsa="corsa_A"),
+        Campione("ERX1000002", "LAB1P3.L1_rep2", posizione="LAB1P3", piastra="8",
+                 corsa="corsa_B"),
     ]
-    scenario = crea_scenario(tmp_path, campioni)
+    scenario = crea_scenario(tmp_path, campioni, con_arricchimento=True)
+    inventario = esegui_gate_metadati(scenario.config)
+    assert [c.accession for c in inventario] == ["ERX1000001", "ERX1000002"]
+    prima, seconda = inventario["ERX1000001"], inventario["ERX1000002"]
+    assert (prima.piastra, prima.corsa) == ("3", "corsa_A")
+    assert (seconda.piastra, seconda.corsa) == ("8", "corsa_B")
+    assert prima.file.name.startswith("ERX1000001") and seconda.file.name.startswith("ERX1000002")
+    assert prima.modulo == seconda.modulo and prima.posizione == seconda.posizione
 
-    analisi = analizza(scenario.config)
-    assert analisi.accession_ripetuti_nell_assay == {}
 
-    per_nome = {c.nome for c in campioni}
-    per_accession = {c.accession for c in campioni}
-    assert len(per_nome) == 1, "il nome non distingue le repliche"
-    assert len(per_accession) == 2, "l'accession le distingue"
-
-
-def test_appaiare_per_nome_produce_una_corrispondenza_errata(tmp_path):
+def test_due_campioni_con_lo_stesso_nome_sono_respinti_non_fusi(tmp_path):
     """
-    **Obiettivo**: Dimostrare sperimentalmente che un dizionario indicizzato per
-    ``Sample Name`` sovrascrive la classe del primo campione (``BIOLOGICO``) con
-    quella del secondo (``POSITIVO``), mentre l'indicizzazione per ``accession``
-    preserva l'identità e la classe di entrambi.
+    **Obiettivo**: Verificare che due campioni con lo stesso nome e accession
+    distinti, con classi diverse nella tabella di studio, non producano un
+    inventario in cui una classe sovrascrive l'altra: l'analisi li segnala
+    come nome ambiguo e G03 ferma con ``E-S0-03``.
 
-    **Razionale scientifico e sistemistico**: Prova formalmente perché l'intera
-    architettura di ``crosswalk.py`` utilizza l'``accession`` come chiave
-    primaria: un appaiamento per nome attribuirebbe la classe di un controllo
-    al file FASTQ di un campione biologico (o viceversa), corrompendo
-    silenziosamente la decontaminazione S12 e la calibrazione KatharoSeq S11.
+    **Razionale scientifico e sistemistico**: La classe si legge dalla tabella
+    di studio per nome: con un nome ripetuto non si puo' sapere quale riga
+    appartenga a quale libreria, e sceglierne una attribuirebbe la classe di un
+    controllo al file di un campione biologico.
     """
     campioni = [
         Campione("ERX1000001", "RIPETUTO", materiale=BIOLOGICO),
         Campione("ERX1000002", "RIPETUTO", materiale=POSITIVO, file="ERX1000002_b.fastq.gz"),
     ]
     scenario = crea_scenario(tmp_path, campioni)
-
-    per_nome = {}
-    for campione in campioni:
-        per_nome[campione.nome] = campione.materiale
-    assert len(per_nome) == 1
-    assert per_nome["RIPETUTO"] == POSITIVO
-
-    per_accession = {c.accession: c.materiale for c in campioni}
-    assert per_accession["ERX1000001"] == BIOLOGICO
-    assert per_accession["ERX1000002"] == POSITIVO
+    analisi = analizza(scenario.config)
+    assert analisi.accession_ripetuti_nell_assay == {}
+    assert analisi.nomi_ambigui_nello_studio == {"RIPETUTO": 2}
+    with pytest.raises(ErroreGate) as errore:
+        esegui_gate_metadati(scenario.config)
+    assert (errore.value.gate, errore.value.codice) == ("G03", "E-S0-03")
 
 
 # --------------------------------------------------------------------------- #
@@ -556,7 +559,7 @@ def test_il_modulo_si_deriva_dalla_posizione(tmp_path):
     assert esegui_gate_metadati(scenario.config)["ERX1000001"].modulo == "NOD3"
 
 
-@pytest.mark.parametrize("posizione", ["Air Sample", "Not Applicable", ""])
+@pytest.mark.parametrize("posizione", [FORMATO.non_superfici[0], "Not Applicable", ""])
 def test_le_posizioni_che_non_sono_superfici_non_hanno_modulo(posizione, tmp_path):
     """
     **Obiettivo**: Verificare che i campioni con posizione ``"Air Sample"``,
@@ -585,7 +588,7 @@ def test_il_modulo_non_si_deriva_dal_nome(tmp_path):
     nella colonna Location (``Air Sample``): ignorare il nome evita false
     attribuzioni spaziali.
     """
-    campioni = [Campione("ERX1000001", "NOD1.F3", posizione="Air Sample")]
+    campioni = [Campione("ERX1000001", "NOD1.F3", posizione=FORMATO.non_superfici[0])]
     scenario = crea_scenario(tmp_path, campioni)
     campione = esegui_gate_metadati(scenario.config)["ERX1000001"]
     assert campione.nome.startswith("NOD1")
@@ -741,7 +744,7 @@ def test_un_file_di_arricchimento_senza_colonna_dell_accession_e_respinto(tmp_pa
     testo = str(errore.value)
     assert errore.value.codice == "E-S0-04"
     assert "io.batch_table" in testo
-    assert "experiment_accession" in testo
+    assert scenario.config.meta.batch_key_column in testo
     assert "ricavala dalla tabella di assay" in testo
     assert "io.assay_table" in testo
     assert "togli io.batch_table" in testo
@@ -843,7 +846,7 @@ def test_senza_la_colonna_del_modulo_si_ricade_sulla_derivazione(tmp_path):
     assert esegui_gate_metadati(scenario.config)["ERX1000001"].modulo == "NOD3"
 
 
-@pytest.mark.parametrize("posizione", ["Air Sample", "Unopened 3DMM Swab Tube", "Not Applicable", ""])
+@pytest.mark.parametrize("posizione", [FORMATO.non_superfici[0], FORMATO.riclassificati[0], "Not Applicable", ""])
 def test_una_posizione_non_di_superficie_non_ha_modulo_in_nessuna_modalita(
     posizione, tmp_path
 ):

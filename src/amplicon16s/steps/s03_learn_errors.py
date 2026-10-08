@@ -23,11 +23,11 @@ ciascuna classe, hanno fatto la stima.
 S4 la legge invece di ricalcolarla. I nomi delle corse diventano parti di nomi
 di file, e sono ridotti a lettere, cifre, punto, trattino e trattino basso.
 
-**La convergenza e il suo retry.** Un modello che non converge entro
-``err.max_consist`` iterazioni e' E-S3-01, ritentato con ``err.nbases``
-raddoppiato. Il raddoppio aiuta solo se la stima non usava gia' tutte le basi
-della corsa: in quel caso il nuovo tentativo sarebbe identico, e la fase lo
-dichiara nell'errore perche' l'esecutore non lo tenti.
+**La convergenza.** Un modello che non converge entro ``err.max_consist``
+iterazioni e' E-S3-01, a revisione umana: nessun nuovo tentativo automatico,
+perche' aumentare ``err.nbases`` cambierebbe la stima, cioe' i risultati,
+lasciando registrato il valore dichiarato. Il dettaglio dice se la stima usava
+gia' tutte le basi della corsa, nel qual caso aumentarle non servirebbe.
 """
 
 from __future__ import annotations
@@ -46,7 +46,6 @@ from amplicon16s.io_layer.conteggi import leggi_conteggi
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
-from amplicon16s.runner.retry import RITENTARE_INUTILE, Aggiustamento, raddoppia
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 from amplicon16s.steps.s02_filter import NOME_FILTRATE, SUFFISSO_FILTRATI
 
@@ -101,7 +100,7 @@ class Modello:
 
     @property
     def tutte_usate(self) -> bool:
-        """Se la stima usa tutte le basi della corsa: raddoppiare nbases non cambierebbe nulla."""
+        """Se la stima usa tutte le basi della corsa: aumentare nbases non cambierebbe nulla."""
         return len(self.usati) == len(self.ordine)
 
 
@@ -112,7 +111,7 @@ def pianifica(
     config: Config,
 ) -> list[Modello]:
     """I modelli da stimare, dalla corsa di ogni campione e dalle sue letture filtrate."""
-    # Razionale biologico: ciascuna corsa di sequenziamento (run_prefix) presenta
+    # Razionale biologico: ciascuna corsa di sequenziamento (err.batch_column) presenta
     # un proprio profilo fisico di rumore ottico e di fasatura dei cicli Illumina.
     # Stimare un modello parametrico separato per corsa evita medie spurie tra
     # corse eterogenee, preservando in S4 la discriminazione statistica tra errori
@@ -173,8 +172,9 @@ class ModelloErrore(PipelineStep):
     #: 2: loess_monotono adatta un loess di primo grado con span 2 e pesi
     #: logaritmici (prima span 0,95); una stima fallita con piu' di un valore
     #: di qualita' ha il suo codice (E-S3-05), distinto da E-S3-04, e porta il
-    #: messaggio originale della funzione di stima.
-    versione: ClassVar[int] = 2
+    #: messaggio originale della funzione di stima. 3: un modello che non
+    #: converge ferma senza nuovo tentativo (err.nbases non si raddoppia piu').
+    versione: ClassVar[int] = 3
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: Tutto il gruppo err; il seme per l'ordine dei campioni; troncamento e
     #: taglio iniziale per le basi di ciascuna lettura; io.batch_table, che
@@ -184,9 +184,6 @@ class ModelloErrore(PipelineStep):
     parametri: ClassVar[tuple[str, ...]] = (
         "err", "run.seed", "filter.truncLen", "filter.trimLeft", "io.batch_table",
     )
-    aggiustamenti: ClassVar[dict[str, Aggiustamento]] = {
-        "E-S3-01": raddoppia("err.nbases"),
-    }
 
     def calcola(self, contesto: StepContext) -> Produzione:
         """Pianifica e stima un modello d'errore per corsa con ``R/03_learn_errors.R`` e
@@ -228,6 +225,7 @@ class ModelloErrore(PipelineStep):
             contesto.albero,
             self.cartella,
             passo=self.passo,
+            tempo_massimo_s=contesto.config.run.r_timeout_s,
             logger=contesto.logger,
         )
         cartella = contesto.albero.cartella(self.cartella)
@@ -268,27 +266,24 @@ class ModelloErrore(PipelineStep):
             ),
         )
 
-        # Razionale sistemistico: se un modello non converge entro err.max_consist
-        # iterazioni (E-S3-01), l'azione correttiva raddoppia err.nbases per ampliare
-        # il campione di stima. Tuttavia, se il modello usava gia' tutte le basi
-        # disponibili nella corsa (m.tutte_usate), raddoppiare err.nbases passerebbe
-        # a learnErrors gli stessi identici dati; la fase valorizza allora
-        # RITENTARE_INUTILE per sopprimere un secondo tentativo superfluo.
+        # Un modello che non converge entro err.max_consist iterazioni ferma
+        # l'esecuzione. Il dettaglio dice se la stima usava gia' tutte le basi
+        # della corsa: in quel caso aumentare err.nbases darebbe a learnErrors
+        # gli stessi dati, e la strada e' un'altra.
         falliti = [m for m in modelli if not riepilogo[m.nome]["convergenza"]]
         if falliti:
-            contesto_errore: dict[str, Any] = {"modelli": [m.nome for m in falliti]}
-            if all(m.tutte_usate for m in falliti):
-                contesto_errore[RITENTARE_INUTILE] = (
-                    "la stima usava gia' tutte le basi disponibili ("
-                    + ", ".join(f"{m.nome}: {m.basi_disponibili} basi" for m in falliti)
-                    + f", meno di err.nbases {config.err.nbases:g}), e raddoppiare "
-                    "err.nbases darebbe un tentativo identico"
-                )
+            basi = "; ".join(
+                f"{m.nome}: {m.basi_usate} basi usate su {m.basi_disponibili} disponibili"
+                + (" (tutte: aumentare err.nbases non cambierebbe la stima)"
+                   if m.tutte_usate else "")
+                for m in falliti
+            )
             raise errore(
                 "E-S3-01",
                 f"i modelli {', '.join(m.nome for m in falliti)} non convergono entro "
-                f"err.max_consist {config.err.max_consist} iterazioni",
-                **contesto_errore,
+                f"err.max_consist {config.err.max_consist} iterazioni ({basi}; err.nbases "
+                f"{config.err.nbases:g})",
+                modelli=[m.nome for m in falliti],
             )
 
         metriche = {

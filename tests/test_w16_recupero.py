@@ -35,7 +35,7 @@ cartella condivisa, arresto su una tabella senza varianti).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -91,6 +91,7 @@ cartella condivisa, arresto su una tabella senza varianti).
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -130,16 +131,21 @@ def uscite_pulite():
     chiudi()
 
 
-_MOTIVO_ASSENTI = motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "jsonlite")
+@functools.cache
+def _sonda_assenti() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "jsonlite")
 
 
 @pytest.fixture
 def dada2():
     """Richiede R con dada2: salta senza, ma in CI fallisce."""
-    if _MOTIVO_ASSENTI is not None:
+    if _sonda_assenti() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_ASSENTI}")
-        pytest.skip(_MOTIVO_ASSENTI)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_assenti()}")
+        pytest.skip(_sonda_assenti())
 
 
 def _campioni() -> list[Campione]:

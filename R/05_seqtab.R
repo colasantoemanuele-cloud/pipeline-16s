@@ -15,9 +15,9 @@
 # max_varianti (qc.max_asv_count).
 #
 # La memoria. makeSequenceTable costruisce una matrice densa di interi,
-# campioni x varianti, e la riordina per abbondanza con una copia. Sul dataset
-# di riferimento (960 x 13130, 53 MB) il picco sale di 157 MB oltre la lettura
-# delle varianti: circa tre volte la matrice, qualunque sia il lotto con cui
+# campioni x varianti, e la riordina per abbondanza con una copia. Il picco
+# misurato sale, oltre la lettura delle varianti, di circa tre volte la
+# dimensione della matrice, qualunque sia il lotto con cui
 # S4 ha elaborato i campioni. Costruirla a lotti non cambierebbe nulla,
 # perche' la tabella finale e' comunque una. Per questo il numero di varianti
 # distinte si controlla prima di allocarla: oltre max_varianti la fase si

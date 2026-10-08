@@ -137,6 +137,7 @@ class InferenzaVarianti(PipelineStep):
                 self.cartella,
                 passo=self.passo,
                 codice_memoria="E-S4-02",
+                tempo_massimo_s=contesto.config.run.r_timeout_s,
                 logger=contesto.logger,
             )
         except ErrorePipeline as e:

@@ -66,7 +66,7 @@ from amplicon16s.errors.exceptions import ErrorePipeline
 from amplicon16s.gates.g01_g15 import (
     Contesto,
     ErroreGate,
-    _controlla_coerenza,
+    controlla_coerenza,
     _g12_riferimento_verificato,
     _g14_risorse_disponibili,
 )
@@ -294,7 +294,7 @@ class Esecutore:
                 ],
             })
 
-        coerenza = _controlla_coerenza(risolvi(self.config))
+        coerenza = controlla_coerenza(risolvi(self.config))
         registra("G15", coerenza)
         arresto: _Arresto | None = None
         completa = None if coerenza else Contesto(self.config)

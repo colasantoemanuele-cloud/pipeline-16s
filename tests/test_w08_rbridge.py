@@ -39,7 +39,7 @@ Il contratto in memoria e l'esecuzione reale degli script di
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -110,13 +110,13 @@ import sys
 from pathlib import Path
 
 import pytest
+from conftest import fase_completa, rscript_con_limite
 
 from amplicon16s.errors.exceptions import (
     ErrorePipeline,
     ErroreRevisioneUmana,
     ErroreRitentabile,
-    ErroreRitentabileConRevisione,
-)
+    )
 from amplicon16s.io_layer.artifacts import AlberoOutput, Fase
 from amplicon16s.logging.logger import NOME_FILE_LOG, chiudi, configura
 from amplicon16s.rbridge.payload import (
@@ -194,16 +194,21 @@ def _motivo_r_assente() -> str | None:
     return None
 
 
-_MOTIVO_R_ASSENTE = _motivo_r_assente()
+@functools.cache
+def _sonda_r_assente() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return _motivo_r_assente()
 
 
 @pytest.fixture
 def r():
     """Richiede R: salta senza, ma in CI fallisce."""
-    if _MOTIVO_R_ASSENTE is not None:
+    if _sonda_r_assente() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_R") == "1":
-            pytest.fail(f"R e' richiesto in questo ambiente: {_MOTIVO_R_ASSENTE}")
-        pytest.skip(_MOTIVO_R_ASSENTE)
+            pytest.fail(f"R e' richiesto in questo ambiente: {_sonda_r_assente()}")
+        pytest.skip(_sonda_r_assente())
 
 
 #: Ambiente di una macchina in italiano, come lo vede il processo chiamante.
@@ -229,8 +234,8 @@ def _motivo_r_non_traduce() -> str | None:
     difetto si presenta quindi solo con versioni precedenti, come la 4.3.3
     su cui e' stato trovato.
     """
-    if _MOTIVO_R_ASSENTE is not None:
-        return _MOTIVO_R_ASSENTE
+    if _sonda_r_assente() is not None:
+        return _sonda_r_assente()
     sonda = subprocess.run(
         [str(trova_rscript()), "--vanilla", "-e", ALLOCAZIONE_IMPOSSIBILE],
         env={**os.environ, **AMBIENTE_ITALIANO},
@@ -250,14 +255,19 @@ def _motivo_r_non_traduce() -> str | None:
     return None
 
 
-_MOTIVO_R_NON_TRADUCE = _motivo_r_non_traduce()
+@functools.cache
+def _sonda_r_non_traduce() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return _motivo_r_non_traduce()
 
 
 @pytest.fixture
 def r_che_traduce(r):
     """Richiede un R che traduca il messaggio di allocazione fallita."""
-    if _MOTIVO_R_NON_TRADUCE is not None:
-        pytest.skip(_MOTIVO_R_NON_TRADUCE)
+    if _sonda_r_non_traduce() is not None:
+        pytest.skip(_sonda_r_non_traduce())
 
 
 solo_linux = pytest.mark.skipif(
@@ -613,7 +623,7 @@ def test_successo(r, albero):
     # Gli artefatti dichiarati sono nel manifesto, quelli del contratto no.
     assert [a.nome for a in esito.artefatti] == ["artefatto.json", "letture_doppione.tsv"]
     assert set(albero.manifesto(FASE)) == {"artefatto.json", "letture_doppione.tsv"}
-    assert albero.fase_completa(FASE)
+    assert fase_completa(albero, FASE)
 
 
 def test_tracciamento_delle_letture(r, albero):
@@ -687,7 +697,7 @@ def test_un_artefatto_dichiarato_ma_assente_non_e_un_successo(r, albero):
     [
         ("E-S2-01", ErroreRevisioneUmana),
         ("E-S2-03", ErroreRitentabile),
-        ("E-S3-01", ErroreRitentabileConRevisione),
+        ("E-S4-02", ErroreRitentabile),
     ],
 )
 def test_fallimento_dichiarato(r, albero, codice, classe):
@@ -695,7 +705,7 @@ def test_fallimento_dichiarato(r, albero, codice, classe):
     **Obiettivo**: Verificare che quando lo script R invoca ``ferma_con_codice(codice, ...)``
     il ponte sollevi in Python esattamente la sottoclasse di ``ErrorePipeline``
     prevista dalla categoria del codice (``ErroreRevisioneUmana``, ``ErroreRitentabile``
-    o ``ErroreRitentabileConRevisione``).
+    o ancora ``ErroreRevisioneUmana`` per un codice di revisione).
 
     **Razionale scientifico e sistemistico**: Consente agli script R di partecipare
     direttamente alla macchina a stati di gestione degli errori e di attivare il
@@ -786,7 +796,7 @@ def test_processo_bloccato_ucciso_allo_scadere_del_tempo(r, albero):
     """
     **Obiettivo**: Verificare che uno script R in ciclo infinito (``modo="stallo"``)
     venga terminato tramite ``os.killpg`` allo scadere di ``tempo_massimo_s=3``
-    sollevando ``E-R-02`` con ``condizione_r == "tempo_scaduto"``.
+    sollevando ``E-R-05`` con ``condizione_r == "tempo_scaduto"``.
 
     **Razionale scientifico e sistemistico**: Impedisce che un deadlock nei thread
     C++ o nell'I/O di R lasci appesa indefinitamente la pipeline o il job HPC,
@@ -802,8 +812,9 @@ def test_processo_bloccato_ucciso_allo_scadere_del_tempo(r, albero):
             tempo_massimo_s=3,
         )
     e = info.value
-    assert e.codice == "E-R-02"
+    assert e.codice == "E-R-05"
     assert e.contesto["condizione_r"] == "tempo_scaduto"
+    assert "run.r_timeout_s" in e.dettaglio
     assert "tempo massimo" in e.dettaglio
 
 
@@ -840,7 +851,7 @@ def test_un_guasto_grave_di_r_non_ferma_il_chiamante(r, albero):
 @solo_linux
 def test_memoria_intercettata_da_r(r, albero):
     """
-    **Obiettivo**: Verificare che imponendo ``limite_memoria_byte=1 GiB``
+    **Obiettivo**: Verificare che imponendo un limite di 1 GiB sulla memoria virtuale del processo R
     (``RLIMIT_AS``) e tentando di allocare 250 milioni di ``numeric`` (~1,9 GB),
     il ponte intercetti l'OOM di R e sollevi ``ErroreRitentabile("E-S4-02")`` con
     ``condizione_r == "memoria_esaurita"``.
@@ -857,7 +868,7 @@ def test_memoria_intercettata_da_r(r, albero):
             albero,
             FASE,
             codice_memoria="E-S4-02",
-            limite_memoria_byte=LIMITE,
+            rscript=rscript_con_limite(albero.radice.parent, LIMITE),
         )
     e = info.value
     assert e.codice == "E-S4-02"
@@ -868,7 +879,7 @@ def test_memoria_intercettata_da_r(r, albero):
 @solo_linux
 def test_sotto_lo_stesso_limite_un_allocazione_piccola_riesce(r, albero):
     """
-    **Obiettivo**: Verificare che sotto il medesimo tetto ``limite_memoria_byte=1 GiB``
+    **Obiettivo**: Verificare che sotto il medesimo tetto un limite di 1 GiB sulla memoria virtuale del processo R
     un'allocazione di 1 milione di elementi (~8 MB) completi con ``esito.riuscito is True``.
 
     **Razionale scientifico e sistemistico**: Funge da controllo sperimentale per
@@ -882,7 +893,7 @@ def test_sotto_lo_stesso_limite_un_allocazione_piccola_riesce(r, albero):
         albero,
         FASE,
         codice_memoria="E-S4-02",
-        limite_memoria_byte=LIMITE,
+        rscript=rscript_con_limite(albero.radice.parent, LIMITE),
     )
     assert esito.riuscito
 
@@ -893,21 +904,21 @@ def test_memoria_esaurita_prima_di_poter_dichiarare(r, albero):
     **Obiettivo**: Verificare che se R esaurisce la memoria fuori dal blocco
     ``con_contratto`` (così che non può nemmeno scrivere ``rbridge_esito_S2.json``),
     il ponte riconosca comunque ``cannot allocate`` su ``stderr`` e sollevi
-    ``ErroreRitentabileConRevisione("E-S5-01")``.
+    ``ErroreRevisioneUmana("E-S5-01")``.
 
     **Razionale scientifico e sistemistico**: Quando la RAM è completamente
     saturata, persino la serializzazione JSON dell'errore dentro R può fallire
     per mancanza di memoria; l'ispezione di ``stderr`` garantisce che l'OOM
     venga riconosciuto anche in assenza di dichiarazione JSON.
     """
-    with pytest.raises(ErroreRitentabileConRevisione) as info:
+    with pytest.raises(ErroreRevisioneUmana) as info:
         esegui_script(
             DOPPIONI / "memoria.R",
             {"modo": "fuori_contratto", "elementi": TROPPI},
             albero,
             FASE,
             codice_memoria="E-S5-01",
-            limite_memoria_byte=LIMITE,
+            rscript=rscript_con_limite(albero.radice.parent, LIMITE),
         )
     assert info.value.codice == "E-S5-01"
     assert info.value.contesto["condizione_r"] == "memoria_esaurita"
@@ -978,7 +989,7 @@ def test_il_riconoscimento_non_dipende_dalla_lingua(r_che_traduce, albero, monke
             albero,
             FASE,
             codice_memoria="E-S4-02",
-            limite_memoria_byte=LIMITE,
+            rscript=rscript_con_limite(albero.radice.parent, LIMITE),
         )
     assert info.value.codice == "E-S4-02"
 

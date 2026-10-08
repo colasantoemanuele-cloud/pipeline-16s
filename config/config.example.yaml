@@ -1,497 +1,424 @@
 # =========================================================================== #
-# Configurazione di esempio della pipeline 16S                                #
+# Modello di configurazione della pipeline 16S                                #
 # =========================================================================== #
 #
-# Elenca tutti i parametri dello schema. È pensata per essere copiata e
-# compilata: così com'è non parte, perché i parametri obbligatori sono lasciati
-# da dichiarare.
+# Elenca tutti i parametri dello schema. Va copiato e compilato: cosi' com'e'
+# non parte, perche' i parametri obbligatori sono lasciati da dichiarare. Lo
+# schema rifiuta le chiavi che non conosce: un refuso ferma l'esecuzione invece
+# di passare inosservato.
 #
-# La pipeline non contiene valori scritti nel codice: quanto segue è il punto
-# di controllo dell'intera esecuzione. Lo schema rifiuta le chiavi che non
-# conosce, quindi un refuso ferma l'esecuzione invece di passare inosservato.
+# Nessun valore di questo file viene da un dataset. Ogni parametro e' di una di
+# queste specie, indicata accanto:
 #
-# [OBBLIGATORIO]  Parametri che descrivono il dataset: il formato dei metadati,
-#                 le etichette dei campioni, il primer, il troncamento, il
-#                 riferimento. Non hanno un valore predefinito. Qui sono
-#                 commentati, con il valore che hanno per OSD-734 a titolo di
-#                 esempio: vanno tolti dal commento e dichiarati tutti, e la
-#                 pipeline elenca quelli che mancano (E-G15-10). Un parametro
-#                 non pertinente si dichiara nullo (null) o con un elenco vuoto
-#                 ([]): per esempio positive_values: [] in un dataset senza
-#                 controlli positivi.
-# [OSD-734]       Parametri con un predefinito tarato sul dataset di
-#                 riferimento: una scelta di metodo fissata su un fatto di
-#                 OSD-734. Su un altro dataset vanno riesaminati; il report
-#                 elenca quelli presi per difetto senza essere dichiarati.
-# [SOSTITUIRE]    Segnaposto senza significato.
+# [OBBLIGATORIO]  Dipende dai dati o dallo studio: non ha un valore
+#                 predefinito. La riga e' commentata e senza valore: va tolta
+#                 dal commento e dichiarata, seguendo l'indicazione che la
+#                 precede. La pipeline elenca quelli che mancano (E-G15-10).
+#                 Dove e' indicato "oppure null" o "oppure []", un parametro
+#                 non pertinente si dichiara nullo o vuoto.
+# [PERCORSO]      Un file o una cartella di questa esecuzione: da sostituire.
+# [STANDARD]      Il valore predefinito e' quello del pacchetto che realizza il
+#                 calcolo, o una raccomandazione dei suoi autori; la fonte e'
+#                 indicata. Si puo' omettere; va cambiato solo con una ragione.
+# [UNICA FORMA]   La pipeline realizza un solo valore: si puo' omettere.
+# [STRUMENTO]     Governa come si esegue o in che forma si scrive, non che cosa
+#                 si conclude dai dati: si puo' omettere.
+#
+# Il report di ogni esecuzione dice, per ciascun parametro, se il valore e'
+# stato dichiarato o preso dal predefinito.
 
 # --------------------------------------------------------------------------- #
 # io: percorsi di ingresso e uscita, e come si individuano i file di lettura  #
 # --------------------------------------------------------------------------- #
 io:
-  # Obbligatori: i dati non risiedono nel repository.
-  fastq_dir: /percorso/ai/dati/OSD-734/fastq          # [SOSTITUIRE]
-  assay_table: /percorso/ai/dati/OSD-734/a_assay.txt  # [SOSTITUIRE]
-  # Tabella campioni di studio: porta la colonna della classe del campione,
-  # che nella tabella di assay non c'è. È condivisa fra più assay dello stesso
-  # studio, quindi contiene anche righe che a questo assay non appartengono:
-  # il join verso di essa resta ristretto alle righe dell'assay.
-  # FACOLTATIVA: con null, classe e variabili dei campioni si leggono dalla
-  # tabella di assay, che allora deve portarne le colonne.
-  study_table: /percorso/ai/dati/OSD-734/s_OSD-734.txt  # [SOSTITUIRE]
-  out_root: /percorso/agli/output/osd734              # [SOSTITUIRE]
-  # FACOLTATIVO. Associa a ciascun campione la piastra di estrazione e la
-  # corsa di sequenziamento, valorizzando decontam.batch_column ed
-  # err.batch_column. Quando è null la pipeline procede in modalità a corsa
-  # singola e senza lotto: è un ingresso in più, non un requisito. Senza
-  # questo file le sue colonne vanno dichiarate nulle o vuote
+  fastq_dir: /percorso/alle/letture                   # [PERCORSO]
+  assay_table: /percorso/alla/tabella_di_assay.txt    # [PERCORSO]
+  # Tabella campioni di studio: porta la colonna della classe del campione
+  # quando la tabella di assay non l'ha. Puo' essere condivisa fra piu' assay
+  # dello stesso studio: il join resta ristretto alle righe di questo assay.
+  # Con null, classe e variabili dei campioni si leggono dalla tabella di
+  # assay, che allora deve portarne le colonne.
+  study_table: /percorso/alla/tabella_di_studio.txt   # [PERCORSO] oppure null
+  out_root: /percorso/alla/cartella_di_uscita         # [PERCORSO]
+  # File del lotto: associa a ogni campione la piastra di estrazione e la corsa
+  # di sequenziamento. Con null la pipeline procede a corsa singola e senza
+  # lotto, e le colonne che vi si riferiscono si dichiarano nulle o vuote
   # (err.batch_column, decontam.batch_column, meta.batch_key_column,
-  # meta.batch_module_column, out.batch_columns), altrimenti G15 si ferma.
-  batch_table: /percorso/ai/dati/OSD-734/lotto.tsv   # [SOSTITUIRE] oppure null
-  fastq_glob: "*.fastq.gz"
+  # meta.batch_module_column, out.batch_columns).
+  batch_table: /percorso/al/file_del_lotto.tsv        # [PERCORSO] oppure null
+  # Modello dei nomi dei file delle letture dentro fastq_dir, senza
+  # sottocartelle. Si sceglie guardando la cartella: l'estensione dei file
+  # (compressi o no) e, se la cartella contiene anche altro, la parte del nome
+  # che distingue le letture da usare.
+  # fastq_glob:                                       # [OBBLIGATORIO]
   # Espressione regolare che estrae dal nome di ogni file la chiave del
-  # campione: la corrispondenza intera oppure, se l'espressione ha un gruppo
-  # di cattura, il primo gruppo (per file nominati per campione o per corsa,
-  # per esempio "^(CAMP[0-9]+)_"). La stessa chiave si ricava dal valore di
-  # meta.accession_column; un gruppo che serve solo a raggruppare va scritto
-  # senza cattura, (?:...).
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # accession_regex: "[ESD]RX[0-9]{4,}"
+  # campione: la corrispondenza intera oppure, se l'espressione ha un gruppo di
+  # cattura, il primo gruppo. La stessa chiave deve ricavarsi dal valore di
+  # meta.accession_column. Si sceglie la parte del nome che e' unica per
+  # campione (un accession, un codice): una che si ripete fra repliche
+  # aggancerebbe la replica sbagliata.
+  # accession_regex:                                  # [OBBLIGATORIO]
 
 # --------------------------------------------------------------------------- #
 # meta: lettura della tabella dei metadati e campi derivati dai nomi          #
 # --------------------------------------------------------------------------- #
 meta:
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # sample_id_column: "Sample Name"
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # accession_column: "Raw Data File"
-  # Colonna del nome del campione nella tabella di studio, se ha un nome
-  # diverso da quello della tabella di assay; null: lo stesso nome.
+  # Colonna della tabella di assay con il nome del campione.
+  # sample_id_column:                                 # [OBBLIGATORIO]
+  # Colonna della tabella di assay da cui si ricava la chiave del campione con
+  # io.accession_regex (di solito quella che riporta il file delle letture).
+  # accession_column:                                 # [OBBLIGATORIO]
+  # Colonna del nome del campione nella tabella di studio, se si chiama
+  # diversamente da quella della tabella di assay; null: lo stesso nome.
   study_sample_id_column: null
-  derive_module: true
-  # Prefisso della posizione da cui si deriva il modulo senza il file di
-  # arricchimento: tre lettere e una cifra, come i moduli della stazione nei
-  # nomi delle posizioni (LAB1, NOD2, JLP1).
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # module_regex: "^([A-Z]{3}[0-9])"
-  # Colonna della tabella campioni di studio da cui si deriva il modulo. È la
-  # posizione dichiarata, non il nome del campione: un campione d'aria può
-  # chiamarsi come una superficie, e derivarlo dal nome lo attribuirebbe a un
-  # modulo che non gli compete. Le posizioni che non sono superfici non
-  # producono alcun modulo.
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # module_column: "Factor Value[Sample Location]"
-  # Posizioni che non sono superfici: i campioni che le riportano non
-  # appartengono a un modulo e non vi vengono forzati, né dalla derivazione né
-  # dal valore dichiarato nel file di arricchimento. Raggrupparli per modulo
-  # mescolerebbe l'aria di un locale con le sue superfici. I valori vuoti e i
-  # marcatori convenzionali di "non applicabile" sono già trattati come
-  # posizione assente e non vanno elencati qui.
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # non_surface_positions:
-  #   - Air Sample
-  #   - Unopened 3DMM Swab Tube
-  # Colonna con cui il file facoltativo di arricchimento identifica il
-  # campione. Deve contenere l'accession, come ogni altra chiave di join della
-  # pipeline: il nome del campione si ripete fra repliche, e un file che
-  # identifichi i campioni per nome aggancia la replica sbagliata senza che
-  # nulla se ne accorga. Se il tuo file non ha questa colonna, la si ricava
-  # dalla tabella di assay associando il nome del campione.
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # batch_key_column: experiment_accession
-  # Colonna del file facoltativo che dichiara il modulo. Quando c'è, il modulo
-  # viene da lì con il suo nome originale; la derivazione da module_regex è il
-  # ripiego per i dataset privi di quel file.
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # batch_module_column: module
+  # Se derivare il modulo (il gruppo di posizioni a cui il campione appartiene)
+  # dalla posizione dichiarata, con module_regex, quando il file del lotto non
+  # lo dichiara. true se le posizioni hanno un prefisso che identifica il
+  # gruppo; false se non c'e' un raggruppamento da derivare.
+  # derive_module:                                    # [OBBLIGATORIO]
+  # Espressione regolare, con un gruppo di cattura, che estrae il modulo dalla
+  # posizione. Si scrive guardando i valori di module_column.
+  # module_regex:                                     # [OBBLIGATORIO] oppure null
+  # Colonna della tabella di studio con la posizione di prelievo. E' la
+  # posizione dichiarata, non il nome del campione.
+  # module_column:                                    # [OBBLIGATORIO] oppure null
+  # Valori di module_column che non sono superfici (aria, materiale non usato):
+  # i campioni che li riportano non appartengono a un modulo. I valori vuoti e
+  # i marcatori di "non applicabile" sono gia' trattati come posizione assente.
+  # non_surface_positions:                            # [OBBLIGATORIO] oppure []
+  # Colonna con cui il file del lotto identifica il campione. Deve contenere
+  # la stessa chiave estratta da io.accession_regex, non il nome del campione,
+  # che si ripete fra repliche.
+  # batch_key_column:                                 # [OBBLIGATORIO] oppure null
+  # Colonna del file del lotto che dichiara il modulo; ha la precedenza sulla
+  # derivazione da module_regex.
+  # batch_module_column:                              # [OBBLIGATORIO] oppure null
 
 # --------------------------------------------------------------------------- #
 # filter: filtraggio e troncamento delle letture grezze                       #
 # --------------------------------------------------------------------------- #
 filter:
-  # La lettura piu' corta del dataset completo: letture di 137-151 basi.
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # truncLen: 137
-  truncLen_shortfall_warn: 10
-  # Nessuna base tolta in testa: le letture non contengono il primer e
-  # iniziano nella regione conservata a valle del 515F.
-  trimLeft: 0                       # [OSD-734]
-  maxEE: 2
-  truncQ: 2
-  maxN: 0
-  rm_phix: true
+  # Lunghezza a cui si troncano le letture; quelle piu' corte sono scartate. Si
+  # sceglie dal profilo delle lunghezze e della qualita' delle proprie letture:
+  # non oltre la lunghezza che quasi tutte raggiungono, e prima che la qualita'
+  # cali. S1 riporta la distribuzione e un troncamento suggerito per classe.
+  # truncLen:                                         # [OBBLIGATORIO]
+  # Di quante basi il troncamento puo' superare la lettura piu' corta osservata
+  # prima che S1 lo segnali. Si sceglie in proporzione alla variabilita' delle
+  # lunghezze che si considera normale per il proprio sequenziamento.
+  # truncLen_shortfall_warn:                          # [OBBLIGATORIO]
+  # Basi tolte in testa a ogni lettura. La lunghezza del primer se le letture
+  # lo contengono ancora, zero se e' gia' stato rimosso: G10 lo verifica con
+  # qc.primer_sequence.
+  # trimLeft:                                         # [OBBLIGATORIO]
+  maxEE: 2        # [STANDARD] tutorial di dada2, "standard filtering parameters"
+  truncQ: 2       # [STANDARD] dada2::filterAndTrim
+  maxN: 0         # [STANDARD] dada2::filterAndTrim
+  rm_phix: true   # [STANDARD] dada2::filterAndTrim
 
 # --------------------------------------------------------------------------- #
 # err: apprendimento del modello di errore di sequenziamento                  #
 # --------------------------------------------------------------------------- #
 err:
-  # Nota: in YAML l'esponente richiede il segno esplicito. Scritto "1e8" il
-  # valore verrebbe letto come stringa, non come numero.
-  # La funzione che stima i tassi d'errore dalle transizioni osservate: loess
-  # (il loess standard di dada2) oppure loess_monotono, che impone tassi non
-  # crescenti con la qualita': serve quando le qualita' sono raggruppate in
-  # pochi valori (NovaSeq, NextSeq), e S1 lo segnala (E-S1-03).
-  error_function: loess
-  nbases: 1.0e+8
-  max_consist: 10
-  randomize: true
-  # Colonna di io.batch_table con la corsa di sequenziamento: S3 stima un
-  # modello d'errore per corsa. Con null, o senza io.batch_table, stima un solo
-  # modello su tutti i campioni.
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # batch_column: run_prefix
+  # La funzione che stima i tassi d'errore: loess (quella di dada2) oppure
+  # loess_monotono, per le qualita' raggruppate in pochi valori, che S1 segnala
+  # (E-S1-03).
+  error_function: loess   # [STANDARD] dada2::learnErrors
+  # In YAML l'esponente richiede il segno: "1e8" sarebbe letto come stringa.
+  nbases: 1.0e+8          # [STANDARD] dada2::learnErrors
+  max_consist: 10         # [STANDARD] dada2::learnErrors
+  # Se scegliere a caso, invece che nell'ordine dei file, i campioni da cui si
+  # stima il modello d'errore. true quando l'ordine dei file segue una
+  # struttura dello studio (piastre, gruppi), cosi' che la stima non poggi sui
+  # soli primi; il predefinito di dada2::learnErrors e' false.
+  # randomize:                                        # [OBBLIGATORIO]
+  # Colonna del file del lotto con la corsa di sequenziamento: S3 stima un
+  # modello d'errore per corsa. Con null si stima un solo modello.
+  # batch_column:                                     # [OBBLIGATORIO] oppure null
 
 # --------------------------------------------------------------------------- #
 # dada: inferenza delle varianti di sequenza                                  #
 # --------------------------------------------------------------------------- #
 dada:
-  # Ammessi: true, false oppure "pseudo" (vocabolario di dada2).
-  pool: pseudo
-  omega_a: 1.0e-40
+  # Come i campioni condividono l'informazione nell'inferenza: false (ogni
+  # campione da solo: il predefinito di dada2::dada), true (tutti insieme) o
+  # "pseudo" (due passate). Insieme si recuperano le varianti rare presenti in
+  # piu' campioni, al costo di piu' calcolo: dipende da quanto contano le
+  # varianti rare nello studio.
+  # pool:                                             # [OBBLIGATORIO]
+  omega_a: 1.0e-40        # [STANDARD] dada2::setDadaOpt
 
 # --------------------------------------------------------------------------- #
 # chimera: rimozione delle sequenze chimeriche                                #
 # --------------------------------------------------------------------------- #
 chimera:
-  method: consensus                 # consensus | pooled | per-sample
-  min_fold_parent_over_abundance: 2
-  min_parent_abundance: 2
-  min_sample_fraction: 0.9
-  allow_one_off: false
+  method: consensus       # [STANDARD] dada2::removeBimeraDenovo
+  # Quanto un genitore deve essere piu' abbondante di una variante perche'
+  # questa possa essere giudicata chimerica. Il predefinito di dada2 dipende
+  # dal metodo e dalla versione (vedi la documentazione di isBimeraDenovo e
+  # isBimeraDenovoTable): va dichiarato il valore che si intende usare.
+  # min_fold_parent_over_abundance:                   # [OBBLIGATORIO]
+  min_parent_abundance: 2      # [STANDARD] dada2::isBimeraDenovoTable
+  min_sample_fraction: 0.9     # [STANDARD] dada2::isBimeraDenovoTable
+  allow_one_off: false         # [STANDARD] dada2::isBimeraDenovoTable
 
 # --------------------------------------------------------------------------- #
 # asv: selezione delle sequenze varianti                                      #
 # --------------------------------------------------------------------------- #
 asv:
-  len_tol: 0
+  # Tolleranza sulla lunghezza delle varianti: le letture sono troncate tutte
+  # alla stessa lunghezza, quindi ogni variante ha quella lunghezza.
+  len_tol: 0              # [STRUMENTO]
 
 # --------------------------------------------------------------------------- #
 # tax: assegnazione tassonomica e riferimento impiegato                       #
 # --------------------------------------------------------------------------- #
-# Nome, versione e checksum del riferimento sono obbligatori: senza di essi un
-# risultato non è riconducibile ai dati che l'hanno prodotto.
 tax:
-  ref_fasta: /percorso/ai/riferimenti/silva_nr99_v138_train_set.fa.gz  # [SOSTITUIRE]
-  ref_md5: "00000000000000000000000000000000"  # [SOSTITUIRE] md5 reale del file
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # ref_name: SILVA
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # ref_version: "138"
-  # Il classificatore bayesiano naive di dada2 (assignTaxonomy): il training
-  # set di SILVA per IdTaxa non e' distribuito da alcuna fonte.
-  classifier: naive_bayes
-  # Bootstrap minimo per assegnare un rango: 50 e non 80, perche' le letture
-  # coprono 137 delle circa 253 basi dell'amplicone V4, e su sequenze piu'
-  # corte il bootstrap e' sistematicamente piu' basso a parita' di correttezza.
-  min_boot: 50                      # [OSD-734]
-  # Prova anche il complemento inverso di ogni variante.
-  try_rc: true
-  # Nessuna assegnazione di specie, per la stessa ragione di min_boot.
-  assign_species: false             # [OSD-734]
-  # Elenco dei taxa con un difetto noto del riferimento (rank,name,path,...):
-  # S8 marca le assegnazioni che vi ricadono. Per SILVA 138 versione 2 e' il
-  # file silva_138_v2_bad-taxa.csv degli autori. null se non ce n'e' uno.
+  # Il riferimento nel formato dei training set di dada2, e il suo MD5.
+  ref_fasta: /percorso/al/riferimento.fa.gz           # [PERCORSO]
+  ref_md5: "00000000000000000000000000000000"         # [PERCORSO] md5 reale del file
+  # Nome e versione del riferimento, come vanno riportati con i risultati.
+  # ref_name:                                         # [OBBLIGATORIO]
+  # ref_version:                                      # [OBBLIGATORIO]
+  classifier: naive_bayes   # [UNICA FORMA] dada2::assignTaxonomy
+  # Bootstrap minimo per assegnare un rango. Su letture che coprono solo una
+  # parte dell'amplicone il bootstrap e' piu' basso a parita' di correttezza.
+  min_boot: 50              # [STANDARD] dada2::assignTaxonomy
+  # Se provare anche il complemento inverso di ogni variante. true se le
+  # letture possono essere nell'orientamento opposto a quello del riferimento
+  # (dipende dal protocollo); il predefinito di dada2::assignTaxonomy e' false.
+  # try_rc:                                           # [OBBLIGATORIO]
+  assign_species: false     # [UNICA FORMA] la tassonomia arriva al genere
+  # Elenco dei taxa con un difetto noto del riferimento (colonne name e rank):
+  # S8 marca le assegnazioni che vi ricadono. null se non ce n'e' uno.
   ref_bad_taxa: null
 
 # --------------------------------------------------------------------------- #
 # filt: filtraggio tassonomico successivo all'assegnazione                    #
 # --------------------------------------------------------------------------- #
 filt:
-  remove_na_phylum: true
-  exclude_taxa:
-    - Chloroplast
-    - Mitochondria
-    - Eukaryota
+  # Se togliere le varianti senza phylum assegnato. true se cio' che il
+  # riferimento non riconosce nemmeno al phylum e' da considerare fuori
+  # bersaglio; false se lo studio cerca anche organismi poco rappresentati nel
+  # riferimento.
+  # remove_na_phylum:                                 # [OBBLIGATORIO]
+  # Nomi di taxa, a qualunque rango, le cui varianti si tolgono: cio' che il
+  # gene amplificato cattura senza essere l'oggetto dello studio (per uno
+  # studio sui batteri, di solito organelli ed eucarioti), scritti come li
+  # scrive il riferimento.
+  # exclude_taxa:                                     # [OBBLIGATORIO] oppure []
 
 # --------------------------------------------------------------------------- #
 # phylo: costruzione dell'albero filogenetico                                 #
 # --------------------------------------------------------------------------- #
 phylo:
-  # Disattivata per difetto. L'albero si costruisce sulle varianti che restano
-  # dopo i filtri finali (S13) ed entra nell'oggetto finale (S14). Su letture
-  # corte, di un solo tratto del gene, un albero costruito da zero e' debolmente
-  # risolto: va attivato sapendo che le relazioni profonde non sono sostenute.
-  enabled: false
-  # Varianti finali oltre le quali la fase si ferma prima del calcolo (E-S9-01):
-  # il costo della massima verosimiglianza cresce rapidamente con il loro numero.
-  max_seqs: 5000
-  # Allineatore multiplo: decipher (DECIPHER::AlignSeqs).
-  aligner: decipher
-  # Modello evolutivo della massima verosimiglianza (phangorn): GTR con
-  # eterogeneita' gamma fra i siti (quattro categorie) e siti invarianti.
-  model: "GTR+G+I"
+  # Se costruire l'albero sulle varianti finali e aggiungerlo all'oggetto
+  # finale. Serve alle distanze filogenetiche fra campioni; su letture corte,
+  # di un solo tratto del gene, le relazioni profonde sono poco sostenute.
+  # enabled:                                          # [OBBLIGATORIO]
+  # Varianti finali oltre le quali la fase si ferma prima del calcolo
+  # (E-S9-01): il costo cresce rapidamente con il loro numero. Si sceglie
+  # secondo il tempo e la memoria disponibili.
+  # max_seqs:                                         # [OBBLIGATORIO]
+  aligner: decipher         # [UNICA FORMA] DECIPHER::AlignSeqs
+  model: "GTR+G+I"          # [UNICA FORMA] massima verosimiglianza con phangorn
 
 # --------------------------------------------------------------------------- #
 # ctrl: come si riconoscono controlli negativi, positivi e campioni           #
 # --------------------------------------------------------------------------- #
-# Tutte le etichette sono quelle usate in OSD-734. Le tre categorie devono
-# restare disgiunte: un campione non può appartenere a due di esse.
+# Le tre categorie devono restare disgiunte.
 ctrl:
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # column: "Characteristics[Material Type]"
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # blank_values:
-  #   - blank control
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # positive_values:
-  #   - Positive Control
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # biological_values:
-  #   - Surface swab
-  # Campioni trattati come controlli negativi qualunque sia il materiale
-  # dichiarato, riconosciuti dal valore di una colonna della tabella campioni di
-  # studio. Il materiale resta quello originale nei metadati. In OSD-734 i
-  # tamponi mai aperti sono dichiarati "Surface swab" ma non hanno campionato
-  # alcuna superficie: bassa biomassa, composizione da reagente. Elenco vuoto:
-  # nessuna riclassificazione.
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # blank_override_column: "Factor Value[Sample Location]"
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # blank_override_values:
-  #   - Unopened 3DMM Swab Tube
-  # Validazione della corsa dai controlli positivi (S11). Un controllo e'
-  # conforme se la sua fedelta' e la sua profondita' non si discostano da
-  # quelle degli altri controlli dello stesso livello di concentrazione.
-  min_positives: 3              # controlli minimi per una curva o per un livello
-  min_positive_pass_frac: 0.75  # frazione minima di controlli conformi
-  positive_gate: false          # true: sotto la frazione si ferma (E-S11-03);
-                                # false: si prosegue con un avviso (E-S11-04)
+  # Colonna (della tabella di studio, o di assay se quella manca) che dice di
+  # che tipo e' il campione.
+  # column:                                           # [OBBLIGATORIO]
+  # I valori di quella colonna per i controlli negativi, per i controlli
+  # positivi e per i campioni biologici. Si copiano dalla tabella; maiuscole e
+  # spazi ai bordi non contano.
+  # blank_values:                                     # [OBBLIGATORIO] oppure []
+  # positive_values:                                  # [OBBLIGATORIO] oppure []
+  # biological_values:                                # [OBBLIGATORIO]
+  # Campioni da trattare come controlli negativi qualunque sia il tipo
+  # dichiarato, riconosciuti dal valore di un'altra colonna (per esempio
+  # materiale di campionamento mai usato). Il tipo dichiarato resta nei
+  # metadati.
+  # blank_override_column:                            # [OBBLIGATORIO] oppure null
+  # blank_override_values:                            # [OBBLIGATORIO] oppure []
+  # Controlli positivi minimi per adattare una curva di calibrazione e per
+  # giudicare i controlli di un livello di diluizione. Dipende dal disegno:
+  # quanti controlli ha ogni piastra e ogni livello. Sotto il minimo una
+  # piastra non ha una curva propria (E-S11-02) e un livello non e' valutato
+  # (E-S11-06).
+  # min_positives:                                    # [OBBLIGATORIO]
+  # Frazione minima di controlli positivi conformi al loro livello, e che cosa
+  # fare sotto di essa: true ferma l'esecuzione (E-S11-03), false prosegue con
+  # un avviso (E-S11-04).
+  # min_positive_pass_frac:                           # [OBBLIGATORIO]
+  # positive_gate:                                    # [OBBLIGATORIO]
 
 # --------------------------------------------------------------------------- #
 # katharoseq: calibrazione sui controlli positivi                             #
 # --------------------------------------------------------------------------- #
 katharoseq:
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # target_taxon: Variovorax
-  # Colonna con le cellule di ciascun controllo positivo: il livello di
-  # diluizione. Si cerca nel file di arricchimento e poi nella tabella di
-  # studio, ed entra nell'oggetto anche se out.batch_columns e
-  # out.study_columns non la nominano. Senza controlli positivi e' nulla, e
-  # nessuna curva viene adattata (E-S11-05).
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # cell_count_column: katharoseq_cell_count
-  collapse_rank: Genus              # rango a cui si somma il taxon atteso
-  # Fedelta' (frazione delle letture del controllo sul taxon atteso) in funzione
-  # di x = log10(profondita'): f = x^h / (k' + x^h), con k' = x50^h.
-  curve_model: allosteric_sigmoid
-  target_sensitivity: 0.90          # fedelta' a cui si legge la profondita' minima
-  min_r2: 0.80                      # bonta' minima: 1 - SS_res / SS_tot sulla fedelta'
-  read_stage: nonchimeric           # letture dell'oggetto integrato (dopo S7)
+  # Il taxon atteso nei controlli positivi, come lo scrive il riferimento al
+  # rango di collapse_rank.
+  # target_taxon:                                     # [OBBLIGATORIO] oppure null
+  # Colonna con le cellule di ciascun controllo positivo, cioe' il livello di
+  # diluizione: nel file del lotto o nella tabella di studio.
+  # cell_count_column:                                # [OBBLIGATORIO] oppure null
+  # Rango a cui si sommano le varianti del taxon atteso: il piu' fine a cui il
+  # riferimento lo distingue con le letture disponibili.
+  # collapse_rank:                                    # [OBBLIGATORIO]
+  curve_model: allosteric_sigmoid   # [UNICA FORMA]
+  # Fedelta' (frazione delle letture del controllo sul taxon atteso) a cui si
+  # legge sulla curva la profondita' minima dei campioni. Piu' alta, piu'
+  # campioni esclusi: si sceglie secondo quanta contaminazione si accetta nei
+  # campioni a bassa biomassa, e conviene verificarne la stabilita'.
+  # target_sensitivity:                               # [OBBLIGATORIO]
+  # Bonta' minima dell'adattamento (R^2 sulla fedelta') perche' una curva sia
+  # valida.
+  # min_r2:                                           # [OBBLIGATORIO]
+  read_stage: nonchimeric           # [UNICA FORMA] letture senza chimere
 
 # --------------------------------------------------------------------------- #
 # decontam: rimozione dei contaminanti a partire dai controlli negativi       #
 # --------------------------------------------------------------------------- #
 decontam:
-  # Per prevalenza nei controlli negativi: il metodo per frequenza richiede una
-  # misura di concentrazione del DNA che i metadati non hanno. Vocabolario di
-  # decontam::isContaminant.
-  method: prevalence                # [OSD-734]
-  # 0.5 e non 0.1: i campioni sono a bassa biomassa, la contaminazione da
-  # reagente puo' essere una quota rilevante del segnale, e la soglia e'
-  # orientata alla sensibilita'.
-  threshold: 0.5                    # [OSD-734]
-  # Negativi minimi perche' una piastra abbia un confronto proprio; con meno, i
-  # suoi campioni si confrontano con i negativi di tutte le piastre.
-  min_blanks: 5
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # batch_column: extraction_plate_num
-  # Combinazione delle probabilita' delle piastre (batch.combine di decontam;
-  # il predefinito di decontam 1.28.0 e' minimum).
-  batch_combine: minimum
-  # Modalita' della decontaminazione: aggregate (tutti i biologici contro tutti
-  # i negativi) o batch (per piastra, combinata con batch_combine). Qui
-  # aggregate: le piastre hanno pochi negativi, e il minimo di dieci probabilita'
-  # stimate ciascuna su cosi' pochi negativi e' permissivo per costruzione. La
-  # modalita' non dichiarata si calcola comunque, come diagnostica.
-  mode: aggregate                   # [OSD-734]
+  method: prevalence        # [UNICA FORMA] prevalenza nei controlli negativi
+  # Soglia della probabilita' sotto la quale una variante e' un contaminante.
+  # Il predefinito di decontam::isContaminant e' 0.1; un valore piu' alto
+  # toglie di piu' e si usa quando la contaminazione da reagente e' una quota
+  # rilevante del segnale (bassa biomassa).
+  # threshold:                                        # [OBBLIGATORIO]
+  # Controlli negativi minimi perche' una piastra abbia un confronto proprio;
+  # con meno, i suoi campioni si confrontano con i negativi di tutte.
+  # min_blanks:                                       # [OBBLIGATORIO]
+  # Colonna del file del lotto con la piastra di estrazione.
+  # batch_column:                                     # [OBBLIGATORIO] oppure null
+  batch_combine: minimum    # [STANDARD] decontam::isContaminant
+  # aggregate (tutti i biologici contro tutti i negativi) o batch (per piastra,
+  # con batch_combine). Per piastra serve un numero adeguato di negativi in
+  # ogni piastra; l'altra modalita' si calcola comunque, come diagnostica.
+  # mode:                                             # [OBBLIGATORIO]
 
 # --------------------------------------------------------------------------- #
 # prev: filtro di prevalenza sulle varianti                                   #
 # --------------------------------------------------------------------------- #
 prev:
-  # 1% e non il 5% abituale: i campioni vengono da oltre cento posizioni
-  # distinte della stazione, e una variante propria di poche posizioni e'
-  # segnale, non rumore. Il denominatore sono i biologici tenuti da S13.
-  min_fraction: 0.01                # [OSD-734]
-  min_count: 2
-  apply: true
+  # Se applicare il filtro; la frazione minima di campioni biologici tenuti in
+  # cui una variante deve comparire; e le letture minime perche' conti come
+  # presente in un campione. Dipendono da quanto sono eterogenei i campioni: in
+  # uno studio con molti ambienti diversi una variante di pochi campioni puo'
+  # essere segnale.
+  # apply:                                            # [OBBLIGATORIO]
+  # min_fraction:                                     # [OBBLIGATORIO]
+  # min_count:                                        # [OBBLIGATORIO]
 
 # --------------------------------------------------------------------------- #
 # qc: soglie che governano avvisi e arresti                                   #
 # --------------------------------------------------------------------------- #
-# warn_frac_chimeric non può superare stop_frac_chimeric: l'esecuzione si
-# fermerebbe prima di emettere l'avviso.
+# Sono soglie di qualita': vanno fissate per il proprio dataset, guardando le
+# misure che il report di una prima esecuzione riporta accanto a ciascuna.
 qc:
-  # katharoseq_if_available: le soglie di S11, sulle letture senza chimere
-  # (katharoseq.read_stage). Una piastra senza curva valida usa la soglia
-  # aggregata o la mediana delle soglie delle altre piastre (E-S11-02); senza
-  # alcuna curva valida non c'e' soglia (E-S11-05) e resta min_reads_final.
-  # none: nessuna soglia di profondita', resta min_reads_final.
-  min_reads_mode: katharoseq_if_available
-  # Frazione massima delle letture dei campioni biologici che la decontaminazione,
-  # nella modalita' dichiarata, puo' rimuovere: oltre, E-S12-02.
-  max_frac_contaminant: 0.40
-  # Letture minime di un campione nell'oggetto finale, dopo tutti i filtri di S13:
-  # vale per campione, e sotto il campione esce dall'oggetto finale con il motivo.
-  min_reads_final: 1000
-  # Frazione minima delle letture trattenute dall'insieme dei campioni finali, dalle
-  # letture senza chimere a quelle dell'oggetto finale: vale per l'insieme, non per
-  # il singolo campione; sotto, la validazione di S14 fallisce (E-S14-01).
-  min_frac_reads_retained: 0.40
-  max_asv_count: 300000
-  # Controlli sul risultato del filtro (S2). Si applicano ai campioni biologici
-  # e ai controlli positivi; i controlli negativi ne sono esclusi, perche' un
-  # bianco azzerato dal filtro e' un bianco pulito, non un difetto dei parametri.
-  # Campioni azzerati ammessi (E-S2-01): con 0 ne basta uno per fermarsi.
-  max_zeroed_samples: 0
-  # Perdita media massima ammessa (E-S2-02): oltre il 30% di letture scartate,
-  # in media per campione, i parametri del filtro vanno rivisti.
-  max_frac_lost_filter: 0.30
-  # Frazione massima di letture piu' corte di filter.truncLen, che il filtro
-  # scarterebbe, sui campioni biologici e sui controlli positivi: oltre, G09
-  # (sulle prime letture) e S1 (su tutte) fermano l'esecuzione. Poche letture
-  # corte non la fermano.
-  max_frac_short_reads: 0.05
-  warn_frac_chimeric: 0.25
-  stop_frac_chimeric: 0.50
-  # Frazione minima di varianti con il phylum assegnato da S8 (E-S8-02).
-  min_frac_phylum: 0.80
-  # Letture ispezionate per file dai gate che leggono le sequenze. La
-  # validazione iniziale deve costare minuti, non ore: nessun gate legge un
-  # file intero, l'integrità completa è già garantita dai checksum.
-  head_reads: 10000
-  # Frazione di letture che iniziano col primer oltre la quale G10 lo
-  # considera presente. Se il gate fallisce, la correzione è impostare
-  # filter.trimLeft alla lunghezza del primer.
-  max_primer_hit_frac: 0.05
-  # Controllo positivo di G10: frazione minima di letture che devono
-  # presentare il motivo conservato. Verifica che le letture contengano la
-  # regione amplificata dichiarata, NON che il campione sia buono: su OSD-734
-  # il motivo compare nei controlli negativi quanto nei biologici, fra il 79%
-  # e il 95%, perché i bianchi amplificano contaminanti e i contaminanti sono
-  # batteri con lo stesso 16S.
-  # La soglia è valutata sulla mediana dei soli campioni da cui ci si attende
-  # il segnale del bersaglio (biologici e controlli positivi) e non su
-  # ciascun file: su OSD-734 sei campioni biologici legittimi stanno sotto la
-  # soglia, uno al 5,8%, e una verifica file per file li farebbe fallire.
-  min_motif_frac: 0.25                          # [OSD-734]
-  # Primer di amplificazione atteso a inizio lettura, in codici IUPAC
-  # (Y = C o T, M = A o C). Qui 515F. Dipende dalla coppia di primer dello
-  # studio: con una regione amplificata diversa sarebbe un'altra sequenza.
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # primer_sequence: GTGYCAGCMGCCGCGGTAA
-  # Motivo conservato atteso subito a valle del primer, come espressione
-  # regolare: il punto indica una base qualunque. Serve da controllo positivo,
-  # perché cercare la sola assenza del primer non distinguerebbe un file
-  # corretto da un file privo di segnale. Dipende anch'esso dalla regione.
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # conserved_motif: "TAC[AG].AGG..GC.AGCGTT"
+  # Letture ispezionate per file dai gate di S0: abbastanza da rappresentare il
+  # file, poche abbastanza da validare in minuti.
+  # head_reads:                                       # [OBBLIGATORIO]
+  # Primer di amplificazione, in codici IUPAC, e frazione di letture che
+  # iniziano con il primer oltre la quale G10 lo considera presente.
+  # primer_sequence:                                  # [OBBLIGATORIO]
+  # max_primer_hit_frac:                              # [OBBLIGATORIO]
+  # Motivo conservato atteso all'inizio della regione amplificata, come
+  # espressione regolare, e frazione minima di letture che devono portarlo
+  # (sulla mediana dei campioni biologici e dei controlli positivi). null: G10
+  # verifica la sola assenza del primer.
+  # conserved_motif:                                  # [OBBLIGATORIO] oppure null
+  # min_motif_frac:                                   # [OBBLIGATORIO]
+  # Frazione massima di letture piu' corte di filter.truncLen (G09, S1).
+  # max_frac_short_reads:                             # [OBBLIGATORIO]
+  # Campioni che il filtro puo' azzerare (E-S2-01) e perdita media massima di
+  # letture nel filtro (E-S2-02), sui biologici e sui controlli positivi.
+  # max_zeroed_samples:                               # [OBBLIGATORIO]
+  # max_frac_lost_filter:                             # [OBBLIGATORIO]
+  # Varianti distinte oltre le quali S5 si ferma (E-S5-01): secondo la memoria
+  # disponibile.
+  # max_asv_count:                                    # [OBBLIGATORIO]
+  # Frazione di letture chimeriche che da' un avviso e quella che ferma S6; la
+  # prima non puo' superare la seconda.
+  # warn_frac_chimeric:                               # [OBBLIGATORIO]
+  # stop_frac_chimeric:                               # [OBBLIGATORIO]
+  # Frazione minima di varianti con il phylum assegnato (E-S8-02).
+  # min_frac_phylum:                                  # [OBBLIGATORIO]
+  # Da dove viene la profondita' minima dei campioni: katharoseq_if_available
+  # (le soglie dei controlli positivi, S11) oppure none (nessuna soglia di
+  # profondita'). Senza controlli positivi in diluizione: none.
+  # min_reads_mode:                                   # [OBBLIGATORIO]
+  # Frazione massima delle letture dei biologici che la decontaminazione puo'
+  # rimuovere (E-S12-02).
+  # max_frac_contaminant:                             # [OBBLIGATORIO]
+  # Letture minime di un campione nell'oggetto finale (sotto, il campione
+  # esce) e frazione minima di letture trattenute dall'insieme (E-S14-01).
+  # min_reads_final:                                  # [OBBLIGATORIO]
+  # min_frac_reads_retained:                          # [OBBLIGATORIO]
 
 # --------------------------------------------------------------------------- #
 # retry: nuovi tentativi sulle fasi fallite                                   #
 # --------------------------------------------------------------------------- #
 retry:
-  enabled: true
-  max_attempts: 2
-  # Elenco chiuso dei codici di errore per cui è ammesso un nuovo tentativo
-  # automatico. Non dipende dal dataset: si ritenta solo dove l'azione
-  # correttiva non modifica alcuna assunzione dell'analisi, e questo criterio
-  # vale su qualunque dataset.
-  whitelist:
+  enabled: true           # [STRUMENTO]
+  max_attempts: 2         # [STRUMENTO]
+  # Codici per cui e' ammesso un nuovo tentativo automatico: solo dove l'azione
+  # correttiva non modifica alcuna assunzione dell'analisi.
+  whitelist:              # [STRUMENTO]
     - E-S2-03
-    - E-S3-01
     - E-S4-02
-    - E-S5-01
 
 # --------------------------------------------------------------------------- #
 # out: forma degli artefatti prodotti                                         #
 # --------------------------------------------------------------------------- #
 out:
-  # Formato di ps_final.rds (S14), l'oggetto finale della pipeline.
-  serialization: rds
-  # Varianti sulle righe, campioni sulle colonne. S10 lo verifica sugli
-  # identificativi, non sulle dimensioni.
-  taxa_are_rows: true
-  # Identificativi ASV1, ASV2, ... per abbondanza decrescente nei campioni
-  # biologici; a parita', abbondanza in tutti i campioni, poi la sequenza.
-  # Assegnati in S10, mai rinumerati: dopo i filtri la numerazione ha dei vuoti.
-  asv_id_scheme: abundance_rank
-  # Identificativi dei campioni nell'oggetto integrato.
-  sample_id_source: accession
-  # Colonne dei metadati portate nell'oggetto integrato oltre a quelle
-  # dell'inventario (accession, sample_name, classe, materiale, posizione,
-  # modulo, piastra, corsa), con il nome originale. Nell'oggetto prendono un
-  # nome sintattico; la corrispondenza e' in 10_phyloseq/colonne_metadati.tsv.
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # study_columns:
-  #   - "Factor Value[Spaceflight]"
-  #   - "Parameter Value[Sample Preservation Method]"
-  # [OBBLIGATORIO] Da dichiarare. Esempio, il valore di OSD-734:
-  # batch_columns:
-  #   - extraction_plate_id
-  #   - well_id
-  #   - extraction_date
-  #   - primer_plate
-  #   - run_date
-  #   - katharoseq_cell_count
-  # Export piatti dell'oggetto finale in 12_final/ (S14): conteggi.tsv,
-  # tassonomia.tsv, metadati.tsv, sequenze.fasta, indipendenti dalle
-  # impostazioni locali e sufficienti a ricostruire l'oggetto.
-  export_flat: true
+  serialization: rds              # [UNICA FORMA]
+  taxa_are_rows: true             # [UNICA FORMA]
+  asv_id_scheme: abundance_rank   # [UNICA FORMA]
+  sample_id_source: accession     # [UNICA FORMA]
+  # Colonne dei metadati da portare nell'oggetto oltre a quelle dell'inventario
+  # (accession, sample_name, classe, materiale, posizione, modulo, piastra,
+  # corsa), con il nome originale: dalla tabella di studio e dal file del
+  # lotto. Sono le variabili che le analisi a valle useranno.
+  # study_columns:                                    # [OBBLIGATORIO] oppure []
+  # batch_columns:                                    # [OBBLIGATORIO] oppure []
+  # Export in testo dell'oggetto finale (conteggi, tassonomia, metadati,
+  # sequenze).
+  export_flat: true               # [STRUMENTO]
 
 # --------------------------------------------------------------------------- #
-# run: ambiente di esecuzione, parallelismo, riproducibilità                  #
+# run: ambiente di esecuzione, parallelismo, riproducibilita'                 #
 # --------------------------------------------------------------------------- #
 run:
-  # FACOLTATIVO: l'immagine con cui si dichiara di eseguire, registrata nella
-  # provenienza di ogni fase. Va indicata per digest e non per tag: un tag può
-  # essere riassegnato a un'immagine diversa, un digest no. Per un'immagine
-  # pubblicata in un registro:
+  # L'immagine con cui si dichiara di eseguire, per digest; e' registrata nella
+  # provenienza, non sceglie l'immagine. Per un'immagine di un registro:
   #   docker image inspect <immagine> --format '{{index .RepoDigests 0}}'
-  # per un'immagine solo locale, che non ha un digest di registro:
-  #   echo "amplicon16s@$(docker image inspect <immagine> --format '{{.Id}}')"
   container: null
-  # File di blocco delle versioni dei pacchetti R, relativo alla radice del
-  # repository. E' gia' usato dal Dockerfile e dagli script R; dichiararlo qui
-  # lo fa entrare nella configurazione risolta e nel suo digest, cosi' due
-  # esecuzioni sono confrontabili anche rispetto alle versioni R impiegate.
-  lockfile: renv.lock
-  seed: 100
-  # Nullo per difetto, cioe' automatico: si usano i processori utilizzabili dal
-  # processo, contati all'uso, e il loro numero non entra nel digest della
-  # configurazione. Indicare un numero solo per usarne meno. Non incide sui
-  # risultati.
+  lockfile: renv.lock             # [STRUMENTO]
+  seed: 100                       # [STRUMENTO] valore arbitrario, fisso
+  # Processori da usare; senza, quelli utilizzabili dal processo.
   # threads: 8
-  batch_size: 24
-  # Se conservare le letture filtrate da S2 (03_filtered) a esecuzione
-  # conclusa. Le consumano S3 e S4, quindi non si rimuovono mai prima: con
-  # false spariscono solo quando tutte le fasi sono concluse, e la rimozione
-  # viene registrata accanto al manifesto di S2, cosi' una ripresa non la
-  # scambia per un artefatto perso e non rifa' nulla. Se una fase che le legge
-  # deve poi essere ripetuta, S2 viene rieseguita prima di lei.
-  keep_filtered_fastq: true
-  # La regola rigorosa sulla provenienza, da attivare nelle configurazioni
-  # congelate. Con true l'esecuzione parte solo se il codice sta in un
-  # repository git leggibile e senza modifiche non committate (src/ e R/), e se
-  # i pacchetti R installati corrispondono a run.lockfile; l'impronta del
-  # sorgente, quella del file di blocco e l'immagine dichiarata entrano
-  # nell'impronta di ogni fase, quindi cambiare codice o ambiente rifa' le
-  # fasi. L'immagine in run.container resta una dichiarazione: dall'interno del
-  # container il suo digest non e' verificabile.
-  strict_provenance: false
+  # Tempo massimo in secondi di ogni processo R; senza, nessun limite (E-R-05).
+  # r_timeout_s: 86400
+  batch_size: 24                  # [STRUMENTO]
+  # Se conservare le letture filtrate a esecuzione conclusa.
+  keep_filtered_fastq: true       # [STRUMENTO]
+  # La regola rigorosa sulla provenienza: con true l'esecuzione parte solo da
+  # un repository git senza modifiche non committate in src/ e R/, e in un
+  # ambiente R che corrisponde a run.lockfile.
+  strict_provenance: false        # [STRUMENTO]
 
 # =========================================================================== #
 # Analisi ecologiche a valle                                                  #
 # =========================================================================== #
-# I gruppi sono riservati fin d'ora, ma le analisi non sono ancora realizzate e
-# nessun parametro è stato definito. Restano mappe vuote: essendo lo schema a
-# chiave chiusa, qualunque parametro vi venga scritto oggi verrebbe respinto,
-# ed è il comportamento corretto finché non esiste codice che sappia
-# interpretarlo.
+# Gruppi riservati, senza parametri: qualunque chiave vi venga scritta e'
+# respinta.
 
 norm: {}    # normalizzazione delle abbondanze
 glom: {}    # aggregazione a un livello tassonomico
-beta: {}    # misure di diversità beta
+beta: {}    # misure di diversita' beta
 ord: {}     # ordinamento e riduzione dimensionale
 stat: {}    # test statistici

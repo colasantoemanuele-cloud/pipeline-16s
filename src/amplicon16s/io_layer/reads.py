@@ -30,7 +30,11 @@ from __future__ import annotations
 import gzip
 import re
 import sys
+import tempfile
+import zlib
 from collections import Counter
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Final
@@ -42,6 +46,7 @@ __all__ = [
     "espandi_iupac",
     "scansiona",
     "scansiona_file",
+    "senza_righe_vuote_finali",
 ]
 
 #: Corrispondenza fra codici IUPAC e classi di caratteri.
@@ -112,6 +117,13 @@ class StatisticheFile:
     seconde_di_coppia: int = 0
     nomi_ripetuti: int = 0
     nomi_oltre_due: int = 0
+    #: Vero se dopo l'ultima lettura il file ha solo righe vuote: sono
+    #: tollerate, ma i lettori di R non le ammettono
+    #: (:func:`senza_righe_vuote_finali`).
+    righe_vuote_finali: bool = False
+    #: Quante delle coppie contate in ``nomi_ripetuti`` sono letture vicine con
+    #: lo stesso nome a meno del marcatore di coppia (:class:`SerieDiCompagne`).
+    compagne_per_marcatore: int = 0
 
     @property
     def coppie_nello_stesso_file(self) -> str | None:
@@ -146,6 +158,13 @@ class StatisticheFile:
         # nomi oltre le due copie si tollerano come ogni altro record anomalo:
         # sotto la frazione non spengono il riconoscimento.
         if self.nomi_ripetuti >= minimo and self.nomi_oltre_due < minimo:
+            if self.compagne_per_marcatore:
+                return (
+                    f"{self.nomi_ripetuti} nomi di lettura su {self.letture_esaminate} letture "
+                    f"compaiono due volte, {self.compagne_per_marcatore} dei quali in letture "
+                    "consecutive che si distinguono per il solo marcatore di coppia in fondo "
+                    "all'identificativo (1 e 2, oppure R1 e R2)"
+                )
             return (
                 f"{self.nomi_ripetuti} nomi di lettura su {self.letture_esaminate} letture "
                 "compaiono due volte"
@@ -224,6 +243,87 @@ def _nome_e_coppia(intestazione: str) -> tuple[str, str | None]:
     return riga, None
 
 
+#: Il marcatore di coppia in fondo all'identificativo della lettura: l'ultimo
+#: elemento, quando vale esattamente 1, 2, R1 o R2 ed e' preceduto da un
+#: separatore. Il separatore e' obbligatorio: in ``x.11`` l'ultimo elemento e'
+#: 11, e non c'e' marcatore.
+_MARCATORE_IN_FONDO: Final = re.compile(r"^(.+)[/._-](R?[12])$")
+_PRIMA_E_SECONDA: Final = frozenset({("1", "2"), ("R1", "R2")})
+
+
+def marcatore_di_coppia(intestazione: str) -> tuple[str, str] | None:
+    """Il prefisso e il marcatore di coppia dell'identificativo di una lettura,
+    o ``None`` se l'identificativo non finisce con un marcatore.
+
+    L'identificativo e' il primo campo dell'intestazione, senza ``@``; il
+    prefisso e' l'identificativo senza il separatore e il marcatore.
+    """
+    campi = intestazione[1:].split(None, 1)
+    trovato = _MARCATORE_IN_FONDO.match(campi[0]) if campi else None
+    return (trovato.group(1), trovato.group(2)) if trovato else None
+
+
+class SerieDiCompagne:
+    """Conta le coppie di letture vicine che si distinguono per il solo
+    marcatore di coppia: lo stesso nome ripetuto, a meno del marcatore.
+
+    Il suffisso da solo non basta. Gli archivi numerano le letture di un file
+    single-end in fondo all'identificativo (``x.1``, ``x.2``, ``x.3``, ...), e
+    le prime due avrebbero lo stesso prefisso e i marcatori 1 e 2 senza essere
+    una coppia. Si guarda quindi la struttura:
+
+    * due letture consecutive in posizione dispari e pari (1-2, 3-4, ...) sono
+      compagne se hanno lo stesso prefisso e i marcatori 1 poi 2, oppure R1 poi
+      R2 (:func:`marcatore_di_coppia`);
+    * contano solo le compagne che stanno in una serie di almeno due coppie di
+      compagne consecutive con prefissi diversi. In un file single-end numerato
+      la sola coppia 1-2 e' isolata e non conta; in un file con le due letture
+      di ogni coppia intercalate contano quasi tutte.
+
+    Si confrontano solo letture vicine: la memoria non cresce con il file. Le
+    due letture il cui nome e' gia' uguale senza il marcatore (``/1`` e ``/2``)
+    non si contano qui: sono gia' fra i nomi ripetuti.
+    """
+
+    def __init__(self) -> None:
+        #: Le coppie di compagne contate.
+        self.contate = 0
+        self._dispari: tuple[tuple[str, str] | None, str] | None = None
+        self._in_serie = 0
+        self._prefisso_precedente: str | None = None
+
+    def aggiungi(self, intestazione: str, nome: str) -> None:
+        """Esamina la lettura successiva; ``nome`` e' quello con cui si
+        riconoscono i nomi ripetuti (:func:`_nome_e_coppia`).
+        """
+        marcatore = marcatore_di_coppia(intestazione)
+        if self._dispari is None:
+            self._dispari = (marcatore, nome)
+            return
+        (prima, nome_della_prima), self._dispari = self._dispari, None
+        compagne = (
+            prima is not None and marcatore is not None
+            and prima[0] == marcatore[0]
+            and (prima[1], marcatore[1]) in _PRIMA_E_SECONDA
+            and nome_della_prima != nome
+        )
+        if not compagne:
+            self._in_serie, self._prefisso_precedente = 0, None
+            return
+        if self._in_serie and prima[0] != self._prefisso_precedente:
+            self._in_serie += 1
+            # Alla seconda coppia della serie conta anche la prima.
+            self.contate += 2 if self._in_serie == 2 else 1
+        else:
+            self._in_serie = 1
+        self._prefisso_precedente = prima[0]
+
+
+def _solo_righe_vuote(file: IO[str]) -> bool:
+    """Vero se fino alla fine del file restano solo righe vuote."""
+    return all(not riga.strip() for riga in file)
+
+
 def scansiona_file(
     percorso: Path | str,
     head_reads: int,
@@ -252,9 +352,11 @@ def scansiona_file(
     letture = con_primer = con_motivo = corte = 0
     prime = seconde = 0
     nomi: Counter[str] = Counter()
+    compagne = SerieDiCompagne()
     minima: int | None = None
     massima: int | None = None
     esaurito = True
+    vuote_finali = False
 
     try:
         with apri_fastq(percorso) as file:
@@ -262,6 +364,19 @@ def scansiona_file(
                 intestazione = file.readline()
                 if not intestazione:
                     break  # fine del file su un confine di record: corretto
+                if not intestazione.strip():
+                    # Una riga vuota al posto di un'intestazione: in fondo al
+                    # file e' solo spaziatura (alcuni strumenti chiudono cosi'
+                    # i file), in mezzo spezza i record e chi legge a blocchi
+                    # di quattro righe li sfaserebbe tutti.
+                    if _solo_righe_vuote(file):
+                        vuote_finali = True
+                        break
+                    return StatisticheFile(
+                        percorso.name, letture, minima, massima, con_primer, con_motivo,
+                        errore=f"riga vuota in mezzo al file dopo {letture} letture: "
+                               f"seguono altre righe",
+                    )
                 sequenza = file.readline()
                 separatore = file.readline()
                 qualita = file.readline()
@@ -298,6 +413,7 @@ def scansiona_file(
                 prime += coppia == "1"
                 seconde += coppia == "2"
                 nomi[nome] += 1
+                compagne.aggiungi(intestazione, nome)
                 lunghezza = len(sequenza)
                 minima = lunghezza if minima is None else min(minima, lunghezza)
                 massima = lunghezza if massima is None else max(massima, lunghezza)
@@ -313,10 +429,14 @@ def scansiona_file(
                     con_motivo += 1
             else:
                 esaurito = False
-    except (OSError, EOFError, gzip.BadGzipFile) as guasto:
+    except (OSError, EOFError, zlib.error) as guasto:
+        # Ogni guasto di decompressione: archivio interrotto (EOFError), flusso
+        # o intestazione gzip corrotti (gzip.BadGzipFile, che e' un OSError, e
+        # zlib.error, che non lo e'), errore di lettura dal disco.
         return StatisticheFile(
             percorso.name, letture, minima, massima, con_primer, con_motivo,
-            errore=f"archivio non leggibile: {guasto}",
+            errore=f"archivio non leggibile dopo {letture} letture "
+                   f"({type(guasto).__name__}: {guasto})",
         )
 
     if letture == 0:
@@ -329,9 +449,56 @@ def scansiona_file(
         percorso.name, letture, minima, massima, con_primer, con_motivo,
         esaurito=esaurito, piu_corte=corte,
         prime_di_coppia=prime, seconde_di_coppia=seconde,
-        nomi_ripetuti=sum(1 for volte in nomi.values() if volte == 2),
+        # Lo stesso nome a meno del marcatore di coppia e' un nome ripetuto: le
+        # compagne riconosciute dal marcatore si sommano ai nomi comparsi due
+        # volte, e ne seguono soglia e giudizio.
+        nomi_ripetuti=sum(1 for volte in nomi.values() if volte == 2) + compagne.contate,
         nomi_oltre_due=sum(1 for volte in nomi.values() if volte > 2),
+        righe_vuote_finali=vuote_finali,
+        compagne_per_marcatore=compagne.contate,
     )
+
+
+@contextmanager
+def senza_righe_vuote_finali(
+    percorsi: dict[str, str], con_righe_vuote: Iterable[str]
+) -> Iterator[dict[str, str]]:
+    """I percorsi da dare ai lettori di R, con una copia ripulita dei file indicati.
+
+    Le righe vuote in fondo a un FASTQ sono tollerate, ma i lettori a blocchi
+    di R (``ShortRead``, quindi anche ``dada2::filterAndTrim``) le rifiutano
+    come un record che non comincia con ``@``. Dei soli file in
+    ``con_righe_vuote`` (chiavi di ``percorsi``) si scrive una copia senza
+    quelle righe in una cartella temporanea, che vive quanto il blocco
+    ``with``: i file di ingresso non si toccano mai, e senza file da ripulire
+    non si scrive nulla.
+    """
+    chiavi = sorted(con_righe_vuote)
+    if not chiavi:
+        yield percorsi
+        return
+    with tempfile.TemporaryDirectory(prefix="amplicon16s-letture-") as cartella:
+        ripuliti = dict(percorsi)
+        for numero, chiave in enumerate(chiavi):
+            # Una sottocartella per file: due file di cartelle diverse possono
+            # avere lo stesso nome.
+            destinazione = Path(cartella) / str(numero) / Path(percorsi[chiave]).name
+            destinazione.parent.mkdir()
+            _copia_senza_righe_vuote_finali(percorsi[chiave], destinazione)
+            ripuliti[chiave] = str(destinazione)
+        yield ripuliti
+
+
+def _copia_senza_righe_vuote_finali(origine: Path | str, destinazione: Path) -> None:
+    """Copia un FASTQ, compresso, senza le righe vuote che lo chiudono."""
+    with apri_fastq(origine) as ingresso, gzip.open(
+        destinazione, "wt", encoding="utf-8", newline="\n", compresslevel=1
+    ) as uscita:
+        for riga in ingresso:
+            if not riga.strip():
+                # La scansione ha gia' stabilito che da qui in poi sono vuote.
+                break
+            uscita.write(riga)
 
 
 def conta_coppie(percorso: Path | str) -> StatisticheFile:
@@ -341,7 +508,8 @@ def conta_coppie(percorso: Path | str) -> StatisticheFile:
     le ricerche di primer e motivo: il giudizio
     (:attr:`StatisticheFile.coppie_nello_stesso_file`) e' lo stesso, e cio' che
     G07 non vede oltre ``qc.head_reads`` qui si vede. I nomi di lettura di un
-    file restano in memoria solo per la durata della sua scansione.
+    file restano in memoria solo per la durata della sua scansione. Dice anche
+    se il file si chiude con righe vuote (``righe_vuote_finali``).
     """
     return scansiona_file(percorso, sys.maxsize, None, None)
 

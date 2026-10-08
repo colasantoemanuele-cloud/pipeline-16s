@@ -23,16 +23,16 @@ Verifica l'intero contratto scientifico e sistemistico della Fase S3:
   ``tests/test_w16_recupero.py`` su una seconda esecuzione completa S0-S7;
 - determinazione della convergenza di ``dada2::learnErrors`` tramite confronto
   matriciale ``identical(err_in, err_out)``;
-- gestione di ``E-S3-01`` con retry automatico a ``err.nbases`` raddoppiato
-  oppure soppressione motivata del retry (``RITENTARE_INUTILE``) quando le basi
-  disponibili nella corsa sono gia' tutte utilizzate;
+- ``E-S3-01`` a revisione umana: nessun nuovo tentativo e nessun raddoppio di
+  ``err.nbases``, con il dettaglio che dice se le basi disponibili nella corsa
+  erano gia' tutte utilizzate;
 - gestione del codice ``E-S3-02`` quando ``err.batch_column`` e' attivo ma un
   campione risulta privo di corsa associata.
 
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w13_s03_batch.py -v
@@ -91,6 +91,7 @@ Bioconductor e dei dati reali; 18 passed, 1 skipped nel container CI;
 
 from __future__ import annotations
 
+import functools
 import dataclasses
 import json
 import os
@@ -100,12 +101,11 @@ from pathlib import Path
 from typing import ClassVar
 
 import pytest
-from sottoinsieme import config_ridotta, motivo_pacchetti_r_assenti, selezione
+from sottoinsieme import config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti, selezione
 
 from amplicon16s.config.schema import valida
 from amplicon16s.errors.exceptions import (
     ErroreRevisioneUmana,
-    ErroreRitentabileConRevisione,
     errore,
 )
 from amplicon16s.io_layer.artifacts import Fase
@@ -115,7 +115,7 @@ from amplicon16s.rbridge.runner import trova_rscript
 from amplicon16s.runner.executor import Conclusione, Esecutore
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import ProjectRun, StatoPasso
-from amplicon16s.runner.retry import RITENTARE_INUTILE, Motivo, PoliticaRetry, raddoppia
+from amplicon16s.runner.retry import Motivo, PoliticaRetry, dimezza
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 from amplicon16s.steps.s00_validate import esegui_s0
 from amplicon16s.steps.s03_learn_errors import MODELLO_UNICO, nomi_sicuri, pianifica
@@ -260,7 +260,7 @@ def test_la_stima_si_ferma_oltre_err_nbases(inventario_ridotto, tmp_path):
 
     **Razionale scientifico e sistemistico**: E' la stessa regola di
     ``learnErrors``; saperla applicare fuori da R dice su quali campioni e'
-    stata fatta la stima, e se raddoppiare ``err.nbases`` servirebbe.
+    stata fatta la stima, e se aumentare ``err.nbases`` servirebbe.
     """
     letture = _letture(inventario_ridotto)  # 1000 letture da 137 basi ciascuna
     pochi = pianifica(inventario_ridotto, letture, 137, config_ridotta(tmp_path, err={"nbases": 300000}))
@@ -295,54 +295,53 @@ def test_un_campione_senza_letture_filtrate_non_entra_nella_stima(inventario_rid
 
 def test_la_politica_non_ritenta_se_la_fase_lo_dichiara_inutile(tmp_path):
     """
-    **Obiettivo**: Verificare che un errore che dichiara inutile l'azione
-    correttiva non venga ritentato, con il motivo nell'arresto.
+    **Obiettivo**: Verificare che un errore ripetibile che dichiara inutile
+    l'azione correttiva non venga ritentato, con il motivo nell'arresto; e
+    che ``E-S3-01`` non sia ritentato in nessun caso.
 
-    **Razionale scientifico e sistemistico**: Raddoppiare ``err.nbases`` non
-    cambia nulla se la stima usava gia' tutte le basi disponibili.
+    **Razionale scientifico e sistemistico**: Dimezzare il lotto non cambia
+    nulla se l'inferenza elabora tutti i campioni insieme; e una mancata
+    convergenza non ha un'azione correttiva che lasci intatti i risultati.
     """
     config = config_ridotta(tmp_path)
     politica = PoliticaRetry.da_config(config)
-    decisione = politica.decidi("E-S3-01", 1, raddoppia("err.nbases"), config, "tutte le basi gia' usate")
+    azione = dimezza("run.batch_size")
+    decisione = politica.decidi("E-S4-02", 1, azione, config, "tutti i campioni insieme")
     assert decisione.motivo is Motivo.AZIONE_INUTILE
-    assert politica.decidi("E-S3-01", 1, raddoppia("err.nbases"), config).ritenta
+    assert politica.decidi("E-S4-02", 1, azione, config).ritenta
+    assert politica.decidi("E-S3-01", 1, None, config).motivo is Motivo.REVISIONE_UMANA
 
 
 class _S3Doppione(PipelineStep):
-    """Un S3 finto che non converge mai, dichiarando o no il retry inutile."""
+    """Un S3 finto che non converge mai."""
 
     passo: ClassVar[Passo] = Passo.S3
     parametri: ClassVar[tuple[str, ...]] = ("err",)
-    aggiustamenti: ClassVar = {"E-S3-01": raddoppia("err.nbases")}
-    inutile: ClassVar[bool] = False
 
     def __init__(self) -> None:
         self.nbases: list[float] = []
 
     def calcola(self, contesto: StepContext) -> Produzione:
-        """Annota ``err.nbases`` e fallisce sempre con ``E-S3-01``, con
-        ``RITENTARE_INUTILE`` se configurato.
-        """
+        """Annota ``err.nbases`` e fallisce sempre con ``E-S3-01``."""
         self.nbases.append(contesto.config.err.nbases)
-        extra = {RITENTARE_INUTILE: "tutte le basi gia' usate"} if self.inutile else {}
-        raise errore("E-S3-01", "doppione che non converge", **extra)
+        raise errore("E-S3-01", "doppione che non converge")
 
 
-@pytest.mark.parametrize("inutile", [True, False], ids=["dichiarato-inutile", "utile"])
-def test_l_esecutore_ritenta_solo_se_serve(inventario_ridotto, tmp_path, inutile):
+def test_l_esecutore_non_ritenta_la_mancata_convergenza(inventario_ridotto, tmp_path):
     """
-    **Obiettivo**: Verificare che l'esecutore non ritenti E-S3-01 quando la
-    fase lo dichiara inutile, e lo ritenti con ``err.nbases`` raddoppiato
-    quando non lo dichiara.
+    **Obiettivo**: Verificare che l'esecutore fermi al primo tentativo una
+    fase che solleva ``E-S3-01``, senza rieseguirla e senza cambiare
+    ``err.nbases``, e che il motivo dica che serve la revisione umana.
 
-    **Razionale scientifico e sistemistico**: Un nuovo tentativo identico al
-    primo non serve; uno con piu' basi puo' servire.
+    **Razionale scientifico e sistemistico**: Un nuovo tentativo con piu' basi
+    darebbe un modello d'errore diverso da quello che la configurazione
+    registrata dichiara: il risultato non sarebbe riproducibile dai suoi atti.
     """
     from amplicon16s.runner.project import passi_realizzati
 
     config = config_ridotta(tmp_path)
     esegui_s0(config)
-    doppione = type("S3Doppione", (_S3Doppione,), {"inutile": inutile})()
+    doppione = _S3Doppione()
     passi = {Passo.S0: passi_realizzati()[Passo.S0], Passo.S3: doppione}
 
     class _Fatta(PipelineStep):
@@ -358,31 +357,31 @@ def test_l_esecutore_ritenta_solo_se_serve(inventario_ridotto, tmp_path, inutile
     esito = Esecutore(run, fino_a=Passo.S3).esegui()
 
     assert esito.conclusione is Conclusione.ARRESTATA
-    assert esito.punto.codice == "E-S3-01"
-    if inutile:
-        assert doppione.nbases == [1e8]
-        assert esito.punto.tentativi == 1
-        assert "tutte le basi gia' usate" in esito.punto.motivo
-    else:
-        assert doppione.nbases == [1e8, 2e8]
-        assert esito.punto.tentativi == 2
-        assert "revisione umana" in esito.punto.motivo
+    assert (esito.punto.codice, esito.punto.categoria) == ("E-S3-01", "revisione_umana")
+    assert doppione.nbases == [config.err.nbases]
+    assert esito.punto.tentativi == 1
+    assert "nessun tentativo automatico" in esito.punto.motivo
 
 
 # --------------------------------------------------------------------------- #
 # S3 vera, sulla versione ridotta                                              #
 # --------------------------------------------------------------------------- #
 
-_MOTIVO_ASSENTI = motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "jsonlite")
+@functools.cache
+def _sonda_assenti() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "jsonlite")
 
 
 @pytest.fixture
 def dada2():
     """Richiede R con dada2: salta senza, ma in CI fallisce."""
-    if _MOTIVO_ASSENTI is not None:
+    if _sonda_assenti() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_ASSENTI}")
-        pytest.skip(_MOTIVO_ASSENTI)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_assenti()}")
+        pytest.skip(_sonda_assenti())
 
 
 def _fino_a_s3(config):
@@ -515,15 +514,15 @@ def test_con_err_batch_column_nullo_un_solo_modello(dada2, tmp_path):
     assert run.valuta().situazioni[Passo.S3].stato is StatoPasso.COMPLETATA
 
 
-def test_la_mancata_convergenza_senza_basi_in_piu_non_si_ritenta(dada2, stimata, tmp_path):
+def test_la_mancata_convergenza_dichiara_che_le_basi_erano_tutte_usate(dada2, stimata, tmp_path):
     """
     **Obiettivo**: Verificare che con ``err.max_consist = 1`` il modello non
-    converga, che S3 sollevi ``E-S3-01``, e che, avendo gia' usato tutte le
-    basi disponibili, il retry non venga tentato e il motivo sia dichiarato.
+    converga, che S3 sollevi ``E-S3-01`` e si fermi al primo tentativo, e che
+    il dettaglio dica che la stima usava gia' tutte le basi disponibili.
 
     **Razionale scientifico e sistemistico**: Sulla versione ridotta le basi
-    disponibili sono meno di 1e8: raddoppiare ``err.nbases`` darebbe un
-    tentativo identico.
+    disponibili sono meno di ``err.nbases``: aumentarle non cambierebbe la
+    stima, e chi decide deve saperlo per non provare la strada inutile.
     """
     run, esito = _con_err(stimata, tmp_path, max_consist=1)
     assert esito.eseguite == ()  # S0-S2 restano concluse; S3 non si conclude
@@ -531,37 +530,43 @@ def test_la_mancata_convergenza_senza_basi_in_piu_non_si_ritenta(dada2, stimata,
     assert esito.punto.passo is Passo.S3
     assert esito.punto.codice == "E-S3-01"
     assert esito.punto.tentativi == 1
-    assert "tutte le basi disponibili" in esito.punto.motivo
+    assert "tutte: aumentare err.nbases non cambierebbe la stima" in esito.punto.dettaglio
+    assert "nessun tentativo automatico" in esito.punto.motivo
     assert run.albero.manifesto_passo(Passo.S3, Fase.ERROR_MODELS) is None
 
 
-def test_la_mancata_convergenza_con_basi_in_piu_si_ritenta(dada2, stimata, tmp_path):
+def test_la_mancata_convergenza_con_basi_in_piu_non_si_ritenta(dada2, stimata, tmp_path):
     """
     **Obiettivo**: Verificare che con poche basi per la stima, meno di quelle
-    disponibili, la mancata convergenza venga ritentata con ``err.nbases``
-    raddoppiato, e si fermi dopo i tentativi ammessi.
+    disponibili, la mancata convergenza fermi comunque al primo tentativo,
+    che la stima sia stata fatta con ``err.nbases`` dichiarato e non
+    raddoppiato, e che il dettaglio non dica che le basi erano tutte usate.
 
-    **Razionale scientifico e sistemistico**: Qui il raddoppio cambia davvero i
-    dati della stima: il nuovo tentativo ha senso.
+    **Razionale scientifico e sistemistico**: Qui piu' basi cambierebbero
+    davvero la stima: e' proprio per questo che la scelta non puo' essere
+    automatica.
     """
     run, esito = _con_err(stimata, tmp_path, max_consist=1, nbases=100000)
     assert esito.conclusione is Conclusione.ARRESTATA
     assert esito.punto.codice == "E-S3-01"
-    assert esito.punto.tentativi == 2
-    assert "revisione umana" in esito.punto.motivo
+    assert esito.punto.tentativi == 1
+    assert "basi usate su" in esito.punto.dettaglio
+    assert "non cambierebbe la stima" not in esito.punto.dettaglio
     modelli = json.loads((_modelli(run) / "modelli.json").read_text())
-    assert {m["nbases"] for m in modelli.values()} == {200000}
+    assert {m["nbases"] for m in modelli.values()} == {100000}
 
 
-def test_l_errore_e_ritentabile_con_revisione():
+def test_l_errore_di_convergenza_e_a_revisione_umana():
     """
-    **Obiettivo**: Verificare che ``E-S3-01`` sia della categoria retry poi
-    revisione umana.
+    **Obiettivo**: Verificare che ``E-S3-01`` sia della categoria revisione
+    umana e che la sua azione nomini ``err.nbases`` ed ``err.max_consist``.
 
-    **Razionale scientifico e sistemistico**: Se non converge nemmeno con piu'
-    basi, la causa va capita: il lotto potrebbe raccogliere dati eterogenei.
+    **Razionale scientifico e sistemistico**: Se il modello non converge la
+    causa va capita: il lotto potrebbe raccogliere dati eterogenei, e ogni
+    rimedio cambia il modello d'errore.
     """
-    assert isinstance(errore("E-S3-01"), ErroreRitentabileConRevisione)
+    assert isinstance(errore("E-S3-01"), ErroreRevisioneUmana)
+    assert "err.nbases" in str(errore("E-S3-01")) and "err.max_consist" in str(errore("E-S3-01"))
 
 
 # --------------------------------------------------------------------------- #
@@ -594,11 +599,16 @@ def test_s3_sul_dataset_completo(dada2, tmp_path):
     run, esito = _fino_a_s3(valida(dati))
     assert esito.conclusione is Conclusione.COMPLETATA
     s3 = next(r for r in esito.eseguite if r.passo is Passo.S3)
-    print(f"\nS3 sul dataset completo: {s3.secondi} s, {dict(s3.metriche)}")
+    lotto = attesi_dataset()["lotto"]
     modelli = json.loads((_modelli(run) / "modelli.json").read_text())
-    assert sorted(modelli) == [CORSA_A, CORSA_B]
+    # Un modello per corsa, con i nomi delle corse dell'inventario.
+    corse = sorted(nomi_sicuri(run.valuta().inventario.corse).values())
+    assert sorted(modelli) == corse and len(corse) == lotto["corse"]
+    assert set(s3.metriche["iterazioni"]) == set(corse)
     for modello in modelli.values():
-        assert modello["campioni"] == 480
+        assert modello["campioni"] == lotto["campioni_per_corsa"]
         assert modello["convergenza"]
+        assert modello["iterazioni"] <= run.config.err.max_consist
+        # Le basi di una corsa superano err.nbases: la stima ne usa una parte.
         assert not modello["tutte_le_basi_usate"]
-        assert 1e8 < modello["basi_usate"] < modello["basi_disponibili"]
+        assert run.config.err.nbases < modello["basi_usate"] < modello["basi_disponibili"]

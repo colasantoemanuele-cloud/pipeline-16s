@@ -40,7 +40,7 @@ FASTA di riferimento:
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -97,18 +97,20 @@ import json
 
 import pytest
 from conftest import (
-    INIZIO_CON_PRIMER,
-    INIZIO_MUTO,
-    NEGATIVO,
-    POSITIVO,
     Campione,
     crea_scenario,
+    fase_completa,
+    INIZIO_CON_PRIMER,
+    INIZIO_MUTO,
     lettura,
+    NEGATIVO,
+    nomi_dei_gate,
+    POSITIVO,
 )
 
 from amplicon16s.errors.catalog import Categoria, voce
 from amplicon16s.gates.g01_g15 import Contesto, ErroreGate
-from amplicon16s.gates.registry import REGISTRO, esegui_tutti, nomi_dei_gate
+from amplicon16s.gates.registry import REGISTRO, esegui_tutti
 from amplicon16s.metadata.models import ClasseCampione
 from amplicon16s.steps.s00_validate import esegui_s0
 
@@ -287,7 +289,7 @@ def test_g02_passa(tmp_path):
 
 def test_g02_fallisce_su_una_colonna_assente(tmp_path):
     """
-    **Obiettivo**: Verificare che la rinomina della colonna ``Characteristics[Material Type]``
+    **Obiettivo**: Verificare che la rinomina della colonna della classe (``ctrl.column``)
     in ``studio.txt`` faccia fallire G02 con codice ``E-S0-02`` citando ``ctrl.column``.
 
     **Razionale scientifico e sistemistico**: Previene errori silenziosi di
@@ -297,7 +299,7 @@ def test_g02_fallisce_su_una_colonna_assente(tmp_path):
     scenario = _scenario(tmp_path)
     percorso = scenario.radice / "studio.txt"
     righe = percorso.read_text(encoding="utf-8").splitlines()
-    righe[0] = righe[0].replace("Characteristics[Material Type]", "Altro Nome")
+    righe[0] = righe[0].replace(scenario.config.ctrl.column, "Altro Nome")
     percorso.write_text("\n".join(righe) + "\n", encoding="utf-8")
 
     esito = _esegui(scenario)["G02"]
@@ -362,7 +364,7 @@ def test_g08_passa_senza_arricchimento(tmp_path):
 
 def test_g08_fallisce_se_manca_la_colonna_del_lotto(tmp_path):
     """
-    **Obiettivo**: Verificare che l'assenza della colonna ``extraction_plate_num``
+    **Obiettivo**: Verificare che l'assenza della colonna della piastra
     (``decontam.batch_column``) nel file ``lotti.tsv`` faccia fallire G08 con ``E-S0-08``.
 
     **Razionale scientifico e sistemistico**: ``decontam`` in S12 richiede la
@@ -372,7 +374,7 @@ def test_g08_fallisce_se_manca_la_colonna_del_lotto(tmp_path):
     scenario = _scenario(tmp_path, con_arricchimento=True)
     percorso = scenario.radice / "lotti.tsv"
     righe = percorso.read_text(encoding="utf-8").splitlines()
-    righe[0] = righe[0].replace("extraction_plate_num", "altro")
+    righe[0] = righe[0].replace(scenario.config.decontam.batch_column, "altro")
     percorso.write_text("\n".join(righe) + "\n", encoding="utf-8")
 
     esito = _esegui(scenario)["G08"]
@@ -911,7 +913,7 @@ def test_s0_gli_artefatti_entrano_nel_manifesto(tmp_path):
     esegui_s0(scenario.config)
 
     albero = AlberoOutput(scenario.config.io.out_root)
-    assert albero.fase_completa(Fase.INPUT_VALIDATION)
+    assert fase_completa(albero, Fase.INPUT_VALIDATION)
     assert albero.non_integri(Fase.INPUT_VALIDATION) == ()
 
 

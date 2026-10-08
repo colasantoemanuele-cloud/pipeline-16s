@@ -106,7 +106,16 @@ class _FormattatoreConsole(logging.Formatter):
         """Livello, codice di errore se presente e messaggio, su una riga."""
         codice = getattr(record, "codice", None)
         prefisso = f"[{codice}] " if codice else ""
-        return "{:<8} {}{}".format(record.levelname, prefisso, record.getMessage())
+        # Un avviso con un codice porta sulla console anche il suo dettaglio:
+        # due avvisi con lo stesso codice (per esempio i controlli positivi e
+        # quelli negativi assenti) altrimenti sono due righe identiche. Un
+        # arresto ha gia' il proprio riepilogo, con il dettaglio.
+        dettaglio = getattr(record, "dettaglio", None)
+        seguito = (
+            f" {dettaglio}" if codice and dettaglio and record.levelno == logging.WARNING
+            and dettaglio not in record.getMessage() else ""
+        )
+        return "{:<8} {}{}{}".format(record.levelname, prefisso, record.getMessage(), seguito)
 
 
 def ottieni(nome: str | None = None) -> logging.Logger:

@@ -44,7 +44,7 @@ davvero:
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -100,7 +100,7 @@ import shutil
 from typing import Any, ClassVar
 
 import pytest
-from conftest import NEGATIVO, POSITIVO, Campione, crea_scenario
+from conftest import Campione, crea_scenario, discendenti, fase_completa, NEGATIVO, POSITIVO
 
 from amplicon16s.config.resolve import risolvi
 from amplicon16s.config.schema import Config, valida
@@ -280,7 +280,7 @@ def eseguita(scenario, registro):
 
 def _attive_da(passo: Passo, config: Config) -> list[Passo]:
     """La fase data e tutte quelle attive che ne dipendono, in ordine."""
-    coinvolte = {passo, *GRAFO.discendenti(passo)}
+    coinvolte = {passo, *discendenti(passo)}
     return [p for p in GRAFO.attive(config) if p in coinvolte]
 
 
@@ -862,7 +862,7 @@ def test_spostare_la_cartella_di_output_non_rende_incompleta_l_esecuzione(
     [
         ({"run__lockfile": "altro.lock"}, False),
         ({"decontam__min_blanks": 3}, True),
-        ({"decontam__threshold": 0.4}, False),
+        ({"decontam__threshold": 0.35}, False),
     ],
     ids=["lockfile", "decontam.min_blanks", "decontam.threshold"],
 )
@@ -1012,7 +1012,7 @@ def test_la_cartella_completa_non_rende_completa_la_fase_accanto(scenario, regis
         run.fase(passo).esegui(run.contesto(passo))
 
     # Il manifesto della cartella direbbe che 11_controls e' completa...
-    assert run.albero.fase_completa(Fase.CONTROLS)
+    assert fase_completa(run.albero, Fase.CONTROLS)
     # ...ma S12 non ha mai girato, e il suo criterio e' il suo manifesto.
     situazione = run.situazione()
     assert situazione[Passo.S11].stato is StatoPasso.COMPLETATA

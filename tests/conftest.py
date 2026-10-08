@@ -1,16 +1,20 @@
 """Generatore di scenari sintetici su filesystem per i test della pipeline 16S.
 
 Inquadramento nel Piano Operativo:
-    - **Settimane di riferimento**: Trasversale a **W6-W10** (Fasi **F2** e **F3**).
+    - **Settimane di riferimento**: Trasversale a **W6-W10** (Fasi **F2** e **F3**),
+      reso indipendente dal dataset di riferimento nella **W30**.
     - **Scopo del modulo**: Fornisce le primitive e la factory ``crea_scenario()``
       per materializzare su disco (tramite la fixture ``tmp_path`` di ``pytest``)
-      mini-dataset sintetici conformi o deliberatamente corrotti rispetto allo
-      standard ISA-Tab di NASA GeneLab (modellato sul dataset di riferimento
-      **OSD-734**). Il dataset reale OSD-734 è integro e supera tutti i 15 gate:
-      questo modulo permette di iniettare su file reali (archivi ``.fastq.gz``,
-      Assay Table, Study Table, Batch Table e FASTA tassonomico) tutte le
-      patologie bioinformatiche e strutturali che i gate ``G01-G14`` devono
-      intercettare senza ricorrere a mock in memoria.
+      mini-dataset sintetici, conformi o deliberatamente corrotti: archivi
+      ``.fastq.gz``, tabella di assay, tabella campioni di studio, file del lotto
+      e riferimento tassonomico. Permette di iniettare su file veri le patologie
+      che i gate ``G01-G14`` devono intercettare, senza mock in memoria.
+    - **Il formato e' un parametro**: nomi delle colonne, etichette delle classi,
+      nomi dei file e valori dei parametri che descrivono il dataset stanno in
+      :class:`Formato`, con valori sintetici propri. Nessuna etichetta, colonna
+      o nome del dataset di riferimento e' scritto qui: uno scenario dichiara
+      nella propria configurazione ogni parametro che descrive il dataset, e
+      non ne eredita alcuno dai predefiniti.
     - **Moduli sorgente coperti**:
         * ``src/amplicon16s/metadata/crosswalk.py``
         * ``src/amplicon16s/metadata/controls_map.py``
@@ -31,28 +35,123 @@ from typing import Any
 from amplicon16s.config import defaults
 from amplicon16s.config.schema import Config, valida
 
-#: Etichette di classificazione dei campioni nella colonna ``ctrl.column``
-#: (``Characteristics[Material Type]``), allineate ai valori predefiniti per OSD-734.
-BIOLOGICO = "Surface swab"
-POSITIVO = "Positive Control"
-NEGATIVO = "blank control"
 
-#: Digest SHA-256 formalmente valido per il campo obbligatorio ``run.container``.
+@dataclass(frozen=True)
+class Formato:
+    """Il formato di un dataset sintetico: come si chiamano colonne, classi e
+    file, e i valori dei parametri che descrivono il dataset.
+
+    I valori predefiniti sono inventati per i test. Un test che esercita un
+    formato diverso ne costruisce un altro con ``dataclasses.replace`` e lo
+    passa a :func:`crea_scenario`.
+    """
+
+    # --- tabella di assay e tabella campioni di studio ----------------------
+    colonna_campione: str = "campione"
+    colonna_file: str = "file delle letture"
+    colonna_classe: str = "tipo di materiale"
+    colonna_posizione: str = "posizione di prelievo"
+    colonna_cellule: str = "cellule seminate"
+    # --- etichette delle classi dei campioni ---------------------------------
+    biologico: str = "tampone di superficie"
+    positivo: str = "controllo positivo"
+    negativo: str = "bianco di estrazione"
+    #: Posizioni che non sono superfici, e posizione che riclassifica un
+    #: campione dichiarato biologico come controllo negativo.
+    non_superfici: tuple[str, ...] = ("campione d'aria", "tampone mai aperto")
+    riclassificati: tuple[str, ...] = ("tampone mai aperto",)
+    senza_posizione: str = "non applicabile"
+    # --- nomi dei file --------------------------------------------------------
+    #: Il file delle letture di un campione e il nome riportato nell'assay.
+    modello_file: str = "{accession}_{nome}.fastq.gz"
+    modello_file_assay: str = "LETTURE_{accession}_grezze.fastq.gz"
+    #: La chiave del campione: un accession di esperimento degli archivi INSDC.
+    regex_accession: str = r"[ESD]RX[0-9]{4,}"
+    #: Il modulo: le prime tre lettere e la cifra della posizione.
+    regex_modulo: str = r"^([A-Z]{3}[0-9])"
+    # --- file del lotto -------------------------------------------------------
+    colonna_chiave_lotto: str = "accession"
+    colonna_piastra: str = "piastra"
+    colonna_corsa: str = "corsa"
+    colonna_modulo_lotto: str = "modulo"
+    # --- l'esperimento --------------------------------------------------------
+    troncamento: int = 140
+    primer: str = "GTGYCAGCMGCCGCGGTAA"
+    motivo: str = r"TAC[AG].AGG..GC.AGCGTT"
+    taxon_atteso: str = "Genere_bersaglio"
+    riferimento: tuple[str, str] = ("riferimento di prova", "1")
+    # --- scelte di analisi e soglie di qualita' ------------------------------
+    #: Dichiarate dallo scenario come ogni altro parametro obbligatorio: la
+    #: pipeline non ha per esse alcun predefinito. Sono valori di prova, scelti
+    #: perche' le letture sintetiche attraversino i controlli.
+    scelte: tuple[tuple[str, Any], ...] = (
+        ("io.fastq_glob", "*.fastq.gz"),
+        ("meta.derive_module", True),
+        ("filter.truncLen_shortfall_warn", 10),
+        ("filter.trimLeft", 0),
+        ("err.randomize", True),
+        ("dada.pool", "pseudo"),
+        ("chimera.min_fold_parent_over_abundance", 2.0),
+        ("tax.try_rc", True),
+        ("tax.min_boot", 60),
+        ("filt.remove_na_phylum", True),
+        ("filt.exclude_taxa", ("Organello_di_prova", "Dominio_escluso")),
+        ("phylo.enabled", False),
+        ("phylo.max_seqs", 5000),
+        ("prev.apply", True),
+        ("prev.min_fraction", 0.02),
+        ("prev.min_count", 2),
+        ("ctrl.min_positives", 3),
+        ("ctrl.min_positive_pass_frac", 0.75),
+        ("ctrl.positive_gate", False),
+        ("katharoseq.collapse_rank", "Genus"),
+        ("katharoseq.target_sensitivity", 0.90),
+        ("katharoseq.min_r2", 0.80),
+        ("decontam.threshold", 0.4),
+        ("decontam.min_blanks", 5),
+        ("decontam.mode", "aggregate"),
+        ("qc.head_reads", 10000),
+        ("qc.max_primer_hit_frac", 0.05),
+        ("qc.min_motif_frac", 0.3),
+        ("qc.max_frac_short_reads", 0.05),
+        ("qc.max_zeroed_samples", 0),
+        ("qc.max_frac_lost_filter", 0.30),
+        ("qc.max_asv_count", 300000),
+        ("qc.warn_frac_chimeric", 0.25),
+        ("qc.stop_frac_chimeric", 0.50),
+        ("qc.min_frac_phylum", 0.80),
+        ("qc.min_reads_mode", "katharoseq_if_available"),
+        ("qc.max_frac_contaminant", 0.40),
+        ("qc.min_reads_final", 1000),
+        ("qc.min_frac_reads_retained", 0.40),
+    )
+
+
+#: Il formato degli scenari che non ne indicano uno.
+FORMATO = Formato()
+
+#: Etichette di classificazione dei campioni nella colonna ``ctrl.column`` degli
+#: scenari con il formato predefinito.
+BIOLOGICO = FORMATO.biologico
+POSITIVO = FORMATO.positivo
+NEGATIVO = FORMATO.negativo
+
+#: Digest SHA-256 formalmente valido per il campo ``run.container``.
 CONTAINER = "registro.esempio/amplicon16s@sha256:" + "0" * 64
 
-#: Prefisso nucleotidico che contiene il motivo conservato della regione V4
-#: (``TAC[AG].AGG..GC.AGCGTT``) ed è privo del primer forward 515F in testa.
+#: Prefisso nucleotidico che contiene il motivo conservato del formato
+#: predefinito ed è privo del primer in testa.
 INIZIO_CON_MOTIVO = "TACGGAGGGTGCAAGCGTT"
 
-#: Prefisso nucleotidico che inizia col primer forward 515F (``GTGYCAGCMGCCGCGGTAA``)
-#: non rimosso, condizione che il Gate G10 deve bloccare con ``E-S0-10``.
+#: Prefisso nucleotidico che inizia col primer del formato predefinito, non
+#: rimosso: la condizione che il Gate G10 deve bloccare con ``E-S0-10``.
 INIZIO_CON_PRIMER = "GTGCCAGCAGCCGCGGTAA"
 
-#: Sequenza omopolimerica priva sia del primer 515F sia del motivo conservato V4,
-#: usata per simulare letture prive di segnale biologico 16S o controlli negativi.
+#: Sequenza omopolimerica priva sia del primer sia del motivo conservato,
+#: usata per simulare letture prive del segnale atteso o controlli negativi.
 INIZIO_MUTO = "CCCCCCCCCCCCCCCCCCC"
 
-#: Lunghezza di lettura standard (151 nt) delle corse Illumina MiSeq di OSD-734.
+#: Lunghezza delle letture sintetiche, maggiore del troncamento del formato.
 LUNGHEZZA = 151
 
 
@@ -64,7 +163,8 @@ def lettura(inizio: str = INIZIO_CON_MOTIVO, lunghezza: int = LUNGHEZZA) -> str:
 
     **Razionale scientifico e sistemistico**: Consente ai test dei gate G09 e G10
     di controllare indipendentemente la presenza del primer in 5', la presenza
-    del motivo V4 e la lunghezza esatta delle letture rispetto a ``filter.truncLen``.
+    del motivo conservato e la lunghezza esatta delle letture rispetto a
+    ``filter.truncLen``.
     """
     return (inizio + "A" * lunghezza)[:lunghezza]
 
@@ -77,7 +177,7 @@ def scrivi_fastq(percorso: Path, sequenze: list[str]) -> None:
 
     **Razionale scientifico e sistemistico**: Garantisce che lo scanner in streaming
     ``reads.scansiona_file()`` e il Gate G13 eseguano la vera decompressione ``gzip``
-    e il parsing a 4 righe esattamente come avviene sui 960 file di OSD-734.
+    e il parsing a 4 righe, come su file reali.
     """
     with gzip.open(percorso, "wt", encoding="utf-8") as file:
         for indice, sequenza in enumerate(sequenze, start=1):
@@ -88,24 +188,24 @@ def scrivi_fastq(percorso: Path, sequenze: list[str]) -> None:
 class Campione:
     """Descrittore dichiarativo di un campione sintetico per la costruzione dello scenario.
 
-    Raccoglie gli attributi bioinformatici (accession ENA, ``Sample Name``, tipo
-    di materiale biologico o di controllo, piastra di estrazione, prefisso corsa)
-    e le proprietà fisiche del file FASTQ associato.
+    Raccoglie gli attributi del campione (accession, nome, classe, posizione,
+    piastra e corsa) e le proprietà fisiche del file FASTQ associato.
     """
 
     accession: str
     nome: str
     materiale: str = BIOLOGICO
-    posizione: str = "NOD1D4"
-    #: Nome esplicito del file FASTQ; se ``None`` viene generato dall'accession,
-    #: mentre se ``""`` omette la creazione del file su disco per testare G06.
+    #: La posizione di prelievo: le prime tre lettere e la cifra sono il modulo.
+    posizione: str = "MOD1A2"
+    #: Nome esplicito del file FASTQ; se ``None`` viene generato dal modello del
+    #: formato, mentre se ``""`` omette la creazione del file su disco (G06).
     file: str | None = None
-    #: Identificativi di piastra e corsa scritti nella ``batch_table`` opzionale (G08).
+    #: Identificativi di piastra e corsa scritti nel file del lotto (G08).
     piastra: str = "1"
     corsa: str = "corsa_A"
-    #: Valore della colonna modulo nella tabella di arricchimento dei lotti.
+    #: Valore della colonna del modulo nel file del lotto.
     modulo_arricchimento: str = "Modulo Uno"
-    #: Chiave di join nella ``batch_table``; per default coincide con ``accession``.
+    #: Chiave di join nel file del lotto; per default coincide con ``accession``.
     chiave_arricchimento: str | None = None
     #: Sequenza in 5' iniettata nelle letture sintetiche del file FASTQ.
     inizio_letture: str = INIZIO_CON_MOTIVO
@@ -118,41 +218,82 @@ class Campione:
 
 @dataclass
 class Scenario:
-    """Contenitore immutabile dello scenario materializzato su disco e della sua ``Config``."""
+    """Lo scenario materializzato su disco, la sua ``Config`` e il suo formato."""
 
     radice: Path
     config: Config
     campioni: list[Campione] = field(default_factory=list)
+    formato: Formato = FORMATO
 
 
 def _scrivi_tsv(percorso: Path, intestazione: list[str], righe: list[list[Any]]) -> None:
-    """Scrive una tabella TSV con terminatori di riga POSIX (LF) per i metadati ISA-Tab."""
+    """Scrive una tabella TSV con terminatori di riga POSIX (LF)."""
     with open(percorso, "w", encoding="utf-8", newline="") as file:
         scrittore = csv.writer(file, delimiter="\t", lineterminator="\n")
         scrittore.writerow(intestazione)
         scrittore.writerows(righe)
 
 
-def parametri_osd734() -> dict[str, Any]:
-    """I parametri obbligatori con i valori che hanno per OSD-734, per gruppo.
-
-    Sono i valori d'esempio di ``defaults.ESEMPIO_OSD734``: gli scenari
-    sintetici hanno la forma dei metadati di OSD-734 (stessi nomi di colonne,
-    stesse etichette), e li dichiarano tutti come farebbe la sua
-    configurazione. Un test che esercita un formato diverso li sovrascrive.
+def parametri_del_formato(formato: Formato = FORMATO, *, con_lotto: bool = True) -> dict[str, Any]:
+    """I parametri che descrivono il dataset, per gruppo, come li dichiara uno
+    scenario con il formato dato: tutti gli obbligatori, comprese le scelte di
+    analisi e le soglie. Senza file del lotto le sue colonne sono nulle.
     """
-    dati: dict[str, Any] = {}
-    for chiave, riferimento in defaults.ESEMPIO_OSD734.items():
+    dati: dict[str, Any] = {
+        "io": {"accession_regex": formato.regex_accession},
+        "meta": {
+            "sample_id_column": formato.colonna_campione,
+            "accession_column": formato.colonna_file,
+            "module_regex": formato.regex_modulo,
+            "module_column": formato.colonna_posizione,
+            "non_surface_positions": list(formato.non_superfici),
+            "batch_key_column": formato.colonna_chiave_lotto if con_lotto else None,
+            "batch_module_column": formato.colonna_modulo_lotto if con_lotto else None,
+        },
+        "err": {"batch_column": formato.colonna_corsa if con_lotto else None},
+        "decontam": {"batch_column": formato.colonna_piastra if con_lotto else None},
+        "ctrl": {
+            "column": formato.colonna_classe,
+            "blank_values": [formato.negativo],
+            "positive_values": [formato.positivo],
+            "biological_values": [formato.biologico],
+            "blank_override_column": formato.colonna_posizione,
+            "blank_override_values": list(formato.riclassificati),
+        },
+        "katharoseq": {
+            "cell_count_column": formato.colonna_cellule,
+            "target_taxon": formato.taxon_atteso,
+        },
+        # Delle colonne da portare nell'oggetto resta la sola colonna delle
+        # cellule, che la calibrazione legge dall'oggetto.
+        "out": {"study_columns": [formato.colonna_cellule], "batch_columns": []},
+        "filter": {"truncLen": formato.troncamento},
+        "qc": {"primer_sequence": formato.primer, "conserved_motif": formato.motivo},
+        "tax": {"ref_name": formato.riferimento[0], "ref_version": formato.riferimento[1]},
+    }
+    for gruppo, valori in scelte_del_formato(formato).items():
+        dati.setdefault(gruppo, {}).update(valori)
+    dichiarati = {f"{g}.{n}" for g, valori in dati.items() for n in valori}
+    assert set(defaults.OBBLIGATORI) <= dichiarati
+    return dati
+
+
+def scelte_del_formato(formato: Formato = FORMATO) -> dict[str, dict[str, Any]]:
+    """Le scelte di analisi e le soglie di qualita' del formato, per gruppo: per
+    i test che scrivono a mano la descrizione di un dataset e prendono dal
+    formato il resto dei parametri obbligatori.
+    """
+    dati: dict[str, dict[str, Any]] = {}
+    for chiave, valore in formato.scelte:
         gruppo, nome = chiave.split(".")
-        valore = riferimento.valore
         dati.setdefault(gruppo, {})[nome] = list(valore) if isinstance(valore, tuple) else valore
     return dati
 
 
 def dichiarazione_minima(config: Config) -> dict[str, Any]:
-    """La configurazione piu' breve che dichiara cio' che va dichiarato: i
-    percorsi, il riferimento e i parametri obbligatori, con i valori che hanno
-    in ``config``. Tutto il resto resta al predefinito.
+    """La configurazione piu' breve che la pipeline accetta: i percorsi, il
+    riferimento e i parametri obbligatori, con i valori che hanno in
+    ``config``. Tutto il resto resta al predefinito.
 
     Serve ai test che scrivono un file di configurazione e lo passano alla riga
     di comando: senza i parametri obbligatori G15 lo respingerebbe.
@@ -170,32 +311,60 @@ def dichiarazione_minima(config: Config) -> dict[str, Any]:
     return dati
 
 
+def configurazione_di_prova(formato: Formato = FORMATO) -> dict[str, Any]:
+    """Una configurazione completa e valida, come dizionario modificabile: i
+    parametri del formato, percorsi che non esistono, e ogni altro parametro
+    dello schema scritto con il suo valore predefinito.
+
+    Serve ai test dello schema e della risoluzione, che cambiano un parametro
+    alla volta: nessun file viene letto.
+    """
+    dati = parametri_del_formato(formato)
+    dati["io"].update(
+        fastq_dir="/dati/letture", assay_table="/dati/assay.txt",
+        study_table="/dati/studio.txt", batch_table="/dati/lotto.tsv", out_root="/uscita",
+    )
+    dati["tax"].update(ref_fasta="/dati/riferimento.fa.gz", ref_md5="0" * 32)
+    dati["out"]["batch_columns"] = ["data di estrazione"]
+    completa = valida(dati).model_dump(mode="json")
+    # I parametri senza valore restano fuori, come in un file di configurazione.
+    for gruppo in ("run", "meta"):
+        completa[gruppo] = {k: v for k, v in completa[gruppo].items() if v is not None}
+    return completa
+
+
 def crea_scenario(
     radice: Path,
     campioni: list[Campione],
     *,
+    formato: Formato = FORMATO,
     righe_studio_extra: list[tuple[str, str, str]] | None = None,
     righe_studio_ripetute: list[str] | None = None,
     con_arricchimento: bool = False,
     con_letture: bool = False,
-    colonna_chiave_arricchimento: str = "experiment_accession",
-    colonna_modulo_arricchimento: str | None = "module",
+    colonna_chiave_arricchimento: str | None = None,
+    colonna_modulo_arricchimento: str | None = ...,  # type: ignore[assignment]
     file_in_piu: list[str] | None = None,
     sovrascrivi: dict[str, Any] | None = None,
 ) -> Scenario:
     """Costruisce su filesystem un ambiente sperimentale completo pronto per la validazione.
 
     **Obiettivo**: Generare nella directory temporanea ``radice`` gli archivi FASTQ,
-    l'Assay Table (``assay.txt``), la Study Sample Table (``studio.txt``), l'eventuale
-    Batch Table (``lotti.tsv``) e il database FASTA di riferimento con checksum MD5,
-    restituendo l'istanza ``Scenario`` con l'oggetto Pydantic ``Config`` già validato.
+    la tabella di assay (``assay.txt``), la tabella campioni di studio
+    (``studio.txt``), l'eventuale file del lotto (``lotti.tsv``) e il riferimento
+    tassonomico con il suo MD5, con i nomi di colonne, etichette e file di
+    ``formato``, restituendo lo ``Scenario`` con la ``Config`` già validata.
 
-    **Razionale scientifico e sistemistico**: In studi multi-omics NASA GeneLab come
-    OSD-734, la Study Table contiene più righe dell'Assay Table 16S (1.056 contro 960)
-    perché elenca anche campioni destinati ad altri assay (es. metabolomica).
-    I parametri ``righe_studio_extra`` e ``righe_studio_ripetute`` permettono di
-    riprodurre esattamente questa struttura relazionale per collaudare il join
-    ristretto (G03) e l'integrità del crosswalk su file fisici reali.
+    **Razionale scientifico e sistemistico**: In uno studio con piu' assay la
+    tabella di studio ha piu' righe di quella di assay, perche' elenca anche i
+    campioni destinati agli altri. ``righe_studio_extra`` e
+    ``righe_studio_ripetute`` riproducono questa struttura per collaudare il
+    join ristretto (G03) e l'integrità del crosswalk su file fisici.
+
+    ``colonna_chiave_arricchimento`` e ``colonna_modulo_arricchimento`` cambiano
+    le sole intestazioni del file del lotto (``None`` per il modulo lo omette),
+    lasciando alla configurazione i nomi del formato: servono ai test che
+    provano un file del lotto diverso da quello dichiarato.
     """
     fastq = radice / "fastq"
     fastq.mkdir(parents=True, exist_ok=True)
@@ -204,7 +373,7 @@ def crea_scenario(
         nome_file = (
             campione.file
             if campione.file is not None
-            else f"{campione.accession}_{campione.nome}.fastq.gz"
+            else formato.modello_file.format(accession=campione.accession, nome=campione.nome)
         )
         if not nome_file:
             continue
@@ -225,8 +394,9 @@ def crea_scenario(
     assay = radice / "assay.txt"
     _scrivi_tsv(
         assay,
-        ["Sample Name", "Raw Data File"],
-        [[c.nome, f"GLDS-000_Amplicon_{c.accession}_raw.fastq.gz"] for c in campioni],
+        [formato.colonna_campione, formato.colonna_file],
+        [[c.nome, formato.modello_file_assay.format(accession=c.accession, nome=c.nome)]
+         for c in campioni],
     )
 
     righe_studio = [
@@ -244,8 +414,8 @@ def crea_scenario(
     studio = radice / "studio.txt"
     _scrivi_tsv(
         studio,
-        ["Sample Name", "Characteristics[Material Type]", "Factor Value[Sample Location]",
-         "katharoseq_cell_count"],
+        [formato.colonna_campione, formato.colonna_classe, formato.colonna_posizione,
+         formato.colonna_cellule],
         [[*riga, ""] for riga in righe_studio],
     )
 
@@ -253,14 +423,19 @@ def crea_scenario(
     if con_arricchimento:
         arricchimento = radice / "lotti.tsv"
         intestazione = [
-            colonna_chiave_arricchimento, "extraction_plate_num", "run_prefix"
+            colonna_chiave_arricchimento or formato.colonna_chiave_lotto,
+            formato.colonna_piastra, formato.colonna_corsa,
         ]
         righe = [
             [c.chiave_arricchimento or c.accession, c.piastra, c.corsa]
             for c in campioni
         ]
-        if colonna_modulo_arricchimento:
-            intestazione.append(colonna_modulo_arricchimento)
+        colonna_modulo = (
+            formato.colonna_modulo_lotto if colonna_modulo_arricchimento is ...
+            else colonna_modulo_arricchimento
+        )
+        if colonna_modulo:
+            intestazione.append(colonna_modulo)
             for riga, campione in zip(righe, campioni):
                 riga.append(campione.modulo_arricchimento)
         _scrivi_tsv(arricchimento, intestazione, righe)
@@ -271,16 +446,7 @@ def crea_scenario(
     riferimento.write_bytes(b">seq1\nACGT\n")
     md5_riferimento = hashlib.md5(riferimento.read_bytes()).hexdigest()
 
-    # I parametri obbligatori hanno i valori di OSD-734, che e' la forma dei
-    # metadati dello scenario; quelli del file del lotto sono nulli o vuoti
-    # quando lo scenario non lo ha, e delle colonne da portare nell'oggetto resta
-    dati = parametri_osd734()
-    # la sola colonna delle cellule, che la calibrazione legge dall'oggetto
-    dati["out"].update(study_columns=["katharoseq_cell_count"], batch_columns=[])
-    if arricchimento is None:
-        dati["meta"].update(batch_key_column=None, batch_module_column=None)
-        dati["err"]["batch_column"] = None
-        dati["decontam"]["batch_column"] = None
+    dati = parametri_del_formato(formato, con_lotto=arricchimento is not None)
     dati["io"].update(
         fastq_dir=str(fastq), assay_table=str(assay), study_table=str(studio),
         out_root=str(radice / "out"),
@@ -291,7 +457,130 @@ def crea_scenario(
     for gruppo, valori in (sovrascrivi or {}).items():
         dati.setdefault(gruppo, {}).update(valori)
 
-    return Scenario(radice=radice, config=valida(dati), campioni=campioni)
+    return Scenario(radice=radice, config=valida(dati), campioni=campioni, formato=formato)
+
+
+# --------------------------------------------------------------------------- #
+# Aiuti che compongono funzioni di produzione                                  #
+# --------------------------------------------------------------------------- #
+# La pipeline non ha bisogno di queste composizioni (la riga di comando e
+# l'esecutore chiamano le stesse funzioni una alla volta): servono ai test, e
+# per questo stanno qui e non nel pacchetto.
+
+
+def esegui_g15(dati: dict[str, Any]):
+    """G15 su una configurazione non ancora validata: lo schema e poi i
+    controlli di coerenza, come li eseguono la riga di comando e l'esecutore.
+
+    Restituisce la configurazione risolta; solleva ``ErroreGate`` con il codice
+    del controllo fallito.
+    """
+    from amplicon16s.config.resolve import risolvi
+    from amplicon16s.config.schema import ErroreConfigurazione
+    from amplicon16s.gates.g01_g15 import ErroreGate, controlla_coerenza, rifiuto_di_g15
+
+    try:
+        config = valida(dict(dati))
+    except ErroreConfigurazione as errore:
+        raise rifiuto_di_g15(errore) from errore
+    risolta = risolvi(config)
+    violazioni = controlla_coerenza(risolta)
+    if violazioni:
+        raise ErroreGate("G15", violazioni)
+    return risolta
+
+
+#: I gate sui metadati, nell'ordine del registro.
+GATE_METADATI = ("G04", "G05", "G06", "G03", "G11")
+
+
+def esegui_gate_metadati(config: Config):
+    """L'inventario dei campioni, dopo i cinque gate sui metadati eseguiti dal
+    registro; solleva ``ErroreGate`` al primo che trova violazioni.
+    """
+    from amplicon16s.gates.g01_g15 import Contesto, ErroreGate
+    from amplicon16s.gates.registry import esegui_gate
+
+    contesto = Contesto(config)
+    for nome in GATE_METADATI:
+        esito = esegui_gate(nome, contesto)
+        if esito.violazioni:
+            raise ErroreGate(nome, esito.violazioni)
+    return contesto.inventario
+
+
+def nomi_dei_gate() -> tuple[str, ...]:
+    """I nomi dei gate, nell'ordine di esecuzione del registro."""
+    from amplicon16s.gates.registry import REGISTRO
+
+    return tuple(voce.nome for voce in REGISTRO)
+
+
+def chiavi_schema() -> frozenset[str]:
+    """Tutte le chiavi dello schema nella forma ``gruppo.parametro``."""
+    return frozenset(
+        f"{gruppo}.{campo}" for gruppo, modello in Config.model_fields.items()
+        for campo in modello.annotation.model_fields
+    )
+
+
+def codici_con_retry() -> frozenset[str]:
+    """I codici che il catalogo ammette al retry automatico."""
+    from amplicon16s.errors.catalog import CATALOGO
+
+    return frozenset(codice for codice, voce in CATALOGO.items() if voce.ammette_retry)
+
+
+def fase_completa(albero, fase, attesi=None) -> bool:
+    """Se la cartella di una fase ha artefatti registrati, tutti integri, e fra
+    essi quelli attesi.
+    """
+    registrati = albero.manifesto(fase)
+    if not registrati:
+        return False
+    if attesi is not None and not set(attesi) <= set(registrati):
+        return False
+    return not albero.non_integri(fase)
+
+
+def discendenti(passo):
+    """Le fasi del grafo che dipendono, anche indirettamente, da quella data."""
+    from amplicon16s.runner.graph import GRAFO, Passo
+
+    # Fino al punto fisso: l'ordine dei numeri non e' quello delle dipendenze
+    # (la filogenesi, S9, dipende da S13).
+    raggiunti = {passo}
+    while True:
+        nuovi = {p for p in Passo if raggiunti & set(GRAFO.nodo(p).dipendenze)} - raggiunti
+        if not nuovi:
+            break
+        raggiunti |= nuovi
+    raggiunti.discard(passo)
+    return tuple(p for p in Passo if p in raggiunti)
+
+
+def rscript_con_limite(cartella: Path, byte: int) -> Path:
+    """Un interprete R con la memoria virtuale limitata, per provare la memoria
+    esaurita senza toccare quella della macchina.
+
+    E' un involucro di shell da passare al ponte come interprete: applica il
+    limite al solo processo R e riduce a uno i thread dell'algebra lineare,
+    perche' con OpenBLAS multithread R intercetta l'allocazione fallita ma poi
+    resta bloccato in uscita.
+    """
+    import shutil
+    import stat
+
+    involucro = cartella / "Rscript-limitato"
+    involucro.write_text(
+        "#!/bin/sh\n"
+        f"ulimit -v {byte // 1024}\n"
+        "export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1\n"
+        f'exec {shutil.which("Rscript")} "$@"\n',
+        encoding="utf-8",
+    )
+    involucro.chmod(involucro.stat().st_mode | stat.S_IXUSR)
+    return involucro
 
 
 # --------------------------------------------------------------------------- #
@@ -302,11 +591,22 @@ import pytest  # noqa: E402
 
 #: Il gruppo pytest-xdist dei test sui dati reali.
 GRUPPO_DATI_REALI = "dati_reali"
+#: I marcatori dei test che eseguono sul dataset completo: quelli di
+#: correttezza (``dati_reali``) e il confronto con i checksum pubblicati
+#: (``riferimento``), che condivide con i primi la catena e quindi il gruppo.
+MARCATORI_SUL_DATASET_COMPLETO = ("dati_reali", "riferimento")
+
+#: Quanto un processo attende, al massimo, una catena condivisa che un altro
+#: sta calcolando: due ore, piu' della catena completa sul dataset di
+#: riferimento su una macchina occupata. Si cambia con la variabile d'ambiente.
+VARIABILE_ATTESA = "AMPLICON16S_ATTESA_CONDIVISA_S"
+ATTESA_MASSIMA_S = int(__import__("os").environ.get(VARIABILE_ATTESA, "7200"))
 
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
-    """Mette tutti i test ``dati_reali`` in un solo gruppo di pytest-xdist.
+    """Mette tutti i test sul dataset completo (``dati_reali`` e ``riferimento``)
+    in un solo gruppo di pytest-xdist.
 
     Con ``--dist loadgroup`` (addopts in ``pyproject.toml``) i test di un gruppo
     girano tutti sullo stesso processo, uno dopo l'altro, e gli altri restano
@@ -316,7 +616,7 @@ def pytest_collection_modifyitems(config, items):
     gruppo si aggiunge prima che pytest-xdist legga i gruppi (tryfirst).
     """
     for item in items:
-        if item.get_closest_marker("dati_reali") is not None:
+        if any(item.get_closest_marker(m) is not None for m in MARCATORI_SUL_DATASET_COMPLETO):
             item.add_marker(pytest.mark.xdist_group(GRUPPO_DATI_REALI))
 
 
@@ -348,11 +648,21 @@ def _condivisa(tmp_path_factory, nome, calcola):
     try:
         os.close(os.open(comune / f"{nome}.blocco", os.O_CREAT | os.O_EXCL | os.O_WRONLY))
     except FileExistsError:
+        # L'attesa ha un limite: se il processo che calcola muore senza lasciare
+        # traccia (ucciso dal sistema, per esempio per memoria), gli altri non
+        # devono restare fermi per sempre.
+        scadenza = time.monotonic() + ATTESA_MASSIMA_S
         while not pronta.exists():
             if guasta.exists():
                 raise RuntimeError(
                     f"la catena condivisa {nome} e' fallita in un altro processo: "
                     f"{guasta.read_text(encoding='utf-8')}"
+                ) from None
+            if time.monotonic() > scadenza:
+                raise RuntimeError(
+                    f"la catena condivisa {nome} non e' pronta dopo {ATTESA_MASSIMA_S} s: il "
+                    "processo che la calcola e' probabilmente morto senza dichiararlo. "
+                    f"Il limite si cambia con la variabile {VARIABILE_ATTESA}"
                 ) from None
             time.sleep(0.5)
         valore = pickle.loads(pronta.read_bytes())

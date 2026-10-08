@@ -62,13 +62,32 @@ __all__ = [
 NOME_MANIFESTO: Final = "manifest.json"
 
 
+def _maschera_dell_utente() -> int:
+    """La umask del processo. Si puo' solo leggere impostandola: lo si fa una
+    volta, all'importazione, prima che esistano altri thread.
+    """
+    maschera = os.umask(0)
+    os.umask(maschera)
+    return maschera
+
+
+#: I permessi di un file nuovo secondo la umask di chi esegue.
+PERMESSI_DEI_FILE: Final = 0o666 & ~_maschera_dell_utente()
+
+
 def scrivi_atomico(percorso: Path, contenuto: str | bytes) -> None:
     """Scrive ``contenuto`` in ``percorso`` attraverso un file temporaneo della
     stessa cartella, rinominato alla fine; il testo in UTF-8.
+
+    Il file ha i permessi che avrebbe un file creato normalmente dall'utente,
+    secondo la sua umask: ``mkstemp`` lo crea leggibile dal solo proprietario
+    (0600), e gli artefatti sarebbero illeggibili a un altro utente del gruppo
+    o a un container avviato con un altro utente.
     """
     dati = contenuto.encode("utf-8") if isinstance(contenuto, str) else contenuto
     descrittore, temporaneo = tempfile.mkstemp(prefix=".scrittura-", dir=percorso.parent)
     try:
+        os.fchmod(descrittore, PERMESSI_DEI_FILE)
         with os.fdopen(descrittore, "wb") as file:
             file.write(dati)
         os.replace(temporaneo, percorso)
@@ -249,11 +268,6 @@ class AlberoOutput:
         scrivi_atomico(self.prepara(fase) / nome, contenuto)
         return self.registra(fase, nome)
 
-    def scrivi_bytes(self, fase: Fase, nome: str, contenuto: bytes) -> Artefatto:
-        """Scrive un artefatto binario e lo registra nel manifesto."""
-        scrivi_atomico(self.prepara(fase) / nome, contenuto)
-        return self.registra(fase, nome)
-
     def registra(self, fase: Fase, nome: str) -> Artefatto:
         """Registra nel manifesto un file già presente nella cartella di fase.
 
@@ -328,24 +342,6 @@ class AlberoOutput:
     def non_integri(self, fase: Fase) -> tuple[str, ...]:
         """Nomi degli artefatti registrati che mancano o sono stati alterati."""
         return tuple(a.nome for a in self.artefatti(fase) if not a.integro)
-
-    def fase_completa(self, fase: Fase, attesi: Iterable[str] | None = None) -> bool:
-        """Se la cartella contiene artefatti registrati e sono ancora integri.
-
-        Senza ``attesi`` la domanda è «tutto ciò che risulta prodotto è ancora
-        integro?»; con ``attesi`` è «ci sono anche questi?».
-
-        Riguarda la cartella, non una fase del grafo: con due fasi nella
-        stessa cartella non distingue l'una dall'altra, e non sa su che cosa i
-        file sono stati calcolati. Il completamento di una fase si stabilisce
-        con :meth:`manifesto_passo` e :meth:`non_integri_del_passo`.
-        """
-        registrati = self.manifesto(fase)
-        if not registrati:
-            return False
-        if attesi is not None and not set(attesi) <= set(registrati):
-            return False
-        return not self.non_integri(fase)
 
     # ----------------------------------------------------------------- #
     # Manifesto di una fase                                              #

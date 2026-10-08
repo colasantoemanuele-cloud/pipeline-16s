@@ -24,6 +24,7 @@ l'esecuzione e con quale codice.
 
 from __future__ import annotations
 
+import csv
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -122,6 +123,10 @@ class Analisi:
     #: Nome della colonna con l'accession, quando il file non ce l'ha. La sua
     #: assenza e' un errore di G04: senza accession il file non e' agganciabile.
     arricchimento_senza_colonna: str | None = None
+    #: Perche' il file non si legge (codifica diversa da UTF-8, struttura non
+    #: tabellare), o ``None``. Lo dichiara G08: l'analisi prosegue senza il
+    #: file, perche' i gate che la precedono non ne dipendono.
+    arricchimento_illeggibile: str | None = None
     arricchimento_senza_accession: list[tuple[str, str]] = field(default_factory=list)
     senza_riga_di_arricchimento: list[str] = field(default_factory=list)
     arricchimento_ambiguo: dict[str, int] = field(default_factory=dict)
@@ -247,7 +252,11 @@ def _righe_arricchimento(
         return per_accession
 
     espressione = re.compile(config.io.accession_regex)
-    righe = leggi_tsv(Path(percorso))
+    try:
+        righe = leggi_tsv(Path(percorso))
+    except (UnicodeDecodeError, csv.Error) as guasto:
+        analisi.arricchimento_illeggibile = str(guasto)
+        return per_accession
 
     colonna = config.meta.batch_key_column
     if colonna is None or (righe and colonna not in righe[0]):

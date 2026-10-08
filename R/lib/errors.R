@@ -8,6 +8,8 @@
 #                                    ricevuto e' un errore
 #   richiedi_pacchetti(pacchetti)    carica i pacchetti di calcolo, o si ferma
 #                                    con il motivo per cui non si caricano
+#   verifica_figli(risultati, nomi)  si ferma se un processo figlio del calcolo
+#                                    parallelo non ha restituito il risultato
 #
 # Uno script di fase ha questa forma:
 #
@@ -78,6 +80,24 @@ richiedi_pacchetti <- function(pacchetti) {
              call. = FALSE)
       }
     )
+  }
+  invisible(TRUE)
+}
+
+# Un processo figlio di parallel::mclapply ucciso dal sistema operativo, di
+# norma perche' la memoria del container e' esaurita, non produce un errore:
+# il suo risultato e' NULL, con un solo avviso ("... did not deliver results").
+# Proseguire darebbe un errore qualunque molte righe dopo, che non dice la
+# causa. Qui la si dichiara con un messaggio che il ponte riconosce come
+# memoria esaurita (rbridge/runner.py), e la fase le assegna il suo codice.
+verifica_figli <- function(risultati, nomi = names(risultati)) {
+  mancanti <- vapply(risultati, is.null, logical(1))
+  if (any(mancanti)) {
+    stop(sprintf(paste0(
+      "%d processi paralleli su %d non hanno restituito un risultato (%s): ",
+      "interrotti dal sistema operativo, di norma per memoria esaurita"),
+      sum(mancanti), length(risultati),
+      paste(utils::head(nomi[mancanti], 5L), collapse = ", ")), call. = FALSE)
   }
   invisible(TRUE)
 }

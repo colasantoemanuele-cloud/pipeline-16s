@@ -44,7 +44,6 @@ from typing import Any, Final
 import yaml
 
 from amplicon16s import __version__
-from amplicon16s.config.defaults import FATTI_OSD734
 from amplicon16s.config.resolve import versioni_registrate
 from amplicon16s.gates.registry import REGISTRO
 from amplicon16s.io_layer.artifacts import (
@@ -483,37 +482,6 @@ def _aggiustamenti(esecuzione: _Esecuzione) -> list[tuple[Passo, dict[str, Any]]
     return [(p, a) for p, m in esecuzione.manifesti.items() for a in m.aggiustamenti]
 
 
-def _valori_osd734(esecuzione: _Esecuzione) -> Tabella:
-    """I parametri che in questa esecuzione valgono il predefinito tarato su
-    OSD-734 senza essere stati dichiarati, con il fatto che lo giustificava.
-
-    I parametri obbligatori non possono essere ereditati (la configurazione
-    senza di essi non parte) e non vi compaiono. Un parametro tarato dichiarato
-    nel file, anche con lo stesso valore, e' una scelta e non compare. Se la
-    configurazione registrata non dice quali parametri sono stati dichiarati
-    (esecuzioni di versioni precedenti), compaiono tutti quelli che hanno il
-    valore di OSD-734.
-    """
-    versione = esecuzione.versioni[-1] if esecuzione.versioni else {}
-    righe = []
-    for chiave, riferimento in FATTI_OSD734.items():
-        if chiave not in esecuzione.parametri:
-            continue
-        in_uso = esecuzione.parametri[chiave]
-        # La configurazione registrata è YAML: una tupla vi diventa un elenco.
-        atteso = list(riferimento.valore) if isinstance(riferimento.valore, tuple) else riferimento.valore
-        origine = _origine(chiave, versione)
-        if origine == "dichiarato" or in_uso != atteso:
-            continue
-        righe.append((chiave, _valore(in_uso), origine, riferimento.fatto))
-    return _tabella(
-        "valori_osd734",
-        "Parametri non dichiarati che valgono il predefinito tarato su OSD-734",
-        ("parametro", "valore in uso", "origine", "fatto accertato su OSD-734"),
-        righe,
-    )
-
-
 def _sezione_stato(esecuzione: _Esecuzione) -> tuple[_Sezione, bool, list[str]]:
     """Lo stato di ogni fase secondo i manifesti; se la catena è completa; e le
     fasi calcolate su artefatti a monte che non sono più quelli su disco.
@@ -705,8 +673,8 @@ def _sezione_configurazione(esecuzione: _Esecuzione) -> _Sezione:
         "pipeline; uno <em>derivato</em> è calcolato da altri parametri e non è ammesso nel "
         "file. Un valore <em>aggiustato</em> è quello usato da una fase dopo un tentativo "
         "ripetuto: il valore dichiarato resta nella colonna del valore. Dichiarato non "
-        "significa scelto: una configurazione copiata da un'istanza completa dichiara anche "
-        "i valori che nessuno ha rivisto, ed è il motivo della segnalazione in apertura."
+        "significa scelto: una configurazione copiata da un'altra dichiara anche i valori "
+        "che nessuno ha rivisto per il dataset in uso."
     )
     if conteggi["non registrata"]:
         sezione.testo(
@@ -737,6 +705,15 @@ def _sezione_provenienza(esecuzione: _Esecuzione) -> tuple[_Sezione, list[tuple[
             )
         except (OSError, ValueError, ImportError) as errore:
             avviso = f"confronto non eseguibile: {errore}"
+        # Una versione del calcolo diversa non e' un avviso come gli altri: la
+        # fase, con il codice di oggi, calcolerebbe un'altra cosa.
+        corrente = esecuzione.passi[passo].versione
+        if registrata.get("versione") not in (None, corrente):
+            avviso = (
+                f"versione del calcolo diversa: registrata {registrata['versione']}, "
+                f"corrente {corrente}; una ripresa rifarebbe la fase"
+                + (f". {avviso}" if avviso else "")
+            )
         if avviso:
             avvisi.append((str(passo), avviso))
         righe.append((
@@ -768,12 +745,44 @@ def _sezione_provenienza(esecuzione: _Esecuzione) -> tuple[_Sezione, list[tuple[
     ))
 
     sezione.sottotitolo("dada2 e correzione dei pareggi di assignTaxonomy")
+    # Cio' che R ha caricato in S8, letto dalle librerie installate a ogni
+    # esecuzione della fase: e' la misura. Il file di blocco, piu' sotto, e'
+    # la dichiarazione.
+    tassonomia = esecuzione.manifesti.get(Passo.S8)
+    caricato = (tassonomia.metriche.get("dada2") if tassonomia is not None else None) or None
+    if caricato is not None:
+        correzione_caricata = caricato.get("correzione") or {}
+        sezione.sintesi((
+            ("versione di dada2 caricata da R in S8", caricato.get("versione") or "non installato"),
+            ("correzione dei pareggi nella versione caricata",
+             f"presente ({correzione_caricata.get('File', '')}, da "
+             f"{correzione_caricata.get('Base', '')})" if caricato.get("corretta") else
+             "assente: versione ufficiale"),
+        ))
+        if not caricato.get("corretta"):
+            sezione.testo(
+                "La versione di dada2 caricata non porta la correzione dei pareggi di "
+                "<code>assignTaxonomy</code>: dove due generi hanno la stessa probabilità "
+                "la scelta non è controllata dal seme, e l'assegnazione non è ripetibile "
+                "da un'esecuzione all'altra (<code>E-S8-03</code>).", "evidenza",
+            )
+            avvisi.append((
+                str(Passo.S8),
+                "dada2 caricato senza la correzione dei pareggi di assignTaxonomy (E-S8-03)",
+            ))
+    else:
+        sezione.testo(
+            "S8 non ha registrato la versione di dada2 caricata da R: la fase non è "
+            "conclusa, oppure è stata eseguita da una versione della pipeline che non la "
+            "accertava.", "nota",
+        )
     blocchi = [a["blocco_r"] for a in esecuzione.avvii if a["blocco_r"]]
     if blocchi:
         blocco = blocchi[-1]
         correzione = blocco["dada2"].get("correzione") or {}
         sezione.sintesi((
-            ("versione di dada2 dichiarata", blocco["dada2"].get("versione") or "non dichiarata"),
+            ("versione di dada2 dichiarata nel file di blocco",
+             blocco["dada2"].get("versione") or "non dichiarata"),
             ("versione di partenza", correzione.get("Base", "nessuna correzione dichiarata")),
             ("correzione", correzione.get("File", "")),
             ("SHA-256 della correzione", correzione.get("SHA256", "")),
@@ -781,17 +790,17 @@ def _sezione_provenienza(esecuzione: _Esecuzione) -> tuple[_Sezione, list[tuple[
         ))
         sezione.testo(
             "È quanto dichiara il file di blocco dei pacchetti R letto all'ultimo avvio che "
-            "lo ha registrato, come l'immagine è quella dichiarata in configurazione: la "
-            "corrispondenza fra il file di blocco e le librerie installate è verificata alla "
-            "costruzione dell'immagine, non misurata dalle fasi.", "nota",
+            "lo ha registrato, come l'immagine è quella dichiarata in configurazione. La "
+            "versione caricata, sopra, è invece letta da S8 dalle librerie installate: se le "
+            "due differiscono, l'esecuzione non è avvenuta nell'ambiente dichiarato.", "nota",
         )
     else:
         sezione.testo(
             "Nessun avvio di questa esecuzione ha registrato il file di blocco dei pacchetti "
             f"R (<code>run.lockfile</code>: {_e(esecuzione.parametri.get('run.lockfile', ''))}): "
             "il registro degli avvii è assente, oppure il file non era "
-            "raggiungibile all'avvio. La versione di dada2 non è determinabile dal contenuto "
-            "della cartella.", "nota",
+            "raggiungibile all'avvio. La versione dichiarata di dada2 non è determinabile "
+            "dal contenuto della cartella.", "nota",
         )
     return sezione, avvisi
 
@@ -806,6 +815,10 @@ def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
         def numero(valore: Any, cifre: int) -> str:
             return "non calcolabile" if valore is None else f"{valore:.{cifre}f}".replace(".", ",")
 
+        # Senza una piastra con abbastanza controlli non esiste un modello per
+        # piastra: l'aggregato e' adattato su tutti i controlli e nessun AIC e'
+        # stato confrontato.
+        confrontato = modello.get("preferito_aic") != "non_confrontato"
         sezione.sottotitolo("Soglia di profondità per piastra (S11)")
         sezione.sintesi((
             ("modo dichiarato", soglia.get("modo", "")),
@@ -813,8 +826,11 @@ def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
             ("motivo della scelta", soglia.get("motivo_scelta", "")),
             ("AIC della curva aggregata", numero(modello.get("aic_aggregato"), 2)),
             ("AIC del modello per piastra (somma delle curve)",
-             numero(modello.get("aic_per_piastra"), 2)),
-            ("punti comuni ai due modelli", modello.get("punti_comuni", "")),
+             numero(modello.get("aic_per_piastra"), 2) if confrontato else
+             "non confrontato: nessuna piastra ha abbastanza controlli"),
+            ("punti comuni ai due modelli" if confrontato else
+             "punti della curva aggregata (tutti i controlli utilizzabili)",
+             modello.get("punti_comuni", "")),
             ("R² dichiarato", numero(modello.get("r2_dichiarato"), 4)),
             ("mediana delle soglie proprie",
              "nessuna" if not mediana else
@@ -844,6 +860,12 @@ def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
               _pct(conservati[p] / ingresso[p] if ingresso[p] else None), s.get("motivo", ""))
              for p, s in sorted(piastre.items(), key=lambda voce: _ordine_piastre(voce[0]))),
         ))
+        if soglia.get("scelta") == "aggregato":
+            sezione.testo(
+                "La curva aggregata è il modello scelto: tutti i campioni usano la sua "
+                "soglia. È una scelta di modello, non un ripiego, e non è dichiarata "
+                "come degradazione."
+            )
         if soglia.get("scelta") == "nessuno":
             sezione.testo(
                 "Nessuna soglia di profondità dai controlli positivi: il filtro per "
@@ -885,13 +907,16 @@ def _decisioni_campioni(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
     """
     inventario = esecuzione.tsv(Passo.S0, NOME_CROSSWALK)
     if inventario is not None:
-        dichiarati = set(esecuzione.parametri.get("ctrl.blank_values", []))
+        # Con lo stesso confronto della classificazione: senza maiuscole ne' spazi.
+        dichiarati = {v.strip().casefold()
+                      for v in esecuzione.parametri.get("ctrl.blank_values", [])}
         # Il crosswalk conserva il materiale dichiarato accanto alla classe
         # assegnata: un controllo negativo con un altro materiale è stato
         # riclassificato dalla regola ctrl.blank_override_*.
         riclassificati = [
             r for r in inventario
-            if r["classe"] == ClasseCampione.CONTROLLO_NEGATIVO.value and r["materiale"] not in dichiarati
+            if r["classe"] == ClasseCampione.CONTROLLO_NEGATIVO.value
+            and r["materiale"].strip().casefold() not in dichiarati
         ]
         sezione.sottotitolo("Campioni riclassificati dalla regola di configurazione (S0)")
         sezione.testo(
@@ -1129,6 +1154,11 @@ def _sezione_tracciamento(esecuzione: _Esecuzione) -> tuple[_Sezione, Tracciamen
         riga: list[Any] = [passo, tracciamento.origine[passo]]
         for c in _CLASSI:
             valori = [v[passo] for a, v in tracciamento.letture.items() if classe.get(a) == c and passo in v]
+            # Nell'oggetto finale i campioni esclusi e i controlli hanno zero
+            # letture per costruzione: contarli darebbe i campioni in ingresso e
+            # una mediana che non e' quella dei campioni consegnati.
+            if passo == tracciamento.passi[-1] and tracciamento.origine[passo] in ("S13", "S14"):
+                valori = [v for v in valori if v > 0]
             mediana = statistics.median(valori) if valori else ""
             # Con un numero pari di campioni la mediana puo' cadere a meta' fra due conteggi.
             riga += [len(valori), sum(valori), int(mediana) if mediana == int(mediana or 0) else mediana]
@@ -1220,45 +1250,23 @@ def _sezione_evidenza(
     sezione = _Sezione("evidenza", "Segnalazioni in apertura")
     segnalazioni: list[str] = []
 
-    tabella = _valori_osd734(esecuzione)
-    ereditati = len(tabella.righe)
-    sezione.sottotitolo("Parametri tarati su OSD-734 e non dichiarati")
-    if ereditati:
-        segnalazioni.append(
-            f"{ereditati} parametri non dichiarati valgono il predefinito tarato su OSD-734"
-        )
-        sezione.testo(
-            f"<strong>{ereditati} parametri</strong> non sono stati dichiarati nella "
-            "configurazione e valgono quindi il predefinito, che è stato tarato sul dataset di "
-            "riferimento (NASA GeneLab OSD-734). La tabella li elenca con il fatto, accertato "
-            "su OSD-734, che giustificava ciascun valore. <strong>Per ognuno va controllato se "
-            "quel fatto vale anche per il dataset in uso</strong>: se vale, il parametro va "
-            "dichiarato nella configurazione con lo stesso valore, e non comparirà più qui; se "
-            "non vale, va dichiarato con il valore adatto al dataset. I parametri che descrivono "
-            "il dataset (formato dei metadati, etichette, primer, troncamento) non compaiono "
-            "perché sono obbligatori: la configurazione li dichiara tutti.", "evidenza",
-        )
-    elif not esecuzione.versioni:
+    if not esecuzione.versioni:
+        sezione.sottotitolo("Configurazione")
         segnalazioni.append("nessuna configurazione registrata")
         sezione.testo(
             "Nessuna configurazione è registrata in <code>00_config</code>: i valori dei "
             "parametri non sono verificabili.", "evidenza",
         )
-    else:
-        sezione.testo(
-            "Nessun parametro vale un predefinito tarato su OSD-734 senza essere stato "
-            "dichiarato nella configurazione.", "regolare",
-        )
-    if tabella.righe:
-        sezione.tabella(tabella)
 
     sezione.sottotitolo("Avvisi di provenienza")
     if avvisi:
         segnalazioni.append(f"avvisi di provenienza su {', '.join(p for p, _ in avvisi)}")
         sezione.testo(
             f"<strong>{len(avvisi)} fasi</strong> sono state calcolate da un sorgente o con "
-            "un'immagine diversi da quelli della pipeline che ha generato questo documento, a "
-            "parità di versione del calcolo. I risultati non sono invalidati: la differenza "
+            "un'immagine diversi da quelli della pipeline che ha generato questo documento. "
+            "Dove l'avviso riporta una versione del calcolo diversa, la fase con il codice "
+            "attuale darebbe un altro risultato e una ripresa la rifarebbe; a parità di "
+            "versione i risultati non sono invalidati: la differenza "
             'va conosciuta e, se non è attesa, chiarita (sezione <a href="#provenienza">'
             "Provenienza delle fasi</a>).", "evidenza",
         )

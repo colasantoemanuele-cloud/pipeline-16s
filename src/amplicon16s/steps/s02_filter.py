@@ -42,6 +42,7 @@ from amplicon16s.config.schema import Config, Qc, thread_effettivi
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import ManifestoPasso
 from amplicon16s.io_layer.conteggi import leggi_conteggi
+from amplicon16s.io_layer.reads import senza_righe_vuote_finali
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
@@ -50,9 +51,8 @@ from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 
 __all__ = [
     "FiltroLetture",
-    "archivio_incompleto",
     "controlla_filtro",
-    
+    "esamina_archivio",
 ]
 
 NOME_SCRIPT: Final = "02_filter.R"
@@ -63,21 +63,28 @@ NOME_FILTRATE: Final = "letture_filtrate.tsv"
 SUFFISSO_FILTRATI: Final = "_filt.fastq.gz"
 
 
-def archivio_incompleto(percorso: Path) -> str | None:
-    """Il motivo per cui un archivio non si decomprime per intero, o ``None``.
+def esamina_archivio(percorso: Path) -> tuple[str | None, bool]:
+    """Il motivo per cui un archivio non si decomprime per intero (o ``None``), e
+    se il file si chiude con righe vuote.
 
     Un FASTQ non compresso, riconosciuto dai primi byte come in S0, non ha
-    nulla da decomprimere: basta che si legga fino in fondo.
+    nulla da decomprimere: basta che si legga fino in fondo. Le righe vuote in
+    fondo si riconoscono dalla coda del contenuto: sono tollerate, ma
+    ``filterAndTrim`` non le ammette, e quel file gli arriva in copia ripulita
+    (``io_layer/reads.py``).
     """
+    coda = b""
     try:
         with open(percorso, "rb") as file:
             compresso = file.read(2) == b"\x1f\x8b"
         with (gzip.open if compresso else open)(percorso, "rb") as file:
-            while file.read(1 << 22):
-                pass
+            while blocco := file.read(1 << 22):
+                coda = (coda + blocco)[-4096:]
     except (OSError, EOFError, zlib.error) as e:
-        return f"{type(e).__name__}: {e}"
-    return None
+        return f"{type(e).__name__}: {e}", False
+    # Dopo l'ultima riga con del contenuto, piu' di un a capo vuol dire almeno
+    # una riga vuota.
+    return None, coda[len(coda.rstrip(b" \t\r\n")):].count(b"\n") > 1
 
 
 def controlla_filtro(
@@ -139,8 +146,9 @@ class FiltroLetture(PipelineStep):
 
     passo: ClassVar[Passo] = Passo.S2
     #: 2: riconosce dai primi byte un FASTQ non compresso, che non ha un
-    #: archivio da verificare.
-    versione: ClassVar[int] = 2
+    #: archivio da verificare. 3: un file che si chiude con righe vuote si
+    #: filtra da una copia senza quelle righe.
+    versione: ClassVar[int] = 3
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("prefiltro", "filtrate")
     #: Tutto il gruppo filter e le due soglie dei controlli sul risultato.
@@ -175,8 +183,8 @@ class FiltroLetture(PipelineStep):
             c.accession: str(c.file) for c in contesto.inventario if c.file is not None
         }
         with ThreadPoolExecutor(max_workers=thread_effettivi(config)) as esecutore:
-            motivi = dict(zip(campioni, esecutore.map(archivio_incompleto, map(Path, campioni.values()))))
-        incompleti = {a: m for a, m in motivi.items() if m is not None}
+            esami = dict(zip(campioni, esecutore.map(esamina_archivio, map(Path, campioni.values()))))
+        incompleti = {a: m for a, (m, _) in esami.items() if m is not None}
         if incompleti:
             raise errore(
                 "E-S2-03",
@@ -185,24 +193,27 @@ class FiltroLetture(PipelineStep):
                 ),
                 campioni=sorted(incompleti),
             )
-        esito = esegui_script(
-            cartella_r() / NOME_SCRIPT,
-            {
-                "campioni": campioni,
-                "truncLen": filtro.truncLen,
-                "trimLeft": filtro.trimLeft,
-                "maxEE": filtro.maxEE,
-                "truncQ": filtro.truncQ,
-                "maxN": filtro.maxN,
-                "rm_phix": filtro.rm_phix,
-                "processi": thread_effettivi(config),
-                "lotto": config.run.batch_size,
-            },
-            contesto.albero,
-            self.cartella,
-            passo=self.passo,
-            logger=contesto.logger,
-        )
+        vuote = [a for a, (_, righe_vuote) in esami.items() if righe_vuote]
+        with senza_righe_vuote_finali(campioni, vuote) as leggibili:
+            esito = esegui_script(
+                cartella_r() / NOME_SCRIPT,
+                {
+                    "campioni": leggibili,
+                    "truncLen": filtro.truncLen,
+                    "trimLeft": filtro.trimLeft,
+                    "maxEE": filtro.maxEE,
+                    "truncQ": filtro.truncQ,
+                    "maxN": filtro.maxN,
+                    "rm_phix": filtro.rm_phix,
+                    "processi": thread_effettivi(config),
+                    "lotto": config.run.batch_size,
+                },
+                contesto.albero,
+                self.cartella,
+                passo=self.passo,
+                tempo_massimo_s=contesto.config.run.r_timeout_s,
+                logger=contesto.logger,
+            )
         cartella = contesto.albero.cartella(self.cartella)
         metriche = controlla_filtro(
             leggi_conteggi(cartella / NOME_PREFILTRO),

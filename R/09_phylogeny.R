@@ -64,10 +64,7 @@ for (f in c("io_json.R", "errors.R", "albero.R")) {
 # Categorie della distribuzione gamma discreta dei tassi fra i siti, e quota di
 # siti invarianti da cui parte l'ottimizzazione. La ricerca e' una salita
 # locale: il punto di arrivo dipende da quello di partenza, che per questo e'
-# una costante dichiarata. Sul dataset di riferimento (1.753 varianti) la quota
-# resta a 0,2 perche' nessun valore vicino migliora la verosimiglianza, e
-# l'albero che ne risulta ha verosimiglianza piu' alta (-41.734,9) di quelli
-# ottenuti partendo da 0 (-41.751,4) o da 0,1 (-41.764,7).
+# una costante dichiarata.
 CATEGORIE_GAMMA <- 4L
 INVARIANTI_INIZIALI <- 0.2
 # Sotto questo numero di sequenze un albero radicato non ha topologia da

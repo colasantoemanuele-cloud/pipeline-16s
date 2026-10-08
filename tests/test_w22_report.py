@@ -11,7 +11,7 @@ ogni esecuzione, ricavato dalla cartella di output).
 * ``src/amplicon16s/cli.py`` (sottocomando ``report``)
 * ``src/amplicon16s/config/resolve.py`` (``parametri_dichiarati``, elenco
   ``dichiarati`` nella configurazione registrata)
-* ``src/amplicon16s/config/defaults.py`` (``FATTI_OSD734``)
+* ``src/amplicon16s/config/defaults.py`` (``OBBLIGATORI``, ``STANDARD_DEL_METODO``)
 * ``src/amplicon16s/runner/executor.py`` (controlli di avvio come evento
   strutturato, dichiarazione del file di blocco dei pacchetti R)
 * ``src/amplicon16s/logging/logger.py`` (registro degli avvii
@@ -52,7 +52,7 @@ ogni esecuzione, ricavato dalla cartella di output).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -83,7 +83,7 @@ ogni esecuzione, ricavato dalla cartella di output).
 
 5. Risultato atteso
 -------------------
-Vedi ``test.txt``, scheda W22.
+I conteggi li da' pytest (``pytest --collect-only -q``).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -98,6 +98,7 @@ Vedi ``test.txt``, scheda W22.
 
 from __future__ import annotations
 
+import functools
 import csv
 import hashlib
 import json
@@ -111,14 +112,16 @@ from typing import Any, ClassVar
 import pytest
 import yaml
 from conftest import (
-    NEGATIVO,
-    POSITIVO,
     Campione,
     copia_esecuzione,
     crea_scenario,
     dichiarazione_minima,
+    FORMATO,
+    NEGATIVO,
+    nomi_dei_gate,
+    POSITIVO,
 )
-from sottoinsieme import motivo_pacchetti_r_assenti
+from sottoinsieme import attesi_dataset, motivo_pacchetti_r_assenti
 
 import amplicon16s.cli as cli
 import amplicon16s.report.builder as builder
@@ -130,7 +133,6 @@ from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.logging.logger import NOME_FILE_AVVII, NOME_FILE_LOG, chiudi, configura
 from amplicon16s.report.builder import CARTELLA_REPORT, CARTELLA_TABELLE, NOME_REPORT, costruisci, genera
 from amplicon16s.runner.executor import EVENTO_CONTROLLI, _blocco_r
-from amplicon16s.gates.registry import nomi_dei_gate
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import ProjectRun
 from amplicon16s.runner.retry import dimezza
@@ -196,7 +198,7 @@ def _campioni() -> list[Campione]:
         Campione("ERX3000002", "NOD1D4.L2"),
         Campione("ERX3000003", "POS.P1.1", materiale=POSITIVO, posizione="Not Applicable"),
         Campione("ERX3000004", "BLANK.P1.1", materiale=NEGATIVO, posizione="Not Applicable"),
-        Campione("ERX3000005", "TUBO.N1", posizione="Unopened 3DMM Swab Tube"),
+        Campione("ERX3000005", "TUBO.N1", posizione=FORMATO.riclassificati[0]),
     ]
 
 
@@ -217,8 +219,9 @@ def scenario(tmp_path):
 
 
 def _scrivi_config(scenario, percorso: Path, **gruppi: dict[str, Any]) -> Path:
-    """Scrive un file di configurazione minimo: i soli parametri obbligatori dello
-    scenario, piu' quelli indicati per gruppo. Tutto il resto vale il predefinito.
+    """Scrive un file di configurazione minimo: i percorsi e i parametri
+    obbligatori dello scenario, piu' quelli indicati per gruppo. Tutto il
+    resto vale il predefinito.
     """
     dati = dichiarazione_minima(scenario.config)
     for gruppo, valori in gruppi.items():
@@ -303,12 +306,12 @@ def test_la_configurazione_registrata_elenca_i_parametri_dichiarati(scenario, tm
     minimo = _scrivi_config(scenario, tmp_path / "minimo.yaml")
     esplicito = _scrivi_config(
         scenario, tmp_path / "esplicito.yaml",
-        prev={"min_fraction": defaults.PREV_MIN_FRACTION},
+        filter={"maxEE": defaults.FILTER_MAXEE},
     )
     dichiarati = parametri_dichiarati(carica(minimo))
-    assert "prev.min_fraction" not in dichiarati
+    assert "filter.maxEE" not in dichiarati
     assert {"io.out_root", "tax.ref_name", "run.threads"} <= set(dichiarati)
-    assert "prev.min_fraction" in parametri_dichiarati(carica(esplicito))
+    assert "filter.maxEE" in parametri_dichiarati(carica(esplicito))
     assert risolvi(carica(minimo)).digest == risolvi(carica(esplicito)).digest
 
     assert _cli("validate", "--config", str(esplicito), capsys=capsys)[0] == 0
@@ -471,7 +474,7 @@ def test_il_file_di_blocco_dichiara_dada2_con_la_correzione(scenario, tmp_path, 
 
     shutil.rmtree(Path(scenario.config.io.out_root) / Fase.LOGS.value)
     genera(scenario.config.io.out_root, fasi)
-    assert "La versione di dada2 non è determinabile" in _documento(scenario.config.io.out_root)
+    assert "La versione dichiarata di dada2 non è determinabile" in _documento(scenario.config.io.out_root)
 
 
 # --------------------------------------------------------------------------- #
@@ -507,19 +510,22 @@ def test_il_report_dopo_la_sola_validazione(scenario, file_config, capsys):
     assert [r["campione"] for r in _tabella(radice, "riclassificati")] == ["TUBO.N1"]
 
 
-def test_l_origine_dei_parametri_e_i_valori_di_osd734(scenario, file_config, fasi, capsys):
+def test_il_report_dice_l_origine_di_ogni_parametro(tmp_path, fasi, capsys):
     """
-    **Obiettivo**: Verificare che la tabella dei parametri distingua dichiarati,
-    predefiniti, derivati e aggiustati, e che la segnalazione in apertura
-    elenchi i parametri di ``DERIVATI_DAL_DATASET`` con il valore di OSD-734,
-    sia quando vengono dal predefinito sia quando sono dichiarati, con il
-    fatto accertato; un parametro dichiarato con un altro valore non coincide.
+    **Obiettivo**: Verificare che la tabella dei parametri del report dica,
+    per ogni parametro, se e' dichiarato nel file, preso dal predefinito,
+    derivato o aggiustato da un tentativo ripetuto; che un parametro con un
+    predefinito dichiarato al suo stesso valore risulti dichiarato; e che il
+    report non segnali piu' alcun predefinito legato a un dataset.
 
-    **Razionale scientifico e sistemistico**: Una configurazione copiata da
-    un'istanza completa dichiara anche i valori di OSD-734 che nessuno ha
-    scelto: l'origine da sola non basta, e il rischio e' una pipeline lanciata
-    su dati nuovi con i valori del dataset di riferimento.
+    **Razionale scientifico e sistemistico**: Nessun predefinito viene da un
+    dataset, quindi non c'e' un valore ereditato da segnalare in apertura:
+    resta la tabella, da cui chi legge vede che cosa e' stato scelto e che
+    cosa e' il valore standard del metodo.
     """
+    scenario = crea_scenario(tmp_path / "origine", _campioni(), con_arricchimento=True,
+                             con_letture=True)
+    file_config = _scrivi_config(scenario, tmp_path / "origine.yaml", filter={"truncLen": 120})
     assert _cli("run", "--config", str(file_config), capsys=capsys)[0] == 0
     codice, uscita = _cli("report", "--config", str(file_config), capsys=capsys)
     assert codice == 0
@@ -527,44 +533,29 @@ def test_l_origine_dei_parametri_e_i_valori_di_osd734(scenario, file_config, fas
 
     parametri = {r["parametro"]: r for r in _tabella(radice, "parametri")}
     assert parametri["filter.truncLen"]["origine"] == "dichiarato"
-    assert parametri["prev.min_fraction"]["origine"] == "predefinito"
+    for chiave in defaults.OBBLIGATORI:
+        assert parametri[chiave]["origine"] == "dichiarato", chiave
+    for chiave in defaults.STANDARD_DEL_METODO:
+        assert parametri[chiave]["origine"] == "predefinito", chiave
     assert parametri["asv.len_min"]["origine"] == "derivato"
-    assert parametri["asv.len_min"]["valore"] == "120"
+    assert parametri["asv.len_min"]["valore"] == str(
+        120 - scenario.config.filter.trimLeft - defaults.ASV_LEN_TOL)
     assert parametri["run.batch_size"]["origine"] == "predefinito"
     assert parametri["run.batch_size"]["valore"] == "24"
     assert parametri["run.batch_size"]["aggiustamento"] == "S4: 24 -> 12 dopo E-S4-02"
 
-    # La configurazione dichiara i parametri obbligatori e nessuno di quelli con
-    # un predefinito tarato su OSD-734: il report li elenca tutti, e solo quelli.
-    valori = {r["parametro"]: r for r in _tabella(radice, "valori_osd734")}
-    assert set(valori) == set(defaults.DERIVATI_DAL_DATASET)
-    assert not set(valori) & set(defaults.OBBLIGATORI)
-    assert {r["origine"] for r in valori.values()} == {"predefinito"}
-    assert valori["prev.min_fraction"]["valore in uso"] == str(defaults.PREV_MIN_FRACTION)
-    assert valori["prev.min_fraction"]["fatto accertato su OSD-734"] == defaults.FATTI_OSD734["prev.min_fraction"].fatto
-    numero = len(defaults.DERIVATI_DAL_DATASET)
-    assert f"{numero} parametri non dichiarati valgono il predefinito tarato su OSD-734" in uscita
-
     documento = _documento(radice)
-    assert f"<strong>{numero} parametri</strong>" in documento
-    assert "Per ognuno va controllato se quel fatto vale anche per il dataset in uso" in documento
-    assert documento.index("Parametri tarati su OSD-734 e non dichiarati") < documento.index('id="stato"')
-
-    # Dichiarati tutti, anche con lo stesso valore, non compare piu' nulla: la
-    # sezione lo dice in una riga e la tabella non viene scritta.
-    tarati: dict[str, dict[str, Any]] = {}
-    for chiave, riferimento in defaults.FATTI_OSD734.items():
-        gruppo, nome = chiave.split(".")
-        tarati.setdefault(gruppo, {})[nome] = riferimento.valore
-    tarati.setdefault("filter", {})["truncLen"] = 120
-    _scrivi_config(scenario, file_config, **tarati)
-    assert _cli("resume", "--config", str(file_config), capsys=capsys)[0] == 0
-    codice, uscita = _cli("report", "--config", str(file_config), capsys=capsys)
-    assert codice == 0 and "tarato su OSD-734" not in uscita
-    documento = _documento(radice)
-    assert ("Nessun parametro vale un predefinito tarato su OSD-734 senza essere stato "
-            "dichiarato nella configurazione.") in documento
+    assert "tarat" not in uscita and "tarat" not in documento
     assert not (Path(radice) / CARTELLA_REPORT / CARTELLA_TABELLE / "valori_osd734.tsv").exists()
+
+    # Un predefinito dichiarato, anche con lo stesso valore, diventa una scelta.
+    _scrivi_config(scenario, file_config, filter={"truncLen": 120},
+                   tax={"min_boot": defaults.TAX_MIN_BOOT})
+    assert _cli("resume", "--config", str(file_config), capsys=capsys)[0] == 0
+    assert _cli("report", "--config", str(file_config), capsys=capsys)[0] == 0
+    parametri = {r["parametro"]: r for r in _tabella(radice, "parametri")}
+    assert parametri["tax.min_boot"]["origine"] == "dichiarato"
+    assert parametri["filter.maxEE"]["origine"] == "predefinito"
 
 
 def test_tentativi_ripetuti_e_degradazioni_dai_manifesti(scenario, file_config, fasi, capsys):
@@ -819,18 +810,23 @@ def test_il_report_sostituisce_il_resoconto_provvisorio(file_config, capsys):
 # --------------------------------------------------------------------------- #
 
 
-_MOTIVO_BIOC = motivo_pacchetti_r_assenti(
-    "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings", "decontam"
-)
+@functools.cache
+def _sonda_bioc() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti(
+        "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings", "decontam"
+    )
 
 
 @pytest.fixture
 def bioc():
     """Richiede R con i pacchetti dell'intera catena: salta senza, ma in CI fallisce."""
-    if _MOTIVO_BIOC is not None:
+    if _sonda_bioc() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_BIOC}")
-        pytest.skip(_MOTIVO_BIOC)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_bioc()}")
+        pytest.skip(_sonda_bioc())
 
 
 @pytest.fixture
@@ -931,8 +927,9 @@ def test_il_report_sul_dataset_completo(catena_reale):
     run, _ = catena_reale
     report = costruisci(run.config.io.out_root)
     tabelle = {t.nome: t for t in report.tabelle}
-    assert len(tabelle["tracciamento_per_campione"].righe) == 960
-    assert len(tabelle["riclassificati"].righe) == 33
+    attesi = attesi_dataset()
+    assert len(tabelle["tracciamento_per_campione"].righe) == attesi["campioni"]
+    assert len(tabelle["riclassificati"].righe) == attesi["riclassificati"]
     assert "avvisi_provenienza" not in tabelle
     finale = run.albero.manifesto_passo(Passo.S14, Fase.FINAL)
     assert f"{finale.metriche['campioni']} campioni x" in report.html

@@ -30,7 +30,7 @@ degli artefatti).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -86,13 +86,13 @@ import logging.handlers
 from pathlib import Path
 
 import pytest
+from conftest import esegui_g15, fase_completa
 import yaml
 
-from sottoinsieme import dati_esempio
+from conftest import configurazione_di_prova as dati_esempio
 
 from amplicon16s.config.resolve import scrivi_risolta
 from amplicon16s.errors.exceptions import errore
-from amplicon16s.gates.g01_g15 import esegui_g15
 from amplicon16s.io_layer.artifacts import AlberoOutput, Fase
 from amplicon16s.logging.logger import (
     MAX_BYTE,
@@ -420,7 +420,7 @@ def test_esecuzione_fittizia_produce_albero_configurazione_e_log(tmp_path):
     assert (radice / Fase.FINAL_INTERMEDI.value).is_dir()
 
     # La configurazione risolta, registrata come artefatto
-    assert albero.fase_completa(Fase.CONFIG)
+    assert fase_completa(albero, Fase.CONFIG)
     assert "resolved.yaml" in albero.manifesto(Fase.CONFIG)
 
     # Il log strutturato

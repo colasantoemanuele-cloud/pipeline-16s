@@ -6,21 +6,31 @@ sul riferimento ``tax.ref_fasta``, e scrive in ``08_taxonomy/`` la tabella
 tassonomica, il bootstrap di ciascun rango (servira' ai filtri di S13 e
 all'interpretazione) e la copertura del phylum per classe di campioni.
 
-**Il classificatore.** ``tax.classifier`` vale ``naive_bayes``: il training set
-di SILVA per IdTaxa non e' distribuito da alcuna fonte. ``tax.min_boot`` e
-``tax.assign_species`` dipendono dalla parte dell'amplicone che le letture
-coprono: su sequenze corte il bootstrap e' sistematicamente piu' basso a parita'
-di correttezza (la scelta per OSD-734 e' motivata in ``config/defaults.py``).
+**Il classificatore.** ``tax.classifier`` vale ``naive_bayes``, il solo
+classificatore realizzato (``dada2::assignTaxonomy``). ``tax.min_boot`` ha per
+predefinito quello del pacchetto; su sequenze corte il bootstrap e'
+sistematicamente piu' basso a parita' di correttezza, e il valore va
+riesaminato quando le letture coprono solo una parte dell'amplicone.
 
 **Riproducibilita'.** Il seme viene da ``run.seed``. ``run.threads`` resta fuori
 dall'impronta: il bootstrap estrae i k-meri con ``runif`` di R prima del calcolo
 parallelo, e il numero di thread non cambia i byte degli artefatti (verificato
 nei test).
 
+**La versione di dada2, E-S8-03.** La versione ufficiale di dada2 sceglie fra
+generi a pari probabilita' con un generatore che il seme non controlla;
+l'immagine della pipeline ne porta una versione corretta. A ogni esecuzione,
+con o senza la regola rigorosa sulla provenienza, la fase legge dalle librerie
+installate la versione che R carichera' e la correzione che dichiara
+(``R/00_ambiente.R``) e le registra nelle metriche del manifesto; senza la
+correzione prosegue e lo dichiara con ``E-S8-03``, perche' quelle assegnazioni
+non sono ripetibili. Con la regola rigorosa un ambiente diverso dal file di
+blocco non arriva fin qui: l'esecuzione e' rifiutata all'avvio (``E-PROV-03``).
+
 **Il difetto noto del riferimento.** Se ``tax.ref_bad_taxa`` indica l'elenco dei
-taxa con un difetto noto (per SILVA 138 versione 2, un rango mancante nel
-percorso di 10 famiglie e 114 generi, per cui il nome compare nella colonna del
-rango superiore), il riferimento non si modifica: ``difetto_riferimento.tsv``
+taxa con un difetto noto (per esempio un rango mancante nel percorso di
+alcune famiglie e generi, per cui il nome compare nella colonna del rango
+superiore), il riferimento non si modifica: ``difetto_riferimento.tsv``
 elenca le assegnazioni che ricadono su quei taxa, in qualunque colonna, e il
 riepilogo riporta quante varianti e quante letture ne sono interessate.
 
@@ -52,6 +62,7 @@ __all__ = [
     "AssegnazioneTassonomica",
     "NOME_TASSONOMIA",
     "controlla_copertura",
+    "dada2_caricato",
     "leggi_taxa_difettosi",
     "marca_difetti",
 ]
@@ -62,6 +73,9 @@ NOME_TASSONOMIA: Final = "tassonomia.tsv"
 NOME_COPERTURA: Final = "copertura_per_gruppo.tsv"
 NOME_DIFETTI: Final = "difetto_riferimento.tsv"
 NOME_RIEPILOGO: Final = "riepilogo.json"
+#: Lo script che legge dalle librerie installate versione e correzione dei
+#: pacchetti R: lo stesso della regola rigorosa sulla provenienza.
+NOME_AMBIENTE: Final = "00_ambiente.R"
 
 
 def leggi_taxa_difettosi(percorso: Path) -> dict[str, str]:
@@ -107,11 +121,30 @@ def controlla_copertura(frazioni: Mapping[str, Mapping[str, float | None]], qc: 
         )
 
 
+def dada2_caricato(ambiente: Mapping[str, Any]) -> dict[str, Any]:
+    """La versione di dada2 che R carica e la correzione che dichiara, da cio'
+    che ``R/00_ambiente.R`` ha letto dalle librerie installate.
+
+    ``corretta`` e' vero se il pacchetto installato porta la correzione dei
+    pareggi di ``assignTaxonomy`` (i campi che la costruzione dell'immagine
+    scrive nel suo DESCRIPTION); la versione ufficiale non li ha.
+    """
+    voce = (ambiente.get("pacchetti") or {}).get("dada2") or {}
+    correzione = voce.get("correzione") or None
+    return {
+        "versione": voce.get("versione"),
+        "correzione": correzione,
+        "corretta": correzione is not None,
+    }
+
+
 class AssegnazioneTassonomica(PipelineStep):
     """S8: la tassonomia delle varianti, con il bootstrap di ogni rango."""
 
     passo: ClassVar[Passo] = Passo.S8
-    versione: ClassVar[int] = 1
+    #: 2: a ogni esecuzione accerta la versione di dada2 che R carica e la
+    #: correzione dei pareggi, e senza la correzione lo dichiara (E-S8-03).
+    versione: ClassVar[int] = 2
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: Il riferimento e il classificatore (il contenuto del riferimento entra
     #: con tax.ref_md5, che G12 verifica a ogni avvio); il seme del bootstrap;
@@ -137,6 +170,7 @@ class AssegnazioneTassonomica(PipelineStep):
             raise RuntimeError(
                 "tax.assign_species vero non e' realizzato: S8 assegna fino al genere"
             )
+        dada2 = self._accerta_dada2(contesto)
         esito = esegui_script(
             cartella_r() / NOME_SCRIPT,
             {
@@ -151,6 +185,7 @@ class AssegnazioneTassonomica(PipelineStep):
             contesto.albero,
             self.cartella,
             passo=self.passo,
+            tempo_massimo_s=contesto.config.run.r_timeout_s,
             logger=contesto.logger,
         )
         cartella = contesto.albero.cartella(self.cartella)
@@ -219,8 +254,41 @@ class AssegnazioneTassonomica(PipelineStep):
             "varianti_con_phylum": riepilogo["varianti_con_phylum"],
             "frazione_con_phylum": frazioni,
             "difetto_riferimento": {k: difetto[k] for k in ("varianti", "letture")},
+            # Nelle metriche del manifesto, non in un artefatto: descrive
+            # l'ambiente in cui la fase ha calcolato, non il suo risultato.
+            "dada2": dada2,
         }
         return Produzione(tuple(artefatti), metriche)
+
+    def _accerta_dada2(self, contesto: StepContext) -> dict[str, Any]:
+        """La versione di dada2 che R carica, e la degradazione ``E-S8-03`` se
+        non porta la correzione dei pareggi di ``assignTaxonomy``.
+
+        Si accerta a ogni esecuzione, non solo con la regola rigorosa sulla
+        provenienza: fuori dall'immagine la versione ufficiale assegna i
+        pareggi fra generi con un generatore che il seme non controlla, e una
+        tassonomia non ripetibile va dichiarata con i risultati. La lettura e'
+        quella della regola rigorosa (``R/00_ambiente.R``), sul solo dada2.
+        """
+        nome = f"ambiente_r_{self.passo}.json"
+        esegui_script(
+            cartella_r() / NOME_AMBIENTE, {"pacchetti": ["dada2"], "nome": nome},
+            contesto.albero, Fase.LOGS, passo=f"{self.passo}_AMBIENTE",
+            tempo_massimo_s=contesto.config.run.r_timeout_s, logger=contesto.logger,
+        )
+        ambiente = json.loads(
+            (contesto.albero.cartella(Fase.LOGS) / nome).read_text(encoding="utf-8")
+        )
+        dada2 = dada2_caricato(ambiente)
+        if not dada2["corretta"]:
+            contesto.degrada(
+                "E-S8-03",
+                f"dada2 {dada2['versione'] or 'non installato'} caricato da R non dichiara la "
+                "correzione dei pareggi di assignTaxonomy: l'assegnazione nei pareggi fra "
+                "generi non e' ripetibile",
+                versione=dada2["versione"],
+            )
+        return dada2
 
 
 def _frazione(parte: int, totale: int) -> float | None:

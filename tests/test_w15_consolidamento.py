@@ -30,7 +30,7 @@ funzionalita' nuova, si chiude il lavoro aperto sulle fasi gia' realizzate.
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalita locale standard (senza Bioconductor R):
        pytest tests/test_w15_consolidamento.py -v
@@ -79,12 +79,13 @@ funzionalita' nuova, si chiude il lavoro aperto sulle fasi gia' realizzate.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import os
 from pathlib import Path
 
 import pytest
-from conftest import copia_esecuzione
+from conftest import copia_esecuzione, esegui_g15
 from sottoinsieme import config_ridotta, motivo_pacchetti_r_assenti
 
 from amplicon16s.gates.g01_g15 import ErroreGate
@@ -106,16 +107,21 @@ def uscite_pulite():
     chiudi()
 
 
-_MOTIVO_ASSENTI = motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "jsonlite")
+@functools.cache
+def _sonda_assenti() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti("dada2", "ggplot2", "ShortRead", "jsonlite")
 
 
 @pytest.fixture
 def dada2():
     """Richiede R con dada2: salta senza, ma in CI fallisce."""
-    if _MOTIVO_ASSENTI is not None:
+    if _sonda_assenti() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_ASSENTI}")
-        pytest.skip(_MOTIVO_ASSENTI)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_assenti()}")
+        pytest.skip(_sonda_assenti())
 
 
 def _impronte(cartella: Path) -> dict[str, str]:
@@ -331,7 +337,7 @@ def test_un_problema_di_schema_non_attribuito_e_e_g15_99(tmp_path):
     from sottoinsieme import dati_config
 
     from amplicon16s.errors.catalog import Categoria
-    from amplicon16s.gates.g01_g15 import esegui_g15
+    from conftest import esegui_g15
 
     dati = dati_config(tmp_path)
     dati["filter"]["truncLenn"] = 137
@@ -397,7 +403,8 @@ COPERTURA: dict[str, str] = {
     "E-G15-99": "test_w15_consolidamento.py::test_un_problema_di_schema_non_attribuito_e_e_g15_99",
     "E-GRAFO-01": "test_w08_w09_graph_resume.py::test_nessuna_fase_gira_prima_delle_sue_dipendenze",
     "E-R-01": "test_w08_rbridge.py::test_senza_interprete_l_errore_e_del_catalogo",
-    "E-R-02": "test_w08_rbridge.py::test_processo_bloccato_ucciso_allo_scadere_del_tempo",
+    "E-R-02": "test_w08_rbridge.py::test_processo_morto_senza_dichiarare",
+    "E-R-05": "test_w08_rbridge.py::test_processo_bloccato_ucciso_allo_scadere_del_tempo",
     "E-R-03": "test_w08_rbridge.py::test_errore_r_non_catalogato",
     "E-R-04": "test_w08_rbridge.py::test_memoria_in_una_fase_senza_codice",
     "E-S0-01": "test_w07_gates.py::test_g01_fallisce_se_non_ci_sono_file_di_letture",
@@ -424,10 +431,11 @@ COPERTURA: dict[str, str] = {
     "E-S1-03": "test_w28_calcolo.py::test_con_poche_qualita_distinte_s1_avvisa_con_e_s1_03",
     "E-S1-04": "test_w29_soglia.py::test_un_file_con_le_due_letture_di_ogni_coppia_ferma_s1",
     "E-S1-05": "test_w29_soglia.py::test_un_file_troncato_oltre_le_letture_ispezionate_ferma_s1",
+    "E-S1-06": "test_w30_correzioni.py::test_un_figlio_ucciso_in_r_arriva_con_il_codice_di_memoria_della_fase",
     "E-S2-01": "test_w15_consolidamento.py::test_s2_ferma_su_un_biologico_azzerato_e_non_su_un_negativo",
     "E-S2-02": "test_w12_s02_filter.py::test_una_perdita_media_oltre_il_30_per_cento_ferma",
     "E-S2-03": "test_w12_s02_filter.py::test_un_archivio_corrotto_si_ferma_dopo_i_tentativi",
-    "E-S3-01": "test_w13_s03_batch.py::test_la_mancata_convergenza_con_basi_in_piu_si_ritenta",
+    "E-S3-01": "test_w13_s03_batch.py::test_la_mancata_convergenza_con_basi_in_piu_non_si_ritenta",
     "E-S3-02": "test_w13_s03_batch.py::test_un_campione_senza_corsa_con_la_colonna_attiva_ferma",
     "E-S3-03": "test_w28_calcolo.py::test_una_corsa_senza_letture_filtrate_ferma_con_e_s3_03",
     "E-S3-04": "test_w28_calcolo.py::test_con_poche_qualita_distinte_s1_avvisa_con_e_s1_03",
@@ -438,12 +446,14 @@ COPERTURA: dict[str, str] = {
     "E-S6-02": "test_w15_consolidamento.py::test_s6_oltre_l_avviso_registra_la_degradazione_e_prosegue",
     "E-S7-01": "test_w16_recupero.py::test_s7_senza_varianti_si_ferma_con_e_s7_01",
     "E-S8-02": "test_w17_tassonomia.py::test_e_s8_02_ferma_con_una_copertura_insufficiente",
+    "E-S8-03": "test_w30_ambiente.py::test_s8_accerta_dada2_a_ogni_esecuzione_e_senza_correzione_degrada",
     "E-S10-01": "test_w18_oggetto.py::test_s10_intercetta_una_tabella_di_s7_quadrata_trasposta",
     "E-S10-02": "test_w18_oggetto.py::test_una_colonna_ambigua_ferma_con_e_s10_02",
     "E-S11-02": "test_w19_controlli.py::test_s11_adatta_le_curve_e_scrive_la_soglia_con_il_suo_stadio",
     "E-S11-03": "test_w19_controlli.py::test_controlli_non_conformi_fanno_scattare_e_s11_03_o_l_avviso",
     "E-S11-04": "test_w19_controlli.py::test_controlli_non_conformi_fanno_scattare_e_s11_03_o_l_avviso",
     "E-S11-05": "test_w28_calcolo.py::test_senza_controlli_positivi_s11_dichiara_e_s11_05",
+    "E-S11-06": "test_w29_soglia.py::test_un_livello_con_troppo_pochi_controlli_e_dichiarato_con_un_avviso",
     "E-S12-02": "test_w20_decontam.py::test_oltre_la_frazione_massima_la_modalita_dichiarata_si_ferma",
     "E-S12-03": "test_w28_calcolo.py::test_con_pochi_negativi_s12_dichiara_e_s12_03",
     "E-S12-04": "test_w28_calcolo.py::test_s12_senza_biologici_con_letture_o_con_sole_varianti_contaminanti_ha_un_codice",

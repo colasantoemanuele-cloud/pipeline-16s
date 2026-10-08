@@ -47,7 +47,7 @@ dopo S13 e prima di S14; albero nell'oggetto finale e negli export).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -78,7 +78,7 @@ dopo S13 e prima di S14; albero nell'oggetto finale e negli export).
 
 5. Risultato atteso
 -------------------
-Vedi ``test.txt``, scheda W23.
+I conteggi li da' pytest (``pytest --collect-only -q``).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -94,6 +94,7 @@ Vedi ``test.txt``, scheda W23.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -104,7 +105,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
-from conftest import NEGATIVO, POSITIVO, Campione, copia_esecuzione, crea_scenario
+from conftest import Campione, copia_esecuzione, crea_scenario, discendenti, NEGATIVO, POSITIVO
 from sottoinsieme import config_ridotta, motivo_pacchetti_r_assenti, processori_disponibili
 
 import amplicon16s.steps.s09_phylogeny as s09
@@ -219,7 +220,7 @@ def test_s9_sta_fra_s13_e_s14_e_s10_non_ne_dipende():
     assert [n.passo for n in GRAFO if n.facoltativa] == [Passo.S9]
     assert GRAFO.nodo(Passo.S9).parametro_attivazione == "phylo.enabled"
     assert GRAFO.nodo(Passo.S9).cartella is Fase.PHYLOGENY
-    assert GRAFO.discendenti(Passo.S9) == (Passo.S14,)
+    assert discendenti(Passo.S9) == (Passo.S14,)
     assert PRECEDENZE_OBBLIGATORIE == ((Passo.S12, Passo.S13, "E-S13-01"),)
     assert set(passi_realizzati()) == set(Passo)
 
@@ -309,9 +310,10 @@ def test_i_parametri_della_filogenesi(tmp_path):
     parametro dimenticato nella dichiarazione non rifarebbe la fase.
     """
     config = config_ridotta(tmp_path)
-    assert (config.phylo.enabled, config.phylo.max_seqs, config.phylo.aligner, config.phylo.model) == (
-        False, 5000, "decipher", "GTR+G+I",
-    )
+    # Attivazione e limite delle varianti non hanno un predefinito: vanno dichiarati.
+    campi = Config.model_fields["phylo"].annotation.model_fields
+    assert campi["enabled"].is_required() and campi["max_seqs"].is_required()
+    assert config.phylo.enabled is False and config.phylo.max_seqs > 0
     for chiave, valore in (("aligner", "mafft"), ("model", "JC")):
         with pytest.raises(ErroreConfigurazione, match=f"phylo.{chiave}"):
             config_ridotta(tmp_path, phylo={chiave: valore})
@@ -433,10 +435,15 @@ def test_e_s9_02_ferma_con_troppo_poche_varianti(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- #
 
 
-_MOTIVO_BIOC = motivo_pacchetti_r_assenti(
-    "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings", "decontam",
-    "DECIPHER", "phangorn", "ape",
-)
+@functools.cache
+def _sonda_bioc() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti(
+        "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings", "decontam",
+        "DECIPHER", "phangorn", "ape",
+    )
 
 
 @pytest.fixture
@@ -444,10 +451,10 @@ def bioc():
     """Richiede R con i pacchetti della catena, DECIPHER e phangorn: salta senza,
     ma in CI fallisce.
     """
-    if _MOTIVO_BIOC is not None:
+    if _sonda_bioc() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_BIOC}")
-        pytest.skip(_MOTIVO_BIOC)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_bioc()}")
+        pytest.skip(_sonda_bioc())
 
 
 def _con_filogenesi(base, cartella: Path, **sovrascrivi: dict[str, Any]) -> tuple[ProjectRun, Any]:
@@ -558,7 +565,6 @@ jsonlite::write_json(list(
     allineate = (filogenesi / NOME_ALLINEAMENTO).read_text(encoding="utf-8").splitlines()
     assert [r[1:] for r in allineate[0::2]] == letti["varianti"]
     assert {len(r) for r in allineate[1::2]} == {riepilogo["colonne_allineamento"]}
-    print(f"\nS9: {dict(esito.eseguite[0].metriche)}")
 
 
 def test_l_albero_e_identico_fra_due_esecuzioni_e_con_thread_diversi(
@@ -728,4 +734,4 @@ def test_la_filogenesi_sul_dataset_completo(bioc, catena_reale, tmp_path):
     assert len(set(_foglie(newick))) == finali == esito.eseguite[0].metriche["varianti"]
     dopo = {str(p.relative_to(origine)): p.stat().st_mtime_ns for p in origine.rglob("*") if p.is_file()}
     assert dopo == prima
-    print(f"\nS9 sul dataset completo: {esito.eseguite[0].secondi} s, {finali} varianti")
+    assert finali <= run.config.phylo.max_seqs

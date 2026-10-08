@@ -45,7 +45,7 @@ dei controlli).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -76,7 +76,7 @@ dei controlli).
 
 5. Risultato atteso
 -------------------
-Vedi ``test.txt``, scheda W19.
+I conteggi li da' pytest (``pytest --collect-only -q``).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -94,6 +94,7 @@ Vedi ``test.txt``, scheda W19.
 
 from __future__ import annotations
 
+import functools
 import csv
 import hashlib
 import json
@@ -104,7 +105,12 @@ from pathlib import Path
 
 import pytest
 from conftest import copia_esecuzione
-from sottoinsieme import TAXON_SINTETICO, config_ridotta, motivo_pacchetti_r_assenti
+from sottoinsieme import (
+    TAXON_SINTETICO,
+    attesi_dataset,
+    config_ridotta,
+    motivo_pacchetti_r_assenti,
+)
 
 from amplicon16s.config import defaults
 from amplicon16s.config.resolve import risolvi
@@ -112,6 +118,7 @@ from amplicon16s.errors.exceptions import ErrorePipeline
 from amplicon16s.gates.g01_g15 import Contesto
 from amplicon16s.gates.registry import esegui_gate
 from amplicon16s.io_layer.artifacts import Fase
+from amplicon16s.metadata.tabelle import nome_nell_oggetto
 from amplicon16s.logging.logger import chiudi
 from amplicon16s.rbridge.payload import PREFISSO
 from amplicon16s.rbridge.runner import cartella_r, trova_rscript
@@ -132,19 +139,29 @@ def uscite_pulite():
     chiudi()
 
 
-_MOTIVO_R = motivo_pacchetti_r_assenti("jsonlite")
-_MOTIVO_BIOC = motivo_pacchetti_r_assenti(
-    "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings"
-)
+@functools.cache
+def _sonda_r() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti("jsonlite")
+@functools.cache
+def _sonda_bioc() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti(
+        "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings"
+    )
 
 
 @pytest.fixture
 def r():
     """Richiede R con jsonlite: salta senza, ma in CI fallisce."""
-    if _MOTIVO_R is not None:
+    if _sonda_r() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_R") == "1":
-            pytest.fail(f"R e' richiesto in questo ambiente: {_MOTIVO_R}")
-        pytest.skip(_MOTIVO_R)
+            pytest.fail(f"R e' richiesto in questo ambiente: {_sonda_r()}")
+        pytest.skip(_sonda_r())
 
 
 @pytest.fixture
@@ -152,10 +169,10 @@ def bioc():
     """Richiede R con phyloseq e i pacchetti delle fasi a monte: salta senza, ma in
     CI fallisce.
     """
-    if _MOTIVO_BIOC is not None:
+    if _sonda_bioc() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_BIOC}")
-        pytest.skip(_MOTIVO_BIOC)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_bioc()}")
+        pytest.skip(_sonda_bioc())
 
 
 def _tsv(percorso: Path) -> list[dict[str, str]]:
@@ -214,13 +231,12 @@ def test_i_parametri_di_s11_hanno_i_valori_del_piano(tmp_path):
     """
     config = config_ridotta(tmp_path)
     k = config.katharoseq
-    assert (k.cell_count_column, k.collapse_rank, k.curve_model) == (
-        "katharoseq_cell_count", "Genus", "allosteric_sigmoid"
-    )
-    # Nel riferimento sintetico Variovorax ha un nome inventato.
+    assert (k.collapse_rank, k.curve_model) == ("Genus", "allosteric_sigmoid")
+    assert k.cell_count_column in config.out.batch_columns
+    # Nel riferimento sintetico il ceppo dei controlli positivi ha un nome inventato.
     assert k.target_taxon == TAXON_SINTETICO
-    assert defaults.ESEMPIO_OSD734["katharoseq.target_taxon"].valore == "Variovorax"
-    assert (k.target_sensitivity, k.min_r2, k.read_stage) == (0.90, 0.80, "nonchimeric")
+    assert k.read_stage == defaults.KATHAROSEQ_READ_STAGE == "nonchimeric"
+    assert 0.5 < k.min_r2 < 1 and 0.5 < k.target_sensitivity < 1
     assert config.qc.min_reads_mode == "katharoseq_if_available"
     assert (config.ctrl.min_positives, config.ctrl.min_positive_pass_frac,
             config.ctrl.positive_gate) == (3, 0.75, False)
@@ -261,12 +277,12 @@ def test_la_colonna_dei_livelli_si_cerca_fra_quelle_del_lotto():
     """
     corrispondenza = [
         {"colonna": "materiale", "origine": "tabella campioni di studio (io.study_table)",
-         "colonna_originale": "katharoseq_cell_count"},
-        {"colonna": "katharoseq_cell_count", "origine": "file di arricchimento (io.batch_table)",
-         "colonna_originale": "katharoseq_cell_count"},
+         "colonna_originale": "Cellule seminate"},
+        {"colonna": "cellule_seminate", "origine": "file di arricchimento (io.batch_table)",
+         "colonna_originale": "Cellule seminate"},
     ]
-    assert colonna_dei_livelli(corrispondenza, "katharoseq_cell_count") == "katharoseq_cell_count"
-    assert colonna_dei_livelli(corrispondenza[:1], "katharoseq_cell_count") is None
+    assert colonna_dei_livelli(corrispondenza, "Cellule seminate") == "cellule_seminate"
+    assert colonna_dei_livelli(corrispondenza[:1], "Cellule seminate") is None
 
 
 # --------------------------------------------------------------------------- #
@@ -485,12 +501,12 @@ def test_s11_adatta_le_curve_e_scrive_la_soglia_con_il_suo_stadio(bioc, controll
         assert voce["valore"] == per_piastra["10"]["valore"]
     manifesto = run.albero.manifesto_passo(Passo.S11, Fase.CONTROLS)
     assert soglia["degradazione"] is True
-    assert [d["codice"] for d in manifesto.degradazioni] == ["E-S11-02"]
+    # Nel sottoinsieme ogni livello di concentrazione ha meno controlli del
+    # minimo: la conformita' non e' valutata, e la fase lo dichiara.
+    assert [d["codice"] for d in manifesto.degradazioni] == ["E-S11-02", "E-S11-06"]
     for piastra in ("2", "4", "8"):
         assert f"{piastra}: soglia {per_piastra[piastra]['origine']}" in (
             manifesto.degradazioni[0]["dettaglio"])
-    print(f"\nS11 sulla versione ridotta: {dict(esito.eseguite[0].metriche)}")
-    print(f"scelta: {soglia['scelta']} ({soglia['motivo_scelta']})")
 
 
 def test_la_misura_sui_campioni_usa_la_soglia_del_suo_stadio(bioc, controlli_calcolati):
@@ -612,7 +628,8 @@ def test_l_assenza_della_soglia_e_registrata_con_il_motivo(bioc, oggetto_calcola
     righe = _tsv(run.albero.cartella(Fase.CONTROLS) / "profondita_campioni.tsv")
     assert {(r["soglia"], r["sotto_soglia"]) for r in righe} == {("", "no")}
     manifesto = run.albero.manifesto_passo(Passo.S11, Fase.CONTROLS)
-    assert [d["codice"] for d in manifesto.degradazioni] == (["E-S11-05"] if degrada else [])
+    assert [d["codice"] for d in manifesto.degradazioni] == [
+        *(["E-S11-05"] if degrada else []), "E-S11-06"]
     if degrada:
         assert nel_motivo in manifesto.degradazioni[0]["dettaglio"]
 
@@ -639,8 +656,8 @@ tax <- matrix(c("Bacteria", "Bacteria", "Proteobacteria", "Cyanobacteria", "C", 
 dati <- data.frame(accession = campioni, sample_name = campioni,
                    classe = c(rep("controllo_positivo", 24), rep("biologico", 6)),
                    piastra = piastra,
-                   katharoseq_cell_count = c(format(rep(cellule, 3)), rep(NA, 6)),
                    row.names = campioni, stringsAsFactors = FALSE)
+dati[[colonna_cellule]] <- c(format(rep(cellule, 3)), rep(NA, 6))
 ps <- phyloseq(otu_table(otu, taxa_are_rows = TRUE), tax_table(tax), sample_data(dati))
 saveRDS(ps, oggetto)
 """
@@ -656,7 +673,10 @@ def _s11_su_oggetto_costruito(run, tmp_path, contaminate: list[int]):
     script.write_text(
         f"oggetto <- {json.dumps(str(oggetto))}\n"
         f"contaminate <- c({', '.join(str(i) for i in contaminate)})\n"
-        f"taxon <- {json.dumps(run.config.katharoseq.target_taxon)}\n" + COSTRUISCI_OGGETTO,
+        f"taxon <- {json.dumps(run.config.katharoseq.target_taxon)}\n"
+        "colonna_cellule <- "
+        f"{json.dumps(nome_nell_oggetto(run.config.katharoseq.cell_count_column))}\n"
+        + COSTRUISCI_OGGETTO,
         encoding="utf-8",
     )
     subprocess.run([str(trova_rscript()), "--vanilla", str(script)], check=True,
@@ -740,9 +760,19 @@ def test_s11_sul_dataset_completo(bioc, catena_reale):
     run, esito = catena_reale
     assert esito.conclusione is Conclusione.COMPLETATA
     s11 = next(r for r in esito.eseguite if r.passo is Passo.S11)
-    print(f"\nS11: {s11.secondi} s, {dict(s11.metriche)}")
     soglia = _soglia(run)
     assert soglia["scelta"] in ("per_piastra", "aggregato")
+    # Ogni piastra ha una soglia, sullo stadio dichiarato, con la sua origine;
+    # la degradazione e' dichiarata se e solo se una piastra e' in ripiego.
+    piastre = {c.piastra for c in run.valuta().inventario if c.piastra}
+    assert set(soglia["per_piastra"]) == piastre
+    for voce in soglia["per_piastra"].values():
+        assert voce["stadio"] == run.config.katharoseq.read_stage and voce["valore"] > 0
+        assert voce["origine"] in ("propria", "aggregata", "mediana")
+    ripieghi = soglia["scelta"] == "per_piastra" and any(
+        v["origine"] != "propria" for v in soglia["per_piastra"].values())
+    assert soglia["degradazione"] is ripieghi
+    assert s11.metriche["positivi"] == attesi_dataset()["classi"]["controllo_positivo"]
     riepilogo = _riepilogo(run)
     assert riepilogo["frazione_conformi"] >= run.config.ctrl.min_positive_pass_frac
     manifesto = run.albero.manifesto_passo(Passo.S11, Fase.CONTROLS)

@@ -43,7 +43,7 @@ riproducibilita'.
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -74,7 +74,7 @@ riproducibilita'.
 
 5. Risultato atteso
 -------------------
-Vedi ``test.txt``, scheda W24. Nell'immagine senza il repository montato, come
+I conteggi li da' pytest (``pytest --collect-only -q``). Nell'immagine senza il repository montato, come
 nella CI, ``dati/`` manca: i cinque test che usano lo script di confronto e i
 checksum pubblicati si saltano, i due sui percorsi relativi girano.
 
@@ -102,7 +102,14 @@ from pathlib import Path
 
 import pytest
 import yaml
-from conftest import NEGATIVO, POSITIVO, Campione, crea_scenario, dichiarazione_minima
+from conftest import (
+    Campione,
+    crea_scenario,
+    dichiarazione_minima,
+    NEGATIVO,
+    nomi_dei_gate,
+    POSITIVO,
+)
 from sottoinsieme import dati_config, motivo_pacchetti_r_assenti
 
 RADICE = Path(__file__).resolve().parents[1]
@@ -424,91 +431,23 @@ def test_i_manifesti_si_cercano_nelle_sole_cartelle_delle_fasi(attesi, capsys):
     assert "06_seqtab/manifest_S5.json" in str(info.value)
 
 
-#: L'impronta di ``checksum_artefatti.tsv`` quando contiene il riferimento
-#: prodotto dal commit af82ef9, precedente alle modifiche che hanno cambiato per
-#: costruzione alcuni artefatti. Le differenze ammesse dal test sul dataset
-#: completo valgono solo per quel riferimento: rigenerato il file, cadono.
-RIFERIMENTO_PRECEDENTE = "48051f4b971febec2da297ffb997e3e0a12541a3168e46440386e735e4c63978"
-#: L'ordine dei gate in ``gates.json`` di quel riferimento: G15, poi il numero.
-ORDINE_DEI_GATE_PRECEDENTE = ("G15", *(f"G{n:02d}" for n in range(1, 15)))
-
-
-def _gates_nell_ordine_precedente(percorso: Path) -> str:
-    """Il contenuto di ``gates.json`` con i gate rimessi nell'ordine del
-    riferimento precedente, riserializzato come lo scrive S0.
-    """
-    from amplicon16s.gates.g01_g15 import Avviso, Violazione
-    from amplicon16s.gates.registry import EsitoGate
-    from amplicon16s.steps.s00_validate import _esiti_json
-
-    documento = json.loads(percorso.read_text(encoding="utf-8"))
-    per_nome = {voce["gate"]: voce for voce in documento["gate"]}
-    assert sorted(per_nome) == sorted(ORDINE_DEI_GATE_PRECEDENTE)
-    esiti = tuple(
-        EsitoGate(
-            gate=voce["gate"], descrizione=voce["descrizione"], eseguito=voce["eseguito"],
-            superato=voce["superato"],
-            violazioni=tuple(Violazione(**v) for v in voce["violazioni"]),
-            avvisi=tuple(Avviso(**a) for a in voce["avvisi"]),
-        )
-        for voce in (per_nome[nome] for nome in ORDINE_DEI_GATE_PRECEDENTE)
-    )
-    return _esiti_json(esiti)
-
-
 @richiede_dati
-def test_gates_json_riordinato_si_riserializza_con_gli_stessi_byte(tmp_path):
-    """
-    **Obiettivo**: Verificare su un'esecuzione di S0 sintetica che rimettere i
-    gate di ``gates.json`` nell'ordine di esecuzione e riserializzarli con la
-    funzione di S0 restituisca gli stessi byte del file, e che un ordine diverso
-    ne cambi l'impronta.
-
-    **Razionale scientifico e sistemistico**: Il confronto sul dataset completo
-    ammette per ``gates.json`` il solo cambio d'ordine dei gate: la
-    riserializzazione dev'essere fedele al byte, altrimenti proverebbe poco.
-    """
-    from amplicon16s.gates.registry import nomi_dei_gate
-    from amplicon16s.steps.s00_validate import esegui_s0
-
-    scenario = crea_scenario(tmp_path, [
-        Campione("ERX3000001", "NOD1D4.L1"), Campione("ERX3000002", "NOD1D4.L2"),
-        Campione("ERX3000003", "POS.P1.1", materiale=POSITIVO, posizione="Not Applicable"),
-        Campione("ERX3000004", "BLANK.P1.1", materiale=NEGATIVO, posizione="Not Applicable"),
-    ], con_letture=True)
-    assert esegui_s0(scenario.config).superata
-    percorso = tmp_path / "out" / Fase.INPUT_VALIDATION.value / "gates.json"
-    originale = percorso.read_text(encoding="utf-8")
-    assert [v["gate"] for v in json.loads(originale)["gate"]] == list(nomi_dei_gate())
-    riordinato = _gates_nell_ordine_precedente(percorso)
-    assert riordinato != originale
-    assert json.loads(riordinato)["superata"] is True
-    assert [v["gate"] for v in json.loads(riordinato)["gate"]] == list(ORDINE_DEI_GATE_PRECEDENTE)
-    percorso.write_text(riordinato, encoding="utf-8")
-    assert _gates_nell_ordine_precedente(percorso) == riordinato
-
-
-@richiede_dati
-@pytest.mark.dati_reali
+@pytest.mark.riferimento
 def test_la_catena_sul_dataset_completo_da_i_checksum_pubblicati(catena_reale, capsys):
     """
-    **Obiettivo**: Verificare che gli artefatti della catena S0-S14 eseguita
-    dalla suite sul dataset completo coincidano con i checksum attesi
-    pubblicati, tranne quelli di S1, che la catena condivisa non esegue, e le
-    differenze per costruzione dichiarate in ``dati/osd734/README.md`` finche'
-    i checksum pubblicati non si rigenerano: l'ordine dei gate in S0, gli
-    intermedi di S13 spostati in ``12_final/intermedi``, e in S14 l'elenco dei
-    checksum con ``ps_controlli.rds``. I cinque file consegnati pubblicati
-    devono coincidere. Ogni differenza ammessa e' verificata nel contenuto:
-    ``gates.json``, con i gate rimessi nell'ordine del riferimento, ha
-    l'impronta pubblicata; la riga in piu' di ``checksum.sha256`` e' l'impronta
-    di ``ps_controlli.rds``, uguale a quella pubblicata. Le differenze sono
-    ammesse solo finche' ``checksum_artefatti.tsv`` e' il riferimento
-    precedente: se il file cambia, non ne e' ammessa alcuna.
+    **Obiettivo**: Verificare che ogni artefatto della catena S0-S14 eseguita
+    dalla suite sul dataset completo abbia l'impronta pubblicata in
+    ``dati/osd734/checksum_artefatti.tsv``: le sole righe di differenza
+    ammesse sono gli artefatti di S1, che mancano perche' la catena condivisa
+    non esegue S1, e nessun artefatto puo' cambiare ne' comparire in piu'.
 
     **Razionale scientifico e sistemistico**: E' la regressione piu' stretta
     che la suite possa esprimere: lo stesso dato, la stessa configurazione e il
     codice corrente devono dare gli stessi byte dell'esecuzione di riferimento.
+    Ha un marcatore proprio (``riferimento``) perche' non verifica la
+    correttezza di un comportamento, ma l'identita' con un'esecuzione
+    pubblicata: fallisce, a ragione, ogni volta che una modifica voluta cambia
+    i risultati, e allora vanno rigenerati i checksum, non corretto il codice.
     """
     run, _ = catena_reale
     capsys.readouterr()
@@ -516,40 +455,9 @@ def test_la_catena_sul_dataset_completo_da_i_checksum_pubblicati(catena_reale, c
     uscita = capsys.readouterr().out
     diverse = [riga.split()[0] for riga in uscita.splitlines() if "differenze" in riga]
     assert esito == (1 if diverse else 0)
-    # Ogni riga di differenza dev'essere una di quelle dichiarate, per nome:
-    # nient'altro puo' cambiare, mancare o comparire.
     pubblicati = _pubblicati()
-    di_s1 = {r["nome"] for r in pubblicati if r["fase"] == "S1"}
-    # S1 non e' fra le fasi della catena condivisa: i suoi artefatti mancano
-    # qualunque sia il riferimento.
-    ammesse = {("S1", nome, "manca") for nome in di_s1}
-    riferimento_precedente = (
-        confronto.sha256(DATI / "checksum_artefatti.tsv") == RIFERIMENTO_PRECEDENTE
-    )
-    if not riferimento_precedente:
-        # Checksum pubblicati rigenerati: le tolleranze cadono. Ogni artefatto
-        # della catena deve avere l'impronta pubblicata; le sole righe di
-        # differenza ammesse sono gli artefatti di S1, che mancano perche' la
-        # catena condivisa non esegue S1. Il resto del test, scritto per le
-        # differenze dal riferimento precedente, non serve.
-        assert set(diverse) <= {"S1"}, uscita
-        fase = None
-        for riga in uscita.splitlines():
-            if riga[:1] == "S" and "artefatti attesi" in riga:
-                fase = riga.split()[0]
-            elif riga.startswith(" ") and ": " in riga:
-                nome, stato = (parte.strip() for parte in riga.rsplit(": ", 1))
-                assert (fase, nome, stato) in ammesse, riga
-        assert uscita.count("identica") == len(confronto.ORDINE) - 1 - len(diverse)
-        return
-    assert set(diverse) <= {"S0", "S1", "S13", "S14"}, uscita
-    di_s13 = {r["nome"]: r["sha256"] for r in pubblicati if r["fase"] == "S13"}
-    spostati = set(di_s13) - {"ps_controlli.rds"}
-    ammesse |= (
-        {("S0", "gates.json", "contenuto diverso"), ("S14", "checksum.sha256", "contenuto diverso"),
-         ("S14", "ps_controlli.rds", "non atteso"), ("S1", "valori_qualita.tsv", "non atteso")}
-        | {("S13", nome, "manca") for nome in spostati}
-    )
+    ammesse = {("S1", r["nome"], "manca") for r in pubblicati if r["fase"] == "S1"}
+    assert set(diverse) <= {"S1"}, uscita
     fase = None
     for riga in uscita.splitlines():
         if riga[:1] == "S" and "artefatti attesi" in riga:
@@ -557,25 +465,9 @@ def test_la_catena_sul_dataset_completo_da_i_checksum_pubblicati(catena_reale, c
         elif riga.startswith(" ") and ": " in riga:
             nome, stato = (parte.strip() for parte in riga.rsplit(": ", 1))
             assert (fase, nome, stato) in ammesse, riga
-    # Gli intermedi di S13 hanno gli stessi byte, nella loro cartella nuova; i
-    # file consegnati pubblicati coincidono, e sono le prime righe dell'elenco.
+    assert uscita.count("identica") == len(confronto.ORDINE) - 1 - len(diverse)
+    # I file consegnati hanno le impronte pubblicate a parte.
     finale = Path(run.config.io.out_root) / "12_final"
-    for nome in spostati:
-        assert confronto.sha256(finale / "intermedi" / nome) == di_s13[nome], nome
-    assert confronto.sha256(finale / "ps_controlli.rds") == di_s13["ps_controlli.rds"]
-    attesi_finali = confronto.ATTESI_FINALI.read_text(encoding="utf-8").splitlines()
-    for riga in attesi_finali:
+    for riga in confronto.ATTESI_FINALI.read_text(encoding="utf-8").splitlines():
         impronta, nome = riga.split(maxsplit=1)
         assert confronto.sha256(finale / nome) == impronta, nome
-    elenco = (finale / "checksum.sha256").read_text(encoding="utf-8").splitlines()
-    assert elenco[:len(attesi_finali)] == attesi_finali and len(elenco) == len(attesi_finali) + 1
-    # La riga in piu' e' l'impronta di ps_controlli.rds, la stessa pubblicata.
-    assert elenco[-1] == f"{di_s13['ps_controlli.rds']}  ps_controlli.rds"
-    # gates.json differisce per il solo ordine dei gate: rimessi nell'ordine del
-    # riferimento e riserializzati come li scrive S0, danno l'impronta pubblicata.
-    (gates,) = [r for r in pubblicati if r["nome"] == "gates.json"]
-    riordinato = _gates_nell_ordine_precedente(Path(run.config.io.out_root) / gates["cartella"]
-                                               / "gates.json")
-    assert hashlib.sha256(riordinato.encode("utf-8")).hexdigest() == gates["sha256"]
-    attesi = sum(r["fase"] != "S1" for r in _pubblicati())
-    assert uscita.count("identica") == len(confronto.ORDINE) - 1 - len(diverse) and attesi > 1000

@@ -26,7 +26,7 @@ verificate contro gli artefatti che legge davvero.
   varianti finali di S13 e S14 aggiunge l'albero all'oggetto finale; S10
   assembla l'oggetto integrato sempre senza albero, e non ne dipende. Costruire
   l'albero sulle varianti di S7, prima dei filtri, lo renderebbe inutilizzabile:
-  sul dataset di riferimento sono 12.045 contro le 1.753 consegnate, oltre
+  sono molte di più delle varianti finali, e possono superare
   ``phylo.max_seqs``.
 * S12 **precede obbligatoriamente** S13: la decontaminazione va fatta prima del
   filtro di prevalenza. Il vincolo è una dipendenza diretta che il grafo
@@ -198,15 +198,6 @@ class Grafo:
                 if dipendenza not in raggiunti:
                     raggiunti.add(dipendenza)
                     da_visitare.append(dipendenza)
-        return tuple(p for p in self._nodi if p in raggiunti)
-
-    def discendenti(self, passo: Passo) -> tuple[Passo, ...]:
-        """Le fasi che dipendono, anche indirettamente, da quella data."""
-        raggiunti = {passo}
-        for nodo in self._nodi.values():
-            if raggiunti & set(nodo.dipendenze):
-                raggiunti.add(nodo.passo)
-        raggiunti.discard(passo)
         return tuple(p for p in self._nodi if p in raggiunti)
 
 

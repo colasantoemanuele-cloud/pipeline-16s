@@ -11,7 +11,7 @@ Il contratto passa per il filesystem (:mod:`amplicon16s.rbridge.payload`), e
 il ponte traduce ciò che trova in un'eccezione della gerarchia di
 :class:`~amplicon16s.errors.exceptions.ErrorePipeline`, così un errore R si
 cattura e si registra come qualunque altro errore della pipeline. I casi sono
-cinque:
+sei:
 
 * **riuscito**: lo script ha dichiarato il successo, è uscito con 0 e gli
   artefatti dichiarati esistono; vengono registrati nel manifesto della fase;
@@ -19,23 +19,27 @@ cinque:
   l'eccezione porta esattamente quel codice;
 * **memoria esaurita**: riconosciuta dal ponte, ma il codice lo sceglie la
   fase con ``codice_memoria``, perché lo stesso guasto ha codici diversi in
-  fasi diverse (``E-S4-02`` durante l'inferenza, ``E-S5-01`` sulla tabella
-  delle varianti). Una fase che non ne indica uno riceve ``E-R-04``;
+  fasi diverse (``E-S1-06`` nel profilo, ``E-S4-02`` durante l'inferenza,
+  ``E-S5-01`` sulla tabella delle varianti). Una fase che non ne indica uno riceve ``E-R-04``;
 * **errore non catalogato**: un errore R che lo script non ha ricondotto a un
   codice, ``E-R-03``;
 * **nessuna dichiarazione**: il processo è morto senza poter scrivere
-  l'esito, ``E-R-02``; lo stesso codice vale per un processo che supera il
-  tempo massimo indicato e viene ucciso, perché un figlio bloccato non deve
-  poter bloccare l'orchestratore.
+  l'esito, ``E-R-02``;
+* **tempo scaduto**: il processo ha superato ``run.r_timeout_s`` ed è stato
+  ucciso con il suo gruppo, ``E-R-05``, perché un figlio bloccato non deve
+  poter bloccare l'orchestratore. Senza il parametro non c'è limite.
 
-La memoria esaurita si manifesta in due modi, e il ponte li riconosce
-entrambi. Se l'interprete intercetta l'allocazione fallita, l'errore arriva
+La memoria esaurita si manifesta in tre modi, e il ponte li riconosce
+tutti. Se il sistema uccide un processo figlio del calcolo parallelo di R, il
+genitore sopravvive con un risultato mancante e un avviso
+(``did not deliver results``): l'errore che ne segue, qualunque sia, e' letto
+come memoria esaurita. Se l'interprete intercetta l'allocazione fallita, l'errore arriva
 con il messaggio di R (dichiarato come errore non catalogato, oppure solo
 sull'uscita di errore se il processo non è riuscito a dichiarare). Se invece è
 il sistema operativo a uccidere il processo, non resta alcun messaggio, solo
 il segnale ``SIGKILL``: nessuna dichiarazione e ``SIGKILL`` sono letti come
 memoria esaurita. È una presunzione (anche un operatore può inviare quel
-segnale), ma è quella giusta: il retry ammesso per la memoria riduce la
+segnale), ma è quella giusta: il solo retry ammesso per la memoria riduce la
 dimensione del lotto, e non cambia alcuna assunzione metodologica.
 
 I messaggi di R sono tradotti nella lingua della macchina, quindi il ponte
@@ -64,7 +68,7 @@ import signal
 import subprocess
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -123,8 +127,19 @@ _MEMORIA_ESAURITA: Final = re.compile(
     r"|std::bad_alloc"
     r"|'(?:R_)?Calloc' could not allocate memory"
     r"|'(?:R_)?Realloc' could not re-allocate memory"
-    r"|failed to map segment from shared object",
+    r"|failed to map segment from shared object"
+    # Un figlio del calcolo parallelo che non restituisce il risultato: lo
+    # dichiarano gli script (verifica_figli, R/lib/errors.R) e, per il codice
+    # parallelo dei pacchetti, l'avviso di parallel::mclapply.
+    r"|processi paralleli su \d+ non hanno restituito un risultato",
     re.IGNORECASE,
+)
+
+#: L'avviso con cui ``parallel::mclapply`` dice che un processo figlio e' morto
+#: senza restituire il risultato: il sistema lo ha ucciso, di norma per memoria
+#: esaurita, e l'errore che segue nel genitore e' una conseguenza qualunque.
+_FIGLI_SENZA_RISULTATO: Final = re.compile(
+    r"did not deliver (?:a )?results?", re.IGNORECASE
 )
 
 #: Codici di uscita con cui si presenta un processo ucciso con SIGKILL: il
@@ -222,10 +237,19 @@ def classifica(
         if dichiarazione.stato is Stato.ERRORE_CATALOGO:
             return Condizione.ERRORE_DICHIARATO
         if dichiarazione.stato is Stato.ERRORE_NON_CATALOGATO:
-            if _memoria_esaurita(dichiarazione.messaggio):
+            # Il messaggio dell'errore, oppure l'avviso dei figli uccisi che lo
+            # precede sull'uscita di errore: l'errore dichiarato e' allora solo
+            # la conseguenza di un risultato mancante.
+            if _memoria_esaurita(dichiarazione.messaggio) or _FIGLI_SENZA_RISULTATO.search(stderr):
                 return Condizione.MEMORIA_ESAURITA
             return Condizione.ERRORE_NON_CATALOGATO
         if codice_uscita == 0:
+            # Un figlio del calcolo parallelo morto senza risultato non fa
+            # fallire tutti gli script: alcune funzioni dei pacchetti proseguono
+            # con i risultati che restano, e l'esito sarebbe un artefatto
+            # sbagliato dichiarato riuscito. Il successo non e' credibile.
+            if _FIGLI_SENZA_RISULTATO.search(stderr):
+                return Condizione.MEMORIA_ESAURITA
             return Condizione.RIUSCITO
         # Successo dichiarato ma uscita non nulla: il processo e' morto dopo
         # aver scritto l'esito, e il successo non e' piu' credibile. Si decide
@@ -261,27 +285,6 @@ def _coda(testo: str, limite: int = MAX_CARATTERI_USCITA) -> tuple[str, bool]:
 # --------------------------------------------------------------------------- #
 
 
-#: Variabili che riducono a uno i thread delle librerie di algebra lineare.
-#: Servono sotto il limite di memoria: con OpenBLAS multithread, come
-#: nell'immagine Bioconductor, R intercetta l'allocazione fallita ma poi resta
-#: bloccato in uscita, e con un thread solo termina regolarmente.
-_UN_THREAD_ALGEBRA: Final = {"OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1"}
-
-
-def _limita_memoria(byte: int) -> Callable[[], None]:
-    """Funzione eseguita nel figlio prima di R: ne limita la memoria virtuale.
-
-    Il limite vale per il solo figlio, quindi un'allocazione che lo supera
-    fallisce davvero dentro R senza toccare la memoria della macchina.
-    """
-    import resource
-
-    def applica() -> None:
-        resource.setrlimit(resource.RLIMIT_AS, (byte, byte))
-
-    return applica
-
-
 @dataclass(frozen=True)
 class _Concluso:
     """Ciò che resta di un processo concluso: codice di uscita, uscite e scadenza del
@@ -297,7 +300,6 @@ def _lancia(
     comando: list[str],
     cartella: Path,
     ambiente: Mapping[str, str],
-    preparazione: Callable[[], None] | None,
     tempo_massimo_s: float | None,
 ) -> _Concluso:
     """Avvia il processo in una sessione propria e ne attende la fine, uccidendo il
@@ -314,20 +316,31 @@ def _lancia(
         text=True,
         encoding="utf-8",
         errors="replace",
-        preexec_fn=preparazione,
         start_new_session=True,
     )
     try:
         stdout, stderr = processo.communicate(timeout=tempo_massimo_s)
         scaduto = False
     except subprocess.TimeoutExpired:
-        try:
-            os.killpg(processo.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        _uccidi_gruppo(processo)
         stdout, stderr = processo.communicate()
         scaduto = True
+    except BaseException:
+        # L'orchestratore viene interrotto (Ctrl-C, un segnale, un errore): il
+        # figlio ha una sessione propria e gli sopravvivrebbe, continuando a
+        # scrivere nella cartella di fase mentre una ripresa ne avvia un altro.
+        _uccidi_gruppo(processo)
+        processo.wait()
+        raise
     return _Concluso(processo.returncode, stdout, stderr, scaduto)
+
+
+def _uccidi_gruppo(processo: subprocess.Popen[str]) -> None:
+    """Uccide il processo R e tutti quelli della sua sessione."""
+    try:
+        os.killpg(processo.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
 
 
 def _registra_uscita(
@@ -357,7 +370,6 @@ def esegui_script(
     *,
     passo: str,
     codice_memoria: str | None = None,
-    limite_memoria_byte: int | None = None,
     tempo_massimo_s: float | None = None,
     rscript: Path | str | None = None,
     logger: logging.Logger | None = None,
@@ -368,10 +380,9 @@ def esegui_script(
     propri artefatti nella cartella di ``fase``; quelli che dichiara vengono
     registrati nel manifesto. ``passo`` è la fase che invoca lo script: dà il
     nome ai file del contratto, distinti anche in una cartella condivisa. ``codice_memoria`` è il codice del catalogo che
-    la fase associa alla memoria esaurita; ``limite_memoria_byte`` limita la
-    memoria virtuale del processo figlio, e con essa riduce a uno i thread
-    dell'algebra lineare; ``tempo_massimo_s`` è la durata oltre la quale il
-    processo viene ucciso.
+    la fase associa alla memoria esaurita; ``tempo_massimo_s``
+    (``run.r_timeout_s``) è la durata oltre la quale il processo viene ucciso
+    con tutto il suo gruppo (``E-R-05``), nullo per nessun limite.
 
     Restituisce l'esito se lo script è riuscito, altrimenti solleva un
     :class:`~amplicon16s.errors.exceptions.ErrorePipeline`. Qualunque sia il
@@ -414,31 +425,15 @@ def esegui_script(
     richiesta, percorso_esito = scrivi_richiesta(cartella, invocazione, parametri, str(passo))
 
     ambiente = {**os.environ, "LANGUAGE": "en", "LC_ALL": "C.UTF-8", VARIABILE_LIB_R: str(lib)}
-    if limite_memoria_byte is not None:
-        ambiente.update(_UN_THREAD_ALGEBRA)
     comando = [str(interprete), "--vanilla", str(script.resolve()), str(richiesta)]
 
     logger.info(
         "avvio del processo R",
-        extra={
-            **contesto,
-            "limite_memoria_byte": limite_memoria_byte,
-            "tempo_massimo_s": tempo_massimo_s,
-        },
+        extra={**contesto, "tempo_massimo_s": tempo_massimo_s},
     )
     inizio = time.monotonic()
     try:
-        processo = _lancia(
-            comando,
-            cartella,
-            ambiente,
-            (
-                _limita_memoria(limite_memoria_byte)
-                if limite_memoria_byte is not None
-                else None
-            ),
-            tempo_massimo_s,
-        )
+        processo = _lancia(comando, cartella, ambiente, tempo_massimo_s)
     except OSError as e:
         raise errore(
             "E-R-01",
@@ -459,7 +454,7 @@ def esegui_script(
         # Ucciso dal ponte: il SIGKILL non e' del sistema operativo, e
         # qualunque cosa lo script abbia dichiarato prima non e' un esito.
         condizione = Condizione.TEMPO_SCADUTO
-        motivo_non_valida = f"tempo massimo di {tempo_massimo_s} s superato"
+        motivo_non_valida = f"tempo massimo di {tempo_massimo_s} s (run.r_timeout_s) superato"
     else:
         condizione = classifica(
             processo.codice_uscita, dichiarazione, processo.stderr
@@ -539,14 +534,19 @@ def _eccezione(
             )
 
     if condizione is Condizione.MEMORIA_ESAURITA:
-        return errore(codice_memoria or "E-R-04", messaggio, **contesto)
+        return errore(
+            codice_memoria or "E-R-04",
+            messaggio or "processo R ucciso dal sistema operativo (SIGKILL)",
+            **contesto,
+        )
 
     if condizione is Condizione.ERRORE_NON_CATALOGATO:
         return errore("E-R-03", messaggio, **contesto)
 
-    dettaglio = "nessuna dichiarazione d'esito"
     if condizione is Condizione.TEMPO_SCADUTO:
-        dettaglio = f"processo ucciso: {motivo_non_valida}"
-    elif motivo_non_valida:
+        return errore("E-R-05", f"processo ucciso: {motivo_non_valida}", **contesto)
+
+    dettaglio = "nessuna dichiarazione d'esito"
+    if motivo_non_valida:
         dettaglio = f"dichiarazione d'esito non valida: {motivo_non_valida}"
     return errore("E-R-02", dettaglio, **contesto)

@@ -61,8 +61,8 @@ class MappaControlli:
     def _normalizza(valore: str) -> str:
         """Confronto insensibile a maiuscole e spazi ai bordi.
 
-        Le tabelle di metadati sono compilate a mano: "Positive Control" e
-        "positive control" sono la stessa cosa, e far fallire l'esecuzione su
+        Le tabelle di metadati sono compilate a mano: "Controllo Positivo" e
+        "controllo positivo" sono la stessa cosa, e far fallire l'esecuzione su
         una maiuscola sarebbe pedanteria, non rigore. La distinzione fra
         etichette diverse resta intatta.
         """
@@ -95,9 +95,3 @@ class MappaControlli:
     def etichette(self) -> tuple[str, ...]:
         """Le etichette mappate, normalizzate e in ordine alfabetico."""
         return tuple(sorted(self.per_etichetta))
-
-    def etichette_di(self, classe: ClasseCampione) -> tuple[str, ...]:
-        """Le etichette normalizzate assegnate alla classe indicata, in ordine
-        alfabetico.
-        """
-        return tuple(sorted(e for e, c in self.per_etichetta.items() if c is classe))

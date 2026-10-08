@@ -30,7 +30,8 @@ scheduler:
 * ``2``: riga di comando non valida (argomenti mancanti o sconosciuti);
 * ``3``: errore di configurazione: il file non è valido, G15 lo respinge,
   oppure ``run`` trova la cartella di output già usata. Nessuna fase è
-  partita;
+  partita. Il rifiuto di G15 riporta il codice del catalogo di ogni
+  violazione (``E-G15-*``) e la sua azione;
 * ``4``: arresto con punto di ripresa dichiarato, stampato e scritto in
   ``99_logs/punto_di_ripresa.json`` e ``.txt``;
 * ``5``: una fase prevista dal grafo non esiste come codice. Con le quindici
@@ -43,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shlex
 import sys
 from collections.abc import Callable, Sequence
@@ -101,14 +103,53 @@ def _percorsi_assoluti(config: Config) -> Config:
     gruppi = {}
     for gruppo, chiavi in _PERCORSI.items():
         modello = getattr(config, gruppo)
+        # La tilde si espande prima: senza, "~/dati" sarebbe un percorso
+        # relativo, e nascerebbe una cartella di nome "~" sotto quella corrente.
         relativi = {
-            chiave: Path.cwd() / valore
+            chiave: assoluto
             for chiave in chiavi
-            if (valore := getattr(modello, chiave)) is not None and not valore.is_absolute()
+            if (valore := getattr(modello, chiave)) is not None
+            and (assoluto := (
+                valore.expanduser() if valore.expanduser().is_absolute()
+                else Path.cwd() / valore
+            )) != valore
         }
         if relativi:
             gruppi[gruppo] = modello.model_copy(update=relativi)
     return config.model_copy(update=gruppi) if gruppi else config
+
+
+def _uscita_non_utilizzabile(radice: Path) -> str | None:
+    """Perche' la cartella di output non si puo' usare, o ``None``.
+
+    Si verifica prima di aprire il log, che e' la prima scrittura: una cartella
+    che non e' una cartella, o che l'utente non puo' creare o scrivere (un
+    volume di un altro utente montato nel container), e' un errore di chi
+    configura, con il suo codice di uscita, non un errore imprevisto.
+    """
+    if radice.exists() and not radice.is_dir():
+        return f"{radice} esiste e non e' una cartella"
+    esistente = radice
+    while not esistente.exists():
+        esistente = esistente.parent
+    if not esistente.is_dir():
+        return f"{esistente} non e' una cartella: {radice} non si puo' creare"
+    if not os.access(esistente, os.W_OK | os.X_OK):
+        return (f"{esistente} non e' scrivibile dall'utente che esegue: "
+                f"{radice} non si puo' creare ne' scrivere")
+    return None
+
+
+def _stampa_rifiuto(rifiuto: ErroreGate) -> None:
+    """Il rifiuto di G15 sull'uscita: ogni violazione con il suo codice del
+    catalogo, poi l'azione di ogni codice, una volta sola.
+
+    Vale per i due modi in cui G15 respinge: una configurazione che lo schema
+    non accetta, e una che lo schema accetta ma i controlli di coerenza no.
+    """
+    _stampa(str(rifiuto))
+    for codice in dict.fromkeys(v.codice for v in rifiuto.violazioni):
+        _stampa(f"  cosa fare [{codice}]: {voce(codice).azione}")
 
 
 def _passi() -> dict[Passo, PipelineStep]:
@@ -116,9 +157,11 @@ def _passi() -> dict[Passo, PipelineStep]:
     return passi_realizzati()
 
 
-def _comando_ripresa(percorso: Path) -> str:
-    """Il comando da stampare per riprendere l'esecuzione con questa configurazione."""
-    return f"amplicon16s resume --config {shlex.quote(str(percorso.resolve()))}"
+def _comando_ripresa(percorso: Path, programma: str = "amplicon16s") -> str:
+    """Il comando da stampare per riprendere l'esecuzione con questa
+    configurazione, con il programma con cui e' stata lanciata.
+    """
+    return f"{programma} resume --config {shlex.quote(str(percorso.resolve()))}"
 
 
 def _stampa(testo: str = "") -> None:
@@ -132,12 +175,14 @@ def _stampa(testo: str = "") -> None:
 
 
 def _esegui(
-    config: Config, percorso: Path, *, fino_a: Passo | None = None
+    config: Config, percorso: Path, *, fino_a: Passo | None = None,
+    programma: str = "amplicon16s",
 ) -> EsitoEsecuzione:
     """Esegue il grafo fino alla fase indicata, o fino all'ultima realizzata."""
     configura(config.io.out_root)
     run = ProjectRun(config, passi=_passi(), logger=ottieni("run"))
-    esecutore = Esecutore(run, comando_ripresa=_comando_ripresa(percorso), fino_a=fino_a)
+    esecutore = Esecutore(
+        run, comando_ripresa=_comando_ripresa(percorso, programma), fino_a=fino_a)
     return esecutore.esegui()
 
 
@@ -167,7 +212,7 @@ def _uscita(esito: EsitoEsecuzione) -> int:
 
 def _cmd_validate(config: Config, percorso: Path, args: argparse.Namespace) -> int:
     """Comando ``validate``: esegue la sola S0 e ne riporta l'esito."""
-    esito = _esegui(config, percorso, fino_a=Passo.S0)
+    esito = _esegui(config, percorso, fino_a=Passo.S0, programma=args.programma)
     if esito.conclusione is Conclusione.COMPLETATA:
         registrazione = esito.configurazione
         if registrazione is not None and registrazione.nuova and registrazione.differenze:
@@ -197,17 +242,18 @@ def _cmd_run(config: Config, percorso: Path, args: argparse.Namespace) -> int:
             f"La cartella di output {radice} non e' vuota: contiene gia' "
             "un'esecuzione, o altri file. 'run' non sovrascrive, perche' ogni "
             "esecuzione deve restare ispezionabile.\n"
-            f"  per continuare quell'esecuzione:  {_comando_ripresa(percorso)}\n"
+            f"  per continuare quell'esecuzione:  "
+            f"{_comando_ripresa(percorso, args.programma)}\n"
             "  per cominciarne una nuova:        indica in io.out_root una cartella "
             "nuova o vuota"
         )
         return USCITA_CONFIGURAZIONE
-    return _uscita(_esegui(config, percorso))
+    return _uscita(_esegui(config, percorso, programma=args.programma))
 
 
 def _cmd_resume(config: Config, percorso: Path, args: argparse.Namespace) -> int:
     """Comando ``resume``: riprende l'esecuzione dalla prima fase non valida."""
-    return _uscita(_esegui(config, percorso))
+    return _uscita(_esegui(config, percorso, programma=args.programma))
 
 
 def _cmd_report(config: Config, percorso: Path, args: argparse.Namespace) -> int:
@@ -264,10 +310,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Punto di ingresso della riga di comando."""
+def main(argv: Sequence[str] | None = None, programma: str = "amplicon16s") -> int:
+    """Punto di ingresso della riga di comando.
+
+    ``programma`` e' il comando con cui la pipeline e' stata lanciata: compare
+    nel comando di ripresa che un arresto dichiara, perche' chi ha lanciato il
+    codice di un clone (``scripts/esegui.py``) riprenda con lo stesso.
+    """
     parser = build_parser()
     args = parser.parse_args(argv)
+    args.programma = programma
 
     try:
         config = _percorsi_assoluti(carica(args.config))
@@ -276,15 +328,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         # gate della configurazione: ogni problema porta il codice del suo
         # controllo, e i parametri obbligatori non dichiarati sono elencati
         # tutti insieme (E-G15-10), con l'azione del catalogo.
-        rifiuto = rifiuto_di_g15(e)
         _stampa(f"configurazione non valida ({e.origine})" if e.origine else
                 "configurazione non valida")
-        _stampa(str(rifiuto))
-        for codice in dict.fromkeys(v.codice for v in rifiuto.violazioni):
-            _stampa(f"  cosa fare [{codice}]: {voce(codice).azione}")
+        _stampa_rifiuto(rifiuto_di_g15(e))
         return USCITA_CONFIGURAZIONE
     except OSError as e:
         _stampa(f"configurazione non leggibile: {e}")
+        return USCITA_CONFIGURAZIONE
+
+    problema = _uscita_non_utilizzabile(Path(config.io.out_root))
+    if problema is not None:
+        _stampa(f"configurazione non valida: io.out_root: {problema}")
         return USCITA_CONFIGURAZIONE
 
     try:
@@ -292,7 +346,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ErroreGate as e:
         # Solo G15 arriva fin qui: gli altri gate sono dentro S0, e un loro
         # fallimento e' un arresto con punto di ripresa.
-        _stampa(str(e))
+        _stampa_rifiuto(e)
         return USCITA_CONFIGURAZIONE
     except Exception as e:  # noqa: BLE001 - l'ultimo argine prima dell'uscita
         ottieni().exception("errore imprevisto", extra={"comando": args.command})

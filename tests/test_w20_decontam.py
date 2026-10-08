@@ -43,7 +43,7 @@ aggregata).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -74,7 +74,7 @@ aggregata).
 
 5. Risultato atteso
 -------------------
-Vedi ``test.txt``, scheda W20.
+I conteggi li da' pytest (``pytest --collect-only -q``).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -89,6 +89,7 @@ Vedi ``test.txt``, scheda W20.
 
 from __future__ import annotations
 
+import functools
 import csv
 import hashlib
 import json
@@ -98,9 +99,10 @@ from pathlib import Path
 from typing import ClassVar
 
 import pytest
-from conftest import Campione, copia_esecuzione, crea_scenario
-from sottoinsieme import config_ridotta, motivo_pacchetti_r_assenti
+from conftest import BIOLOGICO, FORMATO, Campione, copia_esecuzione, crea_scenario
+from sottoinsieme import config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti
 
+from amplicon16s.config import defaults
 from amplicon16s.config.resolve import risolvi
 from amplicon16s.config.schema import ErroreConfigurazione, valida
 from amplicon16s.metadata.crosswalk import analizza
@@ -128,19 +130,29 @@ def uscite_pulite():
     chiudi()
 
 
-_MOTIVO_R = motivo_pacchetti_r_assenti("jsonlite")
-_MOTIVO_BIOC = motivo_pacchetti_r_assenti(
-    "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings", "decontam"
-)
+@functools.cache
+def _sonda_r() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti("jsonlite")
+@functools.cache
+def _sonda_bioc() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti(
+        "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings", "decontam"
+    )
 
 
 @pytest.fixture
 def r():
     """Richiede R con jsonlite: salta senza, ma in CI fallisce."""
-    if _MOTIVO_R is not None:
+    if _sonda_r() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_R") == "1":
-            pytest.fail(f"R e' richiesto in questo ambiente: {_MOTIVO_R}")
-        pytest.skip(_MOTIVO_R)
+            pytest.fail(f"R e' richiesto in questo ambiente: {_sonda_r()}")
+        pytest.skip(_sonda_r())
 
 
 @pytest.fixture
@@ -148,10 +160,10 @@ def bioc():
     """Richiede R con phyloseq, decontam e i pacchetti delle fasi a monte: salta
     senza, ma in CI fallisce.
     """
-    if _MOTIVO_BIOC is not None:
+    if _sonda_bioc() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_BIOC}")
-        pytest.skip(_MOTIVO_BIOC)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_bioc()}")
+        pytest.skip(_sonda_bioc())
 
 
 def _tsv(percorso: Path) -> list[dict[str, str]]:
@@ -189,20 +201,20 @@ def _riepilogo(run) -> dict:
 
 
 def _tre_campioni() -> list[Campione]:
-    """Due superfici e un tampone mai aperto, tutti dichiarati "Surface swab"."""
+    """Due superfici e un tampone mai aperto, tutti dichiarati biologici."""
     return [
         Campione("ERX4000001", "NOD1D4.L1"),
         Campione("ERX4000002", "NOD1D4.L2"),
-        Campione("ERX4000003", "NOD1.N5", posizione="Unopened 3DMM Swab Tube"),
+        Campione("ERX4000003", "NOD1.N5", posizione=FORMATO.riclassificati[0]),
     ]
 
 
 def test_un_tampone_mai_aperto_diventa_controllo_negativo(tmp_path):
     """
-    **Obiettivo**: Verificare che, con la regola predefinita di ``ctrl``
-    (colonna ``Factor Value[Sample Location]``, valore ``Unopened 3DMM Swab
-    Tube``), il tampone mai aperto sia un controllo negativo con il materiale
-    originale ``Surface swab``, che le superfici restino biologiche, che il
+    **Obiettivo**: Verificare che, con la regola di riclassificazione
+    dichiarata dallo scenario (``ctrl.blank_override_column`` e
+    ``ctrl.blank_override_values``), il tampone mai aperto sia un controllo
+    negativo con il materiale originale dei campioni biologici, che le superfici restino biologiche, che il
     denominatore della prevalenza conti solo queste, e che il confronto non
     distingua maiuscole e spazi ai bordi.
 
@@ -213,11 +225,11 @@ def test_un_tampone_mai_aperto_diventa_controllo_negativo(tmp_path):
     """
     inventario = analizza(crea_scenario(tmp_path, _tre_campioni()).config).inventario()
     classi = {c.nome: (c.classe, c.materiale) for c in inventario}
-    assert classi["NOD1.N5"] == (ClasseCampione.CONTROLLO_NEGATIVO, "Surface swab")
-    assert classi["NOD1D4.L1"] == (ClasseCampione.BIOLOGICO, "Surface swab")
+    assert classi["NOD1.N5"] == (ClasseCampione.CONTROLLO_NEGATIVO, BIOLOGICO)
+    assert classi["NOD1D4.L1"] == (ClasseCampione.BIOLOGICO, BIOLOGICO)
     assert inventario.denominatore_prevalenza() == 2
     campioni = _tre_campioni()
-    campioni[2].posizione = "  unopened 3dmm swab tube "
+    campioni[2].posizione = f"  {FORMATO.riclassificati[0].upper()} "
     inventario = analizza(crea_scenario(tmp_path / "b", campioni).config).inventario()
     assert inventario["ERX4000003"].classe is ClasseCampione.CONTROLLO_NEGATIVO
 
@@ -240,7 +252,7 @@ def test_senza_regola_il_tampone_resta_biologico_e_s0_cambia_impronta(tmp_path):
     assert s0.calcolata_su(risolvi(scenario.config), {}) != s0.calcolata_su(con_regola, {})
     dati = scenario.config.model_dump(mode="python")
     dati["ctrl"]["blank_override_column"] = None
-    dati["ctrl"]["blank_override_values"] = ["Unopened 3DMM Swab Tube"]
+    dati["ctrl"]["blank_override_values"] = [FORMATO.riclassificati[0]]
     with pytest.raises(ErroreConfigurazione, match="blank_override_column"):
         valida(dati)
 
@@ -252,19 +264,21 @@ def test_senza_regola_il_tampone_resta_biologico_e_s0_cambia_impronta(tmp_path):
 
 def test_i_parametri_di_s12(tmp_path):
     """
-    **Obiettivo**: Verificare i parametri di S12: prevalenza, soglia 0,5, cinque
-    negativi minimi per piastra, la combinazione delle piastre dichiarata al
-    predefinito di decontam (``minimum``), la modalita' aggregata e la frazione
-    massima 0,40; e che cambiarli non tocchi l'impronta di S0, S10 e S11.
+    **Obiettivo**: Verificare che la combinazione delle piastre abbia per
+    predefinito quello dichiarato di decontam (``minimum``), che i valori
+    ammessi siano quelli realizzati, e che cambiare i parametri di S12 cambi
+    l'impronta di S12 e non quella di S0, S10 e S11.
 
     **Razionale scientifico e sistemistico**: Un predefinito lasciato implicito
     cambierebbe in silenzio con una versione nuova di decontam.
     """
     config = config_ridotta(tmp_path)
     d = config.decontam
-    assert (d.method, d.threshold, d.min_blanks, d.batch_combine, d.mode) == (
-        "prevalence", 0.5, 5, "minimum", "aggregate")
-    assert config.qc.max_frac_contaminant == 0.40
+    assert d.batch_combine == defaults.DECONTAM_BATCH_COMBINE == "minimum"
+    for chiave, valore in (("batch_combine", "media"), ("mode", "per_campione"),
+                           ("method", "frequency")):
+        with pytest.raises(ErroreConfigurazione, match=f"decontam.{chiave}"):
+            config_ridotta(tmp_path, decontam={chiave: valore})
     prima = risolvi(config)
     dopo = risolvi(config_ridotta(tmp_path, decontam={"batch_combine": "fisher", "mode": "batch"},
                                   qc={"max_frac_contaminant": 0.2}))
@@ -525,7 +539,6 @@ def test_s12_confronta_le_modalita_e_rimuove_senza_rinumerare(bioc, decontam_cal
     assert tracciamento.origine["decontaminate"] == "S12"
     for campione, letture in tracciamento.letture.items():
         assert letture["decontaminate"] <= letture["lunghezza"], campione
-    print(f"\nS12 sulla versione ridotta: {dict(esito.eseguite[0].metriche)}")
 
 
 def test_s12_da_gli_stessi_byte_in_due_esecuzioni(bioc, decontam_calcolata, tmp_path):
@@ -610,9 +623,14 @@ def test_s12_sul_dataset_completo(bioc, catena_reale):
     run, esito = catena_reale
     assert esito.conclusione is Conclusione.COMPLETATA
     s12 = next(r for r in esito.eseguite if r.passo is Passo.S12)
-    print(f"\nS12: {s12.secondi} s, {dict(s12.metriche)}")
     riepilogo = _riepilogo(run)
-    print(json.dumps(riepilogo["modalita"], indent=1))
+    # La modalita' dichiarata e' quella applicata, e la frazione di letture dei
+    # biologici che toglie resta entro il massimo della configurazione.
+    assert riepilogo["modalita_dichiarata"] == run.config.decontam.mode
+    assert riepilogo["max_frazione"] == run.config.qc.max_frac_contaminant
+    assert riepilogo["entro_max_frazione"] is True
     varianti = {v["asv_id"]: v for v in _tsv(run.albero.cartella(Fase.CONTROLS) / "decontam_varianti.tsv")}
-    print(f"ASV1: {varianti['ASV1']}")
-    assert varianti["ASV1"]["rimossa"] == "no"
+    assert sum(v["rimossa"] == "si" for v in varianti.values()) == (
+        riepilogo["contaminanti_rimossi"]) == s12.metriche["contaminanti_rimossi"]
+    for variante in attesi_dataset()["varianti_non_contaminanti"]:
+        assert varianti[variante]["rimossa"] == "no", variante

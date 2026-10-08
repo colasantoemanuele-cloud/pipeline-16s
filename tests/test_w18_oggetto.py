@@ -39,7 +39,7 @@ che la precedono.
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -95,6 +95,7 @@ che la precedono.
 
 from __future__ import annotations
 
+import functools
 import csv
 import hashlib
 import json
@@ -104,7 +105,7 @@ from pathlib import Path
 
 import pytest
 from conftest import copia_esecuzione, crea_scenario
-from sottoinsieme import config_ridotta, motivo_pacchetti_r_assenti
+from sottoinsieme import config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti
 from test_w08_w09_graph_resume import _campioni, _passi
 
 from amplicon16s.errors.exceptions import ErrorePipeline
@@ -134,19 +135,29 @@ def uscite_pulite():
     chiudi()
 
 
-_MOTIVO_R = motivo_pacchetti_r_assenti("jsonlite")
-_MOTIVO_BIOC = motivo_pacchetti_r_assenti(
-    "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings"
-)
+@functools.cache
+def _sonda_r() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti("jsonlite")
+@functools.cache
+def _sonda_bioc() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti(
+        "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings"
+    )
 
 
 @pytest.fixture
 def r():
     """Richiede R con jsonlite: salta senza, ma in CI fallisce."""
-    if _MOTIVO_R is not None:
+    if _sonda_r() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_R") == "1":
-            pytest.fail(f"R e' richiesto in questo ambiente: {_MOTIVO_R}")
-        pytest.skip(_MOTIVO_R)
+            pytest.fail(f"R e' richiesto in questo ambiente: {_sonda_r()}")
+        pytest.skip(_sonda_r())
 
 
 @pytest.fixture
@@ -154,10 +165,10 @@ def bioc():
     """Richiede R con phyloseq e i pacchetti delle fasi a monte: salta senza, ma in
     CI fallisce.
     """
-    if _MOTIVO_BIOC is not None:
+    if _sonda_bioc() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_BIOC}")
-        pytest.skip(_MOTIVO_BIOC)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_bioc()}")
+        pytest.skip(_sonda_bioc())
 
 
 def _tsv(percorso: Path) -> list[dict[str, str]]:
@@ -345,7 +356,7 @@ def test_la_corrispondenza_dei_nomi_conserva_gli_originali(tmp_path):
     **Obiettivo**: Verificare che le colonne dei metadati per la versione
     ridotta siano quelle dell'inventario seguite dalle richieste, che ognuna
     riporti la tabella e la colonna originale, e che ``materiale`` e
-    ``classe`` vengano da ``Characteristics[Material Type]``.
+    ``classe`` vengano dalla colonna dichiarata in ``ctrl.column``.
 
     **Razionale scientifico e sistemistico**: Il nome nell'oggetto e' una
     scelta della pipeline: la corrispondenza scritta e' cio' che lega la
@@ -359,10 +370,12 @@ def test_la_corrispondenza_dei_nomi_conserva_gli_originali(tmp_path):
         nome_nell_oggetto(c) for c in (*config.out.study_columns, *config.out.batch_columns)
     ]
     per_nome = {v["colonna"]: v for v in colonne}
-    assert per_nome["materiale"]["colonna_originale"] == "Characteristics[Material Type]"
-    assert per_nome["classe"]["colonna_originale"] == "Characteristics[Material Type]"
-    assert per_nome["factor_value_spaceflight"]["colonna_originale"] == "Factor Value[Spaceflight]"
-    assert per_nome["katharoseq_cell_count"]["origine"].startswith("file di arricchimento")
+    assert per_nome["materiale"]["colonna_originale"] == config.ctrl.column
+    assert per_nome["classe"]["colonna_originale"] == config.ctrl.column
+    for originale in config.out.study_columns:
+        assert per_nome[nome_nell_oggetto(originale)]["colonna_originale"] == originale
+    livelli = per_nome[nome_nell_oggetto(config.katharoseq.cell_count_column)]
+    assert livelli["origine"].startswith("file di arricchimento")
 
 
 @pytest.mark.parametrize(
@@ -585,7 +598,6 @@ def test_s10_assembla_quattro_componenti_allineati(bioc, oggetto_calcolato, tmp_
     assert riepilogo["campioni_aggiunti_a_zero"] == []
     assert riepilogo["prima_variante"]["asv_id"] == "ASV1"
     assert riepilogo["prima_variante"]["sequenza"] == varianti[0]["sequenza"]
-    print(f"\nS10 sulla versione ridotta: {dict(esito.eseguite[0].metriche)}")
 
 
 def test_i_nomi_delle_colonne_dei_metadati_non_sono_alterati(bioc, oggetto_calcolato, tmp_path):
@@ -608,14 +620,15 @@ def test_i_nomi_delle_colonne_dei_metadati_non_sono_alterati(bioc, oggetto_calco
     assert all(c not in n for n in nomi for c in ".[] ")
     assert set(oggetto["tipi_metadati"].values()) == {"character"}
 
-    studio = {r["Sample Name"]: r for r in _tsv(Path(run.config.io.study_table))}
-    lotto = {r["experiment_accession"]: r for r in _tsv(Path(run.config.io.batch_table))}
+    config = run.config
+    studio = {r[config.meta.sample_id_column]: r for r in _tsv(Path(config.io.study_table))}
+    lotto = {r[config.meta.batch_key_column]: r for r in _tsv(Path(config.io.batch_table))}
     for campione, riga in zip(run.valuta().inventario, oggetto["metadati"]):
         assert riga["accession"] == campione.accession
         assert riga["sample_name"] == campione.nome
         assert riga["classe"] == campione.classe.value
-        assert riga["materiale"] == studio[campione.nome]["Characteristics[Material Type]"]
-        assert riga["piastra"] == lotto[campione.accession]["extraction_plate_num"]
+        assert riga["materiale"] == studio[campione.nome][config.ctrl.column]
+        assert riga["piastra"] == lotto[campione.accession][config.decontam.batch_column]
         for voce in corrispondenza[len(COLONNE_INVENTARIO):]:
             origine = studio[campione.nome] if voce["origine"].startswith("tabella") else lotto[campione.accession]
             atteso = origine[voce["colonna_originale"]].strip().strip('"') or None
@@ -736,9 +749,11 @@ def test_s10_sul_dataset_completo(bioc, catena_reale, tmp_path):
     assert esito.conclusione is Conclusione.COMPLETATA
     assert Passo.S1 not in [r.passo for r in esito.eseguite]
     s10 = next(r for r in esito.eseguite if r.passo is Passo.S10)
-    print(f"\nS10: {s10.secondi} s, {dict(s10.metriche)}")
-    assert s10.metriche["campioni"] == 960
+    campioni = attesi_dataset()["campioni"]
+    assert s10.metriche["campioni"] == campioni
     oggetto = _leggi_oggetto(run, tmp_path)
-    assert len(oggetto["campioni"]) == 960
+    assert len(oggetto["campioni"]) == campioni
+    # L'oggetto integrato tiene tutti i campioni dell'inventario, nel suo ordine.
+    assert oggetto["campioni"] == [c.accession for c in run.valuta().inventario]
     s7 = json.loads((run.albero.cartella(Fase.TAXONOMY) / "riepilogo.json").read_text())
     assert len(oggetto["varianti"]) == s7["varianti"]

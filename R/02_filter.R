@@ -71,8 +71,9 @@ esegui_fase(function(parametri, cartella) {
     conteggi <- rbind(conteggi, esito)
   }
 
-  ingresso <- conteggi[, "reads.in"]
-  uscita <- conteggi[, "reads.out"]
+  # Con un solo campione l'estrazione di una colonna perde il nome della riga.
+  ingresso <- stats::setNames(conteggi[, "reads.in"], rownames(conteggi))
+  uscita <- stats::setNames(conteggi[, "reads.out"], rownames(conteggi))
   artefatti <- c(
     traccia_letture(ingresso, "prefiltro", cartella),
     traccia_letture(uscita, "filtrate", cartella)

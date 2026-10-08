@@ -1,16 +1,12 @@
-r"""Suite di test della settimana 26: analisi di sensibilita' e congelamento.
+r"""Suite di test della settimana 26: configurazione congelata e regola rigorosa.
 
 1. Inquadramento nel Piano Operativo
 ------------------------------------
-Settimana 26 (W26), Fase F7 (regola di decisione dell'analisi di sensibilita',
-congelamento della configurazione di OSD-734, regola rigorosa sulla
-provenienza).
+Settimana 26 (W26), Fase F7 (congelamento della configurazione di OSD-734,
+regola rigorosa sulla provenienza).
 
 2. Moduli sorgente coperti
 --------------------------
-* ``scripts/sensitivity.py`` (la regola: ``jaccard``, ``cambiamento``,
-  ``applica_regola``, ``scegli_modalita``; le griglie e le soglie)
-* ``docs/decision_log.md``, ``docs/sensibilita/`` (misure, passi, decisioni)
 * ``src/amplicon16s/runner/provenienza.py`` (``verifica_git``, ``blocco_r``,
   ``discordanze_ambiente``, ``impronta_rigorosa``)
 * ``src/amplicon16s/runner/executor.py`` (controlli di avvio con la regola
@@ -23,13 +19,6 @@ provenienza).
 
 3. Cosa valuta questo file
 --------------------------
-- la regola di decisione, come funzione pura: valore mantenuto se non
-  instabile; instabile solo oltre la soglia assoluta e quella di sproporzione
-  insieme; un vicino non ammissibile rende instabile; sostituzione con
-  l'alternativa in zona stabile piu' vicina; regola delle modalita';
-- griglie e soglie dello strumento uguali a quelle del registro delle
-  decisioni; decisioni pubblicate riottenibili dai passi pubblicati; valori
-  della configurazione congelata uguali a quelli scelti;
 - ``run.strict_provenance`` falso per difetto e vero nella configurazione
   congelata; senza la regola l'impronta di fase non cambia, con la regola
   comprende sorgente, file di blocco e immagine dichiarata;
@@ -43,7 +32,7 @@ provenienza).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -74,13 +63,10 @@ provenienza).
 
 5. Risultato atteso
 -------------------
-Vedi ``test.txt``, scheda W26.
+I conteggi li da' pytest (``pytest --collect-only -q``).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
-- Una regola di decisione fissata prima dei risultati vale solo se lo strumento
-  che la applica e' quello descritto: griglie, soglie e decisioni pubblicate
-  devono derivare l'una dall'altra.
 - Una configurazione congelata certifica i risultati solo se il codice che li
   calcola e' identificato da un commit e l'ambiente R e' quello del file di
   blocco: cio' che non si puo' verificare deve fermare l'esecuzione, non
@@ -90,7 +76,6 @@ Vedi ``test.txt``, scheda W26.
 from __future__ import annotations
 
 import csv
-import importlib.util
 import json
 import re
 import subprocess
@@ -119,38 +104,12 @@ from amplicon16s.runner.project import ProjectRun, StatoPasso
 from amplicon16s.steps.s00_validate import ValidazioneIngressi
 
 RADICE = Path(__file__).resolve().parents[1]
-SENSIBILITA = RADICE / "docs" / "sensibilita"
 CONGELATA = RADICE / "dati" / "osd734" / "config_osd734.yaml"
 senza_dati = pytest.mark.skipif(
     not CONGELATA.is_file(),
     reason="la cartella dati/ non e' presente (nell'immagine non viene copiata)",
 )
-senza_docs = pytest.mark.skipif(
-    not SENSIBILITA.is_dir(),
-    reason="la cartella docs/ non e' presente (nell'immagine non viene copiata)",
-)
 IMMAGINE_DIVERSA = "amplicon16s@sha256:" + "a" * 64
-
-
-def _strumento():
-    """Il modulo ``scripts/sensitivity.py``, caricato dal file: la cartella degli
-    script non e' un pacchetto.
-    """
-    specifica = importlib.util.spec_from_file_location("sensitivity", RADICE / "scripts" / "sensitivity.py")
-    modulo = importlib.util.module_from_spec(specifica)
-    specifica.loader.exec_module(modulo)
-    return modulo
-
-
-S = _strumento()
-#: Le griglie pubblicate del dataset di riferimento, lette come le legge lo
-#: strumento: nel codice dello strumento non c'e' alcun valore di un dataset.
-GRIGLIE_PUBBLICATE = SENSIBILITA / "griglie.yaml"
-
-
-def _passo(varianti: float = 0.0, campioni: float = 0.0, letture: float = 0.0) -> dict[str, float]:
-    """Un cambiamento di passo con le tre misure della regola."""
-    return {"varianti": varianti, "campioni": campioni, "letture": letture}
 
 
 def _tsv(percorso: Path) -> list[dict[str, str]]:
@@ -255,244 +214,7 @@ def _rifiutata(scenario, config: Path, codice: str, capsys) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# 1. La regola di decisione                                                    #
-# --------------------------------------------------------------------------- #
-
-
-def test_i_cambiamenti_di_passo_sono_quelli_della_regola():
-    """
-    **Obiettivo**: Verificare che ``jaccard`` e ``cambiamento`` calcolino le tre
-    misure come definite dal registro: 1 meno Jaccard sulle varianti, campioni
-    che cambiano stato sui biologici del dataset, differenza assoluta di
-    letture sulle letture correnti; nessun cambiamento se una delle due
-    configurazioni non e' ammissibile.
-
-    **Razionale scientifico e sistemistico**: La decisione dipende solo da
-    queste tre grandezze: un denominatore diverso da quello dichiarato
-    sposterebbe i valori rispetto alle soglie senza che nulla lo segnali.
-    """
-    assert S.jaccard({"a", "b", "c"}, {"b", "c", "d"}) == 0.5
-    assert S.jaccard(set(), set()) == 1.0
-    a = {"ammissibile": True, "varianti": ["v1", "v2", "v3"], "campioni": ["c1", "c2"], "letture": 1000}
-    b = {"ammissibile": True, "varianti": ["v2", "v3", "v4"], "campioni": ["c2", "c3"], "letture": 900}
-    assert S.cambiamento(a, b, biologici=10, letture_correnti=2000) == {
-        "varianti": 0.5, "campioni": 0.2, "letture": 0.05,
-    }
-    assert S.cambiamento(a, b, 10, 2000) == S.cambiamento(b, a, 10, 2000)
-    assert S.cambiamento(a, {"ammissibile": False}, 10, 2000) is None
-
-
-def test_un_valore_non_instabile_si_mantiene():
-    """
-    **Obiettivo**: Verificare che con cambiamenti di passo sotto le soglie
-    assolute il valore corrente sia mantenuto, anche quando esistono
-    alternative in zona stabile.
-
-    **Razionale scientifico e sistemistico**: Il principio della regola e' la
-    conservazione: un'alternativa altrettanto stabile non e' una ragione per
-    cambiare un valore, altrimenti la scelta tornerebbe arbitraria.
-    """
-    passi = [_passo(0.02), _passo(0.03), _passo(0.04), _passo(0.03)]
-    d = S.applica_regola([1.0, 2.0, 3.0, 4.0, 5.0], 3.0, passi)
-    assert (d["instabile"], d["scelto"]) == (False, 3.0)
-    assert d["alternative_in_zona_stabile"] == [2.0, 4.0]
-    assert d["esito"].startswith("mantenuto")
-
-
-def test_l_instabilita_richiede_entrambe_le_soglie():
-    """
-    **Obiettivo**: Verificare che un cambiamento oltre la soglia assoluta ma
-    non oltre tre volte la mediana dei passi non renda instabile il valore
-    corrente, e che lo renda instabile quando supera entrambe.
-
-    **Razionale scientifico e sistemistico**: Un parametro che cambia il
-    risultato a ogni passo in misura simile non ha una zona piu' stabile di
-    un'altra: spostare il valore non lo renderebbe piu' affidabile. E' il caso
-    misurato per la soglia di prevalenza.
-    """
-    uniformi = [_passo(0.20), _passo(0.18), _passo(0.11), _passo(0.10)]
-    d = S.applica_regola([1.0, 2.0, 3.0, 4.0, 5.0], 2.0, uniformi)
-    assert d["instabile"] is False and d["scelto"] == 2.0
-    assert d["soglie_di_sproporzione"]["varianti"] == pytest.approx(3 * 0.145)
-
-    scarto = [_passo(0.01), _passo(0.02), _passo(campioni=0.30), _passo(0.01), _passo(0.02)]
-    d = S.applica_regola([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 3.0, scarto)
-    assert d["instabile"] is True
-    assert len(d["motivi_di_instabilita"]) == 1 and "campioni" in d["motivi_di_instabilita"][0]
-
-
-def test_un_valore_instabile_si_sostituisce_con_l_alternativa_stabile_piu_vicina():
-    """
-    **Obiettivo**: Verificare che un valore instabile sia sostituito
-    dall'alternativa in zona stabile piu' vicina, che a parita' di distanza i
-    candidati siano entrambi riportati, e che senza alternative stabili il
-    valore resti con l'instabilita' dichiarata come limite noto.
-
-    **Razionale scientifico e sistemistico**: La sostituzione e' ammessa solo
-    verso una zona in cui il risultato non dipende dal valore esatto; in
-    mancanza, cambiare sposterebbe l'instabilita' senza toglierla.
-    """
-    valori = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
-    passi = [_passo(0.01), _passo(0.01), _passo(0.40), _passo(0.01), _passo(0.01), _passo(0.01)]
-    d = S.applica_regola(valori, 3.0, passi)
-    assert d["instabile"] and d["alternative_in_zona_stabile"] == [2.0, 5.0, 6.0]
-    assert d["candidati"] == [2.0] and d["esito"].startswith("sostituito")
-
-    d = S.applica_regola(valori, 4.0, passi)
-    assert d["candidati"] == [5.0]
-
-    simmetrici = [_passo(0.01), _passo(0.01), _passo(0.40), _passo(0.40), _passo(0.01), _passo(0.01)]
-    d = S.applica_regola(valori, 4.0, simmetrici)
-    assert d["candidati"] == [2.0, 6.0]
-
-    senza = [_passo(0.20), _passo(0.90), _passo(0.20)]
-    d = S.applica_regola([1.0, 2.0, 3.0, 4.0], 2.0, senza)
-    assert d["instabile"] and d["scelto"] == 2.0 and "limite noto" in d["esito"]
-
-
-def test_un_vicino_non_ammissibile_rende_instabile_il_valore():
-    """
-    **Obiettivo**: Verificare che, se un vicino del valore corrente non e'
-    ammissibile (passo non definito), il valore sia instabile da quel lato, che
-    il passo non definito non entri nella mediana, e che un'alternativa con un
-    vicino non ammissibile non sia in zona stabile.
-
-    **Razionale scientifico e sistemistico**: Un valore adiacente a una
-    configurazione che la pipeline ferma e' al bordo della regione in cui la
-    catena si conclude: e' la forma piu' netta di instabilita'.
-    """
-    passi = [_passo(0.01), None, _passo(0.02), _passo(0.03)]
-    d = S.applica_regola([1.0, 2.0, 3.0, 4.0, 5.0], 3.0, passi)
-    assert d["instabile"] and d["motivi_di_instabilita"] == ["vicino inferiore non ammissibile"]
-    assert d["mediane_dei_passi"]["varianti"] == 0.02
-    assert d["alternative_in_zona_stabile"] == [4.0]
-    assert d["candidati"] == [4.0]
-
-
-def test_la_modalita_corrente_si_mantiene_se_ammissibile():
-    """
-    **Obiettivo**: Verificare la regola delle modalita' di decontaminazione:
-    la corrente resta se ammissibile, qualunque sia la somiglianza delle altre;
-    se non lo e', si adotta l'ammissibile piu' simile; se nessuna lo e', resta.
-
-    **Razionale scientifico e sistemistico**: Le modalita' rispondono a domande
-    statistiche diverse e non hanno vicini: la scelta e' di metodo e cambia
-    solo se viola un vincolo che la pipeline gia' dichiara.
-    """
-    somiglianza = {"a": 1.0, "b": 0.6, "c": 0.9}
-    d = S.scegli_modalita("a", {"a": True, "b": False, "c": True}, somiglianza)
-    assert d["scelto"] == "a" and d["esito"].startswith("mantenuta")
-    d = S.scegli_modalita("b", {"a": False, "b": False, "c": True, "d": True}, {**somiglianza, "d": 0.95})
-    assert d["scelto"] == "d" and d["esito"].startswith("sostituita")
-    d = S.scegli_modalita("a", {"a": False, "b": False}, somiglianza)
-    assert d["scelto"] == "a" and "limite noto" in d["esito"]
-
-
-@senza_dati
-@senza_docs
-def test_griglie_e_soglie_dello_strumento_sono_quelle_del_registro():
-    """
-    **Obiettivo**: Verificare che le griglie pubblicate in
-    ``docs/sensibilita/griglie.yaml``, i valori correnti della configurazione
-    congelata, le soglie assolute e il fattore di sproporzione di
-    ``scripts/sensitivity.py`` coincidano con quelli scritti nel registro
-    delle decisioni, e che in ogni griglia il valore corrente abbia due vicini
-    a passo uniforme.
-
-    **Razionale scientifico e sistemistico**: La regola e' stata fissata nel
-    registro prima dei risultati: lo strumento che la applica non puo'
-    discostarsene senza che la garanzia cada.
-    """
-    registro = (RADICE / "docs" / "decision_log.md").read_text(encoding="utf-8")
-
-    def numeri(testo: str) -> tuple[float, ...]:
-        return tuple(float(n.replace(",", ".")) for n in re.findall(r"\d+,\d+", testo))
-
-    numerici, _, modalita = S.leggi_griglie(GRIGLIE_PUBBLICATE)
-    config = Config.model_validate(yaml.safe_load(CONGELATA.read_text(encoding="utf-8")))
-    assert set(numerici) == {
-        "katharoseq.target_sensitivity", "decontam.threshold", "prev.min_fraction"}
-    for parametro, voce in numerici.items():
-        corrente, griglia = S.valore_corrente(config, parametro), voce["griglia"]
-        riga = next(r for r in registro.splitlines() if r.startswith(f"| `{parametro}` |"))
-        _, _, scritto, valori, _ = (c.strip() for c in riga.split("|"))
-        assert numeri(scritto) == (corrente,) and numeri(valori) == griglia, parametro
-        i = griglia.index(corrente)
-        assert 0 < i < len(griglia) - 1
-        passi = {round(b - a, 9) for a, b in zip(griglia, griglia[1:], strict=False)}
-        assert len(passi) == 1, parametro
-    assert S.SOGLIE_ASSOLUTE == {"varianti": 0.10, "campioni": 0.05, "letture": 0.05}
-    assert "0,10 per le varianti, 0,05 per i campioni, 0,05 per le" in registro
-    assert S.FATTORE_SPROPORZIONE == 3.0 and "tre volte la mediana" in registro
-    assert S.modalita_corrente(config, modalita) == "aggregata"
-    assert set(modalita) == {"aggregata", "per piastra, minimum", "per piastra, fisher"}
-
-
-@senza_docs
-def test_le_decisioni_pubblicate_derivano_dai_passi_pubblicati():
-    """
-    **Obiettivo**: Verificare che, applicando la regola ai cambiamenti di passo
-    pubblicati in ``docs/sensibilita/passi.tsv``, si riottengano per ogni
-    parametro l'instabilita' e il valore scelto di ``decisioni.json``; che la
-    tabella delle misure contenga ogni valore di ogni griglia, con 0,80 e 0,90
-    per la sensibilita' della curva, e le tre modalita' di decontaminazione.
-
-    **Razionale scientifico e sistemistico**: Il rapporto di sensibilita' e'
-    credibile se chi legge puo' rifare la decisione dalle tabelle, senza
-    rieseguire la pipeline.
-    """
-    decisioni = json.loads((SENSIBILITA / "decisioni.json").read_text(encoding="utf-8"))
-    passi = _tsv(SENSIBILITA / "passi.tsv")
-    misure = _tsv(SENSIBILITA / "misure.tsv")
-    numerici, nome_modalita, tre_modalita = S.leggi_griglie(GRIGLIE_PUBBLICATE)
-    for parametro, voce in numerici.items():
-        griglia = voce["griglia"]
-        corrente = decisioni["decisioni"][parametro]["corrente"]
-        del_parametro = [
-            {m: float(r[m]) for m in S.MISURE} for r in passi if r["parametro"] == parametro
-        ]
-        assert len(del_parametro) == len(griglia) - 1
-        rifatta = S.applica_regola(list(griglia), corrente, del_parametro)
-        pubblicata = decisioni["decisioni"][parametro]
-        assert rifatta["instabile"] == pubblicata["instabile"], parametro
-        assert rifatta["scelto"] == pubblicata["scelto"], parametro
-        misurati = {float(r["valore"]) for r in misure if r["parametro"] == parametro}
-        assert set(griglia) | set(voce["fuori_griglia"]) == misurati
-    assert {0.80, 0.90} <= set(numerici["katharoseq.target_sensitivity"]["griglia"])
-    modalita = {r["valore"] for r in misure if r["parametro"] == nome_modalita}
-    assert modalita == set(tre_modalita)
-    assert decisioni["soglie_assolute"] == S.SOGLIE_ASSOLUTE
-
-
-@senza_dati
-@senza_docs
-def test_la_configurazione_congelata_ha_i_valori_scelti_e_la_regola_attiva():
-    """
-    **Obiettivo**: Verificare che ``dati/osd734/config_osd734.yaml`` dichiari
-    in modo esplicito i valori scelti dall'analisi di sensibilita' per i
-    quattro parametri, attivi ``run.strict_provenance`` e dichiari un'immagine
-    ancorata per digest di registro; che la configurazione sia valida.
-
-    **Razionale scientifico e sistemistico**: Congelare significa che i valori
-    non dipendono piu' dai predefiniti del codice, che possono cambiare: sono
-    scritti, e l'esecuzione che li usa e' vincolata a codice e ambiente
-    verificati.
-    """
-    dati = yaml.safe_load(CONGELATA.read_text(encoding="utf-8"))
-    scelte = json.loads((SENSIBILITA / "decisioni.json").read_text(encoding="utf-8"))["decisioni"]
-    assert dati["katharoseq"]["target_sensitivity"] == scelte["katharoseq.target_sensitivity"]["scelto"]
-    assert dati["decontam"]["threshold"] == scelte["decontam.threshold"]["scelto"]
-    assert dati["prev"]["min_fraction"] == scelte["prev.min_fraction"]["scelto"]
-    _, nome_modalita, tre_modalita = S.leggi_griglie(GRIGLIE_PUBBLICATE)
-    modalita = tre_modalita[scelte[nome_modalita]["scelto"]]
-    assert {f"decontam.{k}": dati["decontam"][k] for k in ("mode", "batch_combine")} == modalita
-    assert dati["run"]["strict_provenance"] is True
-    assert re.fullmatch(r"ghcr\.io/[a-z0-9-]+/[a-z0-9._-]+@sha256:[0-9a-f]{64}", dati["run"]["container"])
-    Config.model_validate(dati)
-
-
-# --------------------------------------------------------------------------- #
-# 2. La regola rigorosa sulla provenienza                                      #
+# 1. La regola rigorosa sulla provenienza                                      #
 # --------------------------------------------------------------------------- #
 
 

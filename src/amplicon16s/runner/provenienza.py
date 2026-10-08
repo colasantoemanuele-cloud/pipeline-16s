@@ -72,6 +72,7 @@ import functools
 import hashlib
 import importlib
 import json
+import os
 import re
 import subprocess
 from collections.abc import Mapping
@@ -109,6 +110,9 @@ __all__ = [
 #: La radice del repository quando il pacchetto si usa dai sorgenti; installato
 #: (come nell'immagine) e' invece una cartella dell'ambiente Python.
 RADICE_REPOSITORY: Final = Path(__file__).resolve().parents[3]
+#: Lo script che esegue la pipeline dal codice di un clone, relativo alla sua
+#: radice: lo nominano i messaggi della regola rigorosa.
+LANCIATORE: Final = "scripts/esegui.py"
 #: Il registro delle versioni e delle impronte del sorgente di ogni fase: e' un
 #: dato del pacchetto, installato accanto ai moduli delle fasi.
 REGISTRO: Final = Path(__file__).resolve().parents[1] / "steps" / "registro_sorgente.json"
@@ -326,6 +330,46 @@ def impronta_sorgente(file: Mapping[str, Path]) -> tuple[str, dict[str, str]]:
     return "sha256:" + hashlib.sha256(canonico.encode("utf-8")).hexdigest(), per_file
 
 
+class GitNonLeggibile(Exception):
+    """git non ha risposto sul repository: il messaggio dice perche'."""
+
+
+def _git(*argomenti: str) -> str:
+    """L'uscita di un comando git di sola lettura sul repository del codice.
+
+    Il comando non dipende dall'utente che lo lancia ne' dalla sua
+    configurazione. In un container il repository montato appartiene di norma
+    a un utente diverso da quello del processo, e git lo rifiuterebbe come
+    proprieta' dubbia: la cartella e' dichiarata sicura per questo solo
+    comando, che legge e non esegue nulla del repository. La configurazione
+    globale e di sistema non si legge: una cartella personale assente o non
+    leggibile (l'utente di chi lancia, in un'immagine che ne prevede un altro)
+    non deve fermare la lettura, e nessuna impostazione locale deve cambiarne
+    l'esito.
+
+    Solleva :class:`GitNonLeggibile` con la causa: git assente, la cartella
+    non e' un repository, o l'errore che git ha scritto.
+    """
+    comando = [
+        "git", "-c", f"safe.directory={RADICE_REPOSITORY}", "-C", str(RADICE_REPOSITORY),
+        *argomenti,
+    ]
+    ambiente = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+                "GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C"}
+    try:
+        esito = subprocess.run(
+            comando, capture_output=True, text=True, timeout=30, check=False, env=ambiente,
+        )
+    except FileNotFoundError as e:
+        raise GitNonLeggibile("il comando git non e' installato") from e
+    except (OSError, subprocess.SubprocessError) as e:
+        raise GitNonLeggibile(f"git non si avvia: {e}") from e
+    if esito.returncode != 0:
+        messaggio = " ".join(esito.stderr.split()) or f"uscita {esito.returncode}"
+        raise GitNonLeggibile(messaggio)
+    return esito.stdout
+
+
 @functools.cache
 def _stato_git() -> tuple[str | None, bool | None]:
     """Commit del repository e presenza di modifiche non committate.
@@ -335,15 +379,9 @@ def _stato_git() -> tuple[str | None, bool | None]:
     invece di inventare un commit.
     """
     try:
-        commit = subprocess.run(
-            ["git", "-C", str(RADICE_REPOSITORY), "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=10, check=True,
-        ).stdout.strip()
-        modifiche = subprocess.run(
-            ["git", "-C", str(RADICE_REPOSITORY), "status", "--porcelain", "--", "src", "R"],
-            capture_output=True, text=True, timeout=10, check=True,
-        ).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
+        commit = _git("rev-parse", "HEAD").strip()
+        modifiche = _git("status", "--porcelain", "--", "src", "R").strip()
+    except GitNonLeggibile:
         return None, None
     return commit or None, bool(modifiche)
 
@@ -353,11 +391,8 @@ def modifiche_non_committate() -> list[str] | None:
     git non è leggibile.
     """
     try:
-        uscita = subprocess.run(
-            ["git", "-C", str(RADICE_REPOSITORY), "status", "--porcelain", "--", "src", "R"],
-            capture_output=True, text=True, timeout=10, check=True,
-        ).stdout
-    except (OSError, subprocess.SubprocessError):
+        uscita = _git("status", "--porcelain", "--", "src", "R")
+    except GitNonLeggibile:
         return None
     return [riga[3:] for riga in uscita.splitlines() if riga.strip()]
 
@@ -374,14 +409,33 @@ def verifica_git(script_r: Path) -> tuple[str | None, str]:
     """
     # Lo stato si legge adesso, non dalla memoria di :func:`_stato_git`: la
     # regola decide su cio' che c'e' al momento dell'avvio.
-    commit, _ = _stato_git.__wrapped__()
-    modificati = modifiche_non_committate()
-    if commit is None or modificati is None:
-        return "E-PROV-01", f"git non legge un repository in {RADICE_REPOSITORY}"
+    if not (RADICE_REPOSITORY / ".git").exists():
+        # Il caso piu' comune, e va detto per quello che e': il codice in
+        # esecuzione e' una copia installata, non un clone.
+        return "E-PROV-01", (
+            f"il codice in esecuzione sta in {Path(__file__).resolve().parents[1]}, che non "
+            "fa parte di un clone del repository (nessuna cartella .git in "
+            f"{RADICE_REPOSITORY}): e' il pacchetto installato, per esempio quello "
+            "dell'immagine. Dalla radice di un clone lancia la pipeline con "
+            f"python3 {LANCIATORE}, che esegue il codice del clone"
+        )
+    try:
+        commit = _git("rev-parse", "HEAD").strip()
+        modificati = [
+            riga[3:] for riga in _git("status", "--porcelain", "--", "src", "R").splitlines()
+            if riga.strip()
+        ]
+    except GitNonLeggibile as guasto:
+        return "E-PROV-01", f"git non legge il repository in {RADICE_REPOSITORY}: {guasto}"
+    if not commit:
+        return "E-PROV-01", f"il repository in {RADICE_REPOSITORY} non ha alcun commit"
     if script_r.resolve() != (RADICE_REPOSITORY / "R").resolve():
         return "E-PROV-01", (
             f"gli script R eseguiti stanno in {script_r}, fuori dal repository "
-            f"{RADICE_REPOSITORY} a cui il commit si riferisce"
+            f"{RADICE_REPOSITORY} a cui il commit si riferisce: la variabile "
+            f"AMPLICON16S_R_DIR indica un'altra cartella (nell'immagine, gli script "
+            f"copiati quando e' stata costruita). Lancia la pipeline con python3 "
+            f"{LANCIATORE}, che usa gli script del clone"
         )
     if modificati:
         return "E-PROV-02", f"{len(modificati)} file modificati: {', '.join(modificati[:10])}"

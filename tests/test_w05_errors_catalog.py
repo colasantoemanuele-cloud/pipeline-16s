@@ -36,7 +36,7 @@ logging), con i codici aggiunti nelle settimane successive.
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -88,21 +88,19 @@ logging), con i codici aggiunti nelle settimane successive.
 from __future__ import annotations
 
 import pytest
+from conftest import codici_con_retry
 
 from amplicon16s.config import defaults
 from amplicon16s.errors.catalog import (
     CATALOGO,
     Categoria,
-    codici_con_retry,
-    codici_di_fase,
-    voce,
+            voce,
 )
 from amplicon16s.errors.exceptions import (
     DegradazioneRichiesta,
     ErrorePipeline,
     ErroreRevisioneUmana,
     ErroreRitentabile,
-    ErroreRitentabileConRevisione,
     errore,
 )
 from amplicon16s.gates.g01_g15 import CONTROLLI
@@ -114,24 +112,24 @@ CODICI_DI_FASE = (
     "E-S0-08", "E-S0-09", "E-S0-10", "E-S0-11", "E-S0-12",
     "E-S0-13", "E-S0-14", "E-S0-15", "E-S0-16", "E-S0-17", "E-S0-18",
     "E-S0-19",
-    "E-S1-01", "E-S1-02", "E-S1-03", "E-S1-04", "E-S1-05",
+    "E-S1-01", "E-S1-02", "E-S1-03", "E-S1-04", "E-S1-05", "E-S1-06",
     "E-S2-01", "E-S2-02", "E-S2-03",
     "E-S3-01", "E-S3-02", "E-S3-03", "E-S3-04", "E-S3-05",
     "E-S4-02",
     "E-S5-01",
     "E-S6-01", "E-S6-02",
     "E-S7-01",
-    "E-S8-02",
+    "E-S8-02", "E-S8-03",
     "E-S9-01", "E-S9-02",
     "E-S10-01", "E-S10-02",
-    "E-S11-02", "E-S11-03", "E-S11-04", "E-S11-05",
+    "E-S11-02", "E-S11-03", "E-S11-04", "E-S11-05", "E-S11-06",
     "E-S12-02", "E-S12-03", "E-S12-04", "E-S12-05",
     "E-S13-01", "E-S13-02", "E-S13-03", "E-S13-04", "E-S13-05",
     "E-S14-01",
 )
 
 #: Codici infrastrutturali del ponte verso R (`rbridge`).
-CODICI_DEL_PONTE = ("E-R-01", "E-R-02", "E-R-03", "E-R-04")
+CODICI_DEL_PONTE = ("E-R-01", "E-R-02", "E-R-03", "E-R-04", "E-R-05")
 
 #: Codice di violazione dell'ordine topologico nel grafo delle fasi.
 CODICI_DEL_GRAFO = ("E-GRAFO-01",)
@@ -140,7 +138,7 @@ CODICI_DEL_GRAFO = ("E-GRAFO-01",)
 CODICI_DELLA_PROVENIENZA = ("E-PROV-01", "E-PROV-02", "E-PROV-03")
 
 #: Elenco chiuso dei 4 soli codici ammessi al retry automatico nella pipeline.
-AMMESSI_AL_RETRY = ("E-S2-03", "E-S3-01", "E-S4-02", "E-S5-01")
+AMMESSI_AL_RETRY = ("E-S2-03", "E-S4-02")
 
 
 # --------------------------------------------------------------------------- #
@@ -161,7 +159,6 @@ def test_ogni_voce_ha_messaggio_e_categoria(codice):
     """
     v = CATALOGO[codice]
 
-    assert v.codice == codice
     assert v.fase, f"{codice}: fase non compilata"
     assert v.sintesi.strip(), f"{codice}: sintesi vuota"
     assert v.azione.strip(), f"{codice}: azione vuota"
@@ -245,40 +242,27 @@ def test_codice_sconosciuto_solleva_un_errore_esplicito():
         voce("E-S99-99")
 
 
-def test_codici_di_fase_raggruppa():
-    """
-    **Obiettivo**: Verificare che ``codici_di_fase("S6")`` restituisca tutti e
-    soli i codici appartenenti alla fase indicata (``("E-S6-01", "E-S6-02")``).
-
-    **Razionale scientifico e sistemistico**: Supporta l'introspezione per-fase
-    del catalogo da parte del generatore di report e della documentazione.
-    """
-    assert codici_di_fase("S6") == ("E-S6-01", "E-S6-02")
-    assert codici_di_fase("S7") == ("E-S7-01",)
-    assert codici_di_fase("S99") == ()
-
-
 # --------------------------------------------------------------------------- #
 # Il retry è un elenco chiuso                                                  #
 # --------------------------------------------------------------------------- #
 
 
-def test_i_codici_ammessi_al_retry_sono_esattamente_quattro():
+def test_i_codici_ammessi_al_retry_sono_un_elenco_chiuso():
     """
-    **Obiettivo**: Verificare che ``codici_con_retry()`` restituisca esattamente
-    i 4 codici ``{"E-S2-03", "E-S3-01", "E-S4-02", "E-S5-01"}``.
+    **Obiettivo**: Verificare che i codici ammessi al retry dal catalogo siano
+    esattamente quelli di ``AMMESSI_AL_RETRY``, e che ``E-S3-01`` ed
+    ``E-S5-01`` non lo siano.
 
-    **Razionale scientifico e sistemistico**: La chiusura ermetica della whitelist
-    di retry a questi 4 soli codici è un pilastro metodologico della pipeline:
-    ritentare automaticamente è lecito solo per esaurimenti di memoria in
-    `filterAndTrim` (`E-S2-03`), inferenza DADA2 (`E-S4-02`), costruzione
-    `seqtab` (`E-S5-01`) o mancata convergenza di `learnErrors` (`E-S3-01`), dove
-    l'azione correttiva agisce sul partizionamento dei lotti o su ``err.nbases``
-    senza mai rilassare soglie biologiche (come ``maxEE`` o ``decontam.threshold``).
+    **Razionale scientifico e sistemistico**: Ritentare automaticamente e'
+    lecito solo dove l'azione correttiva non cambia i risultati: rileggere un
+    file (``E-S2-03``) o ridurre il lotto dell'inferenza (``E-S4-02``).
+    Aumentare ``err.nbases`` dopo una mancata convergenza (``E-S3-01``) cambia
+    il modello d'errore, e la tabella delle varianti (``E-S5-01``) non ha
+    un'azione correttiva.
     """
     ammessi = codici_con_retry()
-    assert len(ammessi) == 4
     assert ammessi == frozenset(AMMESSI_AL_RETRY)
+    assert not ammessi & {"E-S3-01", "E-S5-01"}
 
 
 @pytest.mark.parametrize("codice", AMMESSI_AL_RETRY)
@@ -334,7 +318,8 @@ def test_l_elenco_del_catalogo_coincide_con_retry_whitelist():
     [
         ("E-S0-01", ErroreRevisioneUmana),
         ("E-S2-03", ErroreRitentabile),
-        ("E-S3-01", ErroreRitentabileConRevisione),
+        ("E-S4-02", ErroreRitentabile),
+        ("E-S3-01", ErroreRevisioneUmana),
         ("E-S6-02", DegradazioneRichiesta),
     ],
 )
@@ -364,8 +349,15 @@ def test_ogni_codice_produce_un_errore_coerente(codice):
     e = errore(codice)
     assert isinstance(e, ErrorePipeline)
     assert e.codice == codice
-    assert e.categoria is CATALOGO[codice].categoria
-    assert e.ammette_retry == CATALOGO[codice].ammette_retry
+    # La classe costruita e' quella della categoria: e' la tabella di
+    # smistamento di exceptions.py a essere sotto prova, non il catalogo.
+    attesa = {
+        Categoria.REVISIONE_UMANA: ErroreRevisioneUmana,
+        Categoria.RETRY_AUTOMATICO: ErroreRitentabile,
+        Categoria.DEGRADAZIONE_AUTOMATICA: DegradazioneRichiesta,
+    }[CATALOGO[codice].categoria]
+    assert type(e) is attesa
+    assert str(e).startswith(f"[{codice}] ")
 
 
 def test_sollevare_un_codice_con_la_classe_sbagliata_e_respinto():
@@ -433,8 +425,10 @@ def test_ogni_controllo_del_gate_e_nel_catalogo(controllo):
     e i codici delle fasi `S1-S14` in un'unica fonte di verità.
     """
     assert controllo.codice in CATALOGO
-    assert controllo.descrizione == CATALOGO[controllo.codice].sintesi
-    assert controllo.categoria is CATALOGO[controllo.codice].categoria
+    # Un controllo di configurazione ferma sempre: nessuno e' una degradazione
+    # ne' ammette un nuovo tentativo, tranne i controlli sui metadati di S0.
+    assert CATALOGO[controllo.codice].categoria is Categoria.REVISIONE_UMANA
+    assert CATALOGO[controllo.codice].fase in ("G15", "S0")
 
 
 @pytest.mark.parametrize(
@@ -480,8 +474,8 @@ def test_nessun_controllo_di_configurazione_e_ritentabile():
 
 #: Elenco chiuso dei codici autorizzati alla degradazione automatica controllata.
 DEGRADAZIONI = (
-    "E-S0-15", "E-S0-17", "E-S0-18", "E-S0-19", "E-S1-01", "E-S1-03", "E-S6-02", "E-S11-02", "E-S11-04",
-    "E-S11-05", "E-S12-03", "E-S13-02", "E-S13-03", "E-S13-05",
+    "E-S0-15", "E-S0-17", "E-S0-18", "E-S0-19", "E-S1-01", "E-S1-03", "E-S6-02", "E-S8-03", "E-S11-02", "E-S11-04",
+    "E-S11-05", "E-S11-06", "E-S12-03", "E-S13-02", "E-S13-03", "E-S13-05",
 )
 
 
@@ -532,15 +526,16 @@ def test_la_guardia_sulla_filogenesi_ferma_l_esecuzione():
     assert "phylo.enabled" in v.azione
 
 
-def test_le_categorie_sono_quattro():
+def test_le_categorie_sono_tre():
     """
     **Obiettivo**: Verificare che l'enumerazione ``Categoria`` contenga
-    esattamente 4 stati di gestione.
+    esattamente 3 stati di gestione: revisione umana, retry automatico,
+    degradazione automatica.
 
     **Razionale scientifico e sistemistico**: Mantiene chiusa e ortogonale la
     tassonomia decisionale dell'esecutore della pipeline.
     """
-    assert len(Categoria) == 4
+    assert len(Categoria) == 3
 
 
 def test_ogni_categoria_e_usata_almeno_una_volta():
@@ -559,19 +554,22 @@ def test_ogni_categoria_e_usata_almeno_una_volta():
     ("categoria", "retry", "ferma"),
     [
         (Categoria.REVISIONE_UMANA, False, True),
-        (Categoria.RETRY_AUTOMATICO, True, False),
-        (Categoria.RETRY_POI_REVISIONE, True, True),
+        (Categoria.RETRY_AUTOMATICO, True, True),
         (Categoria.DEGRADAZIONE_AUTOMATICA, False, False),
     ],
 )
 def test_proprieta_delle_categorie(categoria, retry, ferma):
     """
-    **Obiettivo**: Verificare la tabella di verità delle proprietà booleane
-    ``ammette_retry`` e ``ferma_esecuzione`` per ciascuna ``Categoria``.
+    **Obiettivo**: Verificare, per ciascuna ``Categoria``, la proprieta'
+    ``ammette_retry`` e la classe dell'eccezione che ``errore`` costruisce per
+    un codice di quella categoria: una degradazione non ferma, le altre si'.
 
     **Razionale scientifico e sistemistico**: ``PoliticaRetry`` ed ``Esecutore``
-    decidono se ritentare e se arrestare la pipeline interrogando queste due
-    proprietà; questo test certifica il comportamento esatto delle 4 categorie.
+    decidono se ritentare interrogando la categoria; questo test certifica il
+    comportamento delle tre categorie.
     """
     assert categoria.ammette_retry is retry
-    assert categoria.ferma_esecuzione is ferma
+    codice = next(c for c, v in CATALOGO.items() if v.categoria is categoria)
+    # Ferma cio' che non e' una degradazione: lo dice la classe dell'eccezione
+    # che errore() costruisce, quella che chi governa la fase cattura.
+    assert isinstance(errore(codice), DegradazioneRichiesta) is not ferma

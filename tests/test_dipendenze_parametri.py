@@ -46,7 +46,7 @@ manifesti di fase.
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalita' locale standard (con R base e jsonlite):
        pytest tests/test_dipendenze_parametri.py -v

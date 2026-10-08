@@ -32,7 +32,7 @@ prevalenza S13; serializzazione, export e validazione S14; ``12_final/``).
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
     ``<immagine>`` e' l'immagine del container della pipeline; quella corrente
-    e' indicata in ``test.txt``, sezione 1.3.
+    e' indicata in ``README.md``.
 
     1. Modalità locale standard (R di base con jsonlite, senza Bioconductor né
        dati reali):
@@ -63,7 +63,7 @@ prevalenza S13; serializzazione, export e validazione S14; ``12_final/``).
 
 5. Risultato atteso
 -------------------
-Vedi ``test.txt``, scheda W21.
+I conteggi li da' pytest (``pytest --collect-only -q``).
 
 6. Razionale scientifico e sistemistico
 ---------------------------------------
@@ -77,6 +77,7 @@ Vedi ``test.txt``, scheda W21.
 
 from __future__ import annotations
 
+import functools
 import csv
 import hashlib
 import json
@@ -92,6 +93,7 @@ from conftest import copia_esecuzione
 from sottoinsieme import config_ridotta, motivo_pacchetti_r_assenti
 
 from amplicon16s.config.resolve import risolvi
+from amplicon16s.config.schema import ErroreConfigurazione
 from amplicon16s.errors.exceptions import ErrorePipeline
 from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.logging.logger import chiudi
@@ -120,9 +122,14 @@ def uscite_pulite():
     chiudi()
 
 
-_MOTIVO_BIOC = motivo_pacchetti_r_assenti(
-    "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings", "decontam"
-)
+@functools.cache
+def _sonda_bioc() -> str | None:
+    """Perche' l'ambiente R richiesto non c'e', o ``None``: la sonda parte al
+    primo uso, non all'importazione del modulo, e una volta sola.
+    """
+    return motivo_pacchetti_r_assenti(
+        "dada2", "ggplot2", "ShortRead", "jsonlite", "phyloseq", "Biostrings", "decontam"
+    )
 
 
 @pytest.fixture
@@ -130,10 +137,10 @@ def bioc():
     """Richiede R con phyloseq, decontam e i pacchetti delle fasi a monte: salta
     senza, ma in CI fallisce.
     """
-    if _MOTIVO_BIOC is not None:
+    if _sonda_bioc() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
-            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_MOTIVO_BIOC}")
-        pytest.skip(_MOTIVO_BIOC)
+            pytest.fail(f"Bioconductor e' richiesto in questo ambiente: {_sonda_bioc()}")
+        pytest.skip(_sonda_bioc())
 
 
 def _tsv(percorso: Path) -> list[dict[str, str]]:
@@ -216,8 +223,8 @@ def test_il_filtro_per_profondita_usa_lo_stadio_della_piastra():
 
 def test_i_parametri_di_s13_e_s14(tmp_path):
     """
-    **Obiettivo**: Verificare i parametri dei filtri e della validazione
-    (``qc.min_frac_reads_retained`` 0,40, nuovo), che i filtri cambino
+    **Obiettivo**: Verificare che i parametri dei filtri e della validazione
+    siano frazioni e conteggi nei loro intervalli, che i filtri cambino
     l'impronta di S13 e non quella delle fasi a monte, e che gli export
     cambino l'impronta di S14 e non quella di S13.
 
@@ -225,8 +232,11 @@ def test_i_parametri_di_s13_e_s14(tmp_path):
     deve rifare S13 e S14, non la catena.
     """
     config = config_ridotta(tmp_path)
-    assert (config.prev.min_fraction, config.prev.min_count, config.qc.min_reads_final,
-            config.qc.min_frac_reads_retained) == (0.01, 2, 1000, 0.40)
+    assert 0 < config.prev.min_fraction < 1 and 0 < config.qc.min_frac_reads_retained < 1
+    for gruppo, chiave, valore in (("prev", "min_fraction", 1.5), ("prev", "min_count", -1),
+                                   ("qc", "min_frac_reads_retained", -0.1)):
+        with pytest.raises(ErroreConfigurazione, match=f"{gruppo}.{chiave}"):
+            config_ridotta(tmp_path, **{gruppo: {chiave: valore}})
     prima = risolvi(config)
     passi = passi_realizzati()
     for variazione, cambiata in (
@@ -281,12 +291,11 @@ jsonlite::write_json(list(
     assert letti["classi"] == ["biologico"]
     assert letti["finale"] == [a for a in biologici if a not in set(esclusi)]
     assert set(esclusi) <= set(biologici)
-    assert set(letti["controlli"]) == {c.accession for c in inventario if c.classe.e_controllo}
+    assert set(letti["controlli"]) == {c.accession for c in inventario if c.classe is not ClasseCampione.BIOLOGICO}
     posizioni = [letti["iniziali"].index(v) for v in letti["varianti"]]
     assert posizioni == sorted(posizioni)
     for e in _tsv(intermedi / "esclusioni.tsv"):
         assert e["filtro"] and e["motivo"]
-    print(f"\nS13: {dict(esito.eseguite[0].metriche)}\nS14: {dict(esito.eseguite[1].metriche)}")
 
 
 def test_il_filtro_per_profondita_usa_le_letture_del_tracciamento(bioc, finale_calcolata):
@@ -670,16 +679,24 @@ def test_i_test_sui_dati_reali_girano_su_un_solo_processo(tmp_path):
 def test_la_catena_arriva_alla_fine_sul_dataset_completo(bioc, catena_reale):
     """
     **Obiettivo**: Verificare che sul dataset completo la catena si concluda con
-    S14, e riportare le misure dei filtri e le dimensioni dell'oggetto finale.
+    S14; che l'oggetto finale contenga solo campioni biologici; che ogni
+    biologico sia conservato o escluso da un filtro; e che la frazione di
+    letture trattenute rispetti ``qc.min_frac_reads_retained``.
 
     **Razionale scientifico e sistemistico**: E' il risultato dell'intera
     pipeline.
     """
     run, esito = catena_reale
     assert esito.conclusione is Conclusione.COMPLETATA
-    for r in esito.eseguite:
-        if r.passo in (Passo.S13, Passo.S14):
-            print(f"\n{r.passo}: {r.secondi} s, {dict(r.metriche)}")
     riepilogo = _riepilogo(run)
-    assert riepilogo["campioni"]["classi_finali"]["controllo_negativo"] == 0
-    assert riepilogo["campioni"]["finali"] > 0
+    campioni = riepilogo["campioni"]
+    # Nell'oggetto finale restano solo campioni biologici, e ogni biologico e'
+    # o conservato o escluso da uno dei filtri, con il suo motivo.
+    assert campioni["classi_finali"]["controllo_negativo"] == 0
+    assert campioni["classi_finali"].get("controllo_positivo", 0) == 0
+    biologici = len(run.valuta().inventario.di_classe(ClasseCampione.BIOLOGICO))
+    assert 0 < campioni["finali"] <= biologici
+    assert campioni["finali"] + sum(campioni["esclusi"].values()) == biologici
+    s14 = next(r for r in esito.eseguite if r.passo is Passo.S14)
+    assert s14.metriche["campioni"] == campioni["finali"]
+    assert s14.metriche["frazione_letture_trattenute"] >= run.config.qc.min_frac_reads_retained

@@ -32,13 +32,16 @@ filtro non confrontabile con quello delle altre.
 **La regola**, dichiarata in ``R/11_controls.R``: la curva aggregata e le curve
 per piastra si adattano sugli stessi punti (i controlli utilizzabili delle
 piastre con almeno ``ctrl.min_positives`` punti) e si preferisce il modello con
-l'AIC minore. Se e' l'aggregato ed e' valido, tutte le piastre usano la sua
-soglia (origine ``aggregata``); altrimenti una piastra con la curva valida usa
-la propria (``propria``), una senza usa l'aggregata se valida, o la mediana
-delle soglie proprie (``mediana``); un campione senza piastra segue la stessa
-strada. Se almeno una piastra, o un campione senza piastra, non usa una curva
-propria la fase lo registra con ``E-S11-02`` e, per ognuno, l'origine e il
-motivo.
+l'AIC minore. Se nessuna piastra ha abbastanza punti non esiste un modello per
+piastra, e l'aggregato si adatta su tutti i controlli utilizzabili, anche
+senza piastra. Se il modello scelto e' l'aggregato ed e' valido, tutti i
+campioni usano la sua soglia (origine ``aggregata``): e' una scelta di modello
+e non una degradazione. Altrimenti una piastra con la curva valida usa la
+propria (``propria``), una senza usa l'aggregata se valida, o la mediana delle
+soglie proprie (``mediana``); un campione senza piastra segue la stessa
+strada. Solo questo ripiego, di chi con il modello per piastra non ha una
+curva propria valida, e' registrato con ``E-S11-02`` e, per ognuno, l'origine
+e il motivo.
 
 **Senza alcuna curva valida** (un dataset senza controlli positivi, senza la
 colonna dei livelli, o con curve tutte non valide) non c'e' alcuna soglia
@@ -58,6 +61,14 @@ controlli valutabili, con ``ctrl.positive_gate`` vero la fase si ferma con
 registra l'avviso ``E-S11-04``: un avviso e un arresto non condividono il
 codice. I controlli non conformi non entrano nella curva.
 
+Un livello di concentrazione con meno di ``ctrl.min_positives`` controlli non
+permette il confronto: i suoi controlli non sono valutati, e poiche' non sono
+giudicati non conformi entrano comunque nella curva. La fase lo dichiara con
+l'avviso ``E-S11-06``, che elenca i livelli e quanti controlli hanno: senza,
+un controllo anomalo in un livello poco rappresentato sposterebbe la soglia
+in silenzio. Resta un avviso anche con ``ctrl.positive_gate`` vero, perche' un
+controllo non valutato non e' stato giudicato non conforme.
+
 ``profondita_campioni.tsv`` riporta per ogni campione la soglia che gli si
 applica e se vi cade sotto: e' una misura, il filtro e' di S13.
 """
@@ -76,12 +87,31 @@ from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 from amplicon16s.metadata.tabelle import COLONNE_INVENTARIO
 from amplicon16s.steps.s10_phyloseq import NOME_COLONNE, NOME_OGGETTO
 
-__all__ = ["NOME_SOGLIA", "ValidazioneControlli", "colonna_dei_livelli"]
+__all__ = ["NOME_SOGLIA", "ValidazioneControlli", "colonna_dei_livelli", "livelli_non_valutati"]
 
 NOME_SCRIPT: Final = "11_controls.R"
 #: La soglia di profondita' che le fasi successive leggono.
 NOME_SOGLIA: Final = "soglia.json"
 NOME_RIEPILOGO: Final = "riepilogo.json"
+NOME_POSITIVI: Final = "positivi.tsv"
+#: Come R/lib/katharoseq.R motiva un controllo non valutato perche' il suo
+#: livello ha troppo pochi controlli.
+_LIVELLO_SCARSO: Final = "livello con "
+
+
+def livelli_non_valutati(positivi: list[dict[str, str]]) -> dict[str, int]:
+    """I livelli di concentrazione i cui controlli non sono stati valutati
+    perche' il livello ne ha troppo pochi, con il numero dei controlli di ciascuno.
+
+    Legge le righe di ``positivi.tsv``: un controllo senza livello non vi
+    rientra, perche' non ha un livello con cui confrontarlo e non entra nella
+    curva. I livelli sono in ordine numerico.
+    """
+    conteggi: dict[str, int] = {}
+    for riga in positivi:
+        if riga["conformita"] == "non valutabile" and riga["motivo"].startswith(_LIVELLO_SCARSO):
+            conteggi[riga["cellule"]] = conteggi.get(riga["cellule"], 0) + 1
+    return dict(sorted(conteggi.items(), key=lambda voce: float(voce[0])))
 
 
 def colonna_dei_livelli(
@@ -116,7 +146,11 @@ class ValidazioneControlli(PipelineStep):
     #: sulle letture grezze non esiste piu'. 5: il motivo della scelta dice
     #: quando l'AIC del modello per piastra non e' calcolabile (6: con il testo
     #: che vale anche per una curva non stimabile senza un difetto di convergenza).
-    versione: ClassVar[int] = 6
+    #: 7: senza una piastra con abbastanza controlli l'aggregato si adatta su
+    #: tutti i controlli utilizzabili; l'aggregato scelto come modello non e'
+    #: un ripiego. 8: un livello di concentrazione con meno controlli del
+    #: minimo e' dichiarato con E-S11-06.
+    versione: ClassVar[int] = 8
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La curva (katharoseq), i controlli minimi, la frazione di conformi e il
     #: comportamento sotto di essa (ctrl), se una soglia si applica (qc).
@@ -162,6 +196,7 @@ class ValidazioneControlli(PipelineStep):
             albero,
             self.cartella,
             passo=self.passo,
+            tempo_massimo_s=contesto.config.run.r_timeout_s,
             logger=contesto.logger,
         )
         cartella = albero.cartella(self.cartella)
@@ -170,9 +205,10 @@ class ValidazioneControlli(PipelineStep):
 
         # Due dichiarazioni distinte. Senza alcuna curva valida non c'e' una
         # soglia riuscita male: non c'e' nulla da applicare, e chi legge deve
-        # sapere che il filtro di profondita' non e' stato fatto. Con una soglia
-        # presa dall'aggregato o dalla mediana il filtro c'e', ma non viene dai
-        # controlli della piastra. Con qc.min_reads_mode none l'assenza della
+        # sapere che il filtro di profondita' non e' stato fatto. Con il modello
+        # per piastra, una soglia presa dall'aggregato o dalla mediana e' un
+        # ripiego: il filtro c'e', ma non viene dai controlli della piastra.
+        # L'aggregato valido scelto come modello non e' ne' l'una ne' l'altra. Con qc.min_reads_mode none l'assenza della
         # soglia e' dichiarata nella configurazione, e non e' una degradazione.
         if config.qc.min_reads_mode == "none":
             pass
@@ -189,6 +225,22 @@ class ValidazioneControlli(PipelineStep):
                 f"{soglia['stadio']}), {v['motivo']}" for v in soglia["non_proprie"]
             )
             contesto.degrada("E-S11-02", dettagli, scelta=soglia["scelta"])
+
+        # I controlli di un livello con troppo pochi controlli non sono stati
+        # confrontati con nessuno, eppure entrano nella curva che fissa la
+        # soglia: va detto. Non e' una non conformita', quindi non ferma la
+        # fase nemmeno con ctrl.positive_gate vero.
+        with open(cartella / NOME_POSITIVI, encoding="utf-8", newline="") as file:
+            scarsi = livelli_non_valutati(list(csv.DictReader(file, delimiter="\t")))
+        if scarsi:
+            contesto.degrada(
+                "E-S11-06",
+                f"{sum(scarsi.values())} controlli positivi non valutati, in "
+                f"{len(scarsi)} livelli di concentrazione con meno di ctrl.min_positives "
+                f"({config.ctrl.min_positives}) controlli: "
+                + "; ".join(f"livello {livello}: {quanti}" for livello, quanti in scarsi.items()),
+                livelli=scarsi,
+            )
 
         frazione = riepilogo["frazione_conformi"]
         minima = config.ctrl.min_positive_pass_frac

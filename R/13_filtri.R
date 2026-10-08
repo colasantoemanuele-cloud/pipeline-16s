@@ -31,7 +31,7 @@
 #      di filt.exclude_taxa cercati in ogni rango; un campione che ne resta
 #      vuoto non ha segnale batterico ed esce (E-S13-03). I nomi dei taxa si
 #      confrontano senza il prefisso di rango che alcuni riferimenti portano
-#      ("p__Proteobacteria", "o__Chloroplast"): un nome fatto del solo
+#      ("p__Proteobacteria", "g__Escherichia"): un nome fatto del solo
 #      prefisso e' un rango non assegnato;
 #   3. prevalenza (varianti): una variante resta se ha almeno prev.min_count
 #      letture in almeno min_campioni dei campioni tenuti; un campione che ne
@@ -116,7 +116,9 @@ esegui_fase(function(parametri, cartella) {
 
   # ---- 3. Prevalenza ---------------------------------------------------------
   n_tenuti <- ncol(conteggi)
-  min_campioni <- ceiling(as.numeric(parametri$frazione) * n_tenuti)
+  # Arrotondato prima dell'intero superiore: in virgola mobile 0,07 x 100 vale
+  # 7,000000000000001, e l'intero superiore sarebbe 8 invece di 7.
+  min_campioni <- ceiling(round(as.numeric(parametri$frazione) * n_tenuti, 9))
   presenze <- rowSums(conteggi >= as.numeric(parametri$minimo_conteggio))
   if (isTRUE(parametri$prevalenza)) {
     via_prev <- presenze < min_campioni
