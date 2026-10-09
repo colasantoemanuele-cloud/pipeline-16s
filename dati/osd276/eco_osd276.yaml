@@ -1,0 +1,34 @@
+# Analisi ecologiche di base su OSD-276: configurazione di esempio.
+#
+# Oggetto di partenza: 12_final/ps_final.rds dell'esecuzione della pipeline con
+# config_osd276.yaml. Il significato di ogni parametro e' in
+# config/eco.example.yaml.
+
+design:
+  # Il solo fattore dello studio che varia fra i campioni e' il punto di
+  # campionamento (Factor Value[Sample Location] nei metadati), che la pipeline
+  # porta nell'oggetto come colonna "posizione". Ogni punto ha un solo tampone:
+  # con stat.min_group_size 5 nessun gruppo entra nei test, e l'analisi lo
+  # dichiara. Restano le uscite descrittive.
+  variable: posizione
+  other_variables: []
+  # Lo studio non dichiara piastre ne' corse.
+  technical_variables: []
+  subset: {}
+
+run:
+  seed: 100
+
+alpha:
+  rarefy_depth: null
+
+comp:
+  rank: Genus
+  top_n: 10
+
+beta:
+  distances: [bray, jaccard, aitchison]
+  clr_pseudocount: 1.0
+
+stat:
+  min_group_size: 5

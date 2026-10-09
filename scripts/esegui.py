@@ -13,6 +13,12 @@ chi lancia debba impostare alcuna variabile d'ambiente: e' cio' che la regola
 rigorosa sulla provenienza (``run.strict_provenance``) richiede, perche' il
 commit del clone identifichi davvero il codice che calcola.
 
+Con ``eco`` come primo argomento esegue invece le analisi ecologiche di base
+del clone, sull'oggetto finale consegnato dalla pipeline (gli argomenti che
+seguono sono quelli di ``python3 -m amplicon16s_eco``)::
+
+    python3 scripts/esegui.py eco run --object ps_final.rds --config eco.yaml --out CARTELLA
+
 Sistema anche la cartella personale: in un container avviato con l'utente di
 chi lancia (``-u "$(id -u):$(id -g)"``) ``HOME`` punta spesso a una cartella di
 un altro utente, non scrivibile, e i programmi che vi tengono una cache
@@ -45,6 +51,11 @@ def main() -> int:
         temporanea = tempfile.TemporaryDirectory(prefix="amplicon16s-home-")
         os.environ["HOME"] = temporanea.name
     try:
+        if sys.argv[1:2] == ["eco"]:
+            from amplicon16s_eco.cli import main as analisi_ecologiche
+
+            return analisi_ecologiche(sys.argv[2:], programma=f"python3 {sys.argv[0]} eco")
+
         from amplicon16s.cli import main as riga_di_comando
 
         return riga_di_comando(sys.argv[1:], programma=f"python3 {sys.argv[0]}")

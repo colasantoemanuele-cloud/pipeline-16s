@@ -40,6 +40,7 @@ dev = ["pytest==9.1.1", "pytest-xdist==3.8.0", "execnet==2.1.2"]
 
 [project.scripts]
 amplicon16s = "amplicon16s.cli:main"
+amplicon16s-eco = "amplicon16s_eco.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -53,6 +54,9 @@ include = ["amplicon16s*", "amplicon16s_eco*"]
 # del documento del report.
 [tool.setuptools.package-data]
 amplicon16s = ["steps/registro_sorgente.json", "report/templates/*"]
+# Gli script R delle analisi ecologiche stanno dentro il pacchetto, e lo seguono
+# anche in un'installazione non modificabile.
+amplicon16s_eco = ["R/*.R", "R/lib/*.R"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

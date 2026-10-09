@@ -1,0 +1,65 @@
+# Modello di configurazione delle analisi ecologiche di base.
+#
+# Le analisi lavorano a valle della pipeline, sull'oggetto finale che essa
+# consegna (ps_final.rds), e non lo modificano. Questo file e' un modello: non
+# contiene valori. Copialo, togli il commento a ogni parametro [OBBLIGATORIO] e
+# dagli il valore del tuo studio. Le configurazioni complete dei dataset
+# distribuiti con il repository stanno accanto ai loro dati, sotto dati/.
+#
+# Marcatori:
+#   [OBBLIGATORIO]   nessun valore predefinito: senza, l'analisi non parte
+#   [CONDIZIONALE]   obbligatorio se il metodo indicato e' richiesto, respinto
+#                    altrimenti
+#   [FACOLTATIVO]    il predefinito e' l'assenza
+#   [STANDARD]       il predefinito e' quello del pacchetto R che realizza il
+#                    metodo, indicato accanto
+#
+# Le chiavi sconosciute sono respinte. I nomi di colonna sono quelli della
+# tabella dei campioni dell'oggetto; i valori si confrontano come testo.
+
+design:
+  # [OBBLIGATORIO] La variabile biologica: una colonna della tabella dei
+  # campioni, trattata come categorica.
+  # variable:
+
+  # [FACOLTATIVO] Altre variabili biologiche, analizzate una alla volta.
+  # other_variables: []
+
+  # [FACOLTATIVO] Variabili tecniche (per esempio il lotto di estrazione),
+  # nell'ordine in cui entrano nei modelli.
+  # technical_variables: []
+
+  # [FACOLTATIVO] Sottoinsieme dei campioni: per ogni colonna i valori ammessi
+  # (fra virgolette). Si applica prima di tutto il resto.
+  # subset: {}
+
+run:
+  # [OBBLIGATORIO] Seme della rarefazione e di ogni altra operazione casuale.
+  # seed:
+
+alpha:
+  # [STANDARD] Profondita' di rarefazione. Nullo: la minima fra i campioni
+  # analizzati (phyloseq::rarefy_even_depth, sample.size =
+  # min(sample_sums(physeq))). Se dichiarata, i campioni con meno letture
+  # escono dall'alfa diversita'. La rarefazione e' senza reinserimento.
+  rarefy_depth: null
+
+comp:
+  # [OBBLIGATORIO] Rango tassonomico a cui agglomerare, fra quelli dell'oggetto.
+  # rank:
+
+  # [OBBLIGATORIO] Numero di taxa mostrati nei grafici; i rimanenti in «altri».
+  # top_n:
+
+beta:
+  # [OBBLIGATORIO] Distanze da calcolare, fra: bray, jaccard, aitchison,
+  # unifrac_weighted, unifrac_unweighted. Le due UniFrac richiedono un albero
+  # radicato nell'oggetto.
+  # distances:
+
+  # [CONDIZIONALE: aitchison] Pseudoconteggio sommato ai conteggi prima del CLR.
+  # clr_pseudocount:
+
+stat:
+  # [OBBLIGATORIO] Numero minimo di campioni perche' un gruppo entri nei test.
+  # min_group_size:

@@ -1,0 +1,32 @@
+# Analisi ecologiche di base su OSD-734: configurazione di esempio.
+#
+# Oggetto di partenza: 12_final/ps_final.rds dell'esecuzione della pipeline con
+# config_osd734.yaml. Il significato di ogni parametro e' in
+# config/eco.example.yaml.
+
+design:
+  # Il modulo della stazione da cui viene il tampone: la variabile che lo
+  # studio confronta.
+  variable: modulo
+  other_variables: []
+  # Piastra di estrazione (dieci) e corsa di sequenziamento (due).
+  technical_variables: [piastra, corsa]
+  subset: {}
+
+run:
+  seed: 100
+
+alpha:
+  rarefy_depth: null
+
+comp:
+  # Il rango piu' fine assegnato dalla pipeline (letture di 137 basi).
+  rank: Genus
+  top_n: 10
+
+beta:
+  distances: [bray, jaccard, aitchison]
+  clr_pseudocount: 1.0
+
+stat:
+  min_group_size: 5
