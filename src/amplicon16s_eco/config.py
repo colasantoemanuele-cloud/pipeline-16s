@@ -1,7 +1,7 @@
 """Configurazione delle analisi ecologiche: schema, caricamento e digest.
 
 Il file e' proprio del pacchetto, distinto da quello della pipeline, e ha
-gruppi ``design``, ``run``, ``alpha``, ``comp``, ``beta`` e ``stat``. Le regole
+gruppi ``design``, ``run``, ``alpha``, ``comp``, ``beta``, ``ord`` e ``stat``. Le regole
 sono quelle della pipeline:
 
 * cio' che dipende dallo studio e' **obbligatorio** e non ha un valore
@@ -33,9 +33,12 @@ from amplicon16s_eco.catalogo import ErroreEco
 
 __all__ = [
     "CONDIZIONALI",
+    "CORREZIONI_PCOA",
     "DISTANZE",
     "FACOLTATIVI",
+    "ORDINAZIONI",
     "OBBLIGATORI",
+    "RADICI_UNIFRAC",
     "STANDARD_DEL_METODO",
     "ConfigEco",
     "carica",
@@ -49,6 +52,18 @@ DISTANZE: Final = ("bray", "jaccard", "aitchison", "unifrac_weighted", "unifrac_
 
 Distanza = Literal["bray", "jaccard", "aitchison", "unifrac_weighted", "unifrac_unweighted"]
 
+#: Come si ottiene la radice dell'albero per le due UniFrac: al punto medio
+#: (phangorn::midpoint), oppure quella che l'albero dell'oggetto ha gia'.
+RADICI_UNIFRAC: Final = ("midpoint", "existing")
+
+#: I metodi di ordinazione realizzati.
+ORDINAZIONI: Final = ("pcoa", "nmds")
+
+Ordinazione = Literal["pcoa", "nmds"]
+
+#: Le correzioni degli autovalori negativi della PCoA (ape::pcoa).
+CORREZIONI_PCOA: Final = ("none", "cailliez", "lingoes")
+
 #: Parametri senza predefinito: dipendono dallo studio o sono scelte di analisi.
 OBBLIGATORI: Final[tuple[str, ...]] = (
     "design.variable",
@@ -56,13 +71,19 @@ OBBLIGATORI: Final[tuple[str, ...]] = (
     "comp.rank",
     "comp.top_n",
     "beta.distances",
+    "ord.methods",
+    "ord.distances",
     "stat.min_group_size",
+    "stat.significance_level",
 )
 
-#: Parametri obbligatori quando il metodo indicato e' richiesto, respinti
-#: altrimenti: chiave -> (parametro che elenca i metodi, metodo).
-CONDIZIONALI: Final[dict[str, tuple[str, str]]] = {
-    "beta.clr_pseudocount": ("beta.distances", "aitchison"),
+#: Parametri obbligatori quando uno dei metodi indicati e' richiesto, respinti
+#: altrimenti: chiave -> (parametro che elenca i metodi, metodi).
+CONDIZIONALI: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
+    "beta.clr_pseudocount": ("beta.distances", ("aitchison",)),
+    "beta.unifrac_root": ("beta.distances", ("unifrac_weighted", "unifrac_unweighted")),
+    "ord.pcoa_correction": ("ord.methods", ("pcoa",)),
+    "ord.nmds_trymax": ("ord.methods", ("nmds",)),
 }
 
 #: Predefiniti che sono il valore del pacchetto R che realizza il metodo:
@@ -73,6 +94,7 @@ STANDARD_DEL_METODO: Final[dict[str, tuple[Any, str]]] = {
         "phyloseq::rarefy_even_depth, sample.size = min(sample_sums(physeq)): "
         "nullo significa la minima profondita' fra i campioni analizzati",
     ),
+    "stat.permanova_permutations": (999, "vegan::adonis2, permutations = 999"),
 }
 
 #: Parametri facoltativi il cui predefinito e' l'assenza.
@@ -80,9 +102,14 @@ FACOLTATIVI: Final[tuple[str, ...]] = (
     "design.other_variables",
     "design.technical_variables",
     "design.subset",
+    "stat.permanova_strata",
 )
 
 _Nome = Annotated[str, Field(min_length=1, strict=True)]
+
+#: Il massimo intero che R rappresenta: oltre, un parametro arriverebbe come NA.
+_MAX_INTERO: Final = 2**31 - 1
+_Positivo = Annotated[int, Field(ge=1, le=_MAX_INTERO, strict=True)]
 
 
 class _Gruppo(BaseModel):
@@ -128,7 +155,7 @@ class Run(_Gruppo):
     """Parametri dell'esecuzione."""
 
     #: Seme di rarefazione e di ogni altra operazione casuale: va dichiarato.
-    seed: Annotated[int, Field(ge=0, le=2**31 - 1, strict=True)]
+    seed: Annotated[int, Field(ge=0, le=_MAX_INTERO, strict=True)]
 
 
 class Alpha(_Gruppo):
@@ -136,14 +163,14 @@ class Alpha(_Gruppo):
 
     #: Profondita' di rarefazione. Nullo: la minima fra i campioni analizzati
     #: (phyloseq::rarefy_even_depth, sample.size = min(sample_sums(physeq))).
-    rarefy_depth: Annotated[int, Field(ge=1, strict=True)] | None = None
+    rarefy_depth: _Positivo | None = None
 
 
 class Comp(_Gruppo):
     """Composizione tassonomica."""
 
     rank: _Nome
-    top_n: Annotated[int, Field(ge=1, strict=True)]
+    top_n: _Positivo
 
 
 class Beta(_Gruppo):
@@ -151,7 +178,9 @@ class Beta(_Gruppo):
 
     distances: Annotated[tuple[Distanza, ...], Field(min_length=1)]
     #: Pseudoconteggio del CLR: solo con la distanza di Aitchison.
-    clr_pseudocount: Annotated[float, Field(gt=0)] | None = None
+    clr_pseudocount: Annotated[float, Field(gt=0, strict=True, allow_inf_nan=False)] | None = None
+    #: Radice dell'albero: solo con una delle due UniFrac.
+    unifrac_root: Literal["midpoint", "existing"] | None = None
 
     @model_validator(mode="after")
     def _senza_ripetizioni(self) -> "Beta":
@@ -161,11 +190,44 @@ class Beta(_Gruppo):
         return self
 
 
+class Ord(_Gruppo):
+    """Ordinazione."""
+
+    #: Metodi di ordinazione; un elenco vuoto non ne produce.
+    methods: tuple[Ordinazione, ...]
+    #: Distanze da ordinare, fra quelle di ``beta.distances``.
+    distances: tuple[Distanza, ...]
+    #: Correzione degli autovalori negativi: solo con la PCoA.
+    pcoa_correction: Literal["none", "cailliez", "lingoes"] | None = None
+    #: Numero di avvii casuali: solo con la NMDS.
+    nmds_trymax: _Positivo | None = None
+
+    @model_validator(mode="after")
+    def _coerente(self) -> "Ord":
+        for nome in ("methods", "distances"):
+            valori = getattr(self, nome)
+            ripetuti = sorted({v for v in valori if valori.count(v) > 1})
+            if ripetuti:
+                raise ValueError(f"ord.{nome} con valori ripetuti: {ripetuti}")
+        if bool(self.methods) != bool(self.distances):
+            raise ValueError(
+                "ord.methods e ord.distances vanno dichiarati insieme: entrambi "
+                "con almeno un valore, oppure entrambi vuoti"
+            )
+        return self
+
+
 class Stat(_Gruppo):
     """Gruppi e test."""
 
     #: Dimensione minima di un gruppo per entrare nei test.
-    min_group_size: Annotated[int, Field(ge=2, strict=True)]
+    min_group_size: Annotated[int, Field(ge=2, le=_MAX_INTERO, strict=True)]
+    #: Livello sotto il quale le dispersioni si dichiarano diverse.
+    significance_level: Annotated[float, Field(gt=0, lt=1, strict=True)]
+    #: Permutazioni di PERMANOVA e dispersioni (vegan::adonis2, permutations = 999).
+    permanova_permutations: _Positivo = 999
+    #: Colonna degli strati entro cui permutare nella PERMANOVA.
+    permanova_strata: _Nome | None = None
 
 
 class ConfigEco(_Gruppo):
@@ -176,7 +238,17 @@ class ConfigEco(_Gruppo):
     alpha: Alpha = Field(default_factory=Alpha)
     comp: Comp
     beta: Beta
+    ord: Ord
     stat: Stat
+
+    @model_validator(mode="after")
+    def _distanze_ordinate(self) -> "ConfigEco":
+        estranee = [d for d in self.ord.distances if d not in self.beta.distances]
+        if estranee:
+            raise ValueError(
+                f"ord.distances nomina distanze che beta.distances non calcola: {estranee}"
+            )
+        return self
 
 
 # --------------------------------------------------------------------------- #
@@ -185,17 +257,23 @@ class ConfigEco(_Gruppo):
 
 #: Parametri il cui valore e' il nome di un metodo: un valore non ammesso e' un
 #: metodo non supportato (E-ECO-03), non un errore generico.
-_PARAMETRI_DI_METODO: Final = ("beta.distances",)
+_PARAMETRI_DI_METODO: Final = (
+    "beta.distances", "beta.unifrac_root", "ord.methods", "ord.distances",
+    "ord.pcoa_correction",
+)
 
 _MESSAGGI: Final[dict[str, str]] = {
     "extra_forbidden": "parametro sconosciuto (refuso o parametro non previsto)",
     "int_type": "deve essere un numero intero",
     "float_type": "deve essere un numero",
+    "finite_number": "deve essere un numero finito",
+    "invalid_key": "le chiavi devono essere testo (fra virgolette, se sono numeri)",
     "string_type": "deve essere una stringa (fra virgolette, se e' un numero)",
     "tuple_type": "deve essere un elenco",
     "dict_type": "deve essere una mappa",
     "model_type": "deve essere una mappa di parametri",
     "greater_than": "deve essere maggiore di {gt}",
+    "less_than": "deve essere minore di {lt}",
     "greater_than_equal": "deve essere maggiore o uguale a {ge}",
     "less_than_equal": "deve essere minore o uguale a {le}",
     "too_short": "deve contenere almeno {min_length} elementi",
@@ -235,22 +313,24 @@ def _condizionali(config: ConfigEco) -> list[tuple[str, str]]:
     oppure dichiarati senza il metodo che li usa.
     """
     rifiuti: list[tuple[str, str]] = []
-    for chiave, (elenco, metodo) in CONDIZIONALI.items():
+    for chiave, (elenco, metodi) in CONDIZIONALI.items():
         gruppo, nome = chiave.split(".")
         gruppo_elenco, nome_elenco = elenco.split(".")
         valore = getattr(getattr(config, gruppo), nome)
-        richiesto = metodo in getattr(getattr(config, gruppo_elenco), nome_elenco)
-        if richiesto and valore is None:
+        dichiarati = getattr(getattr(config, gruppo_elenco), nome_elenco)
+        richiesti = [m for m in metodi if m in dichiarati]
+        if richiesti and valore is None:
             rifiuti.append((
                 "E-ECO-02",
                 f"Parametro mancante: {chiave}, obbligatorio perche' {elenco} "
-                f"comprende {metodo}.",
+                f"comprende {richiesti[0]}.",
             ))
-        if not richiesto and valore is not None:
+        if not richiesti and valore is not None:
+            alternative = " o ".join(metodi)
             rifiuti.append((
                 "E-ECO-01",
-                f"{chiave}: dichiarato, ma {elenco} non comprende {metodo}; "
-                f"toglilo, oppure richiedi {metodo}.",
+                f"{chiave}: dichiarato, ma {elenco} non comprende {alternative}; "
+                f"toglilo, oppure richiedi {alternative}.",
             ))
     return rifiuti
 
@@ -283,11 +363,30 @@ def valida(dati: Any) -> ConfigEco:
     return config
 
 
+class _SenzaChiaviRipetute(yaml.SafeLoader):
+    """Lettore YAML che respinge una chiave dichiarata due volte nella stessa
+    mappa: il lettore normale terrebbe l'ultima in silenzio.
+    """
+
+
+def _mappa_senza_ripetizioni(lettore: yaml.SafeLoader, nodo: yaml.MappingNode) -> dict[Any, Any]:
+    chiavi = [lettore.construct_object(chiave, deep=True) for chiave, _ in nodo.value]
+    ripetute = sorted({str(c) for c in chiavi if chiavi.count(c) > 1})
+    if ripetute:
+        raise yaml.YAMLError(f"chiavi dichiarate piu' volte: {', '.join(ripetute)}")
+    return lettore.construct_mapping(nodo, deep=True)
+
+
+_SenzaChiaviRipetute.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mappa_senza_ripetizioni
+)
+
+
 def carica(percorso: Path | str) -> ConfigEco:
     """Legge e valida il file di configurazione dell'analisi."""
     percorso = Path(percorso)
     try:
-        dati = yaml.safe_load(percorso.read_text(encoding="utf-8"))
+        dati = yaml.load(percorso.read_text(encoding="utf-8"), Loader=_SenzaChiaviRipetute)  # noqa: S506
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as e:
         raise ErroreEco([("E-ECO-01", f"File non leggibile: {percorso} ({e}).")]) from None
     return valida(dati)

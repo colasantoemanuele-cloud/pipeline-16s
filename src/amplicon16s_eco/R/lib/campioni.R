@@ -40,6 +40,21 @@ leggi_oggetto <- function(percorso) {
     return(list(oggetto = NULL,
                 motivo = paste0("all'oggetto manca: ", paste(assenti, collapse = ", "))))
   }
+  # La rarefazione e gli indici sono definiti su conteggi: numeri interi, non
+  # negativi, tutti presenti. Proporzioni o conteggi trasformati non lo sono.
+  conteggi <- conteggi_di(ps)
+  if (!is.numeric(conteggi) || anyNA(conteggi)) {
+    return(list(oggetto = NULL, motivo = "la tabella dei conteggi ha valori mancanti o non numerici"))
+  }
+  if (any(conteggi < 0) || any(conteggi != round(conteggi))) {
+    return(list(oggetto = NULL, motivo = paste0(
+      "la tabella dei conteggi ha valori negativi o non interi: servono i ",
+      "conteggi delle letture, non proporzioni o valori trasformati")))
+  }
+  if (nrow(conteggi) < 2L) {
+    return(list(oggetto = NULL, motivo = sprintf(
+      "l'oggetto ha %d varianti: ne servono almeno 2", nrow(conteggi))))
+  }
   list(oggetto = ps, motivo = NULL)
 }
 
@@ -50,12 +65,14 @@ conteggi_di <- function(ps) {
 }
 
 tabella_campioni <- function(ps) {
+  # La conversione in data.frame riscrive i nomi di colonna non sintattici
+  # (spazi, cifre iniziali): quelli veri sono i nomi delle variabili
+  # dell'oggetto, nello stesso ordine.
   grezza <- methods::as(phyloseq::sample_data(ps), "data.frame")
-  testo <- as.data.frame(lapply(grezza, as.character), stringsAsFactors = FALSE,
-                         check.names = FALSE)
-  names(testo) <- names(grezza)
-  rownames(testo) <- phyloseq::sample_names(ps)
-  testo
+  # I valori si confrontano come testo, senza spazi in testa e in coda.
+  testo <- lapply(grezza, function(x) trimws(as.character(x)))
+  names(testo) <- phyloseq::sample_variables(ps)
+  structure(testo, class = "data.frame", row.names = phyloseq::sample_names(ps))
 }
 
 e_mancante <- function(x, marcatori) {
@@ -78,15 +95,17 @@ e_mancante <- function(x, marcatori) {
 # gruppi che entrano nei test.
 gruppi_di <- function(valori, minimo) {
   # `valori` e' un vettore con nome (campione -> valore), NA se mancante.
-  presenti <- valori[!is.na(valori)]
-  dimensioni <- table(presenti)
-  nomi <- names(dimensioni)[ordine_radix(names(dimensioni))]
-  dimensioni <- stats::setNames(as.integer(dimensioni[nomi]), nomi)
-  piccoli <- names(dimensioni)[dimensioni < minimo]
+  presenti <- as.character(valori[!is.na(valori)])
+  nomi <- unique(presenti)
+  nomi <- nomi[ordine_radix(nomi)]
+  # Senza alcun valore i tre elenchi sono vuoti, non nulli.
+  dimensioni <- stats::setNames(
+    vapply(nomi, function(g) sum(presenti == g), integer(1)), nomi)
+  piccoli <- nomi[dimensioni < minimo]
   list(
     dimensioni = dimensioni,
     piccoli = piccoli,
-    nei_test = setdiff(names(dimensioni), piccoli)
+    nei_test = nomi[dimensioni >= minimo]
   )
 }
 
@@ -126,12 +145,18 @@ esamina <- function(ps, parametri) {
   distanze <- as.character(unlist(parametri$beta$distances))
   albero <- phyloseq::access(ps, "phy_tree")
   if (any(grepl("^unifrac", distanze))) {
+    radice <- parametri$beta$unifrac_root
     if (is.null(albero)) {
       errore("E-ECO-06", "L'oggetto non contiene un albero filogenetico.")
-    } else if (!ape::is.rooted(albero)) {
+    } else if (length(albero$edge.length) != nrow(albero$edge)) {
       errore("E-ECO-06", paste0(
-        "L'albero dell'oggetto non ha la radice: phyloseq ne sceglierebbe una a ",
-        "caso, e la distanza dipenderebbe da quella scelta."))
+        "L'albero dell'oggetto non ha le lunghezze dei rami: UniFrac le somma, e ",
+        "senza non e' definito nemmeno il punto medio."))
+    } else if (radice == "existing" && !ape::is.rooted(albero)) {
+      errore("E-ECO-06", paste0(
+        "L'albero dell'oggetto non ha la radice e beta.unifrac_root e' existing: ",
+        "phyloseq ne sceglierebbe una a caso, e la distanza dipenderebbe da quella ",
+        "scelta. Con beta.unifrac_root midpoint l'albero si radica al punto medio."))
     }
   }
   if (length(errori)) return(list(errori = errori, avvisi = avvisi, disegno = NULL))
@@ -139,11 +164,13 @@ esamina <- function(ps, parametri) {
   # --- Sottoinsieme, prima di tutto il resto. --------------------------------
   tenuti <- rep(TRUE, nrow(tabella))
   for (colonna in names(sottoinsieme)) {
-    ammessi <- as.character(unlist(sottoinsieme[[colonna]]))
+    ammessi <- trimws(as.character(unlist(sottoinsieme[[colonna]])))
     assenti <- ammessi[!ammessi %in% tabella[[colonna]]]
     if (length(assenti)) {
+      presenti <- unique(tabella[[colonna]][!is.na(tabella[[colonna]])])
       errore("E-ECO-08", sprintf(
-        "design.subset: nella colonna '%s' non compare: %s.", colonna, .elenco(assenti)))
+        "design.subset: nella colonna '%s' non compare: %s. Valori presenti: %s.",
+        colonna, .elenco(assenti), .elenco(presenti[ordine_radix(presenti)])))
     }
     tenuti <- tenuti & tabella[[colonna]] %in% ammessi
   }
@@ -224,6 +251,7 @@ esamina <- function(ps, parametri) {
     errori = errori,
     avvisi = avvisi,
     disegno = list(
+      tabella = tabella,
       nell_oggetto = rownames(tabella),
       fuori_sottoinsieme = fuori_sottoinsieme,
       senza_letture = senza_letture,
@@ -243,9 +271,11 @@ esamina <- function(ps, parametri) {
   )
 }
 
-# Le colonne dichiarate da parametri che non descrivono il disegno. Nessuna,
-# per le analisi descrittive.
-colonne_aggiuntive <- function(parametri) character()
+# Le colonne dichiarate da parametri che non stanno nel gruppo design: gli
+# strati della PERMANOVA.
+colonne_aggiuntive <- function(parametri) {
+  as.character(unlist(parametri$stat$permanova_strata))
+}
 
 # Lo stato di ogni campione per una variabile.
 stato_per_variabile <- function(v, campioni) {
@@ -257,7 +287,7 @@ stato_per_variabile <- function(v, campioni) {
   stato
 }
 
-tabella_dei_campioni <- function(d) {
+tabella_dei_campioni <- function(d, piani = list()) {
   tutti <- d$nell_oggetto[ordine_radix(d$nell_oggetto)]
   generale <- rep("analizzato", length(tutti))
   names(generale) <- tutti
@@ -280,6 +310,19 @@ tabella_dei_campioni <- function(d) {
     stato[d$campioni] <- stato_per_variabile(v, d$campioni)
     tabella[[paste0("valore:", v$nome)]] <- valori
     tabella[[paste0("stato:", v$nome)]] <- stato
+    piano <- piani[[v$nome]]
+    if (!is.null(piano)) {
+      # Nel confronto dell'alfa diversita' i gruppi si contano sui soli
+      # campioni rarefatti.
+      alfa_v <- alfa
+      alfa_v[d$campioni] <- ifelse(alfa[d$campioni] == "analizzato",
+                                   piano$alfa$stato[d$campioni], alfa[d$campioni])
+      tabella[[paste0("alfa:", v$nome)]] <- alfa_v
+      # Nella PERMANOVA entrano i soli campioni con un valore anche nelle
+      # variabili tecniche e negli strati.
+      stato[d$campioni] <- piano$permanova$stato[d$campioni]
+      tabella[[paste0("permanova:", v$nome)]] <- stato
+    }
   }
   for (nome in d$tecniche) {
     valori <- rep(NA_character_, length(tutti))

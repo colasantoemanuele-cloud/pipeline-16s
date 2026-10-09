@@ -7,7 +7,8 @@
 #   scrivi_composizione(...)         tabella completa, tabelle e grafici per
 #                                    variabile
 #
-# Razionale biologico: a 137 basi molte varianti non hanno un genere. Con il
+# Razionale biologico: con letture corte molte varianti non hanno
+# un'assegnazione ai ranghi piu' fini. Con il
 # predefinito di phyloseq::tax_glom (NArm = TRUE) sparirebbero in silenzio e le
 # abbondanze relative degli altri taxa risulterebbero gonfiate. Qui restano, in
 # una categoria dichiarata, e le proporzioni di ogni campione sommano a 1.
@@ -18,8 +19,14 @@ ALTRI <- "altri"
 agglomera <- function(ps, campioni, rango) {
   sotto <- phyloseq::prune_samples(campioni, ps)
   # tax_glom fonde le varianti con lo stesso lignaggio fino al rango; con
-  # NArm = FALSE tiene anche quelle senza assegnazione al rango.
-  fuso <- phyloseq::tax_glom(sotto, taxrank = rango, NArm = FALSE)
+  # NArm = FALSE tiene anche quelle senza assegnazione al rango. Su una
+  # tassonomia a un solo rango tax_glom fallisce: la somma per nome che segue
+  # fa da sola la stessa cosa.
+  fuso <- if (length(phyloseq::rank_names(sotto)) > 1L) {
+    phyloseq::tax_glom(sotto, taxrank = rango, NArm = FALSE)
+  } else {
+    sotto
+  }
   conteggi <- conteggi_di(fuso)[, campioni, drop = FALSE]
   tassonomia <- methods::as(phyloseq::tax_table(fuso), "matrix")
   fino_a <- match(rango, colnames(tassonomia))
@@ -50,10 +57,8 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella) {
   taxon <- agglomerato$taxon[ordine]
   lignaggio <- agglomerato$lignaggio[ordine]
 
-  tabella <- data.frame(taxon = taxon, lignaggio = lignaggio,
-                        abbondanza_media = reale(media),
-                        stringsAsFactors = FALSE, check.names = FALSE)
-  for (campione in colnames(relative)) tabella[[campione]] <- reale(relative[, campione])
+  tabella <- affianca(list(taxon = taxon, lignaggio = lignaggio,
+                           abbondanza_media = reale(media)), relative, reale)
   prodotti <- "composizione/abbondanze_relative.tsv"
   scrivi_tsv(
     tabella, file.path(cartella, "abbondanze_relative.tsv"),
@@ -85,8 +90,7 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella) {
     mostrati <- rbind(per_gruppo[primi, , drop = FALSE], 1 - colSums(per_gruppo[primi, , drop = FALSE]))
     nomi <- c(etichette[primi], ALTRI)
     base <- nome_file(indice, v$nome)
-    righe <- data.frame(taxon = nomi, stringsAsFactors = FALSE, check.names = FALSE)
-    for (g in gruppi) righe[[g]] <- reale(mostrati[, g])
+    righe <- affianca(list(taxon = nomi), mostrati, reale)
     scrivi_tsv(
       righe, file.path(cartella, paste0("gruppi_", base, ".tsv")),
       intestazione = c(

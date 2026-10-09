@@ -9,8 +9,11 @@ design:
   # studio confronta.
   variable: modulo
   other_variables: []
-  # Piastra di estrazione (dieci) e corsa di sequenziamento (due).
-  technical_variables: [piastra, corsa]
+  # Corsa di sequenziamento (due) e piastra di estrazione (dieci). Ogni
+  # piastra sta in una sola corsa: i termini entrano nel modello in sequenza,
+  # e con la piastra per prima alla corsa non resterebbe alcun grado di
+  # liberta'. Prima il fattore piu' grossolano, poi quello annidato.
+  technical_variables: [corsa, piastra]
   subset: {}
 
 run:
@@ -28,5 +31,16 @@ beta:
   distances: [bray, jaccard, aitchison]
   clr_pseudocount: 1.0
 
+ord:
+  methods: [pcoa, nmds]
+  distances: [bray, jaccard, aitchison]
+  # Bray-Curtis e Jaccard non sono euclidee: autovalori negativi corretti.
+  pcoa_correction: cailliez
+  # Il predefinito di vegan::metaMDS: con 200 avvii non converge comunque (stress piu' basso di meno di 0,001).
+  nmds_trymax: 20
+
 stat:
   min_group_size: 5
+  significance_level: 0.05
+  permanova_permutations: 999
+  permanova_strata: null

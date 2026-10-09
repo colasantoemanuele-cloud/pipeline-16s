@@ -157,7 +157,7 @@ def test_la_rarefazione_e_senza_reinserimento_alla_profondita_scelta(eco_r, tmp_
         assert all(r <= o for r, o in zip(conteggi, originali[campione], strict=True))
     assert rarefatti["c01"] == originali["c01"]
 
-    assert [a.codice for a in esito.avvisi] == ["E-ECO-14"]
+    assert [a.codice for a in esito.avvisi].count("E-ECO-14") == 1
     assert esito.riepilogo["alfa"]["profondita_di_rarefazione"] == 30
     assert esito.riepilogo["alfa"]["esclusi_sotto_la_profondita"] == ["c04"]
     _, campioni = leggi_tsv(uscita / "campioni.tsv")
@@ -183,7 +183,7 @@ def test_per_difetto_la_profondita_e_la_minima_dei_campioni_analizzati(eco_r, tm
     assert {sum(c) for c in rarefatti.values()} == {12} and len(rarefatti) == 4
     assert rarefatti["c04"] == _colonne(DISUGUALI)[3]
     assert esito.riepilogo["alfa"]["origine"] == "minima fra i campioni analizzati"
-    assert not esito.avvisi
+    assert "E-ECO-14" not in [a.codice for a in esito.avvisi]
 
     with pytest.raises(ErroreEco) as rifiuto:
         _esegui(tmp_path, DISUGUALI, METADATI_4, nome="troppo", alpha={"rarefy_depth": 100})
@@ -364,7 +364,8 @@ def test_unifrac_non_pesato_coincide_con_la_frazione_di_rami_non_condivisi(eco_r
     oggetto = costruisci(tmp_path, conteggi, {"gruppo": ["a", "a", "b"]},
                          albero="((v01:1,v02:1):1,(v03:1,v04:1):1);")
     config = schema.valida(configurazione(beta={
-        "distances": ["unifrac_unweighted", "unifrac_weighted"], "clr_pseudocount": ...}))
+        "distances": ["unifrac_unweighted", "unifrac_weighted"], "clr_pseudocount": ...,
+        "unifrac_root": "existing"}))
     uscita = tmp_path / "uscita"
     esegui(oggetto, config, uscita)
     non_pesato = _matrice(uscita / "beta" / "distanza_unifrac_unweighted.tsv")
@@ -375,3 +376,149 @@ def test_unifrac_non_pesato_coincide_con_la_frazione_di_rami_non_condivisi(eco_r
     assert pesato[("c01", "c01")] == 0
     assert pesato[("c01", "c02")] == pytest.approx(pesato[("c02", "c01")], abs=TOLLERANZA)
     assert pesato[("c01", "c02")] > pesato[("c01", "c03")] > 0
+
+
+def test_un_albero_senza_radice_si_radica_al_punto_medio_sulla_copia(eco_r, tmp_path):
+    """
+    **Obiettivo**: su un albero senza radice, con ``beta.unifrac_root:
+    midpoint`` le due UniFrac si calcolano e coincidono con quelle ottenute,
+    con ``existing``, sullo stesso albero scritto gia' radicato al punto medio
+    del cammino piu' lungo; due esecuzioni danno gli stessi byte in ogni file;
+    l'oggetto di partenza non cambia; intestazione delle tabelle, riepilogo e
+    configurazione registrata riportano il modo di radicare. Lo stesso albero
+    con ``existing`` e' respinto con ``E-ECO-06``.
+
+    **Razionale scientifico e sistemistico**: la radice decide quali rami sono
+    condivisi fra due campioni; il punto medio e' un procedimento senza numeri
+    casuali, verificabile a mano su un albero piccolo, e la radicazione non
+    deve toccare l'oggetto consegnato dalla pipeline.
+    """
+    conteggi = [
+        [10, 0, 10, 3],
+        [10, 0, 0, 5],
+        [0, 10, 10, 2],
+        [0, 10, 0, 7],
+    ]
+    metadati = {"gruppo": ["a", "a", "b", "b"]}
+    # Il cammino piu' lungo va da v04 a v01 (o v02) ed e' lungo 5: il punto
+    # medio cade sul ramo di v04, a 2,5 dalla foglia.
+    senza_radice = costruisci(tmp_path, conteggi, metadati,
+                              albero="(v01:1,v02:1,(v03:1,v04:3):1);")
+    radicato = costruisci(tmp_path, conteggi, metadati, nome="radicato.rds",
+                          albero="(((v01:1,v02:1):1,v03:1):0.5,v04:2.5);")
+    distanze = ["unifrac_unweighted", "unifrac_weighted"]
+
+    def config(radice):
+        return schema.valida(configurazione(beta={
+            "distances": distanze, "clr_pseudocount": ..., "unifrac_root": radice}))
+
+    prima = hashlib.sha256(senza_radice.read_bytes()).hexdigest()
+    esito = esegui(senza_radice, config("midpoint"), tmp_path / "a")
+    esegui(senza_radice, config("midpoint"), tmp_path / "b")
+    assert hashlib.sha256(senza_radice.read_bytes()).hexdigest() == prima
+    assert impronte(tmp_path / "a") == impronte(tmp_path / "b")
+
+    esegui(radicato, config("existing"), tmp_path / "atteso")
+    for distanza in distanze:
+        nome = f"distanza_{distanza}.tsv"
+        calcolata = _matrice(tmp_path / "a" / "beta" / nome)
+        attesa = _matrice(tmp_path / "atteso" / "beta" / nome)
+        assert calcolata == pytest.approx(attesa, abs=TOLLERANZA)
+        assert max(calcolata.values()) > 0
+        commenti, _ = leggi_tsv(tmp_path / "a" / "beta" / nome)
+        assert any("beta.unifrac_root = midpoint" in c and "phangorn::midpoint" in c
+                   and "non aveva una radice" in c for c in commenti)
+        commenti, _ = leggi_tsv(tmp_path / "atteso" / "beta" / nome)
+        assert any("beta.unifrac_root = existing" in c and "aveva gia' una radice" in c
+                   for c in commenti)
+    assert esito.riepilogo["beta"]["albero"] == {
+        "radice": "midpoint", "radicato_nell_oggetto": False}
+    assert "phangorn" in esito.riepilogo["ambiente"]["pacchetti"]
+    registrata = json.loads((tmp_path / "a" / "configurazione.json").read_text(encoding="utf-8"))
+    assert registrata["parametri"]["beta"]["unifrac_root"] == "midpoint"
+
+    with pytest.raises(ErroreEco) as rifiuto:
+        esegui(senza_radice, config("existing"), tmp_path / "respinta")
+    assert rifiuto.value.codici == ["E-ECO-06"]
+    assert not (tmp_path / "respinta").exists()
+
+
+def test_una_tassonomia_a_un_solo_rango_si_agglomera_per_nome(eco_r, tmp_path):
+    """
+    **Obiettivo**: con un solo rango tassonomico le varianti con lo stesso
+    nome si sommano, quelle senza nome vanno in «non assegnato» e ogni
+    campione somma a 1.
+
+    **Razionale scientifico e sistemistico**: ``tax_glom`` non tratta una
+    tassonomia a un solo rango; il risultato deve essere lo stesso che darebbe
+    su piu' ranghi.
+    """
+    conteggi = [[10, 0, 5, 5], [10, 20, 5, 5], [20, 20, 10, 0], [20, 0, 10, 0]]
+    oggetto = costruisci(tmp_path, conteggi, METADATI_4,
+                         tassonomia={"Genere": ["GenA", "GenA", None, "GenB"]})
+    esegui(oggetto, schema.valida(configurazione()), tmp_path / "uscita")
+    _, righe = leggi_tsv(tmp_path / "uscita" / "composizione" / "abbondanze_relative.tsv")
+    per_taxon = {r["taxon"]: r for r in righe}
+    assert sorted(per_taxon) == ["GenA", "GenB", "non assegnato"]
+    assert float(per_taxon["GenA"]["c01"]) == pytest.approx(1 / 3, abs=TOLLERANZA)
+    assert float(per_taxon["non assegnato"]["c02"]) == pytest.approx(0.5, abs=TOLLERANZA)
+    for campione in ("c01", "c02", "c03", "c04"):
+        assert sum(float(r[campione]) for r in righe) == pytest.approx(1.0, abs=1e-8)
+
+
+def test_la_distanza_di_aitchison_non_dipende_dai_campioni_esclusi(eco_r, tmp_path):
+    """
+    **Obiettivo**: la distanza di Aitchison fra i campioni di un sottoinsieme
+    e' la stessa che si ottiene da un oggetto con quei soli campioni, anche se
+    l'oggetto intero ha varianti presenti solo nei campioni esclusi;
+    l'intestazione riporta quante varianti entrano nel CLR.
+
+    **Razionale scientifico e sistemistico**: il CLR divide per la media
+    geometrica su tutte le varianti; contare varianti assenti dai campioni
+    analizzati farebbe dipendere la distanza da cio' che non si analizza.
+    """
+    conteggi = [
+        [10, 4, 7, 0, 0],
+        [5, 9, 3, 0, 0],
+        [8, 2, 6, 1, 0],
+        [0, 0, 0, 30, 40],
+        [0, 0, 0, 25, 10],
+    ]
+    metadati = {"gruppo": ["a", "a", "b", "b", "b"], "lotto": ["x", "x", "x", "y", "y"]}
+    intero = costruisci(tmp_path, conteggi, metadati)
+    config = schema.valida(configurazione(design={"subset": {"lotto": ["x"]}}))
+    esegui(intero, config, tmp_path / "sottoinsieme")
+    ridotto = costruisci(tmp_path, [riga[:3] for riga in conteggi[:3]],
+                         {k: v[:3] for k, v in metadati.items()},
+                         tassonomia={k: v[:3] for k, v in {
+                             "Regno": ["Batteri"] * 5, "Famiglia": ["F"] * 5,
+                             "Genere": [f"G{i}" for i in range(5)]}.items()},
+                         nome="ridotto.rds")
+    esegui(ridotto, schema.valida(configurazione()), tmp_path / "ridotto")
+    a = _matrice(tmp_path / "sottoinsieme" / "beta" / "distanza_aitchison.tsv")
+    b = _matrice(tmp_path / "ridotto" / "beta" / "distanza_aitchison.tsv")
+    assert a.keys() == b.keys()
+    for coppia in a:
+        assert a[coppia] == pytest.approx(b[coppia], abs=TOLLERANZA)
+    commenti, _ = leggi_tsv(tmp_path / "sottoinsieme" / "beta" / "distanza_aitchison.tsv")
+    assert any("varianti nel CLR" in c and c.endswith(": 3") for c in commenti)
+
+
+def test_un_gruppo_che_si_chiama_come_una_colonna_non_sovrascrive_la_tabella(eco_r, tmp_path):
+    """
+    **Obiettivo**: un gruppo di nome ``taxon`` non sostituisce la colonna dei
+    taxa nella tabella per gruppo: le etichette dei taxa restano nella prima
+    colonna e i due gruppi hanno ciascuno la propria.
+
+    **Razionale scientifico e sistemistico**: i nomi dei gruppi vengono dai
+    metadati dello studio; una coincidenza con un'intestazione non deve
+    corrompere una tabella in silenzio.
+    """
+    oggetto = costruisci(tmp_path, DISUGUALI, {"gruppo": ["taxon", "taxon", "b", "b"]})
+    esegui(oggetto, schema.valida(configurazione()), tmp_path / "uscita")
+    righe = (tmp_path / "uscita" / "composizione" / "gruppi_01_gruppo.tsv").read_text(
+        encoding="utf-8").splitlines()
+    corpo = [r.split("\t") for r in righe if not r.startswith("# ")]
+    assert corpo[0] == ["taxon", "b", "taxon"]
+    assert [r[0] for r in corpo[1:]][-1] == "altri" and corpo[1][0].startswith("Gen")
+    assert all(len(r) == 3 for r in corpo)

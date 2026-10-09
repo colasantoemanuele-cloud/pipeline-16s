@@ -3,7 +3,10 @@
 #
 # Richiede io_json.R della pipeline (scrivi_atomico). Interfaccia:
 #   reale(x)                         numeri reali in formato fisso
+#   esponenziale(x)                  p dei test analitici, in formato fisso
 #   scrivi_tsv(tabella, percorso, intestazione)
+#   affianca(fisse, matrice, formato)  colonne fisse e una colonna per ogni
+#                                    colonna della matrice, qualunque nome abbia
 #   ordine_radix(x)                  ordinamento di stringhe indipendente dalla
 #                                    lingua della macchina
 #   nome_file(indice, nome)          nome di file ricavato da una variabile
@@ -21,6 +24,15 @@ reale <- function(x) {
   # Lo zero negativo e i valori che si arrotondano a zero darebbero "-0.0000000000".
   x[!is.na(x) & abs(x) < 0.5 * 10^(-DECIMALI)] <- 0
   testo <- sprintf(paste0("%.", DECIMALI, "f"), x)
+  testo[is.na(x)] <- "NA"
+  testo
+}
+
+# Per le p dei test analitici, che possono essere molto piccole: notazione
+# esponenziale con sei decimali, fissa anch'essa.
+esponenziale <- function(x) {
+  x <- as.numeric(x)
+  testo <- sprintf("%.6e", x)
   testo[is.na(x)] <- "NA"
   testo
 }
@@ -46,6 +58,16 @@ scrivi_tsv <- function(tabella, percorso, intestazione = character()) {
       righe),
     percorso
   )
+}
+
+affianca <- function(fisse, matrice, formato = as.character) {
+  # Le colonne della matrice (campioni o gruppi) si accostano a quelle fisse
+  # senza passare per l'assegnazione per nome: un campione o un gruppo che si
+  # chiamasse come una colonna fissa la sovrascriverebbe in silenzio.
+  colonne <- lapply(seq_len(ncol(matrice)), function(j) formato(matrice[, j]))
+  tabella <- c(as.list(fisse), colonne)
+  names(tabella) <- c(names(fisse), colnames(matrice))
+  structure(tabella, class = "data.frame", row.names = .set_row_names(nrow(matrice)))
 }
 
 nome_file <- function(indice, nome) {

@@ -141,6 +141,59 @@ def test_lo_pseudoconteggio_e_obbligatorio_con_aitchison_e_respinto_senza():
     schema.valida(configurazione(beta={"distances": ["bray"], "clr_pseudocount": ...}))
 
 
+def test_i_parametri_dell_ordinazione_seguono_il_metodo_richiesto():
+    """
+    **Obiettivo**: ``ord.pcoa_correction`` e ``ord.nmds_trymax`` mancano con il
+    metodo richiesto (``E-ECO-02``) e sono respinti senza (``E-ECO-01``); un
+    metodo di ordinazione o una correzione non realizzati sono respinti con
+    ``E-ECO-03`` e l'elenco degli ammessi.
+
+    **Razionale scientifico e sistemistico**: la correzione degli autovalori
+    negativi e il numero di avvii cambiano il risultato e non hanno un valore
+    che valga per ogni studio.
+    """
+    pcoa = {"methods": ["pcoa"], "distances": ["bray"]}
+    nmds = {"methods": ["nmds"], "distances": ["bray"]}
+    assert _codici(configurazione(ord=pcoa)) == ["E-ECO-02"]
+    assert _codici(configurazione(ord=nmds)) == ["E-ECO-02"]
+    assert _codici(configurazione(ord={**pcoa, "pcoa_correction": "none", "nmds_trymax": 5})) == ["E-ECO-01"]
+    assert _codici(configurazione(ord={"pcoa_correction": "none"})) == ["E-ECO-01"]
+    schema.valida(configurazione(ord={**pcoa, "pcoa_correction": "lingoes"}))
+    schema.valida(configurazione(ord={**nmds, "nmds_trymax": 5}))
+    for modifica, parola in (
+        ({**pcoa, "pcoa_correction": "radice"}, "cailliez"),
+        ({"methods": ["tsne"], "distances": ["bray"]}, "nmds"),
+    ):
+        with pytest.raises(ErroreEco) as rifiuto:
+            schema.valida(configurazione(ord=modifica))
+        assert rifiuto.value.codici == ["E-ECO-03"] and parola in str(rifiuto.value)
+    assert schema.valida(configurazione()).stat.permanova_permutations == 999
+
+
+def test_la_radice_dell_albero_va_dichiarata_solo_con_unifrac():
+    """
+    **Obiettivo**: ``beta.unifrac_root`` manca (``E-ECO-02``) se e' richiesta
+    una delle due UniFrac, pesata o non pesata; e' respinto (``E-ECO-01``) se
+    non ne e' richiesta nessuna; un valore diverso da ``midpoint`` ed
+    ``existing`` e' un metodo non realizzato (``E-ECO-03``).
+
+    **Razionale scientifico e sistemistico**: UniFrac dipende dalla radice, e
+    il modo di ottenerla cambia la distanza: non ha un valore che valga per
+    ogni albero, e dichiarato senza UniFrac entrerebbe nel digest senza effetto.
+    """
+    for distanza in ("unifrac_weighted", "unifrac_unweighted"):
+        beta = {"distances": ["bray", distanza], "clr_pseudocount": ...}
+        assert _codici(configurazione(beta=beta)) == ["E-ECO-02"]
+        for radice in schema.RADICI_UNIFRAC:
+            config = schema.valida(configurazione(beta={**beta, "unifrac_root": radice}))
+            assert config.beta.unifrac_root == radice
+        with pytest.raises(ErroreEco) as rifiuto:
+            schema.valida(configurazione(beta={**beta, "unifrac_root": "outgroup"}))
+        assert rifiuto.value.codici == ["E-ECO-03"] and "midpoint" in str(rifiuto.value)
+    assert _codici(configurazione(beta={"unifrac_root": "midpoint"})) == ["E-ECO-01"]
+    assert schema.valida(configurazione()).beta.unifrac_root is None
+
+
 @pytest.mark.parametrize("modifica", [
     {"run": {"seed": "sette"}},
     {"run": {"seed": 1.5}},
@@ -153,6 +206,14 @@ def test_lo_pseudoconteggio_e_obbligatorio_con_aitchison_e_respinto_senza():
     {"design": {"technical_variables": ["gruppo"]}},
     {"design": {"subset": {"lotto": []}}},
     {"design": {"subset": {"lotto": [1]}}},
+    {"stat": {"significance_level": 0}},
+    {"stat": {"significance_level": 1}},
+    {"stat": {"permanova_permutations": 0}},
+    {"stat": {"permanova_strata": ""}},
+    {"ord": {"methods": ["pcoa"], "distances": [], "pcoa_correction": "none"}},
+    {"ord": {"methods": ["pcoa"], "distances": ["unifrac_weighted"], "pcoa_correction": "none"}},
+    {"ord": {"methods": ["pcoa", "pcoa"], "distances": ["bray"], "pcoa_correction": "none"}},
+    {"ord": {"methods": ["nmds"], "distances": ["bray"], "nmds_trymax": 0}},
 ])
 def test_i_valori_fuori_dominio_sono_respinti(modifica):
     """
@@ -323,7 +384,7 @@ def test_un_gruppo_troppo_piccolo_e_dichiarato_prima_dell_esecuzione(eco_r, tmp_
     prima = impronte(tmp_path)
     esito = valida_sull_oggetto(oggetto, schema.valida(configurazione()))
     codici = [a.codice for a in esito.avvisi]
-    assert codici == ["E-ECO-11", "E-ECO-12"]
+    assert codici[:2] == ["E-ECO-11", "E-ECO-12"]
     assert "b: 1" in esito.avvisi[0].dettaglio
     (variabile,) = esito.riepilogo["variabili"]
     assert variabile["gruppi_esclusi_dai_test"] == ["b"]
@@ -333,23 +394,38 @@ def test_un_gruppo_troppo_piccolo_e_dichiarato_prima_dell_esecuzione(eco_r, tmp_
 
 def test_unifrac_senza_albero_e_respinta(eco_r, tmp_path):
     """
-    **Obiettivo**: una distanza UniFrac su un oggetto senza albero, o con un
-    albero senza radice, e' respinta con ``E-ECO-06``; con l'albero radicato e'
-    accettata.
+    **Obiettivo**: una distanza UniFrac su un oggetto senza albero e' respinta
+    con ``E-ECO-06`` qualunque radice sia dichiarata; su un albero senza radice
+    e' respinta con ``existing`` e accettata con ``midpoint``; su un albero
+    radicato e' accettata con entrambe; un albero senza lunghezze dei rami e'
+    respinto.
 
     **Razionale scientifico e sistemistico**: senza albero la distanza non
     esiste; senza radice phyloseq ne sceglierebbe una a caso e il risultato non
-    sarebbe riproducibile.
+    sarebbe riproducibile, quindi la radice o c'e' gia' o si ottiene in un modo
+    dichiarato; UniFrac e il punto medio sono definiti sulle lunghezze dei rami.
     """
-    beta = {"distances": ["unifrac_unweighted"], "clr_pseudocount": ...}
+    def beta(radice):
+        return {"distances": ["unifrac_unweighted"], "clr_pseudocount": ...,
+                "unifrac_root": radice}
+
     senza = costruisci(tmp_path, CONTEGGI, METADATI)
-    assert _rifiuto(senza, beta=beta).codici == ["E-ECO-06"]
+    for radice in schema.RADICI_UNIFRAC:
+        assert _rifiuto(senza, beta=beta(radice)).codici == ["E-ECO-06"]
     non_radicato = costruisci(tmp_path, CONTEGGI, METADATI, nome="non_radicato.rds",
                               albero="(v01:1,v02:1,(v03:1,v04:1):1);")
-    assert _rifiuto(non_radicato, beta=beta).codici == ["E-ECO-06"]
+    rifiuto = _rifiuto(non_radicato, beta=beta("existing"))
+    assert rifiuto.codici == ["E-ECO-06"] and "midpoint" in str(rifiuto)
+    valida_sull_oggetto(non_radicato, schema.valida(configurazione(beta=beta("midpoint"))))
     radicato = costruisci(tmp_path, CONTEGGI, METADATI, nome="radicato.rds",
                           albero="((v01:1,v02:1):1,(v03:1,v04:1):1);")
-    valida_sull_oggetto(radicato, schema.valida(configurazione(beta=beta)))
+    for radice in schema.RADICI_UNIFRAC:
+        valida_sull_oggetto(radicato, schema.valida(configurazione(beta=beta(radice))))
+    senza_rami = costruisci(tmp_path, CONTEGGI, METADATI, nome="senza_rami.rds",
+                            albero="(v01,v02,(v03,v04));")
+    for radice in schema.RADICI_UNIFRAC:
+        rifiuto = _rifiuto(senza_rami, beta=beta(radice))
+        assert rifiuto.codici == ["E-ECO-06"] and "lunghezze dei rami" in str(rifiuto)
 
 
 def test_un_rango_assente_e_respinto_con_i_ranghi_dell_oggetto(eco_r, tmp_path):
@@ -399,8 +475,8 @@ def test_i_valori_mancanti_escono_dalla_variabile_e_sono_registrati(eco_r, tmp_p
     metadati = {**METADATI, "gruppo": ["a", "a", None, "b", "b", "Not Applicable"]}
     oggetto = costruisci(tmp_path, CONTEGGI, metadati)
     esito = valida_sull_oggetto(oggetto, schema.valida(configurazione()))
-    assert [a.codice for a in esito.avvisi] == ["E-ECO-13"]
-    assert "c03, c06" in esito.avvisi[0].dettaglio
+    mancanti = [a for a in esito.avvisi if a.codice == "E-ECO-13"]
+    assert len(mancanti) == 1 and "c03, c06" in mancanti[0].dettaglio
     (variabile,) = esito.riepilogo["variabili"]
     assert variabile["campioni_con_valore_mancante"] == 2
     assert variabile["gruppi"] == {"a": 2, "b": 2}
@@ -541,7 +617,8 @@ def test_esegui_py_porta_alle_analisi_senza_cambiare_la_pipeline(tmp_path):
 ESEMPI = sorted((RADICE / "dati").glob("*/eco_*.yaml"))
 
 #: Parametri il cui valore e' una voce di un vocabolario chiuso dello schema.
-_VOCABOLARI = ("beta.distances",)
+_VOCABOLARI = ("beta.distances", "beta.unifrac_root", "ord.methods", "ord.distances",
+               "ord.pcoa_correction")
 
 
 def _stringhe_dei_dataset() -> set[str]:
@@ -617,8 +694,147 @@ def test_il_pacchetto_non_contiene_valori_dei_dataset():
         for stringa in stringhe:
             for virgolette in "\"'":
                 assert f"{virgolette}{stringa}{virgolette}" not in testo, (percorso.name, stringa)
-    for modello_gruppo in schema.ConfigEco.model_fields.values():
-        for campo in modello_gruppo.annotation.model_fields.values():
+    # I soli predefiniti non vuoti sono valori del metodo, con la fonte, e nessuno
+    # e' una stringa.
+    for gruppo, modello_gruppo in schema.ConfigEco.model_fields.items():
+        for nome, campo in modello_gruppo.annotation.model_fields.items():
             if not campo.is_required():
                 predefinito = campo.get_default(call_default_factory=True)
-                assert predefinito in (None, (), {}), campo
+                if predefinito not in (None, (), {}):
+                    assert schema.STANDARD_DEL_METODO[f"{gruppo}.{nome}"][0] == predefinito
+                    assert not isinstance(predefinito, str)
+
+
+# --------------------------------------------------------------------------- #
+# 6. Ingressi legittimi ma scomodi                                             #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("modifica", [
+    {"beta": {"clr_pseudocount": float("inf")}},
+    {"beta": {"clr_pseudocount": True}},
+    {"beta": {"clr_pseudocount": "0.5"}},
+    {"stat": {"significance_level": "0.05"}},
+    {"comp": {"top_n": 3_000_000_000}},
+    {"stat": {"min_group_size": 3_000_000_000}},
+    {"stat": {"permanova_permutations": 3_000_000_000}},
+    {"alpha": {"rarefy_depth": 3_000_000_000}},
+])
+def test_i_numeri_non_rappresentabili_sono_respinti_dallo_schema(modifica):
+    """
+    **Obiettivo**: un reale infinito, un booleano o un testo al posto di un
+    numero, e un intero oltre il massimo che R rappresenta, sono respinti con
+    ``E-ECO-01``.
+
+    **Razionale scientifico e sistemistico**: oltre lo schema quei valori
+    arriverebbero a R come ``NA`` o non attraverserebbero il confine, e
+    l'analisi si fermerebbe con un errore che non dice la causa.
+    """
+    assert _codici(configurazione(**modifica)) == ["E-ECO-01"]
+
+
+def test_una_chiave_ripetuta_nel_file_e_respinta(tmp_path):
+    """
+    **Obiettivo**: un file in cui una chiave compare due volte nello stesso
+    gruppo e' respinto con ``E-ECO-01`` che la nomina.
+
+    **Razionale scientifico e sistemistico**: il lettore YAML terrebbe in
+    silenzio l'ultima dichiarazione, e l'analisi userebbe un valore diverso da
+    quello che chi legge il file vede per primo.
+    """
+    percorso = tmp_path / "eco.yaml"
+    testo = yaml.safe_dump(configurazione())
+    percorso.write_text(testo.replace("variable: gruppo", "variable: gruppo\n  variable: lotto"),
+                        encoding="utf-8")
+    with pytest.raises(ErroreEco) as rifiuto:
+        schema.carica(percorso)
+    assert rifiuto.value.codici == ["E-ECO-01"] and "variable" in str(rifiuto.value)
+
+
+def test_le_colonne_con_nomi_non_sintattici_si_dichiarano_con_il_loro_nome(eco_r, tmp_path):
+    """
+    **Obiettivo**: colonne i cui nomi hanno spazi, cifre iniziali o segni si
+    dichiarano con il nome che hanno nell'oggetto, e un nome sbagliato e'
+    respinto con l'elenco dei nomi veri; gli spazi attorno ai valori non
+    creano gruppi distinti.
+
+    **Razionale scientifico e sistemistico**: i metadati di uno studio hanno
+    nomi come «Factor Value[...]»; R li riscriverebbe, e la configurazione
+    dovrebbe usare nomi che nell'oggetto non esistono.
+    """
+    metadati = {
+        "Factor Value[Sito n°1]": ["a", "a ", " a", "b", "b", "b"],
+        "1": ["x", "y", "x", "y", "x", "y"],
+    }
+    oggetto = costruisci(tmp_path, CONTEGGI, metadati)
+    esito = valida_sull_oggetto(oggetto, schema.valida(configurazione(
+        design={"variable": "Factor Value[Sito n°1]", "technical_variables": ["1"]})))
+    (variabile,) = esito.riepilogo["variabili"]
+    assert variabile["nome"] == "Factor Value[Sito n°1]"
+    assert variabile["gruppi"] == {"a": 3, "b": 3}
+    rifiuto = _rifiuto(oggetto, design={"variable": "Factor.Value.Sito.n.1."})
+    assert rifiuto.codici == ["E-ECO-05"] and "Factor Value[Sito n°1], 1" in str(rifiuto)
+
+
+def test_una_variabile_senza_valori_non_ferma_l_analisi(eco_r, tmp_path):
+    """
+    **Obiettivo**: una variabile con tutti i valori mancanti e' dichiarata
+    (``E-ECO-13``, ``E-ECO-12``) e l'analisi si conclude con le uscite
+    descrittive, senza test per quella variabile.
+
+    **Razionale scientifico e sistemistico**: una colonna vuota fra le altre
+    variabili non deve impedire l'analisi delle altre.
+    """
+    metadati = {**METADATI, "vuota": [None, "", "NA", "n/a", None, ""]}
+    oggetto = costruisci(tmp_path, CONTEGGI, metadati)
+    config = schema.valida(configurazione(design={"other_variables": ["vuota"]}))
+    esito = esegui(oggetto, config, tmp_path / "uscita")
+    codici = [a.codice for a in esito.avvisi if "'vuota'" in a.dettaglio]
+    assert codici == ["E-ECO-13", "E-ECO-12"]
+    vuota = esito.riepilogo["variabili"][1]
+    assert vuota["campioni_con_valore"] == 0 and vuota["gruppi_nei_test"] == []
+    assert (tmp_path / "uscita" / "test" / "permanova.tsv").is_file()
+
+
+def test_conteggi_che_non_sono_conteggi_e_oggetti_minimi_sono_respinti(eco_r, tmp_path):
+    """
+    **Obiettivo**: un oggetto con una sola variante e' respinto con
+    ``E-ECO-04`` e il motivo; lo stesso vale, per costruzione del controllo,
+    per conteggi negativi o non interi.
+
+    **Razionale scientifico e sistemistico**: rarefazione e indici sono
+    definiti su conteggi di letture; proporzioni o valori trasformati darebbero
+    numeri senza significato o un errore di R senza causa.
+    """
+    una = costruisci(tmp_path, [[5, 6, 7, 8, 9, 10]], METADATI,
+                     tassonomia={"Regno": ["Batteri"], "Famiglia": ["F"], "Genere": ["G"]})
+    rifiuto = _rifiuto(una)
+    assert rifiuto.codici == ["E-ECO-04"] and "1 varianti" in str(rifiuto)
+    sorgente = (PACCHETTO / "R" / "lib" / "campioni.R").read_text(encoding="utf-8")
+    assert "valori negativi o non interi" in sorgente and "valori mancanti o non numerici" in sorgente
+
+
+def test_una_cartella_di_uscita_non_utilizzabile_e_respinta_prima_del_calcolo(eco_r, tmp_path):
+    """
+    **Obiettivo**: un collegamento che non porta a nulla e un percorso sotto
+    un file sono respinti con ``E-ECO-09`` prima del calcolo; un rifiuto in
+    validazione non lascia la cartella di uscita appena creata.
+
+    **Razionale scientifico e sistemistico**: un percorso non scrivibile deve
+    emergere subito e con un codice, non come errore del programma a calcolo
+    concluso.
+    """
+    oggetto = costruisci(tmp_path, CONTEGGI, METADATI)
+    config = schema.valida(configurazione())
+    pendente = tmp_path / "pendente"
+    pendente.symlink_to(tmp_path / "non_esiste")
+    file = tmp_path / "file.txt"
+    file.write_text("x", encoding="utf-8")
+    for uscita in (pendente, file / "sotto"):
+        with pytest.raises(ErroreEco) as rifiuto:
+            esegui(oggetto, config, uscita)
+        assert rifiuto.value.codici == ["E-ECO-09"]
+    nuova = tmp_path / "nuova" / "annidata"
+    with pytest.raises(ErroreEco) as rifiuto:
+        esegui(oggetto, schema.valida(configurazione(comp={"rank": "Specie"})), nuova)
+    assert rifiuto.value.codici == ["E-ECO-07"] and not nuova.exists()

@@ -81,9 +81,11 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
     ),
     VoceEco(
         "E-ECO-06", _R,
-        "E' richiesta una distanza UniFrac ma l'oggetto non ha un albero radicato.",
+        "E' richiesta una distanza UniFrac ma l'albero dell'oggetto manca o non "
+        "e' utilizzabile con la radice dichiarata.",
         "Togli le distanze UniFrac da beta.distances, oppure usa un oggetto che "
-        "contenga l'albero filogenetico con la radice.",
+        "contenga l'albero filogenetico; se l'albero non ha la radice, dichiara "
+        "beta.unifrac_root midpoint per radicarlo al punto medio.",
     ),
     VoceEco(
         "E-ECO-07", _R,
@@ -146,6 +148,84 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "Un calcolo in R ha emesso un avviso non previsto.",
         "Il testo dell'avviso e' nel dettaglio: valuta se riguarda i risultati "
         "che usi.",
+    ),
+    VoceEco(
+        "E-ECO-17", _A,
+        "Lo stress di una NMDS supera 0,2.",
+        "La rappresentazione in due dimensioni deforma le distanze: le coordinate "
+        "sono riportate con lo stress, da tenere presente nel leggerle.",
+    ),
+    VoceEco(
+        "E-ECO-18", _A,
+        "Variabile analizzata e variabile tecnica (o strati) sono confuse.",
+        "L'analisi prosegue: le somme dei quadrati sequenziali attribuiscono la "
+        "varianza condivisa al termine tecnico, e l'effetto della variabile "
+        "analizzata e' quello che resta.",
+    ),
+    VoceEco(
+        "E-ECO-19", _A,
+        "Le dispersioni dei gruppi differiscono.",
+        "La PERMANOVA di quella variabile e distanza non va letta come differenza "
+        "di posizione: il test e' sensibile anche alla diversa dispersione.",
+    ),
+    VoceEco(
+        "E-ECO-20", _A,
+        "Nessuna variabile tecnica e' dichiarata.",
+        "L'analisi procede con la sola variabile analizzata nel modello.",
+    ),
+    VoceEco(
+        "E-ECO-21", _A,
+        "Le disposizioni distinte dei campioni sono meno delle permutazioni richieste.",
+        "La p minima raggiungibile e' piu' alta di quella attesa con "
+        "stat.permanova_permutations: e' riportata nel dettaglio. La tabella "
+        "riporta le permutazioni effettivamente usate.",
+    ),
+    VoceEco(
+        "E-ECO-22", _A,
+        "Una variabile tecnica ha un solo livello fra i campioni del test.",
+        "Il termine esce dal modello di quella variabile.",
+    ),
+    VoceEco(
+        "E-ECO-23", _A,
+        "Un termine del modello e' determinato per intero dai termini che lo precedono.",
+        "Il termine non e' stimabile e la tabella lo riporta senza gradi di "
+        "liberta'; se e' la variabile analizzata, restano i termini tecnici e il "
+        "test delle dispersioni.",
+    ),
+    VoceEco(
+        "E-ECO-24", _A,
+        "Una NMDS non ha trovato due soluzioni simili negli avvii dichiarati.",
+        "Si riporta la soluzione di stress minimo; aumenta ord.nmds_trymax per "
+        "cercarne una stabile.",
+    ),
+    VoceEco(
+        "E-ECO-25", _A,
+        "Un'ordinazione in due dimensioni non e' producibile.",
+        "L'ordinazione indicata nel dettaglio non viene prodotta (campioni troppo "
+        "pochi, distanze tutte nulle o meno di due assi); le altre uscite restano "
+        "valide.",
+    ),
+    VoceEco(
+        "E-ECO-26", _A,
+        "Il modello della PERMANOVA non lascia gradi di liberta' residui.",
+        "La PERMANOVA di quella variabile non si esegue; resta il test delle "
+        "dispersioni. Togli da design.technical_variables la colonna che ha un "
+        "valore diverso per ogni campione.",
+    ),
+    VoceEco(
+        "E-ECO-27", _A,
+        "Il test delle dispersioni non e' valutabile.",
+        "La variabilita' residua delle distanze dal centro dei gruppi e' nulla (per "
+        "costruzione, con due campioni per gruppo): F e p sono riportati come NA e "
+        "la PERMANOVA resta senza la verifica delle dispersioni.",
+    ),
+    VoceEco(
+        "E-ECO-28", _A,
+        "Una NMDS ha stress quasi nullo.",
+        "La rappresentazione non e' informativa: succede con pochi campioni, che "
+        "due dimensioni dispongono in qualunque ordine delle distanze, o con "
+        "gruppi compatti e ben separati, che la NMDS riduce a pochi punti. "
+        "Coordinate e stress sono riportati comunque.",
     ),
     VoceEco(
         "E-ECO-90", _R,

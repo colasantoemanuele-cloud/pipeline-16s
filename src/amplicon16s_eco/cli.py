@@ -6,8 +6,9 @@ Due sottocomandi::
     python3 -m amplicon16s_eco run --object ps_final.rds --config eco.yaml --out CARTELLA
 
 * ``validate`` verifica la configurazione, da sola e contro l'oggetto (colonne,
-  gruppi, rango, albero), senza calcolare nulla.
-* ``run`` ripete la validazione ed esegue le analisi. La cartella di uscita deve
+  gruppi, rango, albero, disegno dei test), senza calcolare nulla.
+* ``run`` ripete la validazione ed esegue le analisi di base: alfa diversita',
+  composizione, distanze, ordinazione e test fra gruppi. La cartella di uscita deve
   essere assente o vuota e fuori dalla cartella dell'oggetto: l'oggetto non
   viene mai modificato.
 

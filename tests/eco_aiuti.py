@@ -26,6 +26,7 @@ from sottoinsieme import motivo_pacchetti_r_assenti
 RADICE: Final = Path(__file__).resolve().parents[1]
 FIXTURE: Final = Path(__file__).resolve().parent / "fixtures" / "eco"
 COSTRUTTORE: Final = FIXTURE / "costruisci_oggetto.R"
+GENERATORE: Final = FIXTURE / "genera_scenario.R"
 
 #: I ranghi degli oggetti di prova.
 RANGHI: Final = ("Regno", "Famiglia", "Genere")
@@ -36,12 +37,13 @@ def _sonda() -> str | None:
     """Perche' l'ambiente R delle analisi non c'e', o ``None``: la sonda parte
     al primo uso e una volta sola.
     """
-    return motivo_pacchetti_r_assenti("phyloseq", "vegan", "ape", "permute", "jsonlite")
+    return motivo_pacchetti_r_assenti("phyloseq", "vegan", "ape", "permute", "phangorn",
+                                      "jsonlite")
 
 
 @pytest.fixture
 def eco_r():
-    """Richiede R con phyloseq, vegan e ape: salta senza, ma fallisce dove
+    """Richiede R con phyloseq, vegan, ape e phangorn: salta senza, ma fallisce dove
     l'ambiente della pipeline e' richiesto.
     """
     if _sonda() is not None:
@@ -60,7 +62,8 @@ def configurazione(**sovrascrivi: dict[str, Any]) -> dict[str, Any]:
         "run": {"seed": 7},
         "comp": {"rank": "Genere", "top_n": 3},
         "beta": {"distances": ["bray", "jaccard", "aitchison"], "clr_pseudocount": 0.5},
-        "stat": {"min_group_size": 2},
+        "ord": {"methods": [], "distances": []},
+        "stat": {"min_group_size": 2, "significance_level": 0.05},
     }
     dati = copy.deepcopy(dati)
     for gruppo, valori in sovrascrivi.items():
@@ -110,6 +113,42 @@ def costruisci(
     oggetto = dati / nome
     esegui_rscript(COSTRUTTORE, richiesta, oggetto)
     return oggetto
+
+
+def genera(
+    cartella: Path,
+    blocchi: list[dict[str, Any]],
+    seme: int = 1,
+    taxa: int = 40,
+    profondita: int = 2000,
+    nome: str = "scenario.rds",
+) -> Path:
+    """Scrive in ``cartella/dati`` un oggetto sintetico con la struttura
+    descritta dai blocchi (``tests/fixtures/eco/genera_scenario.R``): ogni
+    blocco e' un insieme di campioni con lo stesso gruppo, lo stesso lotto e
+    gli stessi parametri di composizione e dispersione.
+    """
+    dati = cartella / "dati"
+    dati.mkdir(exist_ok=True)
+    richiesta = dati / (nome + ".json")
+    richiesta.write_text(json.dumps(
+        {"seme": seme, "taxa": taxa, "profondita": profondita, "blocchi": blocchi}),
+        encoding="utf-8")
+    oggetto = dati / nome
+    esegui_rscript(GENERATORE, richiesta, oggetto)
+    return oggetto
+
+
+def righe_permanova(uscita: Path, distanza: str = "bray", variabile: str = "gruppo",
+                    ) -> dict[tuple[str, str], dict[str, str]]:
+    """Le righe di ``test/permanova.tsv`` di una variabile e una distanza, per
+    coppia (analisi, termine).
+    """
+    _, righe = leggi_tsv(uscita / "test" / "permanova.tsv")
+    return {
+        (r["analisi"], r["termine"]): r for r in righe
+        if r["distanza"] == distanza and r["variabile"] == variabile
+    }
 
 
 def esegui_rscript(script: Path, *argomenti: Any) -> None:

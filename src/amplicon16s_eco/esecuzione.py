@@ -77,9 +77,14 @@ def _parametri_r(config: ConfigEco, copia: Path) -> dict[str, Any]:
     }
 
 
-def _verifica_oggetto(oggetto: Path) -> None:
+def _impronta_oggetto(oggetto: Path) -> str:
+    """Lo SHA-256 dell'oggetto; un file assente o non leggibile e' un rifiuto."""
     if not oggetto.is_file():
         raise ErroreEco([("E-ECO-04", f"File non trovato: {oggetto}.")])
+    try:
+        return checksum_file(oggetto)
+    except OSError as e:
+        raise ErroreEco([("E-ECO-04", f"File non leggibile: {oggetto} ({e}).")]) from None
 
 
 def _verifica_uscita(oggetto: Path, uscita: Path) -> None:
@@ -95,8 +100,28 @@ def _verifica_uscita(oggetto: Path, uscita: Path) -> None:
         )])
     if assoluta.exists() and not assoluta.is_dir():
         raise ErroreEco([("E-ECO-09", f"{uscita} esiste e non e' una cartella.")])
-    if assoluta.is_dir() and any(assoluta.iterdir()):
-        raise ErroreEco([("E-ECO-09", f"{uscita} non e' vuota.")])
+    if uscita.is_symlink() and not assoluta.exists():
+        raise ErroreEco([("E-ECO-09", f"{uscita} e' un collegamento che non porta a nulla.")])
+    try:
+        if assoluta.is_dir() and any(assoluta.iterdir()):
+            raise ErroreEco([("E-ECO-09", f"{uscita} non e' vuota.")])
+    except OSError as e:
+        raise ErroreEco([("E-ECO-09", f"{uscita} non e' leggibile ({e}).")]) from None
+
+
+def _prepara_uscita(uscita: Path) -> bool:
+    """Crea la cartella di uscita e prova che sia scrivibile, prima del
+    calcolo: un percorso non utilizzabile si scopre subito, non a calcolo
+    concluso. Restituisce vero se la cartella non esisteva.
+    """
+    creata = not uscita.exists()
+    try:
+        uscita.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryFile(dir=uscita):
+            pass
+    except OSError as e:
+        raise ErroreEco([("E-ECO-09", f"{uscita} non e' scrivibile ({e}).")]) from None
+    return creata
 
 
 def _valida(config: ConfigEco, copia: Path, lavoro: Path) -> tuple[tuple[Avviso, ...], dict[str, Any]]:
@@ -126,8 +151,7 @@ def valida_sull_oggetto(oggetto: Path | str, config: ConfigEco) -> Esito:
     altrimenti restituisce gli avvisi e il disegno dell'analisi.
     """
     oggetto = Path(oggetto)
-    _verifica_oggetto(oggetto)
-    impronta = checksum_file(oggetto)
+    impronta = _impronta_oggetto(oggetto)
     with tempfile.TemporaryDirectory(prefix="amplicon16s-eco-") as temporanea:
         lavoro = Path(temporanea)
         avvisi, disegno = _valida(config, _copia(oggetto, lavoro, impronta), lavoro)
@@ -143,10 +167,20 @@ def esegui(oggetto: Path | str, config: ConfigEco, uscita: Path | str) -> Esito:
     calcolo non e' concluso.
     """
     oggetto, uscita = Path(oggetto), Path(uscita)
-    _verifica_oggetto(oggetto)
+    impronta = _impronta_oggetto(oggetto)
     _verifica_uscita(oggetto, uscita)
-    impronta = checksum_file(oggetto)
+    creata = _prepara_uscita(uscita)
+    try:
+        return _calcola(oggetto, config, uscita, impronta)
+    except BaseException:
+        # Un'analisi non conclusa non lascia la cartella che ha creato.
+        if creata and uscita.is_dir() and not any(uscita.iterdir()):
+            uscita.rmdir()
+        raise
 
+
+def _calcola(oggetto: Path, config: ConfigEco, uscita: Path, impronta: str) -> Esito:
+    """Valida, calcola in una cartella temporanea e consegna le uscite."""
     with tempfile.TemporaryDirectory(prefix="amplicon16s-eco-") as temporanea:
         lavoro = Path(temporanea)
         copia = _copia(oggetto, lavoro, impronta)
@@ -158,7 +192,7 @@ def esegui(oggetto: Path | str, config: ConfigEco, uscita: Path | str) -> Esito:
                  lavoro, "analisi")
         riepilogo = json.loads((prodotta / NOME_RIEPILOGO).read_text(encoding="utf-8"))
 
-        if checksum_file(oggetto) != impronta:
+        if _impronta_oggetto(oggetto) != impronta:
             raise ErroreEco([("E-ECO-91", f"L'impronta di {oggetto} non e' piu' {impronta}.")])
 
         scrivi_atomico(prodotta / NOME_CONFIGURAZIONE, _json({
@@ -179,7 +213,6 @@ def esegui(oggetto: Path | str, config: ConfigEco, uscita: Path | str) -> Esito:
             ],
         }))
 
-        uscita.mkdir(parents=True, exist_ok=True)
         for voce in sorted(prodotta.iterdir()):
             shutil.move(str(voce), str(uscita / voce.name))
 

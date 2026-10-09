@@ -54,12 +54,47 @@ comp:
 beta:
   # [OBBLIGATORIO] Distanze da calcolare, fra: bray, jaccard, aitchison,
   # unifrac_weighted, unifrac_unweighted. Le due UniFrac richiedono un albero
-  # radicato nell'oggetto.
+  # nell'oggetto.
   # distances:
+
+  # [CONDIZIONALE: unifrac_weighted, unifrac_unweighted] Radice dell'albero, da
+  # cui UniFrac dipende: midpoint radica l'albero al punto medio del cammino
+  # piu' lungo fra due foglie (phangorn::midpoint), sulla copia dell'oggetto;
+  # existing usa la radice che l'albero ha gia', e respinge un albero che non
+  # l'ha. L'albero che la pipeline aggiunge all'oggetto con phylo.enabled e'
+  # gia' radicato al punto medio: per quello vale existing.
+  # unifrac_root:
 
   # [CONDIZIONALE: aitchison] Pseudoconteggio sommato ai conteggi prima del CLR.
   # clr_pseudocount:
 
+ord:
+  # [OBBLIGATORIO] Metodi di ordinazione, fra: pcoa, nmds. Un elenco vuoto non
+  # produce ordinazioni (e allora anche distances e' vuoto).
+  # methods:
+
+  # [OBBLIGATORIO] Distanze da ordinare, fra quelle di beta.distances.
+  # distances:
+
+  # [CONDIZIONALE: pcoa] Correzione degli autovalori negativi, che le distanze
+  # non euclidee producono: none, cailliez oppure lingoes (ape::pcoa).
+  # pcoa_correction:
+
+  # [CONDIZIONALE: nmds] Numero di avvii casuali della NMDS (vegan::metaMDS).
+  # nmds_trymax:
+
 stat:
   # [OBBLIGATORIO] Numero minimo di campioni perche' un gruppo entri nei test.
   # min_group_size:
+
+  # [OBBLIGATORIO] Livello di significativita' sotto il quale le dispersioni
+  # dei gruppi si dichiarano diverse, con un avviso sulla PERMANOVA.
+  # significance_level:
+
+  # [STANDARD] Permutazioni di PERMANOVA e test delle dispersioni
+  # (vegan::adonis2, permutations = 999).
+  permanova_permutations: 999
+
+  # [FACOLTATIVO] Colonna degli strati entro cui permutare nella PERMANOVA e
+  # nel test delle dispersioni.
+  # permanova_strata: null

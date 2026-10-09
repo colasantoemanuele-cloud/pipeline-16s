@@ -68,13 +68,8 @@ scrivi_alfa <- function(indici, rarefatti, letture, profondita, origine, seme, c
       "gini_simpson: 1 - sum(p_i^2) (indice di Simpson nella forma di Gini-Simpson)"
     )
   )
-  varianti <- rownames(rarefatti)
-  tabella <- data.frame(variante = varianti, stringsAsFactors = FALSE)
-  for (campione in colnames(rarefatti)) {
-    tabella[[campione]] <- as.integer(rarefatti[, campione])
-  }
   scrivi_tsv(
-    tabella, file.path(cartella, "conteggi_rarefatti.tsv"),
+    affianca(list(variante = rownames(rarefatti)), rarefatti, as.integer), file.path(cartella, "conteggi_rarefatti.tsv"),
     intestazione = c(
       "Conteggi rarefatti: una riga per variante, una colonna per campione.",
       sprintf("rarefazione: senza reinserimento, profondita' %d (%s), seme %d",
