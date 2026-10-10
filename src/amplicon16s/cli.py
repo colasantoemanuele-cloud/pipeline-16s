@@ -1,10 +1,19 @@
 """Riga di comando della pipeline 16S.
 
-Quattro sottocomandi, tutti con ``--config`` che indica il file di
-configurazione. Il file non viene mai modificato: le azioni correttive dei
-tentativi ripetuti cambiano una copia in memoria. I percorsi relativi del file
-valgono rispetto alla cartella da cui il comando e' lanciato, e sono resi
-assoluti al caricamento.
+Quattro sottocomandi eseguono o leggono un'esecuzione, tutti con ``--config``
+che indica il file di configurazione. Il file non viene mai modificato: le
+azioni correttive dei tentativi ripetuti cambiano una copia in memoria. I
+percorsi relativi del file valgono rispetto alla cartella da cui il comando e'
+lanciato, e sono resi assoluti al caricamento.
+
+Altri tre servono a preparare un'esecuzione e a seguirla da un altro programma:
+``init`` scrive una configurazione di partenza dai dati
+(:mod:`amplicon16s.init`), ``schema`` esporta in JSON lo schema della
+configurazione, ``status`` dice a che punto e' l'esecuzione di una cartella di
+uscita, anche mentre e' in corso. ``validate --json`` e ``status --json``
+scrivono sullo standard output un solo documento JSON
+(:mod:`amplicon16s.interfaccia`); il testo per l'operatore va allora sullo
+standard error.
 
 * ``validate`` esegue solo S0. Se S0 è già conclusa e valida per questa
   configurazione non la riesegue: la dichiara conclusa.
@@ -43,6 +52,7 @@ scheduler:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import shlex
@@ -54,7 +64,9 @@ from typing import Final
 from amplicon16s import __version__
 from amplicon16s.config.schema import Config, ErroreConfigurazione, carica
 from amplicon16s.errors.catalog import voce
-from amplicon16s.gates.g01_g15 import ErroreGate, rifiuto_di_g15
+from amplicon16s.gates.g01_g15 import _PER_CODICE, ErroreGate, Violazione, rifiuto_di_g15
+from amplicon16s import interfaccia
+from amplicon16s.config import defaults
 from amplicon16s.logging.logger import chiudi, configura, ottieni
 from amplicon16s.runner.executor import Conclusione, Esecutore, EsitoEsecuzione
 from amplicon16s.runner.graph import Passo
@@ -164,9 +176,68 @@ def _comando_ripresa(percorso: Path, programma: str = "amplicon16s") -> str:
     return f"{programma} resume --config {shlex.quote(str(percorso.resolve()))}"
 
 
+#: Vero quando il comando deve scrivere sullo standard output un solo documento
+#: JSON: il testo per l'operatore va allora sullo standard error.
+_solo_json = False
+
+
 def _stampa(testo: str = "") -> None:
-    """Scrive una riga sullo standard output senza bufferizzarla."""
-    print(testo, flush=True)
+    """Scrive una riga per l'operatore, senza bufferizzarla: sullo standard
+    output, o sullo standard error quando l'output e' riservato al JSON.
+    """
+    print(testo, flush=True, file=sys.stderr if _solo_json else sys.stdout)
+
+
+def _stampa_json(documento: dict) -> None:
+    """Scrive il documento JSON sullo standard output."""
+    print(json.dumps(documento, ensure_ascii=False, indent=2), flush=True)
+
+
+def _problemi_di(violazioni: Sequence[Violazione], gate: str | None = None) -> list[dict]:
+    """Le violazioni di un gate nella forma del documento JSON.
+
+    I parametri obbligatori non dichiarati, che G15 elenca in una sola
+    violazione, diventano un problema ciascuno: per un programma esterno sono
+    altrettanti campi da compilare.
+    """
+    problemi = []
+    for v in violazioni:
+        if v.codice == "E-G15-10":
+            mancanti = interfaccia.parametri_nel_testo(
+                v.dettaglio.split(". Descrivono")[0], defaults.OBBLIGATORI)
+            problemi += [
+                interfaccia.problema(
+                    v.codice, f"parametro obbligatorio non dichiarato: {nome}",
+                    parametri=[nome], gate=gate)
+                for nome in mancanti
+            ]
+            continue
+        nel_testo = interfaccia.parametri_nel_testo(v.dettaglio)
+        controllo = _PER_CODICE.get(v.codice)
+        # I parametri nominati dal messaggio, altrimenti quelli che il
+        # controllo sorveglia.
+        parametri = nel_testo or [
+            p for p in (controllo.parametri if controllo else ())
+            if p in interfaccia.chiavi_dello_schema()
+        ]
+        problemi.append(interfaccia.problema(v.codice, v.dettaglio, parametri=parametri, gate=gate))
+    return problemi
+
+
+def _esiti_dei_gate(radice: Path) -> tuple[list[dict], list[dict]]:
+    """Problemi e avvisi di S0 come li ha registrati in ``gates.json``."""
+    percorso = radice / "01_input_validation" / "gates.json"
+    try:
+        esiti = json.loads(percorso.read_text(encoding="utf-8"))["gate"]
+    except (OSError, ValueError, KeyError):
+        return [], []
+    problemi, avvisi = [], []
+    for esito in esiti:
+        violazioni = [Violazione(v["codice"], v["dettaglio"]) for v in esito["violazioni"]]
+        problemi += _problemi_di(violazioni, esito["gate"])
+        avvisi += _problemi_di(
+            [Violazione(a["codice"], a["dettaglio"]) for a in esito["avvisi"]], esito["gate"])
+    return problemi, avvisi
 
 
 # --------------------------------------------------------------------------- #
@@ -211,7 +282,31 @@ def _uscita(esito: EsitoEsecuzione) -> int:
 
 
 def _cmd_validate(config: Config, percorso: Path, args: argparse.Namespace) -> int:
-    """Comando ``validate``: esegue la sola S0 e ne riporta l'esito."""
+    """Comando ``validate``: esegue la sola S0 e ne riporta l'esito.
+
+    Con ``--json`` il controllo e' lo stesso, e sullo standard output va un
+    documento con ogni problema: parametro, codice, messaggio e azione.
+    """
+    uscita = _valida(config, percorso, args)
+    if args.json:
+        radice = Path(config.io.out_root)
+        problemi, avvisi = _esiti_dei_gate(radice)
+        punto = radice / "99_logs" / "punto_di_ripresa.json"
+        if uscita != USCITA_SUCCESSO and not problemi and punto.is_file():
+            # Un arresto ai controlli di avvio (risorse, riferimento,
+            # provenienza): non e' in gates.json, lo dichiara il punto di ripresa.
+            dichiarato = json.loads(punto.read_text(encoding="utf-8"))
+            problemi = [interfaccia.problema(
+                dichiarato["codice"], dichiarato["dettaglio"] or dichiarato["sintesi"],
+                gate=dichiarato["origine"])]
+        _stampa_json(interfaccia.esito_validazione(
+            configurazione=percorso, codice_uscita=uscita, problemi=problemi,
+            avvisi=avvisi, cartella=radice))
+    return uscita
+
+
+def _valida(config: Config, percorso: Path, args: argparse.Namespace) -> int:
+    """Esegue la sola S0 e ne riporta l'esito all'operatore."""
     esito = _esegui(config, percorso, fino_a=Passo.S0, programma=args.programma)
     if esito.conclusione is Conclusione.COMPLETATA:
         registrazione = esito.configurazione
@@ -276,6 +371,71 @@ def _cmd_report(config: Config, percorso: Path, args: argparse.Namespace) -> int
     return USCITA_SUCCESSO
 
 
+def _cmd_schema(args: argparse.Namespace) -> int:
+    """Comando ``schema``: lo schema della configurazione, in JSON."""
+    _stampa_json(interfaccia.schema())
+    return USCITA_SUCCESSO
+
+
+#: Come ``status`` descrive a parole ogni stato del documento.
+_STATI: Final = {
+    "non_avviata": "nessuna esecuzione in questa cartella",
+    "in_corso": "esecuzione in corso",
+    "interrotta": "esecuzione interrotta senza dichiarazione (il processo non risponde)",
+    "ferma": "esecuzione ferma con un punto di ripresa",
+    "conclusa": "esecuzione conclusa",
+    "incompleta": "esecuzione incompleta, nessun processo attivo",
+}
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    """Comando ``status``: a che punto e' l'esecuzione di una cartella di uscita.
+
+    La cartella si indica con ``--out``, oppure si ricava da ``io.out_root``
+    del file di ``--config``. Il comando legge soltanto: non apre il log e non
+    scrive nella cartella, quindi si puo' lanciare durante un'esecuzione.
+    """
+    if args.out is not None:
+        radice = args.out
+    else:
+        try:
+            radice = Path(_percorsi_assoluti(carica(args.config)).io.out_root)
+        except ErroreConfigurazione as e:
+            _stampa(f"configurazione non valida ({e.origine})" if e.origine else
+                    "configurazione non valida")
+            _stampa_rifiuto(rifiuto_di_g15(e))
+            return USCITA_CONFIGURAZIONE
+        except OSError as e:
+            _stampa(f"configurazione non leggibile: {e}")
+            return USCITA_CONFIGURAZIONE
+    documento = interfaccia.stato(radice)
+    if args.json:
+        _stampa_json(documento)
+        return USCITA_SUCCESSO
+    _stampa(f"{radice}: {_STATI[documento['stato']]}")
+    for fase in documento["fasi"]:
+        _stampa(f"  {fase['passo']:<4} {fase['stato']:<12} {fase['descrizione']}")
+    esecuzione = documento["esecuzione"]
+    if esecuzione is not None:
+        _stampa(
+            f"  fase in esecuzione: {esecuzione['passo'] or 'controlli di avvio'}, ultimo "
+            f"segnale {esecuzione['secondi_dall_ultimo_battito']} s fa")
+    arresto = documento["arresto"]
+    if arresto is not None and documento["stato"] in ("ferma", "interrotta"):
+        _stampa(f"  arresto: {arresto['codice']} in {arresto['passo'] or arresto['origine']}: "
+                f"{arresto['sintesi']}")
+        _stampa(f"  cosa fare: {arresto['azione']}")
+        _stampa(f"  ripartire: {arresto['comando']}")
+    return USCITA_SUCCESSO
+
+
+def _cmd_init(args: argparse.Namespace) -> int:
+    """Comando ``init``: scrive una configurazione di partenza dai dati."""
+    from amplicon16s.init.comando import esegui as esegui_init
+
+    return esegui_init(args, _stampa)
+
+
 # --------------------------------------------------------------------------- #
 # Parser e punto di ingresso                                                   #
 # --------------------------------------------------------------------------- #
@@ -305,7 +465,34 @@ def build_parser() -> argparse.ArgumentParser:
             "--config", "-c", required=True, type=Path,
             help="file di configurazione YAML (non viene mai modificato)",
         )
+        if nome == "validate":
+            sotto.add_argument(
+                "--json", action="store_true",
+                help="scrive sullo standard output l'esito come documento JSON",
+            )
         sotto.set_defaults(func=funzione)
+
+    schema = subparsers.add_parser(
+        "schema", help="esporta in JSON lo schema della configurazione")
+    schema.set_defaults(senza_config=_cmd_schema)
+
+    status = subparsers.add_parser(
+        "status", help="dice a che punto e' un'esecuzione, anche mentre e' in corso")
+    dove = status.add_mutually_exclusive_group(required=True)
+    dove.add_argument("--out", type=Path, metavar="CARTELLA",
+                      help="la cartella di uscita dell'esecuzione")
+    dove.add_argument("--config", "-c", type=Path,
+                      help="il file di configurazione: la cartella e' io.out_root")
+    status.add_argument("--json", action="store_true",
+                        help="scrive sullo standard output lo stato come documento JSON")
+    status.set_defaults(senza_config=_cmd_status)
+
+    from amplicon16s.init.comando import aggiungi_argomenti
+
+    init = subparsers.add_parser(
+        "init", help="scrive una configurazione di partenza a partire dai dati")
+    aggiungi_argomenti(init)
+    init.set_defaults(senza_config=_cmd_init)
 
     return parser
 
@@ -317,9 +504,23 @@ def main(argv: Sequence[str] | None = None, programma: str = "amplicon16s") -> i
     nel comando di ripresa che un arresto dichiara, perche' chi ha lanciato il
     codice di un clone (``scripts/esegui.py``) riprenda con lo stesso.
     """
+    global _solo_json
     parser = build_parser()
     args = parser.parse_args(argv)
     args.programma = programma
+    _solo_json = bool(getattr(args, "json", False)) or args.command == "schema"
+
+    # I comandi che non eseguono la pipeline: nessuna configurazione da
+    # caricare qui, nessun log da aprire nella cartella di uscita.
+    if hasattr(args, "senza_config"):
+        return args.senza_config(args)
+
+    def rifiutata(violazioni: Sequence[Violazione]) -> None:
+        """Con ``--json`` il rifiuto della configurazione e' il documento."""
+        if getattr(args, "json", False):
+            _stampa_json(interfaccia.esito_validazione(
+                configurazione=args.config, codice_uscita=USCITA_CONFIGURAZIONE,
+                problemi=_problemi_di(violazioni, "G15")))
 
     try:
         config = _percorsi_assoluti(carica(args.config))
@@ -330,15 +531,19 @@ def main(argv: Sequence[str] | None = None, programma: str = "amplicon16s") -> i
         # tutti insieme (E-G15-10), con l'azione del catalogo.
         _stampa(f"configurazione non valida ({e.origine})" if e.origine else
                 "configurazione non valida")
-        _stampa_rifiuto(rifiuto_di_g15(e))
+        rifiuto = rifiuto_di_g15(e)
+        _stampa_rifiuto(rifiuto)
+        rifiutata(rifiuto.violazioni)
         return USCITA_CONFIGURAZIONE
     except OSError as e:
         _stampa(f"configurazione non leggibile: {e}")
+        rifiutata([Violazione("E-G15-99", f"configurazione non leggibile: {e}")])
         return USCITA_CONFIGURAZIONE
 
     problema = _uscita_non_utilizzabile(Path(config.io.out_root))
     if problema is not None:
         _stampa(f"configurazione non valida: io.out_root: {problema}")
+        rifiutata([Violazione("E-G15-99", f"io.out_root: {problema}")])
         return USCITA_CONFIGURAZIONE
 
     try:
@@ -347,6 +552,7 @@ def main(argv: Sequence[str] | None = None, programma: str = "amplicon16s") -> i
         # Solo G15 arriva fin qui: gli altri gate sono dentro S0, e un loro
         # fallimento e' un arresto con punto di ripresa.
         _stampa_rifiuto(e)
+        rifiutata(e.violazioni)
         return USCITA_CONFIGURAZIONE
     except Exception as e:  # noqa: BLE001 - l'ultimo argine prima dell'uscita
         ottieni().exception("errore imprevisto", extra={"comando": args.command})

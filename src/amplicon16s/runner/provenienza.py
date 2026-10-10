@@ -314,16 +314,37 @@ def file_del_sorgente(fase: PipelineStep, cartella_r: Path) -> dict[str, Path]:
         file[f"python/{modulo}"] = Path(percorso)
     if fase.script_r is not None:
         script = cartella_r / fase.script_r
+        # Lo si legge subito, per le librerie che carica: se non c'e', la
+        # cartella degli script non e' quella del repository.
+        _leggi_sorgente(f"R/{fase.script_r}", script)
         file[f"R/{fase.script_r}"] = script
         for libreria in _librerie_caricate(script):
             file[f"R/lib/{libreria}"] = cartella_r / "lib" / libreria
     return file
 
 
+def _leggi_sorgente(nome: str, percorso: Path) -> bytes:
+    """I byte di un file del sorgente. Uno script R che non si trova e' un
+    errore del catalogo (``E-R-01``), non un errore imprevisto: succede quando
+    la cartella degli script indicata non e' quella del repository.
+    """
+    try:
+        return percorso.read_bytes()
+    except OSError as e:
+        if nome.startswith("R/"):
+            from amplicon16s.errors.exceptions import errore
+
+            raise errore(
+                "E-R-01", f"script R non leggibile: {percorso} ({type(e).__name__})",
+                script=nome,
+            ) from e
+        raise
+
+
 def impronta_sorgente(file: Mapping[str, Path]) -> tuple[str, dict[str, str]]:
     """L'impronta complessiva del sorgente e quella di ciascun file."""
     per_file = {
-        nome: "sha256:" + hashlib.sha256(Path(p).read_bytes()).hexdigest()
+        nome: "sha256:" + hashlib.sha256(_leggi_sorgente(nome, Path(p))).hexdigest()
         for nome, p in sorted(file.items())
     }
     canonico = json.dumps(per_file, sort_keys=True, separators=(",", ":"))

@@ -27,7 +27,8 @@ __all__ = ["MappaControlli"]
 class MappaControlli:
     """Corrispondenza fra le etichette dichiarate e le classi dei campioni."""
 
-    colonna: str
+    #: ``None`` se il dataset non ha una colonna del tipo di campione.
+    colonna: str | None
     per_etichetta: dict[str, ClasseCampione]
     #: La regola di riclassificazione in controllo negativo: la colonna e i
     #: valori normalizzati che la attivano; nessuna regola con l'insieme vuoto.

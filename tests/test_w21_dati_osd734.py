@@ -344,6 +344,21 @@ def test_il_lotto_si_ricostruisce_dalla_fonte(tmp_path):
     ricostruisci_lotto.scrivi(lotto, uscita)
     assert uscita.read_text(encoding="utf-8").splitlines()[0].split("\t") == list(
         ricostruisci_lotto.COLONNE)
+    # Con l'MD5 atteso il file si consegna solo se coincide: altrimenti nulla
+    # resta alla destinazione, nemmeno il file parziale.
+    import hashlib
+
+    vero = hashlib.md5(uscita.read_bytes()).hexdigest()
+    altra = tmp_path / "verificato.tsv"
+    ricostruisci_lotto.scrivi(lotto, altra, vero)
+    assert altra.read_bytes() == uscita.read_bytes()
+    respinta = tmp_path / "respinto.tsv"
+    with pytest.raises(SystemExit, match="nulla e' stato scritto"):
+        ricostruisci_lotto.scrivi(lotto, respinta, "0" * 32)
+    assert sorted(p.name for p in tmp_path.iterdir() if "respint" in p.name) == []
+    # L'MD5 atteso e' quello che l'elenco delle fonti dichiara per il file.
+    dichiarato = ricostruisci_lotto.md5_dichiarato()
+    assert len(dichiarato) == 32 and f"md5:{dichiarato}" in ricostruisci_lotto.FONTI.read_text()
 
 
 def test_una_fonte_diversa_da_quella_fissata_e_respinta():

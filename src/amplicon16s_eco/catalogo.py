@@ -52,7 +52,8 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "La configurazione dell'analisi non e' valida.",
         "Correggi il parametro indicato: una chiave sconosciuta e' un refuso o un "
         "parametro non previsto, un valore fuori dominio va riportato entro i "
-        "limiti descritti nel modello config/eco.example.yaml.",
+        "limiti indicati nel messaggio; il significato di ogni parametro e' nel "
+        "modello config/eco.example.yaml.",
     ),
     VoceEco(
         "E-ECO-02", _R,
@@ -226,6 +227,14 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "due dimensioni dispongono in qualunque ordine delle distanze, o con "
         "gruppi compatti e ben separati, che la NMDS riduce a pochi punti. "
         "Coordinate e stress sono riportati comunque.",
+    ),
+    VoceEco(
+        "E-ECO-29", _A,
+        "Una variabile biologica sembra continua.",
+        "I suoi valori sono tutti numerici e quasi tutti diversi: l'analisi la tratta "
+        "comunque come categorica, come dichiarato, e i suoi gruppi sono in gran parte "
+        "campioni singoli, che escono dai test. Se e' una misura, raggruppala in "
+        "classi in una colonna nuova dei metadati, oppure scegli un'altra variabile.",
     ),
     VoceEco(
         "E-ECO-90", _R,

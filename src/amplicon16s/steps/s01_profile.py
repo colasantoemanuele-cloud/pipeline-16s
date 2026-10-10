@@ -147,8 +147,10 @@ class ProfiloLetture(PipelineStep):
     #: file sono tollerate; ogni guasto di decompressione e' E-S1-05; la
     #: memoria esaurita nel profilo e' dichiarata con E-S1-06. 7: fra i nomi
     #: ripetuti contano le letture consecutive che si distinguono per il solo
-    #: marcatore di coppia in fondo all'identificativo.
-    versione: ClassVar[int] = 7
+    #: marcatore di coppia in fondo all'identificativo. 8: il file senza
+    #: letture di un controllo negativo non e' un guasto: il campione entra nel
+    #: conteggio con zero letture e non ha un profilo.
+    versione: ClassVar[int] = 8
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("grezze",)
     #: I profili dipendono solo dalle letture, cioe' da S0; il troncamento, la
@@ -187,8 +189,12 @@ class ProfiloLetture(PipelineStep):
             ) from guasto
         # Un file che non si legge per intero non ha un conteggio: fermarsi
         # prima di scriverlo, perche' zero segni su una lettura interrotta non
-        # dicono che il file e' single-end.
-        guasti = {c: s for c, s in coppie.items() if s.errore is not None}
+        # dicono che il file e' single-end. Il file senza letture di un
+        # controllo negativo non e' un guasto: S0 lo ha ammesso (E-S0-20).
+        classi = {c.accession: c.classe for c in contesto.inventario}
+        vuoti = [c for c, s in coppie.items()
+                 if s.vuoto and classi[c] is ClasseCampione.CONTROLLO_NEGATIVO]
+        guasti = {c: s for c, s in coppie.items() if s.errore is not None and c not in vuoti}
         if guasti:
             elenco = "; ".join(f"{c} ({s.nome}): {s.errore}" for c, s in list(guasti.items())[:5])
             raise errore(
@@ -224,7 +230,14 @@ class ProfiloLetture(PipelineStep):
         with senza_righe_vuote_finali(campioni, vuote) as leggibili:
             esito = esegui_script(
                 cartella_r() / NOME_SCRIPT,
-                {"campioni": leggibili, "processi": processi},
+                {
+                    # I file senza letture non arrivano al lettore di R: il loro
+                    # profilo e' vuoto per definizione, e lo script li conta a zero.
+                    "campioni": {c: p for c, p in leggibili.items() if c not in vuoti},
+                    "vuoti": vuoti,
+                    "ordine": list(campioni),
+                    "processi": processi,
+                },
                 contesto.albero,
                 self.cartella,
                 passo=self.passo,
@@ -246,7 +259,6 @@ class ProfiloLetture(PipelineStep):
         # sola non e' un motivo per fermarsi, una quota rilevante dei campioni
         # da cui ci si attende il segnale si'.
         lunghezze = self._lunghezze(cartella)
-        classi = {c.accession: c.classe for c in contesto.inventario}
         corte = letture_corte(lunghezze, classi, troncamento)
         massima = contesto.config.qc.max_frac_short_reads
         oltre = classi_oltre_soglia(corte, massima)

@@ -14,7 +14,9 @@
 #                      per campione; profilo di qualita' aggregato
 #
 # Parametri: campioni (accession -> percorso del file), processi (quanti file
-# leggere in parallelo), blocco (letture per blocco di lettura).
+# leggere in parallelo), blocco (letture per blocco di lettura); vuoti
+# (accession dei file senza letture, che non si leggono: zero letture e nessun
+# profilo) e ordine (tutti gli accession, nell'ordine delle tabelle).
 #
 # Le tabelle sono in formato lungo, una riga per campione e per valore: si
 # leggono con qualunque programma, e un dataset di molti campioni resta in
@@ -113,6 +115,15 @@ esegui_fase(function(parametri, cartella) {
          ": ", as.character(profili[guasti][[1L]]))
   }
   names(profili) <- names(campioni)
+  # I file senza letture: nessuna lunghezza e nessuna qualita', zero letture.
+  vuoti <- as.character(unlist(facoltativo(parametri, "vuoti", list())))
+  if (length(vuoti)) {
+    for (campione in vuoti) {
+      profili[[campione]] <- list(letture = 0, lunghezze = integer(),
+                                  qualita = matrix(0, nrow = 0L, ncol = PUNTEGGI))
+    }
+    profili <- profili[as.character(unlist(parametri$ordine))]
+  }
 
   # Distribuzione delle lunghezze.
   righe <- "campione\tlunghezza\tletture"

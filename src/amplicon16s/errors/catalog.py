@@ -202,7 +202,8 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "troncamento) e non hanno un valore predefinito, perche' un valore "
         "ereditato da un altro dataset sarebbe quasi certamente sbagliato. Un "
         "parametro non pertinente si dichiara nullo o con un elenco vuoto, non si "
-        "omette. config/config.example.yaml li elenca con un esempio per ciascuno.",
+        "omette. Che cosa significa ciascuno e come si sceglie e' in GUIDA.md, "
+        "sezione 6, e in config/config.example.yaml; init li scrive a partire dai dati.",
         _UMANA,
     ),
     _v(
@@ -362,6 +363,18 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         _DEGRADA,
     ),
     _v(
+        "E-S0-20", "S0",
+        "Un controllo negativo ha il file delle letture senza alcuna lettura.",
+        "L'esecuzione prosegue: un bianco senza letture e' un esito legittimo, e "
+        "il campione attraversa le fasi come campione senza letture (conteggi a "
+        "zero, fuori dal confronto della decontaminazione, che conta i soli "
+        "controlli negativi con letture). Se il file doveva contenerne, "
+        "riscaricalo dalla sorgente e verificane il checksum. Per un campione "
+        "biologico o un controllo positivo lo stesso file ferma la validazione "
+        "(E-S0-13).",
+        _DEGRADA,
+    ),
+    _v(
         "E-S0-09", "S0",
         "filter.truncLen e' incompatibile con le lunghezze osservate.",
         "Fra le prime qc.head_reads letture dei campioni biologici, o fra quelle "
@@ -441,7 +454,8 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "ciascuno. Riscarica il file dalla sorgente e verificane il checksum "
         "prima di rieseguire: la validazione ispeziona solo le prime "
         "qc.head_reads letture, quindi un guasto oltre quelle non verrebbe "
-        "visto qui.",
+        "visto qui. Un file senza alcuna lettura e' ammesso solo per un "
+        "controllo negativo (E-S0-20).",
         _UMANA,
     ),
     _v(
@@ -952,9 +966,10 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "L'interprete R o gli script R della pipeline non sono disponibili.",
         "Installa R oppure indica l'interprete con la variabile d'ambiente "
         "AMPLICON16S_RSCRIPT; se gli script non vengono trovati, indica la "
-        "cartella R/ del repository con AMPLICON16S_R_DIR. Nel container "
-        "entrambi sono gia' presenti: se l'errore compare li', l'immagine non "
-        "e' quella prevista.",
+        "cartella R/ del repository con AMPLICON16S_R_DIR, oppure lancia la "
+        "pipeline dal clone con scripts/esegui.py, che la indica da se'. Nel "
+        "container entrambi sono gia' presenti: se l'errore compare li', "
+        "l'immagine non e' quella prevista.",
         _UMANA,
     ),
     _v(

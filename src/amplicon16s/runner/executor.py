@@ -70,6 +70,7 @@ from amplicon16s.gates.g01_g15 import (
     _g12_riferimento_verificato,
     _g14_risorse_disponibili,
 )
+from amplicon16s.interfaccia import StatoInCorso
 from amplicon16s.io_layer.artifacts import Fase, scrivi_atomico
 from amplicon16s.logging.logger import registra_errore
 from amplicon16s.runner.graph import Passo
@@ -243,6 +244,8 @@ class Esecutore:
         self.fino_a = fino_a
         self.log = logger or run.logger
         self.politica = PoliticaRetry.da_config(run.config)
+        #: Il file di stato dell'esecuzione in corso; esiste solo dentro esegui().
+        self._stato: StatoInCorso | None = None
 
         # Un aggiustamento dichiarato per un codice non ripetibile e' un
         # difetto della fase: non potrebbe mai essere applicato.
@@ -419,11 +422,47 @@ class Esecutore:
     # ----------------------------------------------------------------- #
 
     def esegui(self) -> EsitoEsecuzione:
-        """Esegue le fasi da fare, fino alla fine, a un arresto o a ``fino_a``."""
+        """Esegue le fasi da fare, fino alla fine, a un arresto o a ``fino_a``.
+
+        Per la durata dell'esecuzione tiene in ``99_logs`` il file di stato che
+        ``status`` legge (:class:`StatoInCorso`).
+        """
+        self._stato = StatoInCorso(self.run.albero.cartella(Fase.LOGS), self.comando_ripresa)
+        try:
+            self._stato.avvia()
+        except OSError:
+            pass
+        try:
+            return self._esegui()
+        finally:
+            self._stato.chiudi()
+            self._stato = None
+
+    def _esegui(self) -> EsitoEsecuzione:
+        """Il corpo di :meth:`esegui`."""
         eseguite: list[StepResult] = []
-        valutazione = self.run.valuta()
         configurazione: Registrazione | None = None
         try:
+            # La valutazione dello stato legge il sorgente delle fasi concluse,
+            # script R compresi: se non si trovano e' un arresto dichiarato
+            # (E-R-01), non un errore imprevisto.
+            try:
+                valutazione = self.run.valuta()
+            except ErrorePipeline as e:
+                raise _Arresto(PuntoDiRipresa(
+                    passo=None,
+                    codice=e.codice,
+                    categoria=e.categoria.value,
+                    sintesi=e.voce.sintesi,
+                    azione=e.voce.azione,
+                    dettaglio=e.dettaglio,
+                    motivo="Lo stato dell'esecuzione si valuta a ogni avvio, prima di "
+                           "qualunque fase.",
+                    tentativi=0,
+                    tentativi_massimi=self.politica.tentativi_massimi,
+                    comando=self.comando_ripresa,
+                    origine="controlli di avvio",
+                )) from e
             self.controlli_di_avvio(valutazione)
             configurazione = self._registra_configurazione(valutazione)
             # Una provenienza diversa a parita' di versione non rifa' la fase:
@@ -568,6 +607,8 @@ class Esecutore:
         config = self.config
         aggiustamenti: list[dict[str, Any]] = []
         tentativo = 1
+        if self._stato is not None:
+            self._stato.fase(passo)
 
         while True:
             contesto = self.run.contesto(

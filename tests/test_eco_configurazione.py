@@ -838,3 +838,97 @@ def test_una_cartella_di_uscita_non_utilizzabile_e_respinta_prima_del_calcolo(ec
     with pytest.raises(ErroreEco) as rifiuto:
         esegui(oggetto, schema.valida(configurazione(comp={"rank": "Specie"})), nuova)
     assert rifiuto.value.codici == ["E-ECO-07"] and not nuova.exists()
+
+
+def test_eco_init_rileva_propone_e_lascia_da_scegliere(eco_r, tmp_path, capsys):
+    """
+    **Obiettivo**: ``init`` sull'oggetto scrive una configurazione di partenza
+    in cui nessuna riga e' attiva: riporta come fatti i ranghi con la quota di
+    varianti assegnate e l'albero con la sua radice; propone la variabile
+    biologica solo se una sola colonna ha gruppi ripetuti (con piu' candidate
+    le elenca e lascia la scelta senza valore), come variabili tecniche le
+    colonne di piastra e di corsa che hanno piu' di un valore (la piu'
+    grossolana per prima), come rango il piu' fine con almeno meta' delle
+    varianti assegnate, e la radice esistente per UniFrac; lascia da scegliere
+    distanze, metodi, seme, dimensione dei gruppi e significativita'. Il file
+    cosi' com'e' e' respinto nominando i parametri mancanti; completato, la
+    validazione sull'oggetto passa. Un file esistente non viene riscritto.
+
+    **Razionale scientifico e sistemistico**: quale variabile lo studio
+    confronta, e con quali metodi, lo decide chi conduce l'analisi: ``init``
+    porta cio' che l'oggetto contiene e un punto di partenza, e nessun valore
+    entra nella configurazione senza un gesto.
+    """
+    from init_aiuti import completa, righe_dei_parametri
+
+    from amplicon16s_eco.init import QUOTA_MINIMA_ASSEGNATA
+
+    conteggi = [[10 + (3 * i + j) % 9 for j in range(12)] for i in range(4)]
+    metadati = {
+        "accession": [f"c{i}" for i in range(12)],
+        "trattamento": ["a", "b", "c"] * 4,
+        "sito": ["x"] * 6 + ["y"] * 6,
+        "piastra": ["p1", "p2", "p3", "p4"] * 3,
+        "corsa": ["r1"] * 6 + ["r2"] * 6,
+        "misura": [str(i * 1.5) for i in range(12)],
+    }
+    tassonomia = {
+        "Regno": ["Batteri"] * 4,
+        "Famiglia": ["F1", "F1", "F2", None],
+        "Genere": ["G1", None, None, None],
+    }
+    oggetto = costruisci(tmp_path, conteggi, metadati, tassonomia,
+                         albero="((v01:1,v02:1):1,(v03:1,v04:1):1);")
+    uscita = tmp_path / "eco.yaml"
+    assert main(["init", "--object", str(oggetto), "--output", str(uscita)]) == USCITA_SUCCESSO
+    stampato = capsys.readouterr().out
+    testo = uscita.read_text(encoding="utf-8")
+    # I fatti stanno nell'intestazione, in righe di commento mandate a capo.
+    intestazione = " ".join(testo.replace("#", " ").split())
+    assert "Regno 1.00, Famiglia 0.75, Genere 0.25" in intestazione
+    assert "presente, radicato" in intestazione and "Regno 1.00" in stampato
+    assert "Da scegliere:" in stampato and "design.variable" in stampato
+
+    righe = righe_dei_parametri(testo, schema.ConfigEco)
+    assert not [chiave for chiave, (attiva, _) in righe.items() if attiva]
+    assert righe["design.variable"] == (False, "")
+    assert "sito (2), trattamento (3)" in intestazione
+    assert righe["design.technical_variables"] == (False, '["corsa", "piastra"]')
+    assert QUOTA_MINIMA_ASSEGNATA == 0.5 and righe["comp.rank"] == (False, '"Famiglia"')
+    assert righe["beta.unifrac_root"] == (False, '"existing"')
+    for chiave in ("run.seed", "beta.distances", "ord.methods", "ord.distances",
+                   "stat.min_group_size", "stat.significance_level", "comp.top_n"):
+        assert righe[chiave] == (False, ""), chiave
+    assert righe["ord.nmds_trymax"] == (False, "20") and "vegan::metaMDS" in testo
+    assert righe["stat.permanova_permutations"] == (False, "999")
+
+    # Cosi' com'e' non e' una configurazione: mancano tutti gli obbligatori.
+    assert main(["validate", "--object", str(oggetto), "--config", str(uscita)]) == USCITA_RIFIUTO
+    rifiuto = capsys.readouterr().err
+    assert all(f"Parametro mancante: {chiave}" in rifiuto for chiave in schema.OBBLIGATORI)
+
+    completo = tmp_path / "completo.yaml"
+    completo.write_text(completa(
+        testo,
+        {"run.seed": 3, "comp.top_n": 3, "beta.distances": ["bray", "unifrac_weighted"],
+         "ord.methods": ["pcoa"], "ord.distances": ["bray"], "stat.min_group_size": 2,
+         "stat.significance_level": 0.05, "design.variable": "trattamento"},
+        accetta={"design.technical_variables", "comp.rank",
+                 "beta.unifrac_root", "ord.pcoa_correction"},
+        modello=schema.ConfigEco), encoding="utf-8")
+    config = schema.carica(completo)
+    assert (config.design.variable, config.comp.rank) == ("trattamento", "Famiglia")
+    assert valida_sull_oggetto(oggetto, config).riepilogo["campioni"]["analizzati"] == 12
+
+    prima = uscita.read_bytes()
+    assert main(["init", "--object", str(oggetto), "--output", str(uscita)]) == USCITA_RIFIUTO
+    assert uscita.read_bytes() == prima
+
+    # Con una sola colonna a gruppi ripetuti la variabile e' una proposta.
+    (tmp_path / "sola").mkdir()
+    oggetto = costruisci(tmp_path / "sola", conteggi,
+                         {k: v for k, v in metadati.items() if k != "sito"}, tassonomia)
+    sola = tmp_path / "sola.yaml"
+    assert main(["init", "--object", str(oggetto), "--output", str(sola)]) == USCITA_SUCCESSO
+    righe = righe_dei_parametri(sola.read_text(encoding="utf-8"), schema.ConfigEco)
+    assert righe["design.variable"] == (False, '"trattamento"')

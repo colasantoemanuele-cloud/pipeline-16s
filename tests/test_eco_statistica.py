@@ -15,7 +15,7 @@ import hashlib
 import pytest
 
 from amplicon16s_eco import config as schema
-from amplicon16s_eco.catalogo import ErroreEco
+from amplicon16s_eco.catalogo import CATALOGO, ErroreEco, Specie
 from amplicon16s_eco.esecuzione import esegui, valida_sull_oggetto
 
 from eco_aiuti import (  # noqa: F401
@@ -647,3 +647,36 @@ def test_un_modello_saturo_non_viene_stimato_e_lo_si_dichiara(eco_r, tmp_path):
     assert ("permanova", "lotto") not in righe and ("dispersioni", "gruppo") in righe
     (prova,) = esito.riepilogo["test"]
     assert prova["permanova"]["modello_saturo"] is True
+
+
+def test_una_variabile_che_sembra_continua_e_dichiarata(eco_r, tmp_path):
+    """
+    **Obiettivo**: una variabile i cui valori sono tutti numerici e quasi tutti
+    diversi (dodici valori su dodici campioni) da' l'avviso ``E-ECO-29`` con il
+    numero dei valori distinti, e l'analisi prosegue trattandola come
+    categorica; una variabile numerica con pochi valori ripetuti (una dose a
+    due livelli) e una variabile di testo non lo danno.
+
+    **Razionale scientifico e sistemistico**: una misura continua dichiarata
+    come variabile biologica diventa un gruppo per campione: ogni gruppo esce
+    dai test e l'esito, «nessun test eseguito», non direbbe perche'. Non e' un
+    rifiuto: numeri ripetuti sono spesso livelli di un fattore.
+    """
+    conteggi = [[20 + (i * j) % 17 for j in range(12)] for i in range(6)]
+    oggetto = costruisci(tmp_path, conteggi, {
+        "gruppo": ["a"] * 6 + ["b"] * 6,
+        "misura": [f"{1.5 + 0.37 * i:.2f}" for i in range(12)],
+        "dose": ["10", "20"] * 6,
+    })
+    config = schema.valida(configurazione(
+        design={"variable": "misura", "other_variables": ["dose", "gruppo"]},
+        stat={"min_group_size": 2, "permanova_permutations": 99}))
+    esito = esegui(oggetto, config, tmp_path / "uscita")
+    continui = [a.dettaglio for a in esito.avvisi if a.codice == "E-ECO-29"]
+    assert continui == ["Variabile 'misura': 12 valori distinti su 12 campioni con valore, tutti numerici."]
+    assert CATALOGO["E-ECO-29"].specie is Specie.AVVISO
+    # Resta categorica: dodici gruppi da un campione, nessuno nei test.
+    assert "E-ECO-12" in [a.codice for a in esito.avvisi]
+    variabili = {v["nome"]: v for v in esito.riepilogo["variabili"]}
+    assert len(variabili["misura"]["gruppi"]) == 12 and variabili["misura"]["gruppi_nei_test"] == []
+    assert len(variabili["dose"]["gruppi_nei_test"]) == 2

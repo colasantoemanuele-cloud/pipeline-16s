@@ -86,8 +86,10 @@ class InferenzaVarianti(PipelineStep):
 
     passo: ClassVar[Passo] = Passo.S4
     #: 2: la seconda passata usa la stessa loess_monotono di S3, cambiata
-    #: (primo grado, span 2, pesi logaritmici).
-    versione: ClassVar[int] = 2
+    #: (primo grado, span 2, pesi logaritmici). 3: se il modello della seconda
+    #: passata non si stima, l'errore riporta la causa e le transizioni della
+    #: prima; il risultato non cambia.
+    versione: ClassVar[int] = 3
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("denoised",)
     #: Il gruppo dada: la modalita' di pooling e la soglia omega_a. Le letture

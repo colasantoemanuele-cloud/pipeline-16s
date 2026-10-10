@@ -16,6 +16,12 @@
 # motivo. Un gruppo sotto la dimensione minima esce dai test, non dalle
 # descrizioni: e' una dichiarazione, non un arresto.
 
+# Quando una variabile sembra continua: tutti i valori presenti sono numeri, i
+# valori distinti sono almeno MINIMO_VALORI_CONTINUA e almeno la quota indicata
+# dei campioni con valore.
+MINIMO_VALORI_CONTINUA <- 10L
+QUOTA_VALORI_CONTINUA <- 0.8
+
 leggi_oggetto <- function(percorso) {
   letto <- tryCatch(
     list(riuscito = TRUE, valore = readRDS(percorso)),
@@ -230,6 +236,18 @@ esamina <- function(ps, parametri) {
         "Variabile '%s': %d gruppi con meno di %d campioni (%s).", nome,
         length(g$piccoli), minimo,
         .elenco(sprintf("%s: %d", g$piccoli, g$dimensioni[g$piccoli]))))
+    }
+    # Una variabile numerica con quasi tutti i valori diversi e' con ogni
+    # probabilita' una misura continua: resta trattata come categorica, come
+    # dichiarato, ma va detto, perche' i suoi "gruppi" sono singoli campioni.
+    presenti <- valori[!is.na(valori)]
+    distinti <- length(unique(presenti))
+    if (length(presenti) > 0L && distinti >= MINIMO_VALORI_CONTINUA &&
+        distinti >= QUOTA_VALORI_CONTINUA * length(presenti) &&
+        !anyNA(suppressWarnings(as.numeric(presenti)))) {
+      avviso("E-ECO-29", sprintf(
+        "Variabile '%s': %d valori distinti su %d campioni con valore, tutti numerici.",
+        nome, distinti, length(presenti)))
     }
     if (length(g$nei_test) < 2L) {
       avviso("E-ECO-12", sprintf(

@@ -109,6 +109,7 @@ In che cosa OSD-276 differisce da OSD-734:
 | `letture_forward.md5` | si' | l'MD5 del contenuto non compresso di ogni file forward ricavato |
 | `scarica_letture.py` | si' | scarica, verifica e ricava le forward |
 | `config_osd276.yaml` | si' | la configurazione della pipeline per questo dataset |
+| `eco_osd276.yaml` | si' | la configurazione d'esempio delle analisi ecologiche di base |
 | `FONTI.tsv` | si' | fonte, licenza e controllo di ogni file |
 | `ena/`, `fastq/` | no | i file di ENA (196 MB) e le forward ricavate (91 MB) |
 
@@ -134,6 +135,26 @@ docker run --rm \
 ```
 
 Le uscite vanno in `output/osd276/`.
+
+La configurazione si puo' anche riscrivere da zero con `init`, come per un dataset
+proprio (GUIDA.md): sulle letture e sulle tabelle di questa cartella rileva il modello
+dei nomi, la colonna e l'espressione della chiave (`SRR[0-9]+`), la colonna del nome
+del campione e l'MD5 del riferimento, e propone la colonna del tipo con la sua sola
+etichetta; le scelte restano da scrivere, e quelle di questo dataset sono in
+`config_osd276.yaml`. Una proposta differisce dalla configurazione pubblicata: `init`
+propone `filter.truncLen: 151`, la lunghezza di tutte le letture, mentre qui si tronca
+a 150 per togliere l'ultima base. Con 151 la catena arriva in fondo ma l'oggetto finale
+e' un altro (990 varianti invece di 1.005): per riprodurre il risultato di questa
+cartella il troncamento e' 150. Il primer non e' nelle letture, e i metadati ne
+riportano solo il nome (515F-806R): la sequenza va scritta, o indicata con `--primer`.
+
+Le analisi ecologiche di base sull'oggetto finale:
+
+```bash
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
+  python3 scripts/esegui.py eco run --object output/osd276/12_final/ps_final.rds \
+    --config dati/osd276/eco_osd276.yaml --out output/eco_osd276
+```
 
 ## La configurazione
 

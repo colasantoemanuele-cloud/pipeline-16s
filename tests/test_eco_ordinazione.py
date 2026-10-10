@@ -16,7 +16,7 @@ import pytest
 from amplicon16s_eco import config as schema
 from amplicon16s_eco.esecuzione import esegui
 
-from eco_aiuti import configurazione, eco_r, genera, leggi_tsv  # noqa: F401
+from eco_aiuti import RADICE, costruisci, configurazione, eco_r, genera, leggi_tsv  # noqa: F401
 
 DUE_GRUPPI = [
     {"n": 10, "gruppo": "a", "sigma": 0.2},
@@ -279,3 +279,85 @@ def test_una_distanza_tutta_nulla_o_con_un_solo_asse_non_ferma_l_analisi(eco_r, 
         tmp_path / "coppie")
     assert any(a.codice == "E-ECO-25" and "un solo asse" in a.dettaglio for a in esito.avvisi)
     assert not (tmp_path / "coppie" / "ordinazione").exists()
+
+
+def _dimensioni_png(percorso) -> tuple[int, int]:
+    """Larghezza e altezza di un PNG, dall'intestazione del file."""
+    testa = percorso.read_bytes()[:24]
+    assert testa[:8] == b"\x89PNG\r\n\x1a\n"
+    return int.from_bytes(testa[16:20], "big"), int.from_bytes(testa[20:24], "big")
+
+
+def _un_gruppo_per_campione(cartella, quanti: int, nome: str):
+    """Un oggetto con ``quanti`` campioni, ognuno in un gruppo proprio."""
+    import random
+
+    caso = random.Random(quanti)
+    conteggi = [[caso.randint(0, 60) + 1 for _ in range(quanti)] for _ in range(12)]
+    return costruisci(cartella, conteggi,
+                      {"gruppo": [f"sito {i + 1:03d}" for i in range(quanti)]}, nome=nome)
+
+
+@pytest.mark.parametrize("gruppi", [20, 60, 200])
+def test_la_legenda_con_molti_gruppi_non_stringe_il_grafico(eco_r, tmp_path, gruppi):
+    """
+    **Obiettivo**: con 20, 60 e 200 gruppi il grafico dell'ordinazione si
+    produce; fino a 30 gruppi l'immagine ha le dimensioni di base; da 31 a 60
+    la legenda e' su due colonne e l'immagine si allarga di una colonna; oltre
+    60 la legenda sta in un pannello sotto il grafico e l'immagine si allunga,
+    alla larghezza di base; due esecuzioni danno gli stessi byte.
+
+    **Razionale scientifico e sistemistico**: uno studio con decine di
+    posizioni di prelievo ha decine di gruppi: una legenda che cresce dentro
+    l'immagine riduce il grafico a una striscia. L'area del grafico deve
+    restare quella di un grafico con pochi gruppi, e la legenda leggibile.
+    """
+    oggetto = _un_gruppo_per_campione(tmp_path, gruppi, f"g{gruppi}.rds")
+    config = _config(["pcoa"], ["bray"], pcoa_correction="none")
+    esegui(oggetto, config, tmp_path / "a")
+    grafico = tmp_path / "a" / "ordinazione" / "pcoa_bray_01_gruppo.png"
+    larghezza, altezza = _dimensioni_png(grafico)
+    if gruppi <= 30:
+        assert (larghezza, altezza) == (2400, 1500)
+    elif gruppi <= 60:
+        assert larghezza > 2400 and altezza == 1500
+    else:
+        assert larghezza == 2400 and altezza > 1500 + gruppi // 8 * 30
+    esegui(oggetto, config, tmp_path / "b")
+    assert (tmp_path / "b" / "ordinazione" / "pcoa_bray_01_gruppo.png").read_bytes() == grafico.read_bytes()
+    # Anche la composizione si allarga con i gruppi, invece di stringere le barre.
+    composizione = _dimensioni_png(tmp_path / "a" / "composizione" / "gruppi_01_gruppo.png")
+    assert (composizione[0] > 2400) == (gruppi > 30)
+
+
+def test_i_titoli_dei_grafici_usano_nomi_leggibili_e_gli_accenti(eco_r, tmp_path):
+    """
+    **Obiettivo**: i nomi con cui le distanze compaiono nei titoli sono quelli
+    leggibili («Bray-Curtis», «Jaccard», «Aitchison», «UniFrac pesata»,
+    «UniFrac non pesata»), i metodi sono «PCoA» e «NMDS», e il titolo del
+    grafico dell'alfa diversita' porta l'accento.
+
+    **Razionale scientifico e sistemistico**: i grafici finiscono in un
+    rapporto: un identificativo di configurazione come ``unifrac_weighted`` o
+    un apostrofo al posto dell'accento sono testo di programma, non di figura.
+    """
+    import subprocess
+
+    from amplicon16s.rbridge.runner import trova_rscript
+
+    from amplicon16s_eco.ponte import CARTELLA_R
+
+    libreria = CARTELLA_R / "lib"
+    codice = (
+        f"source('{libreria / 'uscite.R'}'); "
+        "cat(vapply(c('bray','jaccard','aitchison','unifrac_weighted','unifrac_unweighted','altra'),"
+        " nome_distanza, character(1)), sep='|')"
+    )
+    esito = subprocess.run([str(trova_rscript()), "--vanilla", "-e", codice],
+                           capture_output=True, text=True, check=True,
+                           env={**__import__("os").environ, "LC_ALL": "C.UTF-8"})
+    assert esito.stdout == "Bray-Curtis|Jaccard|Aitchison|UniFrac pesata|UniFrac non pesata|altra"
+    ordinazione = (libreria / "ordinazione.R").read_text(encoding="utf-8")
+    assert 'c(pcoa = "PCoA", nmds = "NMDS")[[metodo]]' in ordinazione
+    assert "nome_distanza(distanza)" in ordinazione
+    assert '"Alfa diversità per %s' in (libreria / "test.R").read_text(encoding="utf-8")

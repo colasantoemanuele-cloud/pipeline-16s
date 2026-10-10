@@ -12,7 +12,10 @@ studio nel loro repository, ``RodolfoSalido/3DMM``, file
 e verificato con l'impronta git del contenuto. Il repository non dichiara una
 licenza: il file ricostruito non e' nel repository della pipeline, e questo
 script ne documenta la provenienza e lo ricostruisce dove serve. Qiita non
-espone i metadati senza autenticazione.
+espone i metadati senza autenticazione. La fonte, al commit fissato, e'
+archiviata su Software Heritage (l'identificativo e' in ``FONTI.tsv``): se il
+repository degli autori sparisse, il file si ottiene dall'archivio con la
+stessa impronta e si passa con ``--fonte``.
 
 **La ricostruzione**, colonna per colonna dalla fonte:
 
@@ -35,6 +38,11 @@ espone i metadati senza autenticazione.
 
 Le righe sono ordinate per piastra e pozzetto (come testo).
 
+**La verifica.** Prima di consegnarlo, il file ricostruito si confronta con
+l'MD5 che ``FONTI.tsv`` dichiara per ``lotto/plate_well_map_960.tsv``: se non
+coincide nulla viene scritto, perche' un file del lotto diverso darebbe
+risultati diversi da quelli pubblicati senza alcun altro segnale.
+
     python3 dati/osd734/ricostruisci_lotto.py                 # scarica la fonte e scrive
     python3 dati/osd734/ricostruisci_lotto.py --fonte FILE    # da una copia locale
 """
@@ -54,6 +62,9 @@ from typing import Final
 QUI = Path(__file__).resolve().parent
 ASSAY = QUI / "metadati" / "a_OSD-734_amplicon-sequencing_16s_Illumina MiSeq.txt"
 USCITA = QUI / "lotto" / "plate_well_map_960.tsv"
+FONTI = QUI / "FONTI.tsv"
+#: La voce di FONTI.tsv che dichiara l'MD5 del file ricostruito.
+VOCE_FONTI: Final = "lotto/plate_well_map_960.tsv"
 FONTE_LOCALE = QUI / "lotto" / "fonte" / "2023_03_21_3DMM_metadata_to_update_qiita.txt"
 
 #: Il commit del repository degli autori a cui la fonte e' fissata.
@@ -164,14 +175,38 @@ def aggiungi_accession(righe: list[dict[str, str]], per_nome: dict[str, str]) ->
         raise SystemExit("gli accession ricavati non sono univoci: nulla e' stato scritto")
 
 
-def scrivi(righe: list[dict[str, str]], uscita: Path) -> None:
-    """Scrive il file di arricchimento, separato da tabulazioni, a capo LF."""
+def md5_dichiarato(fonti: Path = FONTI) -> str:
+    """L'MD5 che FONTI.tsv dichiara per il file ricostruito."""
+    with open(fonti, encoding="utf-8", newline="") as file:
+        for riga in csv.DictReader(file, delimiter="\t"):
+            if riga["percorso"] == VOCE_FONTI:
+                trovato = re.fullmatch(r"md5:([0-9a-f]{32})", riga["controllo"].strip())
+                if trovato is None:
+                    raise SystemExit(f"{fonti.name}: la voce {VOCE_FONTI} non dichiara un MD5")
+                return trovato.group(1)
+    raise SystemExit(f"{fonti.name}: manca la voce {VOCE_FONTI}")
+
+
+def scrivi(righe: list[dict[str, str]], uscita: Path, atteso: str | None = None) -> None:
+    """Scrive il file di arricchimento, separato da tabulazioni, a capo LF.
+
+    Con ``atteso`` il file si consegna solo se il suo MD5 coincide: altrimenti
+    lo script si ferma e alla destinazione non resta nulla di nuovo.
+    """
     uscita.parent.mkdir(parents=True, exist_ok=True)
     temporaneo = uscita.with_name(uscita.name + ".parziale")
     with open(temporaneo, "w", encoding="utf-8", newline="") as file:
         scrittore = csv.DictWriter(file, fieldnames=COLONNE, delimiter="\t", lineterminator="\n")
         scrittore.writeheader()
         scrittore.writerows(righe)
+    ottenuto = hashlib.md5(temporaneo.read_bytes()).hexdigest()
+    if atteso is not None and ottenuto != atteso:
+        temporaneo.unlink()
+        raise SystemExit(
+            f"il file ricostruito ha MD5 {ottenuto}, mentre {FONTI.name} dichiara {atteso} "
+            f"per {VOCE_FONTI}: nulla e' stato scritto. La fonte e' quella del commit "
+            "fissato, quindi a essere cambiata e' la tabella di assay o questo script"
+        )
     temporaneo.replace(uscita)
 
 
@@ -192,8 +227,9 @@ def main(argomenti: list[str] | None = None) -> int:
         FONTE_LOCALE.write_bytes(contenuto)
     righe = mappa_lotto(leggi_fonte(contenuto))
     aggiungi_accession(righe, accession_per_nome())
-    scrivi(righe, opzioni.uscita)
-    print(f"{opzioni.uscita}: {len(righe)} campioni")
+    atteso = md5_dichiarato()
+    scrivi(righe, opzioni.uscita, atteso)
+    print(f"{opzioni.uscita}: {len(righe)} campioni, MD5 {atteso} come dichiarato in {FONTI.name}")
     return 0
 
 

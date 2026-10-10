@@ -120,11 +120,13 @@ def colonne_metadati(config: Any) -> list[dict[str, str]]:
         {"colonna": "sample_name", "origine": "tabella di assay (io.assay_table)",
          "colonna_originale": meta.sample_id_column, "valore": "valore originale"},
         {"colonna": "classe", "origine": studio,
-         "colonna_originale": config.ctrl.column,
+         "colonna_originale": config.ctrl.column or "",
          "valore": "classe del campione, da ctrl.blank_values, positive_values e "
                    "biological_values"},
         {"colonna": "materiale", "origine": studio,
-         "colonna_originale": config.ctrl.column, "valore": "valore originale"},
+         "colonna_originale": config.ctrl.column or "",
+         "valore": "valore originale" if config.ctrl.column else
+                   "vuoto: il dataset non ha una colonna del tipo di campione"},
         {"colonna": "posizione", "origine": studio,
          "colonna_originale": meta.module_column or "",
          "valore": "valore originale; vuoto se non applicabile" if meta.module_column else
@@ -256,8 +258,9 @@ class AssemblaggioOggetto(PipelineStep):
     #: 2: classe e variabili dalla tabella di assay quando io.study_table non
     #: e' indicata; chiave del file di arricchimento estratta con io.accession_regex.
     #: 3: la colonna dei livelli dei controlli positivi entra nell'oggetto
-    #: anche se out.batch_columns e out.study_columns non la nominano.
-    versione: ClassVar[int] = 3
+    #: anche se out.batch_columns e out.study_columns non la nominano. 4: con
+    #: ctrl.column nullo classe e materiale non hanno una colonna d'origine.
+    versione: ClassVar[int] = 4
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La forma dell'oggetto (orientamento, identificativi, colonne portate;
     #: serializzazione ed export sono di S14); le tabelle e le colonne da cui

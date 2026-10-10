@@ -122,7 +122,7 @@ from pathlib import Path
 
 import pytest
 from conftest import copia_esecuzione, esegui_gate_metadati
-from sottoinsieme import RIDOTTO, attesi_dataset, config_ridotta, manifesto, selezione
+from sottoinsieme import RIDOTTO, attesi_dataset, config_ridotta, manifesto, selezione, CAMPIONI_RIDOTTO, TRONCAMENTO_RIDOTTO
 
 from amplicon16s.config.schema import carica, valida
 from amplicon16s.io_layer.artifacts import Fase
@@ -163,8 +163,8 @@ def test_la_selezione_e_motivata_campione_per_campione():
       di campioni privi di giustificazione metodologica o checksum verificabile.
     """
     righe = selezione()
-    assert len(righe) == 28
-    assert len({r["accession"] for r in righe}) == 28
+    assert len(righe) == CAMPIONI_RIDOTTO
+    assert len({r["accession"] for r in righe}) == CAMPIONI_RIDOTTO
     for riga in righe:
         assert riga["motivo"].strip(), riga["accession"]
         assert len(riga["md5"]) == 32
@@ -224,7 +224,7 @@ def test_la_selezione_contiene_i_casi_noti():
       della pipeline su librerie a bassissima o altissima copertura.
     """
     per_accession = {r["accession"]: r for r in selezione()}
-    assert per_accession["ERX12083125"]["lunghezza_minima"] == "137"  # BLANK.3DMM.P4.8C
+    assert per_accession["ERX12083125"]["lunghezza_minima"] == str(TRONCAMENTO_RIDOTTO)  # BLANK.3DMM.P4.8C
     assert per_accession["ERX12083170"]["campione"] == "JLP1A1.L4"
     letture = sorted(int(r["letture"]) for r in per_accession.values())
     assert letture[0] == 44 and letture[-1] == 228431  # il piu' povero e il piu' profondo
@@ -461,9 +461,9 @@ def test_s1_legge_tutte_le_letture(bioconductor, eseguita):
     assert contate == attese
 
     riepilogo = json.loads((_profili(run) / "riepilogo.json").read_text())
-    assert riepilogo["campioni"] == 28
+    assert riepilogo["campioni"] == CAMPIONI_RIDOTTO
     assert riepilogo["letture"] == sum(attese.values())
-    assert riepilogo["lunghezza_minima"] == 137
+    assert riepilogo["lunghezza_minima"] == TRONCAMENTO_RIDOTTO
     assert riepilogo["moda"] == 151
 
 
@@ -553,7 +553,7 @@ def test_s1_ferma_se_il_troncamento_supera_il_minimo_vero(bioconductor, tmp_path
             return [len(r.rstrip()) for i, r in enumerate(itertools.islice(file, 4 * k)) if i % 4 == 1]
 
     stima = min(min(prime(p, 20)) for p in (RIDOTTO / "fastq").iterdir())
-    assert stima > 137
+    assert stima > TRONCAMENTO_RIDOTTO
     # Dalla settimana 28 S1 giudica la frazione di letture piu' corte: con la
     # frazione ammessa a zero, una sola lettura corta oltre la testa ferma.
     config = config_ridotta(tmp_path, qc={"head_reads": 20, "max_frac_short_reads": 0.0},

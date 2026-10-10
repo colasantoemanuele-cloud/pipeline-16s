@@ -83,22 +83,44 @@ nmds_di <- function(matrice, trymax, seme) {
   con_valore <- names(v$valori)[!is.na(v$valori)]
   gruppi <- names(v$dimensioni)
   colori <- stats::setNames(colori_gruppi(length(gruppi)), gruppi)
-  apri_png(percorso)
-  on.exit(grDevices::dev.off(), add = TRUE)
-  colonne <- max(1L, ceiling(length(gruppi) / 30L))
-  graphics::par(mar = c(4.5, 4.5, 3, 4 + 11 * colonne), xpd = NA, cex = 0.7)
-  graphics::plot(
-    coordinate[con_valore, 1L], coordinate[con_valore, 2L],
-    col = colori[v$valori[con_valore]], pch = 19, asp = 1,
-    xlab = etichette[1L], ylab = etichette[2L],
-    main = sprintf("%s (%d campioni)", titolo, length(con_valore))
-  )
-  limiti <- graphics::par("usr")
-  graphics::legend(
-    x = limiti[2L] + 0.03 * (limiti[2L] - limiti[1L]), y = limiti[4L],
-    legend = sprintf("%s (n = %d)", gruppi, v$dimensioni[gruppi]),
-    col = colori, pch = 19, bty = "n", ncol = colonne, title = v$nome
-  )
+  voci <- sprintf("%s (n = %d)", gruppi, v$dimensioni[gruppi])
+  punti <- function() {
+    graphics::plot(
+      coordinate[con_valore, 1L], coordinate[con_valore, 2L],
+      col = colori[v$valori[con_valore]], pch = 19, asp = 1,
+      xlab = etichette[1L], ylab = etichette[2L],
+      main = sprintf("%s (%d campioni)", titolo, length(con_valore))
+    )
+  }
+  if (length(gruppi) <= SOGLIA_LEGENDA_PANNELLO) {
+    # Legenda a destra, in una o due colonne: l'immagine si allarga della
+    # colonna in piu', e il grafico resta largo uguale.
+    colonne <- if (length(gruppi) > SOGLIA_LEGENDA_COLONNE) 2L else 1L
+    apri_png(percorso, larghezza = LARGHEZZA_GRAFICO + (colonne - 1L) * PIXEL_COLONNA_LEGENDA)
+    on.exit(grDevices::dev.off(), add = TRUE)
+    graphics::par(mar = c(4.5, 4.5, 3, 4 + 11 * colonne), xpd = NA, cex = 0.7)
+    punti()
+    limiti <- graphics::par("usr")
+    graphics::legend(
+      x = limiti[2L] + 0.03 * (limiti[2L] - limiti[1L]), y = limiti[4L],
+      legend = voci, col = colori, pch = 19, bty = "n", ncol = colonne, title = v$nome
+    )
+  } else {
+    # Legenda in un pannello sotto il grafico: tante colonne quante ne stanno
+    # nella larghezza, e l'immagine si allunga con il numero di righe.
+    colonne <- max(1L, min(8L, 150L %/% (max(nchar(voci)) + 6L)))
+    righe <- ceiling(length(gruppi) / colonne)
+    altezza_legenda <- 140L + righe * PIXEL_RIGA_LEGENDA
+    apri_png(percorso, altezza = ALTEZZA_GRAFICO + altezza_legenda)
+    on.exit(grDevices::dev.off(), add = TRUE)
+    graphics::layout(matrix(1:2, ncol = 1L), heights = c(ALTEZZA_GRAFICO, altezza_legenda))
+    graphics::par(mar = c(4.5, 4.5, 3, 2), cex = 0.7)
+    punti()
+    graphics::par(mar = c(0.2, 1, 0.2, 1), cex = 0.7)
+    graphics::plot.new()
+    graphics::legend("top", legend = voci, col = colori, pch = 19, bty = "n",
+                     ncol = colonne, title = v$nome)
+  }
 }
 
 scrivi_ordinazioni <- function(matrici, disegno, parametri, seme, cartella) {
@@ -193,7 +215,9 @@ scrivi_ordinazioni <- function(matrici, disegno, parametri, seme, cartella) {
         indice <- indice + 1L
         if (!length(v$dimensioni)) next
         nome <- paste0(base, "_", nome_file(indice, v$nome), ".png")
-        .grafico_ordinazione(coordinate, v, sprintf("%s, distanza %s", toupper(metodo), distanza),
+        .grafico_ordinazione(coordinate, v,
+                             sprintf("%s, distanza %s", c(pcoa = "PCoA", nmds = "NMDS")[[metodo]],
+                                     nome_distanza(distanza)),
                              etichette, file.path(cartella, nome))
         prodotti <- c(prodotti, paste0("ordinazione/", nome))
       }

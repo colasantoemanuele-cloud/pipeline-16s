@@ -101,7 +101,7 @@ from pathlib import Path
 from typing import ClassVar
 
 import pytest
-from sottoinsieme import config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti, selezione
+from sottoinsieme import config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti, selezione, CAMPIONI_RIDOTTO, TRONCAMENTO_RIDOTTO
 
 from amplicon16s.config.schema import valida
 from amplicon16s.errors.exceptions import (
@@ -188,12 +188,12 @@ def test_un_modello_per_corsa(inventario_ridotto, tmp_path):
     **Razionale scientifico e sistemistico**: Corse diverse hanno profili
     d'errore diversi; un modello unico li medierebbe.
     """
-    modelli = pianifica(inventario_ridotto, _letture(inventario_ridotto), 137, config_ridotta(tmp_path))
+    modelli = pianifica(inventario_ridotto, _letture(inventario_ridotto), TRONCAMENTO_RIDOTTO, config_ridotta(tmp_path))
     assert [m.nome for m in modelli] == [CORSA_A, CORSA_B]
     corse = {r["accession"]: r["corsa"] for r in selezione()}
     for modello in modelli:
         assert {corse[c] for c in modello.campioni} == {modello.corsa}
-    assert sum(len(m.campioni) for m in modelli) == 28
+    assert sum(len(m.campioni) for m in modelli) == CAMPIONI_RIDOTTO
 
 
 @pytest.mark.parametrize(
@@ -211,10 +211,10 @@ def test_senza_corsa_un_solo_modello(inventario_ridotto, tmp_path, sovrascrivi):
     utilizzabile senza il file di arricchimento del lotto.
     """
     config = config_ridotta(tmp_path, **sovrascrivi)
-    (modello,) = pianifica(inventario_ridotto, _letture(inventario_ridotto), 137, config)
+    (modello,) = pianifica(inventario_ridotto, _letture(inventario_ridotto), TRONCAMENTO_RIDOTTO, config)
     assert modello.nome == MODELLO_UNICO
     assert modello.corsa is None
-    assert len(modello.campioni) == 28
+    assert len(modello.campioni) == CAMPIONI_RIDOTTO
 
 
 def test_un_campione_senza_corsa_con_la_colonna_attiva_ferma(inventario_ridotto, tmp_path):
@@ -229,7 +229,7 @@ def test_un_campione_senza_corsa_con_la_colonna_attiva_ferma(inventario_ridotto,
     campioni = list(inventario_ridotto)
     campioni[0] = dataclasses.replace(campioni[0], corsa=None)
     with pytest.raises(ErroreRevisioneUmana) as info:
-        pianifica(Inventario(tuple(campioni)), _letture(inventario_ridotto), 137, config_ridotta(tmp_path))
+        pianifica(Inventario(tuple(campioni)), _letture(inventario_ridotto), TRONCAMENTO_RIDOTTO, config_ridotta(tmp_path))
     assert info.value.codice == "E-S3-02"
 
 
@@ -243,10 +243,10 @@ def test_l_ordine_dei_campioni_viene_dal_seme(inventario_ridotto, tmp_path):
     stimare il modello sugli stessi campioni.
     """
     letture = _letture(inventario_ridotto)
-    primo = pianifica(inventario_ridotto, letture, 137, config_ridotta(tmp_path))
-    stesso = pianifica(inventario_ridotto, letture, 137, config_ridotta(tmp_path))
-    altro = pianifica(inventario_ridotto, letture, 137, config_ridotta(tmp_path, run={"seed": 7}))
-    fisso = pianifica(inventario_ridotto, letture, 137, config_ridotta(tmp_path, err={"randomize": False}))
+    primo = pianifica(inventario_ridotto, letture, TRONCAMENTO_RIDOTTO, config_ridotta(tmp_path))
+    stesso = pianifica(inventario_ridotto, letture, TRONCAMENTO_RIDOTTO, config_ridotta(tmp_path))
+    altro = pianifica(inventario_ridotto, letture, TRONCAMENTO_RIDOTTO, config_ridotta(tmp_path, run={"seed": 7}))
+    fisso = pianifica(inventario_ridotto, letture, TRONCAMENTO_RIDOTTO, config_ridotta(tmp_path, err={"randomize": False}))
     assert [m.ordine for m in primo] == [m.ordine for m in stesso]
     assert [m.ordine for m in primo] != [m.ordine for m in altro]
     assert [m.ordine for m in fisso] == [tuple(sorted(m.campioni)) for m in fisso]
@@ -263,12 +263,12 @@ def test_la_stima_si_ferma_oltre_err_nbases(inventario_ridotto, tmp_path):
     stata fatta la stima, e se aumentare ``err.nbases`` servirebbe.
     """
     letture = _letture(inventario_ridotto)  # 1000 letture da 137 basi ciascuna
-    pochi = pianifica(inventario_ridotto, letture, 137, config_ridotta(tmp_path, err={"nbases": 300000}))
+    pochi = pianifica(inventario_ridotto, letture, TRONCAMENTO_RIDOTTO, config_ridotta(tmp_path, err={"nbases": 300000}))
     for modello in pochi:
         assert len(modello.usati) == 3  # 137000, 274000, 411000 > 300000
         assert modello.usati == modello.ordine[:3]
         assert not modello.tutte_usate
-    tanti = pianifica(inventario_ridotto, letture, 137, config_ridotta(tmp_path))
+    tanti = pianifica(inventario_ridotto, letture, TRONCAMENTO_RIDOTTO, config_ridotta(tmp_path))
     assert all(m.tutte_usate for m in tanti)
     assert all(m.basi_usate == m.basi_disponibili for m in tanti)
 
@@ -283,7 +283,7 @@ def test_un_campione_senza_letture_filtrate_non_entra_nella_stima(inventario_rid
     """
     letture = _letture(inventario_ridotto)
     letture["ERX12083285"] = 0
-    modelli = pianifica(inventario_ridotto, letture, 137, config_ridotta(tmp_path))
+    modelli = pianifica(inventario_ridotto, letture, TRONCAMENTO_RIDOTTO, config_ridotta(tmp_path))
     (modello,) = [m for m in modelli if "ERX12083285" in m.campioni]
     assert "ERX12083285" not in modello.ordine
 

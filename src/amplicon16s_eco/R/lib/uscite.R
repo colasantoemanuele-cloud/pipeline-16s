@@ -11,6 +11,8 @@
 #                                    lingua della macchina
 #   nome_file(indice, nome)          nome di file ricavato da una variabile
 #   apri_png(percorso, ...)          dispositivo grafico senza metadati di tempo
+#   nome_distanza(metodo)            il nome leggibile di una distanza
+#   larghezza_per_gruppi(n)          larghezza di un grafico con n gruppi in ascissa
 #
 # Razionale sistemistico: le tabelle non passano per write.table, il cui
 # formato dei numeri dipende dalle opzioni della sessione (scipen, digits,
@@ -84,6 +86,37 @@ apri_png <- function(percorso, larghezza = 2400L, altezza = 1500L) {
   # registrano la data di creazione o dipendono dalla versione della libreria.
   grDevices::png(percorso, width = larghezza, height = altezza, res = 200,
                  type = "cairo", bg = "white")
+}
+
+# I nomi con cui le distanze compaiono nei titoli dei grafici.
+NOMI_DISTANZA <- c(
+  bray = "Bray-Curtis", jaccard = "Jaccard", aitchison = "Aitchison",
+  unifrac_weighted = "UniFrac pesata", unifrac_unweighted = "UniFrac non pesata"
+)
+
+nome_distanza <- function(metodo) {
+  if (metodo %in% names(NOMI_DISTANZA)) NOMI_DISTANZA[[metodo]] else metodo
+}
+
+# Legenda dei gruppi. Fino a SOGLIA_LEGENDA_COLONNE gruppi sta a destra del
+# grafico in una colonna; oltre, in due colonne, e l'immagine si allarga di
+# quanto serve; oltre SOGLIA_LEGENDA_PANNELLO va in un pannello sotto il
+# grafico, e l'immagine si allunga con il numero di righe. In tutti i casi
+# l'area del grafico resta quella di un grafico con pochi gruppi.
+SOGLIA_LEGENDA_COLONNE <- 30L
+SOGLIA_LEGENDA_PANNELLO <- 60L
+LARGHEZZA_GRAFICO <- 2400L
+ALTEZZA_GRAFICO <- 1500L
+# Pixel di una colonna di legenda a destra, di una riga di legenda nel
+# pannello, e di un gruppo in piu' sull'ascissa (a 200 punti per pollice).
+PIXEL_COLONNA_LEGENDA <- 620L
+PIXEL_RIGA_LEGENDA <- 34L
+PIXEL_PER_GRUPPO <- 45L
+
+# Con molti gruppi in ascissa (scatole, barre) l'immagine si allarga, invece di
+# stringere ogni gruppo.
+larghezza_per_gruppi <- function(n) {
+  LARGHEZZA_GRAFICO + max(0L, n - SOGLIA_LEGENDA_COLONNE) * PIXEL_PER_GRUPPO
 }
 
 # Colori dei gruppi: una tavolozza qualitativa fissa per numero di gruppi.

@@ -296,10 +296,18 @@ grafico_alfa <- function(indici, piano, profondita, minimo, percorso) {
   }
   colori <- colori_gruppi(length(gruppi))
   etichette <- sprintf("%s (n = %d)", gruppi, dimensioni)
-  apri_png(percorso)
+  # Con molti gruppi i tre pannelli vanno uno sotto l'altro e l'immagine si
+  # allarga con il numero dei gruppi: le scatole restano leggibili.
+  molti <- length(gruppi) > SOGLIA_LEGENDA_COLONNE
+  apri_png(percorso, larghezza = larghezza_per_gruppi(length(gruppi)),
+           altezza = if (molti) ALTEZZA_GRAFICO * length(INDICI) else ALTEZZA_GRAFICO)
   on.exit(grDevices::dev.off(), add = TRUE)
-  graphics::par(mfrow = c(1L, length(INDICI)), oma = c(2.5, 0, 2.5, 0),
-                mar = c(min(1.5 + 0.45 * max(nchar(etichette)), 18), 4.5, 2, 1), cex = 0.7)
+  graphics::par(mfrow = if (molti) c(length(INDICI), 1L) else c(1L, length(INDICI)),
+                oma = c(2.5, 0, 2.5, 0),
+                mar = c(min(1.5 + 0.45 * max(nchar(etichette)), 18), 4.5, 2, 1))
+  # mfrow riduce da solo la dimensione del testo secondo il numero dei
+  # pannelli: la si fissa dopo, perche' sia la stessa nelle due disposizioni.
+  graphics::par(cex = 0.7)
   for (indice in INDICI) {
     x <- as.numeric(per_campione[[indice]])
     graphics::boxplot(
@@ -308,7 +316,7 @@ grafico_alfa <- function(indici, piano, profondita, minimo, percorso) {
       xlab = "", ylab = TITOLO_INDICE[[indice]], main = TITOLO_INDICE[[indice]])
     graphics::points(posizione + scarto, x, pch = 19, cex = 0.6, col = colori[posizione])
   }
-  graphics::mtext(sprintf("Alfa diversita' per %s (%d campioni in %d gruppi)", piano$nome,
+  graphics::mtext(sprintf("Alfa diversità per %s (%d campioni in %d gruppi)", piano$nome,
                           length(a$campioni), length(gruppi)),
                   side = 3, outer = TRUE, line = 0.8, cex = 0.9, font = 2)
   graphics::mtext(sprintf(

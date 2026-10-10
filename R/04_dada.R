@@ -182,14 +182,23 @@ esegui_fase(function(parametri, cartella) {
     stima_errori <- funzione_errore(parametri$funzione_errore)
     seconda <- list()
     for (file_modello in names(errori)) {
+      # La causa e' nelle transizioni che la prima passata ha accumulato: il
+      # messaggio la riporta, invece dell'errore che ne seguirebbe piu' avanti.
+      causa <- NULL
       stimato <- tryCatch(
         suppressWarnings(stima_errori(transizioni[[file_modello]])),
-        error = function(e) NULL
+        error = function(e) {
+          causa <<- conditionMessage(e)
+          NULL
+        }
       )
       if (is.null(stimato)) {
+        osservate <- sum(transizioni[[file_modello]])
         stop("il modello d'errore della seconda passata non si stima dalle ",
-             "transizioni della prima per ", basename(file_modello),
-             ": dada(pool = \"pseudo\") si fermerebbe allo stesso punto")
+             "transizioni della prima passata per ", basename(file_modello),
+             " (", format(osservate, scientific = FALSE), " transizioni osservate): ",
+             if (is.null(causa)) "la stima non ha restituito un modello" else causa,
+             ". dada(pool = \"pseudo\") si fermerebbe allo stesso punto")
       }
       seconda[[file_modello]] <- stimato
       nome <- sprintf("errori_seconda_passata_%s.rds", nome_modello(file_modello))

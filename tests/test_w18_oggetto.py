@@ -105,7 +105,7 @@ from pathlib import Path
 
 import pytest
 from conftest import copia_esecuzione, crea_scenario
-from sottoinsieme import config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti
+from sottoinsieme import config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti, CAMPIONI_RIDOTTO, TRONCAMENTO_RIDOTTO
 from test_w08_w09_graph_resume import _campioni, _passi
 
 from amplicon16s.errors.exceptions import ErrorePipeline
@@ -578,7 +578,7 @@ def test_s10_assembla_quattro_componenti_allineati(bioc, oggetto_calcolato, tmp_
     assert oggetto["sequenze_nomi"] == ids
     assert oggetto["colonne"] == oggetto["campioni"] == oggetto["righe_metadati"]
     assert oggetto["campioni"] == list(inventario.accessioni)
-    assert len(oggetto["campioni"]) == 28
+    assert len(oggetto["campioni"]) == CAMPIONI_RIDOTTO
     assert oggetto["albero"] is False
     assert oggetto["intero"] is True
     assert oggetto["ranghi"] == ["Kingdom", "Phylum", "Class", "Order", "Family", "Genus"]
@@ -694,7 +694,7 @@ jsonlite::write_json(list(), uscita)
     fase = run.fase(Passo.S10)
     contesto = run.contesto(Passo.S10, run.valuta())
     produzione = fase.calcola(contesto.ristretto(fase.parametri))
-    assert produzione.metriche["campioni"] == 28
+    assert produzione.metriche["campioni"] == CAMPIONI_RIDOTTO
     assert produzione.metriche["campioni_senza_letture"] == [bianco]
 
     oggetto = _leggi_oggetto(run, tmp_path)

@@ -505,7 +505,18 @@ def esegui_script(
         motivo_non_valida,
         codice_memoria,
         {**contesto, **uscita, "condizione_r": condizione.value},
+        figli_senza_risultato=_avviso_dei_figli(processo.stderr),
     )
+
+
+def _avviso_dei_figli(stderr: str) -> str | None:
+    """La riga dell'uscita di errore con cui R dice che un processo figlio del
+    calcolo parallelo non ha restituito il risultato, o ``None``.
+    """
+    for riga in stderr.splitlines():
+        if _FIGLI_SENZA_RISULTATO.search(riga):
+            return riga.strip()
+    return None
 
 
 def _eccezione(
@@ -514,11 +525,21 @@ def _eccezione(
     motivo_non_valida: str | None,
     codice_memoria: str | None,
     contesto: dict[str, Any],
+    figli_senza_risultato: str | None = None,
 ) -> ErrorePipeline:
     """L'eccezione del catalogo che corrisponde alla condizione di uscita del processo
     R.
     """
     messaggio = dichiarazione.messaggio if dichiarazione else ""
+    if condizione is Condizione.MEMORIA_ESAURITA and figli_senza_risultato:
+        # L'errore dichiarato e' la conseguenza di un risultato mancante: la
+        # causa e' il figlio terminato dal sistema, e va detta per prima.
+        messaggio = (
+            "un processo figlio del calcolo parallelo e' stato terminato dal sistema "
+            "operativo senza restituire il risultato, di norma per memoria esaurita "
+            f"(avviso di R: {figli_senza_risultato})"
+            + (f"; errore che ne e' seguito: {messaggio}" if messaggio else "")
+        )
 
     if condizione is Condizione.ERRORE_DICHIARATO:
         assert dichiarazione is not None and dichiarazione.codice is not None

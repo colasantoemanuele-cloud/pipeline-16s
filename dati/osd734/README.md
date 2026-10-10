@@ -15,6 +15,8 @@ ogni file sono in `FONTI.tsv`. Il riferimento tassonomico, comune ai dataset, st
 | `metadati/` | si' | le tabelle ISA usate dalla pipeline: assay del 16S (`io.assay_table`) e campioni di studio (`io.study_table`), copiate senza modifiche dall'archivio ISA di OSDR |
 | `letture_ena.tsv` | si' | le 960 corse: accession, nome del file locale, indirizzo, MD5 e dimensione dichiarati da ENA |
 | `config_osd734.yaml` | si' | la configurazione per OSD-734, con i percorsi relativi alla radice del repository |
+| `eco_osd734.yaml` | si' | la configurazione d'esempio delle analisi ecologiche di base sull'oggetto finale |
+| `FONTI.tsv` | si' | fonte, licenza e controllo di ogni file; per il file del lotto anche l'identificativo dell'archivio Software Heritage |
 | `scarica_letture.py` | si' | scarica le letture in `fastq/` |
 | `ricostruisci_lotto.py` | si' | ricostruisce il file del lotto in `lotto/` dalla fonte pubblica |
 | `confronta_risultati.py` | si' | confronta i risultati di un'esecuzione con i checksum attesi |
@@ -49,7 +51,8 @@ controllano senza scaricare ne' spostare nulla, e con `--cartella` lavorano su u
 cartella, per esempio una che contiene gia' i file; l'esito e' 0 se tutti i file sono
 presenti e integri. `ricostruisci_lotto.py` non ha queste opzioni: ricostruisce il
 file dalla fonte (`--fonte` per una copia locale, `--uscita` per la destinazione), e
-rilanciarlo riscrive lo stesso file.
+rilanciarlo riscrive lo stesso file. Prima di consegnarlo confronta il file ricostruito
+con l'MD5 dichiarato in `FONTI.tsv`: se non coincide si ferma e non scrive nulla.
 
 ## Come eseguire la pipeline
 
@@ -322,6 +325,20 @@ quindi margine; con meno di 16 GB di memoria l'esecuzione non e' stata provata. 
 suite di test con i dati reali, che esegue la catena e altri test uno dopo l'altro,
 arriva a 16,9 GB.
 
+## Le analisi ecologiche d'esempio
+
+Sull'oggetto finale di un'esecuzione, con la configurazione d'esempio (il modulo della
+stazione come variabile biologica, corsa e piastra come variabili tecniche):
+
+```bash
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
+  python3 scripts/esegui.py eco run --object output/osd734/12_final/ps_final.rds \
+    --config dati/osd734/eco_osd734.yaml --out output/eco_osd734
+```
+
+La cartella di uscita deve essere assente o vuota. Un'esecuzione dura circa un minuto e
+mezzo; due esecuzioni danno gli stessi byte in ogni file.
+
 ## Il file del lotto
 
 `lotto/plate_well_map_960.tsv` (`io.batch_table`) associa a ogni campione la piastra
@@ -337,6 +354,11 @@ fonte, fissata a un commit e verificata con l'impronta git del contenuto, e ne d
 la provenienza colonna per colonna. L'unica colonna che non viene dalla fonte e'
 l'accession dell'esperimento, ricavato dalla tabella di assay: e' la chiave del join,
 perche' il nome del campione si ripete fra le repliche.
+
+La fonte, al commit fissato, e' archiviata su Software Heritage: l'identificativo
+(SWHID) del file e' in `FONTI.tsv`. Se il repository degli autori non fosse piu'
+raggiungibile, il file si ottiene dall'archivio, con la stessa impronta, e si passa
+allo script con `--fonte`.
 
 ## Licenze
 

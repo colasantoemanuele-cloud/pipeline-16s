@@ -893,8 +893,9 @@ def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Av
     di_studio = [
         ("meta.study_sample_id_column" if config.meta.study_sample_id_column
          and config.io.study_table is not None else "meta.sample_id_column", colonna_id),
-        ("ctrl.column", config.ctrl.column),
     ]
+    if config.ctrl.column is not None:
+        di_studio.append(("ctrl.column", config.ctrl.column))
     if config.meta.module_column is not None:
         di_studio.append(("meta.module_column", config.meta.module_column))
     if config.ctrl.blank_override_column is not None:
@@ -1171,18 +1172,37 @@ def _g14_risorse_disponibili(contesto: Contesto) -> tuple[list[Violazione], list
 
 
 def _g13_archivi_validi(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
-    """Ogni file e' un archivio valido con quattro righe per record."""
+    """Ogni file e' un archivio valido con quattro righe per record.
+
+    Un file che si legge senza guasti e non contiene alcuna lettura e' ammesso
+    per i controlli negativi: un bianco di estrazione che non ha amplificato
+    nulla attesta l'assenza di contaminazione, non un difetto del file. Si
+    dichiara (``E-S0-20``) e il campione prosegue come campione senza letture.
+    Per le classi da cui ci si attende il segnale resta una violazione.
+    """
     violazioni = []
+    avvisi = []
+    classi = {c.accession: c.classe for c in contesto.inventario}
     for accession in sorted(contesto.scansione):
         statistiche = contesto.scansione[accession]
-        if not statistiche.valido:
-            violazioni.append(
-                Violazione(
-                    "E-S0-13",
-                    f"{statistiche.nome} ({accession}): {statistiche.errore}",
+        if statistiche.valido:
+            continue
+        if statistiche.vuoto and classi.get(accession) is ClasseCampione.CONTROLLO_NEGATIVO:
+            avvisi.append(
+                Avviso(
+                    "E-S0-20",
+                    f"{statistiche.nome} ({accession}), controllo negativo: il file non "
+                    "contiene alcuna lettura",
                 )
             )
-    return violazioni, []
+            continue
+        violazioni.append(
+            Violazione(
+                "E-S0-13",
+                f"{statistiche.nome} ({accession}): {statistiche.errore}",
+            )
+        )
+    return violazioni, avvisi
 
 
 def _g09_troncamento_compatibile(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
@@ -1556,7 +1576,8 @@ def _g11_classi_e_controlli(contesto: Contesto) -> tuple[list[Violazione], list[
     negativi = conteggi[ClasseCampione.CONTROLLO_NEGATIVO]
     if negativi < minimo:
         dichiarati = (
-            "ctrl.blank_values e' vuoto" if not contesto.config.ctrl.blank_values
+            "ctrl.column e' nullo" if contesto.config.ctrl.column is None
+            else "ctrl.blank_values e' vuoto" if not contesto.config.ctrl.blank_values
             and not contesto.config.ctrl.blank_override_values
             else "le etichette dichiarate ne riconoscono cosi' pochi"
         )
@@ -1570,7 +1591,8 @@ def _g11_classi_e_controlli(contesto: Contesto) -> tuple[list[Violazione], list[
         )
     if conteggi[ClasseCampione.CONTROLLO_POSITIVO] == 0:
         dichiarati = (
-            "ctrl.positive_values e' vuoto" if not contesto.config.ctrl.positive_values
+            "ctrl.column e' nullo" if contesto.config.ctrl.column is None
+            else "ctrl.positive_values e' vuoto" if not contesto.config.ctrl.positive_values
             else "nessun campione porta le etichette di ctrl.positive_values"
         )
         avvisi.append(

@@ -16,15 +16,13 @@ Le fasi, nell'ordine:
 | S0 | valida configurazione, metadati e file delle letture, prima di ogni calcolo |
 | S1 | profilo di qualità e di lunghezza di tutte le letture |
 | S2 | filtro e troncamento delle letture (`dada2::filterAndTrim`) |
-| S3 | modello d'errore, uno per corsa di sequenziamento |
-| S4-S7 | inferenza delle varianti, tabella delle sequenze, rimozione delle chimere, selezione per lunghezza |
+| S3-S7 | modello d'errore per corsa, inferenza delle varianti, tabella delle sequenze, rimozione delle chimere, selezione per lunghezza |
 | S8 | assegnazione tassonomica (`dada2::assignTaxonomy`) |
 | S10 | oggetto integrato con tutti i campioni |
 | S11 | curva di calibrazione dai controlli positivi in diluizione (KatharoSeq) e soglia di profondità |
 | S12 | riconoscimento dei contaminanti dai controlli negativi (`decontam`) |
 | S13 | filtri finali: profondità, tassonomia, prevalenza, letture minime |
-| S9 | albero filogenetico delle varianti finali (facoltativa) |
-| S14 | oggetto finale, export e checksum |
+| S9, S14 | albero filogenetico delle varianti finali (facoltativo); oggetto finale, export e checksum |
 
 Python orchestra l'esecuzione; R esegue i calcoli (dada2, phyloseq, DECIPHER, phangorn,
 decontam) come processi separati. Ogni fase scrive i propri artefatti con un manifesto
@@ -32,6 +30,10 @@ che ne riporta dimensione e SHA-256: un'esecuzione interrotta si riprende dal pu
 cui si è fermata, e a parità di configurazione, codice e immagine due esecuzioni danno
 gli stessi byte.
 
+Sull'oggetto finale lavora un secondo pacchetto, le **analisi ecologiche di base**
+(più sotto). **Per un dataset proprio la strada è in [GUIDA.md](GUIDA.md)**: come
+preparare i dati, come scrivere la configurazione con `init`, che cosa significa ogni
+parametro.
 ## Dati supportati
 
 - Letture Illumina **single-end** dell'amplicone 16S, un file FASTQ per campione,
@@ -39,18 +41,22 @@ gli stessi byte.
   file che contiene le due letture di ogni coppia viene respinto.
 - Letture **senza primer in testa**, oppure con il primer a posizione fissa, che si
   toglie con `filter.trimLeft`.
-- Metadati in tabelle di testo UTF-8 separate da tabulazioni: una tabella di assay (un
-  campione per riga, con il file delle letture) e, facoltativa, una tabella di studio
-  con il tipo di ogni campione. Il formato ISA-Tab degli archivi OSDR è letto così com'è.
+- Metadati in tabelle di testo UTF-8 separate da tabulazioni: una tabella dei campioni,
+  oppure le tabelle di assay e di studio del formato ISA-Tab degli archivi OSDR.
 - Facoltativi: un file del lotto (piastra di estrazione e corsa di sequenziamento per
   campione), controlli negativi, controlli positivi in diluizione seriale. Senza di
-  essi la pipeline procede e dichiara che cosa non ha potuto fare.
-- Un riferimento tassonomico nel formato dei training set di dada2.
+  essi la pipeline procede e dichiara che cosa non ha potuto fare. Un controllo
+  negativo senza alcuna lettura è ammesso e attraversa le fasi come tale.
+- Un riferimento tassonomico nel formato dei training set di dada2, con il suo MD5,
+  verificato a ogni avvio.
+
+File e metadati si agganciano con una chiave estratta dal nome di ogni file, unica per
+campione (`io.accession_regex`). Come preparare letture e tabelle è in GUIDA.md,
+sezione 1.
 
 Nel repository ci sono due dataset su cui la pipeline è eseguita, con dati,
 configurazione e istruzioni: `dati/osd734/` (960 campioni della Stazione Spaziale
-Internazionale, con controlli e file del lotto) e `dati/osd276/` (15 campioni, senza
-controlli).
+Internazionale, con controlli e file del lotto) e `dati/osd276/` (15, senza controlli).
 
 ## Requisiti
 
@@ -60,8 +66,8 @@ controlli).
   una correzione che rende ripetibile la tassonomia nei pareggi fra generi
   (`container/dada2/`).
 - Un clone di questo repository: il codice si esegue dal clone montato nel container.
-- Memoria e spazio in proporzione ai dati. Sul dataset di 960 campioni: 13 GB di
-  memoria di picco, 2,3 GB di uscite, 50 minuti con 12 processori.
+- Memoria e spazio in proporzione ai dati: sul dataset di 960 campioni 13 GB di memoria
+  di picco, 2,3 GB di uscite, 50 minuti con 12 processori.
 
 ## Esecuzione
 
@@ -81,76 +87,78 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
 
 | Sottocomando | Che cosa fa |
 |---|---|
+| `init` | scrive una configurazione di partenza a partire dai dati |
 | `validate` | esegue la sola validazione (S0) |
 | `run` | esegue dall'inizio, in una cartella di uscita nuova |
+| `status` | dice a che punto è un'esecuzione, anche mentre è in corso |
 | `resume` | riprende un'esecuzione dagli artefatti esistenti, rifacendo solo ciò che serve |
 | `report` | genera il report dell'esecuzione |
+| `schema` | esporta in JSON lo schema della configurazione |
+| `eco ...` | le analisi ecologiche di base: `eco init`, `eco validate`, `eco run`, `eco status`, `eco schema` |
 
 Non servono variabili d'ambiente. I dati devono essere raggiungibili dal container:
-sotto la radice del clone, oppure montati con un altro `-v`. I percorsi relativi della
-configurazione valgono rispetto alla cartella da cui il comando è lanciato.
-`scripts/esegui.py` esegue il codice e gli script R del clone; il comando `amplicon16s`
-dentro l'immagine esegue invece il codice copiato quando l'immagine è stata costruita.
+sotto la radice del clone, oppure montati con un altro `-v` (GUIDA.md, sezione 2). I
+percorsi relativi della configurazione valgono rispetto alla cartella da cui il comando
+è lanciato. `scripts/esegui.py` esegue il codice e gli script R del clone; il comando
+`amplicon16s` dentro l'immagine esegue il codice copiato alla sua costruzione. `run`
+non sovrascrive: se la cartella di uscita non è vuota si rifiuta, e si sceglie fra
+`resume` e una cartella nuova.
 
-`run` non sovrascrive mai un'esecuzione: se la cartella di uscita non è vuota si
-rifiuta, e si sceglie fra `resume` e una cartella nuova.
+### Avvio rapido sul sottoinsieme di prova
+
+Il repository contiene un sottoinsieme di 28 campioni con poche migliaia di letture
+ciascuno e un riferimento tassonomico sintetico, con la loro configurazione completa.
+La catena si conclude in pochi minuti e non richiede di scaricare nulla oltre
+all'immagine:
+
+```bash
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
+  python3 scripts/esegui.py run --config tests/fixtures/osd734/ridotto/config_avvio_rapido.yaml
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
+  python3 scripts/esegui.py status --out output/avvio_rapido
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
+  python3 scripts/esegui.py report --config tests/fixtures/osd734/ridotto/config_avvio_rapido.yaml
+```
+
+Le uscite sono in `output/avvio_rapido/` (oggetto finale in `12_final/`, report in
+`report/report.html`): servono a provare lo strumento, non a trarre conclusioni.
 
 ## Configurazione
 
 Un file YAML. `config/config.example.yaml` è il modello: elenca ogni parametro e dice,
-per ciascuno, che cosa significa e come si sceglie.
+per ciascuno, che cosa significa e come si sceglie. Il modo consigliato di cominciare
+è **`init`**, che scrive il file a partire dalle proprie letture e dai propri metadati:
 
-- **I parametri che dipendono dai dati o dallo studio sono obbligatori** e non hanno un
-  valore predefinito: colonne ed etichette dei metadati, primer e motivo conservato,
-  troncamento, riferimento, scelte sui controlli, soglie di qualità. Se ne manca uno la
-  pipeline si ferma prima di ogni calcolo ed elenca tutti quelli che mancano
-  (`E-G15-10`). Un parametro non pertinente si dichiara nullo o vuoto, dove il modello
-  lo indica.
-- **Hanno un predefinito** solo i parametri il cui valore è quello standard del metodo
-  (il predefinito di dada2 o di decontam, con la fonte indicata nel modello), quelli di
-  cui la pipeline realizza una sola forma e quelli che governano l'esecuzione.
+```bash
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
+  python3 scripts/esegui.py init --reads <cartella delle letture> \
+    --metadata <tabella dei campioni o cartella ISA-Tab> --output <configurazione.yaml>
+```
+
+Nel file ogni valore dichiara da dove viene: **rilevato** sui file (riga attiva),
+**proposto** da un'euristica (riga in commento con il valore già scritto: per
+accettarlo si toglie il commento), oppure **da scegliere** (riga in commento, con un
+valore di partenza e il suo motivo, o senza valore). Nessun valore entra nella
+configurazione senza un gesto di chi la scrive; `validate` elenca ciò che resta da
+dichiarare. Argomenti, regole e significato di ogni parametro sono in GUIDA.md.
+
+- I parametri che dipendono dai dati o dallo studio sono **obbligatori** e senza
+  predefinito: se ne manca uno la pipeline si ferma prima di ogni calcolo e li elenca
+  (`E-G15-10`). Uno non pertinente si dichiara nullo o vuoto. Hanno un predefinito solo
+  i valori standard del metodo, le forme uniche e i parametri di esecuzione.
 - Lo schema rifiuta le chiavi che non conosce: un refuso ferma l'esecuzione.
+- `run.strict_provenance: true` fa partire l'esecuzione solo da un clone senza
+  modifiche non committate in `src/` e `R/` e in un ambiente R identico a `renv.lock`:
+  è il modo di produrre risultati da consegnare.
 
-Per cominciare da un dataset simile a uno dei due del repository conviene partire dalla
-sua configurazione (`dati/osd734/config_osd734.yaml`, `dati/osd276/config_osd276.yaml`)
-e rivedere ogni valore: quelli scritti lì sono stati scelti per quei dati.
-
-`run.strict_provenance: true` fa partire l'esecuzione solo da un clone senza modifiche
-non committate in `src/` e `R/` e in un ambiente R identico a `renv.lock`: è il modo di
-produrre risultati da consegnare.
-
-## Ingressi
-
-| Ingresso | Parametro | Note |
-|---|---|---|
-| Cartella delle letture | `io.fastq_dir`, `io.fastq_glob` | un file per campione, senza sottocartelle |
-| Tabella di assay | `io.assay_table` | nome del campione e file delle letture |
-| Tabella di studio | `io.study_table` | facoltativa: tipo del campione, posizione, variabili |
-| File del lotto | `io.batch_table` | facoltativo: piastra, corsa, cellule dei controlli positivi |
-| Riferimento tassonomico | `tax.ref_fasta`, `tax.ref_md5` | l'MD5 è verificato a ogni avvio |
-
-Il campione si riconosce da una chiave estratta dal nome del file con
-`io.accession_regex`, la stessa che si ricava dalla tabella di assay: deve essere unica
-per campione.
+Le configurazioni dei due dataset del repository, in `dati/`, sono esempi commentati.
 
 ## Uscite
 
-Sotto `io.out_root`, una cartella per fase:
-
-| Cartella | Contenuto |
-|---|---|
-| `00_config/` | la configurazione usata, con il suo digest e l'elenco dei parametri dichiarati |
-| `01_input_validation/` | esito dei controlli di S0, inventario dei campioni |
-| `02_qc_profiles/` | profili di qualità e di lunghezza, conteggi delle letture |
-| `03_filtered/` | letture filtrate |
-| `04_error_models/` ... `08_taxonomy/` | modelli d'errore, varianti, tabella delle sequenze, tassonomia |
-| `10_phyloseq/` | oggetto integrato con tutti i campioni |
-| `11_controls/` | curve di calibrazione, soglie di profondità, contaminanti |
-| `12_final/` | **i risultati da usare** |
-| `99_logs/` | log strutturato, registro degli avvii, punto di ripresa |
-| `report/` | il report, dopo `report` |
-
-In `12_final/`:
+Sotto `io.out_root` c'è una cartella per fase (`00_config/`, `01_input_validation/`,
+... `11_controls/`), ciascuna con un manifesto che riporta dimensione e SHA-256 di ogni
+artefatto; `99_logs/` con il log, il registro degli avvii e il punto di ripresa;
+`report/` dopo `report`. I risultati da usare sono in `12_final/`:
 
 | File | Contenuto |
 |---|---|
@@ -159,35 +167,27 @@ In `12_final/`:
 | `conteggi.tsv`, `tassonomia.tsv`, `metadati.tsv`, `sequenze.fasta` | gli stessi dati in testo, sufficienti a ricostruire l'oggetto |
 | `checksum.sha256` | SHA-256 dei file consegnati |
 
-Ogni cartella ha un manifesto con dimensione e SHA-256 di ogni artefatto. Le varianti si
-chiamano `ASV1`, `ASV2`, ... per abbondanza decrescente nei campioni biologici; i nomi
-non cambiano dopo i filtri, quindi la numerazione finale ha dei vuoti.
+Le varianti si chiamano `ASV1`, `ASV2`, ... per abbondanza decrescente nei biologici;
+i nomi non cambiano dopo i filtri, quindi la numerazione finale ha dei vuoti.
 
 ## Come si legge il report
 
-`report` scrive `report/report.html` e, in `report/tabelle/`, ogni sua tabella come file
-TSV. Lo ricava da ciò che l'esecuzione ha lasciato su disco: non ricalcola nulla e si può
-generare anche su un'esecuzione conclusa da tempo.
+`report` scrive `report/report.html` e, in `report/tabelle/`, ogni sua tabella in TSV.
+Lo ricava da ciò che l'esecuzione ha lasciato su disco, senza ricalcolare nulla. Le
+sezioni, nell'ordine:
 
-Le sezioni, nell'ordine in cui compaiono:
-
-- **Segnalazioni in apertura**: ciò che va visto per primo. Arresti, avvisi dichiarati
-  dalle fasi con il loro codice, tentativi ripetuti, differenze di provenienza.
-- **Stato della catena**: quali fasi sono concluse.
-- **Gate di validazione e controlli di avvio**: l'esito di ogni controllo di S0.
-- **Configurazione**: ogni parametro con il suo valore e l'origine, cioè *dichiarato*
-  nel file, *predefinito*, *derivato* da altri parametri, oppure *aggiustato* da un
-  tentativo ripetuto.
-- **Provenienza delle fasi**: versione del codice, impronta del sorgente e immagine.
+- **Segnalazioni in apertura**: arresti, tentativi ripetuti e *degradazioni*, cioè gli
+  avvisi con cui la pipeline prosegue rinunciando a qualcosa, ciascuno con il suo codice.
+  Poi **Stato della catena** e **Gate di validazione e controlli di avvio**.
+- **Configurazione** (ogni parametro con il valore e l'origine: *dichiarato*,
+  *predefinito*, *derivato*, *aggiustato*) e **Provenienza delle fasi**.
 - **Decisioni prese automaticamente**: curve di calibrazione e soglia di profondità per
-  piastra, contaminanti rimossi, campioni riclassificati, ripieghi dichiarati.
-- **Tracciamento delle letture**: quante letture ha ogni campione dopo ogni fase, e
-  dove si perdono.
-- **Risultato finale**: campioni e varianti dell'oggetto finale, campioni esclusi con
-  il motivo di ciascuno.
+  piastra, contaminanti rimossi, campioni riclassificati, troncamento suggerito.
+- **Tracciamento delle letture**, **Risultato finale** (campioni e varianti, esclusi
+  con il motivo), **Integrità di ciò che è stato letto**.
 
-Ogni avviso o arresto porta un codice (`E-S11-02`, `E-G15-10`, ...): il messaggio riporta
-il dettaglio del caso e che cosa fare.
+Ogni avviso o arresto porta un codice (`E-S11-02`, `E-G15-10`, ...): il messaggio
+riporta il dettaglio del caso e che cosa fare.
 
 ## Codici di uscita
 
@@ -196,13 +196,47 @@ il dettaglio del caso e che cosa fare.
 | 0 | successo |
 | 1 | errore imprevisto: un difetto del programma; la traccia è nel log in `99_logs/` |
 | 2 | riga di comando non valida |
-| 3 | configurazione non valida, oppure `run` su una cartella di uscita già usata; nessuna fase è partita |
-| 4 | arresto con punto di ripresa dichiarato, stampato e scritto in `99_logs/punto_di_ripresa.json` |
+| 3 | configurazione non valida, `run` su una cartella già usata, o `init` che si rifiuta; nessuna fase è partita |
+| 4 | arresto con punto di ripresa, stampato e scritto in `99_logs/punto_di_ripresa.json` |
 | 5 | una fase prevista dal grafo non è realizzata; non si presenta con le fasi attuali |
 
-Un arresto con codice 4 dice quale fase si è fermata, perché e che cosa fare; corretta
-la causa, `resume` riparte da lì. Gli avvisi non fermano l'esecuzione: restano nel log,
-nel manifesto della fase e nel report.
+Corretta la causa di un arresto, `resume` riparte da lì. Gli avvisi non fermano.
+
+## Analisi ecologiche di base
+
+Il pacchetto `amplicon16s_eco` lavora sull'oggetto finale, che non modifica, con una
+configurazione propria (`config/eco.example.yaml`): alfa diversità su conteggi
+rarefatti, composizione a un rango, distanze (Bray-Curtis, Jaccard, Aitchison, UniFrac
+con un albero), PCoA e NMDS, confronto fra gruppi (Wilcoxon o Kruskal-Wallis, PERMANOVA
+con il test delle dispersioni).
+
+```bash
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
+  python3 scripts/esegui.py eco init --object output/avvio_rapido/12_final/ps_final.rds \
+    --output output/eco_avvio_rapido.yaml
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
+  python3 scripts/esegui.py eco run --object <ps_final.rds> --config <eco.yaml> --out <cartella>
+```
+
+`eco init` scrive una configurazione di partenza con le proposte e le scelte da fare
+(completate quelle, `eco validate` la controlla contro l'oggetto); `eco run` scrive
+tabelle, grafici, un riepilogo con gli avvisi (`E-ECO-`) e un manifesto con lo SHA-256
+di ogni file, identici byte per byte a parità di oggetto, configurazione e seme. Esempi
+in `dati/osd734/eco_osd734.yaml` e `dati/osd276/eco_osd276.yaml`; dettagli in GUIDA.md.
+
+## Integrazione con altri programmi
+
+Tre comandi scrivono sullo standard output un documento JSON con il campo
+`versione_formato`, per la pipeline e, con `eco` davanti, per le analisi ecologiche:
+
+| Comando | Contenuto |
+|---|---|
+| `schema` | ogni parametro della configurazione: tipo, obbligatorietà, valori ammessi, predefinito, descrizione |
+| `validate --json` | per ogni problema: parametro, codice, messaggio, azione suggerita |
+| `status --json` | fasi concluse, fase in corso, arresto con il codice e il punto di ripresa |
+
+`status` legge soltanto: si può usare durante un'esecuzione. Il formato dei tre
+documenti è in GUIDA.md, sezione 5.
 
 ## Riprodurre il riferimento
 
@@ -222,58 +256,44 @@ python3 dati/osd734/confronta_risultati.py        # 1.033 artefatti, fase per fa
 ```
 
 Il confronto termina con `RISULTATI IDENTICI` oppure indica il primo artefatto diverso.
-La configurazione ha la regola rigorosa attiva: va eseguita da un clone senza modifiche.
-I dettagli, i valori da adattare alla propria macchina e i requisiti misurati sono in
-`dati/osd734/README.md`; il secondo dataset è in `dati/osd276/README.md`.
+La regola rigorosa è attiva: si esegue da un clone senza modifiche. Dettagli e requisiti
+misurati sono in `dati/osd734/README.md`; il secondo dataset è in `dati/osd276/README.md`.
 
 ## Limiti noti
 
-Ingressi e configurazione:
-
-- Un file con le due letture di ogni coppia intercalate è riconosciuto dai marcatori
-  `/1` e `/2`, dal commento `1:N:` e `2:N:`, dal nome ripetuto, e dal marcatore `1` e `2`
-  o `R1` e `R2` in fondo all'identificativo dopo `/`, `.`, `_` o `-`. Non è riconosciuto
-  se contiene una sola coppia, se usa un marcatore diverso da questi, o se usa i
-  marcatori in fondo all'identificativo ma riporta prima tutte le prime letture e poi
-  tutte le seconde, o le sole seconde.
-- Un file il cui nome finisce con `R2` prima dell'estensione, o con `_2` quando nella
-  cartella c'è lo stesso nome con `_1`, è preso per il secondo di una coppia e respinto.
-- Un dataset single-end le cui letture portano tutte il marcatore `/2` è respinto.
-- Due file `_R1` e `_R2` con la stessa chiave sono respinti come chiave ripetuta
-  (`E-S0-05`), non come dati appaiati.
-- Un file di letture vuoto ferma la validazione (`E-S0-13`), anche se è di un controllo
-  negativo.
-- `ctrl.column` non può essere nullo: un dataset senza controlli indica comunque una
-  colonna con il tipo dei campioni.
+- Un file con le due letture di ogni coppia è riconosciuto dai marcatori `/1` e `/2`,
+  dal commento `1:N:` e `2:N:`, dal nome ripetuto, e dal marcatore `1` e `2` o `R1` e
+  `R2` in fondo all'identificativo. Non lo è se contiene una sola coppia, se usa un
+  altro marcatore, o se con i marcatori in fondo all'identificativo riporta prima tutte
+  le prime letture e poi le seconde, o le sole seconde.
+- Un file il cui nome finisce con `R2`, o con `_2` quando c'è lo stesso nome con `_1`,
+  è preso per il secondo di una coppia e respinto; così un dataset single-end le cui
+  letture portano tutte il marcatore `/2`. Due file `_R1` e `_R2` con la stessa chiave
+  sono respinti come chiave ripetuta (`E-S0-05`).
+- `init` riconosce il primer solo se è in un elenco di primer 16S comuni e sta in testa
+  alle letture; la chiave del campione solo se una colonna corrisponde uno a uno ai
+  file. Negli altri casi lascia la riga da scegliere, e lo dice.
 - Con `filter.trimLeft` maggiore di zero `qc.conserved_motif` si cerca dopo le basi
-  tagliate: un'espressione che guarda all'indietro non trova nulla.
-- `qc.conserved_motif` e `qc.primer_sequence` vanno scritti in maiuscolo.
-- I parametri reali accettano `true` e `false`, letti come 1 e 0.
-- `qc.primer_sequence` non può essere nullo.
-- Il file di `tax.ref_bad_taxa` deve avere le colonne `name` e `rank`: con altre S8 si
-  ferma con un errore senza codice.
-- Per alcuni codici di S0 e per `E-S11-03` il testo «che cosa fare» descrive il caso più
-  frequente; il dettaglio dell'errore è sempre quello del caso.
-- Una riga finale di soli spazi in un FASTQ ferma S2 (`E-S2-03`); byte estranei dopo la
-  fine dell'archivio gzip fermano S0 o S1.
-
-Risultati:
-
+  tagliate: un'espressione che guarda all'indietro non trova nulla. Il motivo va
+  scritto in maiuscolo; `qc.primer_sequence` non può essere nullo.
+- I parametri reali accettano `true` e `false`, letti come 1 e 0. Il file di
+  `tax.ref_bad_taxa` deve avere le colonne `name` e `rank`. Una riga finale di soli
+  spazi in un FASTQ ferma S2 (`E-S2-03`); byte estranei dopo l'archivio gzip, S0 o S1.
 - S8 cerca il rango `Phylum`: un riferimento con ranghi nominati diversamente dà un
-  errore senza codice.
-- La ricerca dell'albero filogenetico (S9) è locale: l'albero serve alle distanze fra
-  campioni, non come risultato filogenetico.
-- La tassonomia arriva al genere: l'assegnazione della specie non è realizzata.
+  errore senza codice. La tassonomia arriva al genere; l'albero di S9 serve alle
+  distanze fra campioni, non come risultato filogenetico.
+- Le analisi ecologiche trattano ogni variabile come categorica: una variabile che
+  sembra continua dà un avviso (`E-ECO-29`), non un'analisi di regressione. Un'analisi
+  respinta non lascia nulla nella cartella di uscita: `eco status` non la riporta, il
+  codice lo dà il comando.
 
 ## Test
 
-La suite verifica la pipeline su dataset sintetici e su un sottoinsieme ridotto di
-OSD-734 in `tests/fixtures/`. Nell'immagine, dalla radice del clone:
+La suite verifica pipeline e analisi su dataset sintetici e sul sottoinsieme di prova.
+Nell'immagine, dalla radice del clone (in un ambiente Python 3.11 senza R i test che
+richiedono R si saltano e dicono perché):
 
 ```bash
 docker run --rm -e PYTHONPATH=/app/src -e AMPLICON16S_R_DIR=/app/R \
   -v "$(pwd)":/app -w /app <immagine> pytest -o cache_dir=/tmp/.pytest_cache
 ```
-
-In un ambiente Python 3.11 senza R (`pip install -e ".[dev]"`, poi `pytest`) i test che
-richiedono R o Bioconductor si saltano e dicono perché.

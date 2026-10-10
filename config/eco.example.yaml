@@ -6,6 +6,10 @@
 # dagli il valore del tuo studio. Le configurazioni complete dei dataset
 # distribuiti con il repository stanno accanto ai loro dati, sotto dati/.
 #
+# Il sottocomando "eco init" scrive un file come questo a partire dal proprio
+# oggetto, con cio' che l'oggetto contiene e con le proposte gia' scritte
+# (GUIDA.md, sezione 4).
+#
 # Marcatori:
 #   [OBBLIGATORIO]   nessun valore predefinito: senza, l'analisi non parte
 #   [CONDIZIONALE]   obbligatorio se il metodo indicato e' richiesto, respinto

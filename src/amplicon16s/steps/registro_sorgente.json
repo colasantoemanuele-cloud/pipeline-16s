@@ -14,8 +14,8 @@
       "python/amplicon16s.metadata.tabelle",
       "python/amplicon16s.steps.s00_validate"
     ],
-    "sorgente": "sha256:c8568edd6d2af62e9ae6261f5afc66fd9623964a850196a9c3326f1b9b53b238",
-    "versione": 13
+    "sorgente": "sha256:f7273296d1951eb9198abd495ad2ec712e78b5d0c7dfb805c00f120fe0524c85",
+    "versione": 14
   },
   "S1": {
     "file": [
@@ -32,8 +32,8 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s01_profile"
     ],
-    "sorgente": "sha256:138a0753d851bd60ca8580d93f1adefe045c56b090fb018503a8ab3f679adc95",
-    "versione": 7
+    "sorgente": "sha256:9695847539126fb551cb15e3556bf065db280e985c093655e34aae1bcc5b7187",
+    "versione": 8
   },
   "S10": {
     "file": [
@@ -52,8 +52,8 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s10_phyloseq"
     ],
-    "sorgente": "sha256:0b56e522d8f9b096ed2bf4de6772fa72549709e822f5ba17ea9b65415204c42d",
-    "versione": 3
+    "sorgente": "sha256:1f20cb0b2f952e3122887adcb2dd455ccf18ecc307b4f5695432bb011b738742",
+    "versione": 4
   },
   "S11": {
     "file": [
@@ -68,7 +68,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s11_controls"
     ],
-    "sorgente": "sha256:28dc5b1b23ccd184d6c4599c67777abc681215c071a6c123e33e2e53e4564516",
+    "sorgente": "sha256:b063817c30bc6266da02844e257e71cef79afd3b4c5377642eb7c2fa3de8e3f7",
     "versione": 8
   },
   "S12": {
@@ -84,7 +84,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s12_decontam"
     ],
-    "sorgente": "sha256:09e3eef90e20ff6d4865bb5711db579f19dd7ed6b07771d803c329ea569e4dcd",
+    "sorgente": "sha256:3dbeb458148dc0d4d86751c18889d57bc46cc971ea8ebbaf30d7bf0b1d21bfeb",
     "versione": 4
   },
   "S13": {
@@ -102,7 +102,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s13_filtri"
     ],
-    "sorgente": "sha256:7c0fe77e09e8106cd29d340f7905d4bbd2e19d9fa549697489d9304cacdbb846",
+    "sorgente": "sha256:b182691c9323c6080712b34ff9f47917820979b22e4478e391ad88941df196eb",
     "versione": 5
   },
   "S14": {
@@ -118,7 +118,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s14_finale"
     ],
-    "sorgente": "sha256:65a2cf1181c4c70652af3543e591609c49989033750b39691a140ad96dd3df14",
+    "sorgente": "sha256:1eff1d1085cc1507a4c817a298344bc5f481be9ea31768b198c757ba5d1d975d",
     "versione": 4
   },
   "S2": {
@@ -138,8 +138,8 @@
       "python/amplicon16s.runner.retry",
       "python/amplicon16s.steps.s02_filter"
     ],
-    "sorgente": "sha256:96cadf9327d8109eaf73892e4737389b00b8179e71f11c79ac38bdf82c8b9368",
-    "versione": 3
+    "sorgente": "sha256:5518265e78f97baaf36c2b73afb84c350fe5f027427ccf0c42c0ac3b197e45a5",
+    "versione": 4
   },
   "S3": {
     "file": [
@@ -157,7 +157,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s03_learn_errors"
     ],
-    "sorgente": "sha256:9b2d0d0c66aeda4e860419e462a7f993b35297a0f3b788a8bc6d9cb129734fe4",
+    "sorgente": "sha256:15b3dc0a33041fcd6302de1fb8c5807b29fe25b401b24e26d793430c4df9c93e",
     "versione": 3
   },
   "S4": {
@@ -178,8 +178,8 @@
       "python/amplicon16s.runner.retry",
       "python/amplicon16s.steps.s04_dada"
     ],
-    "sorgente": "sha256:0f498789ef9d62ea5b637e1f9daaea1c42abddbde36826d6bd645253b6a94216",
-    "versione": 2
+    "sorgente": "sha256:10ee23b2441270f8f30532d703347762b99f6c90bf6196955d8d9988c5a50d01",
+    "versione": 3
   },
   "S5": {
     "file": [
@@ -197,7 +197,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s05_seqtab"
     ],
-    "sorgente": "sha256:69559120f1605e3f7055d4c8537d7272b9c141973854a0f06879321c77147387",
+    "sorgente": "sha256:3bcec9f2de9d456ef5324240e061fcec5c6d63f1f7517665ea7f24ce399ec681",
     "versione": 1
   },
   "S6": {
@@ -215,7 +215,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s06_chimera"
     ],
-    "sorgente": "sha256:5af90062204d397d347a508142957c5321e10426d903fa34162f141074401967",
+    "sorgente": "sha256:278554e7646a035085433c7acbca0a9bec72a3576d473ceb558690f50e942a55",
     "versione": 1
   },
   "S7": {
@@ -233,7 +233,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s07_asv_length"
     ],
-    "sorgente": "sha256:d2d5ad8f9c5b11de13db920659fccd5b4782b9dab53d56b7da2c884f9e3aa487",
+    "sorgente": "sha256:2aa0555403d166baedd68c65f3dce9193a2e5c82e25744d33226eaf15b4e5f8c",
     "versione": 1
   },
   "S8": {
@@ -249,7 +249,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s08_taxonomy"
     ],
-    "sorgente": "sha256:d36b5884a47f29e1ebda7f4d56f2b20bacf3109791f74f6e540e541b07046a96",
+    "sorgente": "sha256:48ddeaeb5ff374a538e63180a85c782170ef5183266653211bd3d177cc4f4d8c",
     "versione": 2
   },
   "S9": {
@@ -264,7 +264,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s09_phylogeny"
     ],
-    "sorgente": "sha256:4ab4cfa64dc11dc9c2e488f53aef3a90654e18dd754e406d593de36230ec20f6",
+    "sorgente": "sha256:1b32f758c80e564ff03e19320ca4e6be12bc264a61b9b68b516f1d32901efa1d",
     "versione": 1
   }
 }

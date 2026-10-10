@@ -12,7 +12,9 @@
 # tabella completa si ricompone leggendole tutte.
 #
 # Parametri: campioni (accession -> file), truncLen, trimLeft, maxEE, truncQ,
-# maxN, rm_phix, processi, lotto (quanti file per chiamata al filtro).
+# maxN, rm_phix, processi, lotto (quanti file per chiamata al filtro); vuoti
+# (accession dei file senza letture, che non si filtrano: zero in ingresso e
+# in uscita) e ordine (tutti gli accession, nell'ordine delle tabelle).
 #
 # I file si filtrano a lotti. Un errore di lettura o di decompressione su un
 # lotto si dichiara E-S2-03, ammesso al retry: se l'errore era transitorio il
@@ -74,11 +76,20 @@ esegui_fase(function(parametri, cartella) {
   # Con un solo campione l'estrazione di una colonna perde il nome della riga.
   ingresso <- stats::setNames(conteggi[, "reads.in"], rownames(conteggi))
   uscita <- stats::setNames(conteggi[, "reads.out"], rownames(conteggi))
+  # I file senza letture: il bianco che non ha amplificato nulla resta nelle
+  # tabelle con zero letture, come ogni campione azzerato dal filtro.
+  vuoti <- as.character(unlist(facoltativo(parametri, "vuoti", list())))
+  if (length(vuoti)) {
+    ordine <- as.character(unlist(parametri$ordine))
+    zeri <- stats::setNames(numeric(length(vuoti)), vuoti)
+    ingresso <- c(ingresso, zeri)[ordine]
+    uscita <- c(uscita, zeri)[ordine]
+  }
   artefatti <- c(
     traccia_letture(ingresso, "prefiltro", cartella),
     traccia_letture(uscita, "filtrate", cartella)
   )
   # filterAndTrim non scrive il file di un campione azzerato.
-  scritti <- names(uscite)[uscita > 0 & file.exists(uscite)]
+  scritti <- names(uscite)[uscita[names(uscite)] > 0 & file.exists(uscite)]
   c(artefatti, basename(uscite[scritti]))
 })

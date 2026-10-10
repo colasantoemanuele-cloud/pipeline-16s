@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from amplicon16s.interfaccia import StatoInCorso
 from amplicon16s.io_layer.artifacts import scrivi_atomico
 from amplicon16s.io_layer.checksums import checksum_file
 from amplicon16s.metadata.crosswalk import _VALORI_ASSENTI
@@ -170,24 +171,38 @@ def esegui(oggetto: Path | str, config: ConfigEco, uscita: Path | str) -> Esito:
     impronta = _impronta_oggetto(oggetto)
     _verifica_uscita(oggetto, uscita)
     creata = _prepara_uscita(uscita)
+    # Per la durata del calcolo la cartella porta il file di stato che
+    # ``status`` legge: sparisce prima della consegna, comunque finisca.
+    in_corso = StatoInCorso(uscita, "analisi")
     try:
-        return _calcola(oggetto, config, uscita, impronta)
+        in_corso.avvia()
+    except OSError:
+        pass
+    try:
+        return _calcola(oggetto, config, uscita, impronta, in_corso)
     except BaseException:
+        in_corso.chiudi()
         # Un'analisi non conclusa non lascia la cartella che ha creato.
         if creata and uscita.is_dir() and not any(uscita.iterdir()):
             uscita.rmdir()
         raise
+    finally:
+        in_corso.chiudi()
 
 
-def _calcola(oggetto: Path, config: ConfigEco, uscita: Path, impronta: str) -> Esito:
+def _calcola(
+    oggetto: Path, config: ConfigEco, uscita: Path, impronta: str, in_corso: StatoInCorso
+) -> Esito:
     """Valida, calcola in una cartella temporanea e consegna le uscite."""
     with tempfile.TemporaryDirectory(prefix="amplicon16s-eco-") as temporanea:
         lavoro = Path(temporanea)
         copia = _copia(oggetto, lavoro, impronta)
+        in_corso.fase("validazione")
         _valida(config, copia, lavoro)
 
         prodotta = lavoro / "uscita"
         prodotta.mkdir()
+        in_corso.fase("analisi")
         esegui_r("analisi.R", {**_parametri_r(config, copia), "uscita": str(prodotta)},
                  lavoro, "analisi")
         riepilogo = json.loads((prodotta / NOME_RIEPILOGO).read_text(encoding="utf-8"))
@@ -213,6 +228,7 @@ def _calcola(oggetto: Path, config: ConfigEco, uscita: Path, impronta: str) -> E
             ],
         }))
 
+        in_corso.chiudi()
         for voce in sorted(prodotta.iterdir()):
             shutil.move(str(voce), str(uscita / voce.name))
 

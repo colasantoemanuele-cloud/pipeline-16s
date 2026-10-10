@@ -511,3 +511,40 @@ def test_il_confronto_con_i_checksum_ha_un_marcatore_proprio():
     }
 
 
+
+
+def test_la_configurazione_dell_avvio_rapido_e_quella_della_versione_ridotta(tmp_path):
+    """
+    **Obiettivo**: Verificare che la configurazione completa distribuita per
+    l'avvio rapido sulla versione ridotta dichiari gli stessi parametri che i
+    test usano per la stessa versione (stessi valori, percorsi a parte), con i
+    percorsi relativi alla radice del repository che esistono davvero, e che
+    non dichiari processori ne' un'immagine.
+
+    **Razionale scientifico e sistemistico**: L'avvio rapido e' la prima cosa
+    che un nuovo utente esegue: se la sua configurazione divergesse da quella
+    provata dalla suite, il primo comando della documentazione sarebbe anche il
+    primo a non essere verificato.
+    """
+    radice = Path(__file__).parents[1]
+    percorso = radice / "tests" / "fixtures" / "osd734" / "ridotto" / "config_avvio_rapido.yaml"
+    rapida = carica(percorso)
+    provata = config_ridotta(tmp_path)
+
+    def senza_percorsi(config) -> dict:
+        """I valori che decidono i risultati, senza i percorsi e l'esecuzione."""
+        valori = config.model_dump(mode="json")
+        for gruppo, chiavi in (("io", ("fastq_dir", "assay_table", "study_table",
+                                       "batch_table", "out_root")),
+                               ("tax", ("ref_fasta", "ref_bad_taxa")), ("run", ("threads",))):
+            for chiave in chiavi:
+                valori[gruppo].pop(chiave)
+        return valori
+
+    assert senza_percorsi(rapida) == senza_percorsi(provata)
+    for nome in ("fastq_dir", "assay_table", "study_table", "batch_table"):
+        relativo = getattr(rapida.io, nome)
+        assert not relativo.is_absolute() and (radice / relativo).exists(), nome
+        assert (radice / relativo).resolve() == Path(getattr(provata.io, nome)).resolve()
+    assert (radice / rapida.tax.ref_fasta).resolve() == Path(provata.tax.ref_fasta).resolve()
+    assert rapida.run.threads is None and rapida.run.container is None

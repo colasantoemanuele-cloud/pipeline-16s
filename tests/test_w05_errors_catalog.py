@@ -111,7 +111,7 @@ CODICI_DI_FASE = (
     "E-S0-01", "E-S0-02", "E-S0-03", "E-S0-04", "E-S0-05", "E-S0-06", "E-S0-07",
     "E-S0-08", "E-S0-09", "E-S0-10", "E-S0-11", "E-S0-12",
     "E-S0-13", "E-S0-14", "E-S0-15", "E-S0-16", "E-S0-17", "E-S0-18",
-    "E-S0-19",
+    "E-S0-19", "E-S0-20",
     "E-S1-01", "E-S1-02", "E-S1-03", "E-S1-04", "E-S1-05", "E-S1-06",
     "E-S2-01", "E-S2-02", "E-S2-03",
     "E-S3-01", "E-S3-02", "E-S3-03", "E-S3-04", "E-S3-05",
@@ -474,7 +474,7 @@ def test_nessun_controllo_di_configurazione_e_ritentabile():
 
 #: Elenco chiuso dei codici autorizzati alla degradazione automatica controllata.
 DEGRADAZIONI = (
-    "E-S0-15", "E-S0-17", "E-S0-18", "E-S0-19", "E-S1-01", "E-S1-03", "E-S6-02", "E-S8-03", "E-S11-02", "E-S11-04",
+    "E-S0-15", "E-S0-17", "E-S0-18", "E-S0-19", "E-S0-20", "E-S1-01", "E-S1-03", "E-S6-02", "E-S8-03", "E-S11-02", "E-S11-04",
     "E-S11-05", "E-S11-06", "E-S12-03", "E-S13-02", "E-S13-03", "E-S13-05",
 )
 

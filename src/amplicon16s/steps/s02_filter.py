@@ -63,9 +63,9 @@ NOME_FILTRATE: Final = "letture_filtrate.tsv"
 SUFFISSO_FILTRATI: Final = "_filt.fastq.gz"
 
 
-def esamina_archivio(percorso: Path) -> tuple[str | None, bool]:
-    """Il motivo per cui un archivio non si decomprime per intero (o ``None``), e
-    se il file si chiude con righe vuote.
+def esamina_archivio(percorso: Path) -> tuple[str | None, bool, bool]:
+    """Il motivo per cui un archivio non si decomprime per intero (o ``None``),
+    se il file si chiude con righe vuote, e se non ha alcun contenuto.
 
     Un FASTQ non compresso, riconosciuto dai primi byte come in S0, non ha
     nulla da decomprimere: basta che si legga fino in fondo. Le righe vuote in
@@ -74,17 +74,21 @@ def esamina_archivio(percorso: Path) -> tuple[str | None, bool]:
     (``io_layer/reads.py``).
     """
     coda = b""
+    con_contenuto = False
     try:
         with open(percorso, "rb") as file:
             compresso = file.read(2) == b"\x1f\x8b"
         with (gzip.open if compresso else open)(percorso, "rb") as file:
             while blocco := file.read(1 << 22):
+                con_contenuto = con_contenuto or bool(blocco.strip())
                 coda = (coda + blocco)[-4096:]
     except (OSError, EOFError, zlib.error) as e:
-        return f"{type(e).__name__}: {e}", False
+        return f"{type(e).__name__}: {e}", False, False
+    if not con_contenuto:
+        return None, False, True
     # Dopo l'ultima riga con del contenuto, piu' di un a capo vuol dire almeno
     # una riga vuota.
-    return None, coda[len(coda.rstrip(b" \t\r\n")):].count(b"\n") > 1
+    return None, coda[len(coda.rstrip(b" \t\r\n")):].count(b"\n") > 1, False
 
 
 def controlla_filtro(
@@ -147,8 +151,10 @@ class FiltroLetture(PipelineStep):
     passo: ClassVar[Passo] = Passo.S2
     #: 2: riconosce dai primi byte un FASTQ non compresso, che non ha un
     #: archivio da verificare. 3: un file che si chiude con righe vuote si
-    #: filtra da una copia senza quelle righe.
-    versione: ClassVar[int] = 3
+    #: filtra da una copia senza quelle righe. 4: un file senza letture (il
+    #: bianco che S0 ha ammesso) non arriva al filtro: zero letture in ingresso
+    #: e in uscita.
+    versione: ClassVar[int] = 4
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("prefiltro", "filtrate")
     #: Tutto il gruppo filter e le due soglie dei controlli sul risultato.
@@ -184,7 +190,7 @@ class FiltroLetture(PipelineStep):
         }
         with ThreadPoolExecutor(max_workers=thread_effettivi(config)) as esecutore:
             esami = dict(zip(campioni, esecutore.map(esamina_archivio, map(Path, campioni.values()))))
-        incompleti = {a: m for a, (m, _) in esami.items() if m is not None}
+        incompleti = {a: m for a, (m, _, _) in esami.items() if m is not None}
         if incompleti:
             raise errore(
                 "E-S2-03",
@@ -193,12 +199,17 @@ class FiltroLetture(PipelineStep):
                 ),
                 campioni=sorted(incompleti),
             )
-        vuote = [a for a, (_, righe_vuote) in esami.items() if righe_vuote]
+        vuote = [a for a, (_, righe_vuote, _) in esami.items() if righe_vuote]
+        # Un file senza letture non ha nulla da filtrare: e' il bianco che S0 ha
+        # ammesso, e risulta azzerato come ogni bianco pulito.
+        senza_letture = [a for a, (_, _, vuoto) in esami.items() if vuoto]
         with senza_righe_vuote_finali(campioni, vuote) as leggibili:
             esito = esegui_script(
                 cartella_r() / NOME_SCRIPT,
                 {
-                    "campioni": leggibili,
+                    "campioni": {a: p for a, p in leggibili.items() if a not in senza_letture},
+                    "vuoti": senza_letture,
+                    "ordine": list(campioni),
                     "truncLen": filtro.truncLen,
                     "trimLeft": filtro.trimLeft,
                     "maxEE": filtro.maxEE,

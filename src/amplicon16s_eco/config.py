@@ -122,13 +122,20 @@ class Design(_Gruppo):
     """Le colonne della tabella dei campioni che descrivono lo studio."""
 
     #: La variabile biologica: una sola colonna, senza predefinito.
-    variable: _Nome
+    variable: _Nome = Field(description=(
+        "La variabile biologica: una colonna della tabella dei campioni "
+        "dell'oggetto, trattata come categorica."))
     #: Altre variabili biologiche, analizzate una alla volta.
-    other_variables: tuple[_Nome, ...] = ()
+    other_variables: tuple[_Nome, ...] = Field((), description=(
+        "Altre variabili biologiche, analizzate una alla volta."))
     #: Variabili tecniche (lotto): primi termini dei modelli.
-    technical_variables: tuple[_Nome, ...] = ()
+    technical_variables: tuple[_Nome, ...] = Field((), description=(
+        "Variabili tecniche (per esempio il lotto di estrazione), nell'ordine in cui "
+        "entrano nei modelli: prima la piu' grossolana."))
     #: Sottoinsieme: colonna -> valori ammessi, applicato prima di tutto.
-    subset: dict[_Nome, tuple[_Nome, ...]] = Field(default_factory=dict)
+    subset: dict[_Nome, tuple[_Nome, ...]] = Field(default_factory=dict, description=(
+        "Sottoinsieme dei campioni: per ogni colonna i valori ammessi. Si applica "
+        "prima di tutto il resto."))
 
     @model_validator(mode="after")
     def _senza_ripetizioni(self) -> "Design":
@@ -155,7 +162,8 @@ class Run(_Gruppo):
     """Parametri dell'esecuzione."""
 
     #: Seme di rarefazione e di ogni altra operazione casuale: va dichiarato.
-    seed: Annotated[int, Field(ge=0, le=_MAX_INTERO, strict=True)]
+    seed: Annotated[int, Field(ge=0, le=_MAX_INTERO, strict=True)] = Field(description=(
+        "Seme della rarefazione e di ogni altra operazione casuale."))
 
 
 class Alpha(_Gruppo):
@@ -163,24 +171,34 @@ class Alpha(_Gruppo):
 
     #: Profondita' di rarefazione. Nullo: la minima fra i campioni analizzati
     #: (phyloseq::rarefy_even_depth, sample.size = min(sample_sums(physeq))).
-    rarefy_depth: _Positivo | None = None
+    rarefy_depth: _Positivo | None = Field(None, description=(
+        "Profondita' di rarefazione. Nullo: la minima fra i campioni analizzati. Se "
+        "dichiarata, i campioni con meno letture escono dall'alfa diversita'."))
 
 
 class Comp(_Gruppo):
     """Composizione tassonomica."""
 
-    rank: _Nome
-    top_n: _Positivo
+    rank: _Nome = Field(description=(
+        "Rango tassonomico a cui agglomerare, fra quelli dell'oggetto."))
+    top_n: _Positivo = Field(description=(
+        "Numero di taxa mostrati nei grafici; i rimanenti in «altri»."))
 
 
 class Beta(_Gruppo):
     """Beta diversita'."""
 
-    distances: Annotated[tuple[Distanza, ...], Field(min_length=1)]
+    distances: Annotated[tuple[Distanza, ...], Field(min_length=1)] = Field(description=(
+        "Distanze da calcolare. Le due UniFrac richiedono un albero nell'oggetto."))
     #: Pseudoconteggio del CLR: solo con la distanza di Aitchison.
-    clr_pseudocount: Annotated[float, Field(gt=0, strict=True, allow_inf_nan=False)] | None = None
+    clr_pseudocount: Annotated[float, Field(gt=0, strict=True, allow_inf_nan=False)] | None = Field(
+        None, description=(
+            "Pseudoconteggio sommato ai conteggi prima del CLR: obbligatorio con la "
+            "distanza di Aitchison, respinto altrimenti."))
     #: Radice dell'albero: solo con una delle due UniFrac.
-    unifrac_root: Literal["midpoint", "existing"] | None = None
+    unifrac_root: Literal["midpoint", "existing"] | None = Field(None, description=(
+        "Radice dell'albero per UniFrac: midpoint lo radica al punto medio, existing "
+        "usa la radice che ha gia'. Obbligatorio con una UniFrac, respinto altrimenti."))
 
     @model_validator(mode="after")
     def _senza_ripetizioni(self) -> "Beta":
@@ -194,13 +212,19 @@ class Ord(_Gruppo):
     """Ordinazione."""
 
     #: Metodi di ordinazione; un elenco vuoto non ne produce.
-    methods: tuple[Ordinazione, ...]
+    methods: tuple[Ordinazione, ...] = Field(description=(
+        "Metodi di ordinazione. Un elenco vuoto non produce ordinazioni."))
     #: Distanze da ordinare, fra quelle di ``beta.distances``.
-    distances: tuple[Distanza, ...]
+    distances: tuple[Distanza, ...] = Field(description=(
+        "Distanze da ordinare, fra quelle di beta.distances."))
     #: Correzione degli autovalori negativi: solo con la PCoA.
-    pcoa_correction: Literal["none", "cailliez", "lingoes"] | None = None
+    pcoa_correction: Literal["none", "cailliez", "lingoes"] | None = Field(None, description=(
+        "Correzione degli autovalori negativi della PCoA (ape::pcoa): obbligatoria "
+        "con pcoa, respinta altrimenti."))
     #: Numero di avvii casuali: solo con la NMDS.
-    nmds_trymax: _Positivo | None = None
+    nmds_trymax: _Positivo | None = Field(None, description=(
+        "Numero di avvii casuali della NMDS (vegan::metaMDS): obbligatorio con nmds, "
+        "respinto altrimenti."))
 
     @model_validator(mode="after")
     def _coerente(self) -> "Ord":
@@ -221,13 +245,19 @@ class Stat(_Gruppo):
     """Gruppi e test."""
 
     #: Dimensione minima di un gruppo per entrare nei test.
-    min_group_size: Annotated[int, Field(ge=2, le=_MAX_INTERO, strict=True)]
+    min_group_size: Annotated[int, Field(ge=2, le=_MAX_INTERO, strict=True)] = Field(
+        description="Numero minimo di campioni perche' un gruppo entri nei test.")
     #: Livello sotto il quale le dispersioni si dichiarano diverse.
-    significance_level: Annotated[float, Field(gt=0, lt=1, strict=True)]
+    significance_level: Annotated[float, Field(gt=0, lt=1, strict=True)] = Field(description=(
+        "Livello di significativita' sotto il quale le dispersioni dei gruppi si "
+        "dichiarano diverse, con un avviso sulla PERMANOVA."))
     #: Permutazioni di PERMANOVA e dispersioni (vegan::adonis2, permutations = 999).
-    permanova_permutations: _Positivo = 999
+    permanova_permutations: _Positivo = Field(999, description=(
+        "Permutazioni della PERMANOVA e del test delle dispersioni (vegan::adonis2)."))
     #: Colonna degli strati entro cui permutare nella PERMANOVA.
-    permanova_strata: _Nome | None = None
+    permanova_strata: _Nome | None = Field(None, description=(
+        "Colonna degli strati entro cui permutare nella PERMANOVA e nel test delle "
+        "dispersioni."))
 
 
 class ConfigEco(_Gruppo):

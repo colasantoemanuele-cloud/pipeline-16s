@@ -223,8 +223,10 @@ class ValidazioneIngressi(PipelineStep):
     #: 13: G07 riconosce le due letture di una coppia anche dal marcatore in
     #: fondo all'identificativo, in letture consecutive; G02 respinge le righe
     #: con piu' valori dell'intestazione e ogni identificativo con una
-    #: tabulazione o un a capo.
-    versione: ClassVar[int] = 13
+    #: tabulazione o un a capo. 14: ctrl.column puo' essere nullo (nessun
+    #: controllo: ogni campione e' biologico); G13 ammette il file senza
+    #: letture di un controllo negativo e lo dichiara (E-S0-20).
+    versione: ClassVar[int] = 14
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre
@@ -332,7 +334,7 @@ class ValidazioneIngressi(PipelineStep):
             )
 
         # Gli avvisi di degradazione (E-S0-15 ed E-S0-19 da G08, E-S0-17 da G11,
-        # E-S0-18 da G10) non fermano la
+        # E-S0-18 da G10, E-S0-20 da G13) non fermano la
         # fase e finiscono nel suo manifesto; gli altri restano segnalazioni
         # nel log.
         for esito in esiti:

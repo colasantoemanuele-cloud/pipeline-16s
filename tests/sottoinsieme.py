@@ -87,6 +87,17 @@ def manifesto() -> list[dict[str, str]]:
         return list(csv.DictReader(file, delimiter="\t"))
 
 
+#: I valori propri della versione ridotta che i test confrontano, letti dai
+#: file che stanno accanto ai dati e non scritti nei test: quanti campioni ha
+#: (le righe di ``selezione.tsv``) e la lunghezza a cui le sue letture sono
+#: troncate (``filter.truncLen`` della sua configurazione), che e' anche la
+#: lunghezza di tutte le sue letture. Sostituire la versione ridotta non
+#: richiede cosi' di ritoccare i moduli di test.
+CAMPIONI_RIDOTTO: Final = len(selezione())
+TRONCAMENTO_RIDOTTO: Final = int(
+    yaml.safe_load(PARAMETRI.read_text(encoding="utf-8"))["filter"]["truncLen"]
+)
+
 #: I processori utilizzabili si contano con la funzione della pipeline, quella
 #: che usa G14: una copia qui potrebbe divergere.
 #: I thread chiesti dalle esecuzioni sul sottoinsieme di prova: due dove ci

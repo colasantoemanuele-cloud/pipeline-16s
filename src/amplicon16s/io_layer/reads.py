@@ -124,6 +124,11 @@ class StatisticheFile:
     #: Quante delle coppie contate in ``nomi_ripetuti`` sono letture vicine con
     #: lo stesso nome a meno del marcatore di coppia (:class:`SerieDiCompagne`).
     compagne_per_marcatore: int = 0
+    #: Vero se il file si legge senza guasti e non contiene alcuna lettura.
+    #: Resta non valido (``errore`` lo dice), ma chi conosce la classe del
+    #: campione lo distingue da un file guasto: per un controllo negativo
+    #: l'assenza di letture e' un esito legittimo.
+    vuoto: bool = False
 
     @property
     def coppie_nello_stesso_file(self) -> str | None:
@@ -443,6 +448,7 @@ def scansiona_file(
         return StatisticheFile(
             percorso.name, 0, None, None, 0, 0,
             errore="il file non contiene alcuna lettura",
+            righe_vuote_finali=vuote_finali, vuoto=True,
         )
 
     return StatisticheFile(

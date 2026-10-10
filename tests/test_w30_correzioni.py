@@ -299,12 +299,15 @@ def test_la_copia_senza_righe_vuote_non_tocca_il_file_di_ingresso(tmp_path):
         assert gzip.decompress(copia.read_bytes()).decode() == testo
     assert not copia.exists() and con.read_bytes() == prima
 
-    assert esamina_archivio(con) == (None, True)
-    assert esamina_archivio(senza) == (None, False)
+    assert esamina_archivio(con) == (None, True, False)
+    assert esamina_archivio(senza) == (None, False, False)
     ritorno = _scrivi(tmp_path / "crlf.fastq.gz", testo.replace("\n", "\r\n") + "\r\n")
-    assert esamina_archivio(ritorno) == (None, True)
+    assert esamina_archivio(ritorno) == (None, True, False)
     assert esamina_archivio(_scrivi(tmp_path / "crlf2.fastq.gz", testo.replace("\n", "\r\n"))) == (
-        None, False)
+        None, False, False)
+    # Un file senza alcun contenuto, o di sole righe vuote: nulla da filtrare.
+    assert esamina_archivio(_scrivi(tmp_path / "vuoto.fastq.gz", "")) == (None, False, True)
+    assert esamina_archivio(_scrivi(tmp_path / "spazi.fastq.gz", "\n\n")) == (None, False, True)
 
 
 def test_un_archivio_corrotto_oltre_le_letture_ispezionate_ferma_s1(tmp_path):
@@ -852,3 +855,59 @@ def test_s2_filtra_un_dataset_di_un_solo_campione(bioc, tmp_path):
     assert esito.conclusione is Conclusione.COMPLETATA, esito.punto and esito.punto.testo()
     for nome in ("letture_prefiltro.tsv", "letture_filtrate.tsv"):
         assert set(leggi_conteggi(run.albero.cartella(Fase.FILTERED) / nome)) == {"ERX7000001"}
+
+
+def test_senza_gli_script_r_l_esecuzione_si_ferma_con_e_r_01(tmp_path, monkeypatch):
+    """
+    **Obiettivo**: Verificare che, con la cartella degli script R indicata che
+    non li contiene, l'esecuzione si fermi con ``E-R-01`` e un punto di ripresa
+    alla prima fase che ha uno script (S0, senza script, si conclude), invece
+    che con un errore di lettura senza codice; e che lo stesso valga in una
+    ripresa, quando la valutazione dello stato rilegge il sorgente di una fase
+    gia' conclusa.
+
+    **Razionale scientifico e sistemistico**: La provenienza di una fase si
+    calcola leggendo il suo script R: se la cartella indicata non e' quella del
+    repository la lettura fallisce prima che il ponte possa dichiararlo. Un
+    arresto con il codice del catalogo dice che cosa manca e come indicarlo.
+    """
+    scenario = crea_scenario(tmp_path, _campioni(), con_arricchimento=True, con_letture=True)
+    altrove = tmp_path / "script_assenti"
+    (altrove / "lib").mkdir(parents=True)
+    monkeypatch.setenv("AMPLICON16S_R_DIR", str(altrove))
+    run = ProjectRun(scenario.config)
+    esito = Esecutore(run).esegui()
+    assert esito.conclusione is Conclusione.ARRESTATA
+    assert (esito.punto.codice, esito.punto.passo) == ("E-R-01", Passo.S1)
+    assert "01_profile.R" in esito.punto.dettaglio
+    assert [r.passo for r in esito.eseguite] == [Passo.S0]
+
+    # In una ripresa: il manifesto di una fase con uno script c'e' gia', e la
+    # valutazione ne rilegge il sorgente prima di qualunque controllo.
+    manifesto = run.albero.manifesto_passo(Passo.S0, run.fase(Passo.S0).cartella)
+    monkeypatch.setattr(type(run.fase(Passo.S0)), "script_r", "00_inesistente.R")
+    assert manifesto is not None
+    chiudi()
+    ripresa = Esecutore(ProjectRun(scenario.config)).esegui()
+    assert ripresa.conclusione is Conclusione.ARRESTATA
+    assert (ripresa.punto.codice, ripresa.punto.origine) == ("E-R-01", "controlli di avvio")
+
+
+def test_il_messaggio_di_s4_riporta_la_causa_della_stima_fallita():
+    """
+    **Obiettivo**: Verificare che lo script di S4, quando il modello d'errore
+    della seconda passata non si stima, componga il messaggio con la causa
+    raccolta dalla stima e con le transizioni accumulate nella prima passata.
+
+    **Razionale scientifico e sistemistico**: La stima fallisce per cio' che la
+    prima passata ha accumulato: riportare solo che si e' fermata obbliga a
+    cercare la causa nel log. La verifica e' sul testo dello script, perche'
+    provocare il fallimento richiede transizioni degeneri che S3 respinge prima.
+    """
+    from amplicon16s.rbridge.runner import cartella_r
+
+    script = (cartella_r() / "04_dada.R").read_text(encoding="utf-8")
+    blocco = script[script.index("causa <- NULL"):script.index("seconda[[file_modello]] <- stimato")]
+    assert "causa <<- conditionMessage(e)" in blocco
+    assert "transizioni della prima passata" in blocco and "transizioni osservate" in blocco
+    assert 'if (is.null(causa))' in blocco

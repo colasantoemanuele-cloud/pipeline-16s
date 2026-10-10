@@ -107,7 +107,7 @@ from pathlib import Path
 
 import pytest
 from conftest import rscript_con_limite
-from sottoinsieme import config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti
+from sottoinsieme import config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti, CAMPIONI_RIDOTTO, TRONCAMENTO_RIDOTTO
 
 from amplicon16s.config.schema import valida
 from amplicon16s.errors.exceptions import ErroreRevisioneUmana
@@ -303,7 +303,7 @@ def test_la_catena_s4_s7_si_conclude(dada2, catena):
     for passo in (Passo.S4, Passo.S5, Passo.S6, Passo.S7):
         assert run.valuta().situazioni[passo].stato is StatoPasso.COMPLETATA, passo
     s4 = next(r for r in esito.eseguite if r.passo is Passo.S4)
-    assert s4.metriche["campioni"] == 28
+    assert s4.metriche["campioni"] == CAMPIONI_RIDOTTO
     assert s4.metriche["priori"] > 0
     s5 = next(r for r in esito.eseguite if r.passo is Passo.S5)
     assert s5.metriche["letture"] == s4.metriche["letture_denoised"]
@@ -511,7 +511,7 @@ def test_la_frazione_chimerica_e_riportata_per_classe(dada2, catena):
 
 @pytest.mark.parametrize(
     ("tolleranza", "attese"),
-    [(0, [137]), (3, [135, 137, 140])],
+    [(0, [TRONCAMENTO_RIDOTTO]), (3, [135, TRONCAMENTO_RIDOTTO, 140])],
     ids=["tolleranza-0", "tolleranza-3"],
 )
 def test_il_filtro_di_lunghezza_toglie_le_varianti_fuori_intervallo(dada2, tmp_path, tolleranza, attese):
@@ -536,7 +536,7 @@ def test_il_filtro_di_lunghezza_toglie_le_varianti_fuori_intervallo(dada2, tmp_p
     esegui_script(
         cartella_r() / "07_asv_length.R",
         {"tabella": str(tabella), "senza_letture": ["X3"],
-         "len_min": 137 - tolleranza, "len_max": 137 + tolleranza},
+         "len_min": TRONCAMENTO_RIDOTTO - tolleranza, "len_max": TRONCAMENTO_RIDOTTO + tolleranza},
         albero, Fase.CHIMERA,
         passo="S7",
     )
@@ -544,10 +544,10 @@ def test_il_filtro_di_lunghezza_toglie_le_varianti_fuori_intervallo(dada2, tmp_p
     tenute = _r(f"cat(sort(nchar(colnames(readRDS('{cartella / 'tabella_asv.rds'}')))))")
     assert [int(x) for x in tenute.split()] == attese
     lunghezze = {int(r["lunghezza"]): r for r in _tsv(cartella / "lunghezze.tsv")}
-    assert set(lunghezze) == {120, 135, 137, 140, 150}
+    assert set(lunghezze) == {120, 135, TRONCAMENTO_RIDOTTO, 140, 150}
     assert {l for l, r in lunghezze.items() if r["ammessa"] == "si"} == set(attese)
     tracciate = {r["campione"]: int(r["letture"]) for r in _tsv(cartella / "letture_lunghezza.tsv")}
-    colonne = {120: (5, 1), 135: (10, 2), 137: (3, 0), 140: (4, 7), 150: (1, 9)}
+    colonne = {120: (5, 1), 135: (10, 2), TRONCAMENTO_RIDOTTO: (3, 0), 140: (4, 7), 150: (1, 9)}
     assert tracciate == {
         "X1": sum(colonne[l][0] for l in attese),
         "X2": sum(colonne[l][1] for l in attese),
@@ -566,11 +566,11 @@ def test_sui_dati_reali_il_filtro_di_lunghezza_non_toglie_nulla(dada2, catena):
     """
     run, esito = catena
     s7 = next(r for r in esito.eseguite if r.passo is Passo.S7)
-    assert s7.metriche["len_min"] == s7.metriche["len_max"] == 137
+    assert s7.metriche["len_min"] == s7.metriche["len_max"] == TRONCAMENTO_RIDOTTO
     assert s7.metriche["varianti_escluse"] == 0
     assert s7.metriche["letture_escluse"] == 0
     righe = _tsv(run.albero.cartella(Fase.CHIMERA) / "lunghezze.tsv")
-    assert [r["lunghezza"] for r in righe] == ["137"]
+    assert [r["lunghezza"] for r in righe] == [str(TRONCAMENTO_RIDOTTO)]
 
 
 def test_il_tracciamento_e_completo_un_passo_per_fase(dada2, catena):
@@ -589,7 +589,7 @@ def test_il_tracciamento_e_completo_un_passo_per_fase(dada2, catena):
     )
     assert tracciamento.origine["denoised"] == "S4"
     assert tracciamento.origine["lunghezza"] == "S7"
-    assert len(tracciamento.letture) == 28
+    assert len(tracciamento.letture) == CAMPIONI_RIDOTTO
     for campione, letture in tracciamento.letture.items():
         valori = [letture[p] for p in tracciamento.passi]
         assert all(a >= b for a, b in zip(valori, valori[1:])), campione

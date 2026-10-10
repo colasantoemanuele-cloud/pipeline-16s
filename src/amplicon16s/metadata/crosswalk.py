@@ -32,7 +32,7 @@ from pathlib import Path
 
 from amplicon16s.config.schema import Config
 from amplicon16s.metadata.controls_map import MappaControlli
-from amplicon16s.metadata.models import Campione, Inventario
+from amplicon16s.metadata.models import Campione, ClasseCampione, Inventario
 from amplicon16s.metadata.tabelle import leggi_tsv, tabella_di_studio
 
 __all__ = ["Analisi", "analizza", "estrai_accession"]
@@ -335,8 +335,13 @@ def analizza(config: Config) -> Analisi:
             continue
         riga_studio = righe_studio[0]
 
-        materiale = riga_studio.get(config.ctrl.column, "")
-        classe = mappa.classifica(materiale)
+        if config.ctrl.column is None:
+            # Il dataset dichiara di non avere controlli ne' una colonna che
+            # distingua i campioni: sono tutti biologici, senza un materiale.
+            materiale, classe = "", ClasseCampione.BIOLOGICO
+        else:
+            materiale = riga_studio.get(config.ctrl.column, "")
+            classe = mappa.classifica(materiale)
         if classe is None:
             non_mappati[materiale].append(nome)
             continue

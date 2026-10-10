@@ -108,7 +108,7 @@ import pytest
 import yaml
 from conftest import NEGATIVO, POSITIVO, Campione, crea_scenario
 from conftest import configurazione_di_prova as dati_esempio
-from sottoinsieme import RIDOTTO, config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti
+from sottoinsieme import RIDOTTO, config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti, CAMPIONI_RIDOTTO, TRONCAMENTO_RIDOTTO
 
 from amplicon16s.config.resolve import PARAMETRI_SENZA_EFFETTO, risolvi
 from amplicon16s.config.schema import Config, valida
@@ -666,7 +666,7 @@ def test_s2_produce_file_filtrati_e_tracciamento_con_il_suo_manifesto(dada2, fil
     nomi = set(manifesto.nomi)
     assert {"letture_prefiltro.tsv", "letture_filtrate.tsv"} <= nomi
     filtrati = {n for n in nomi if n.endswith("_filt.fastq.gz")}
-    assert len(filtrati) == 28  # nessun campione azzerato sulla versione ridotta
+    assert len(filtrati) == CAMPIONI_RIDOTTO  # nessun campione azzerato sulla versione ridotta
 
 
 def test_tutte_le_letture_filtrate_hanno_137_basi(dada2, filtrata):
@@ -687,7 +687,7 @@ def test_tutte_le_letture_filtrate_hanno_137_basi(dada2, filtrata):
     for percorso in cartella.glob("*_filt.fastq.gz"):
         with gzip.open(percorso, "rt") as file:
             lunghezze = {len(r.rstrip("\n")) for i, r in enumerate(file) if i % 4 == 1}
-        assert lunghezze == {137}, percorso.name
+        assert lunghezze == {TRONCAMENTO_RIDOTTO}, percorso.name
     contate = {}
     for percorso in cartella.glob("*_filt.fastq.gz"):
         with gzip.open(percorso, "rt") as file:

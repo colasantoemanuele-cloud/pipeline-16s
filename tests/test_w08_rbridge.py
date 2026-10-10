@@ -924,6 +924,42 @@ def test_memoria_esaurita_prima_di_poter_dichiarare(r, albero):
     assert info.value.contesto["condizione_r"] == "memoria_esaurita"
 
 
+def test_un_figlio_terminato_dal_sistema_e_detto_come_causa():
+    """
+    **Obiettivo**: Verificare che, quando l'uscita di errore di R riporta che
+    un processo figlio del calcolo parallelo non ha restituito il risultato,
+    l'errore di memoria esaurita dica per prima quella causa, con la riga di R,
+    e solo dopo l'errore che ne e' seguito; e che senza quell'avviso il
+    messaggio resti quello dichiarato dallo script.
+
+    **Razionale scientifico e sistemistico**: Quando il sistema termina un
+    figlio di ``mclapply`` il genitore prosegue con un risultato mancante e
+    fallisce piu' avanti con un errore qualunque: il codice e' gia' quello della
+    memoria, ma un dettaglio che riporta solo la conseguenza manda a cercare un
+    difetto che non c'e'.
+    """
+    from amplicon16s.rbridge.runner import _avviso_dei_figli, _eccezione
+
+    stderr = (
+        "Warning in parallel::mclapply(seq_len(n), function(i) { :\n"
+        "  scheduled cores 2, 3 did not deliver results, all values of the jobs will be affected\n"
+        "errore non catalogato: subscript out of bounds\n"
+    )
+    riga = _avviso_dei_figli(stderr)
+    assert riga is not None and "did not deliver results" in riga
+    assert _avviso_dei_figli("errore non catalogato: subscript out of bounds") is None
+    dichiarata = _d(Stato.ERRORE_NON_CATALOGATO, messaggio="subscript out of bounds")
+    assert classifica(3, dichiarata, stderr) is Condizione.MEMORIA_ESAURITA
+
+    e = _eccezione(Condizione.MEMORIA_ESAURITA, dichiarata, None, None, {},
+                   figli_senza_risultato=riga)
+    assert e.codice == "E-R-04"
+    assert e.dettaglio.startswith("un processo figlio del calcolo parallelo e' stato terminato")
+    assert riga in e.dettaglio and e.dettaglio.endswith("subscript out of bounds")
+    senza = _eccezione(Condizione.MEMORIA_ESAURITA, dichiarata, None, "E-S4-02", {})
+    assert (senza.codice, senza.dettaglio) == ("E-S4-02", "subscript out of bounds")
+
+
 @solo_linux
 def test_memoria_processo_ucciso_dal_sistema(r, albero):
     """

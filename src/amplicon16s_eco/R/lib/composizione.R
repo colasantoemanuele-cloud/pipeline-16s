@@ -111,7 +111,8 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella) {
 
 grafico_composizione <- function(mostrati, nomi, gruppi, v, rango, percorso) {
   colori <- c(colori_gruppi(length(nomi) - 1L), "grey70")
-  apri_png(percorso)
+  # Con molti gruppi l'immagine si allarga: le barre non si stringono.
+  apri_png(percorso, larghezza = larghezza_per_gruppi(length(gruppi)))
   on.exit(grDevices::dev.off(), add = TRUE)
   graphics::par(mar = c(9, 4.5, 3, 16), xpd = NA, cex = 0.7)
   posizioni <- graphics::barplot(

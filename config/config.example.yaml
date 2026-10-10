@@ -7,6 +7,10 @@
 # schema rifiuta le chiavi che non conosce: un refuso ferma l'esecuzione invece
 # di passare inosservato.
 #
+# Il sottocomando init scrive un file come questo a partire dai propri dati,
+# con i valori che rileva gia' attivi e quelli che propone gia' scritti: e' il
+# modo consigliato di cominciare (GUIDA.md).
+#
 # Nessun valore di questo file viene da un dataset. Ogni parametro e' di una di
 # queste specie, indicata accanto:
 #
@@ -229,14 +233,17 @@ phylo:
 # Le tre categorie devono restare disgiunte.
 ctrl:
   # Colonna (della tabella di studio, o di assay se quella manca) che dice di
-  # che tipo e' il campione.
-  # column:                                           # [OBBLIGATORIO]
+  # che tipo e' il campione. Con null il dataset non ha controlli ne' una
+  # colonna che distingua i campioni: sono tutti biologici, e le tre etichette
+  # si dichiarano vuote.
+  # column:                                           # [OBBLIGATORIO] oppure null
   # I valori di quella colonna per i controlli negativi, per i controlli
   # positivi e per i campioni biologici. Si copiano dalla tabella; maiuscole e
-  # spazi ai bordi non contano.
+  # spazi ai bordi non contano. Le etichette dei biologici sono almeno una,
+  # salvo con column null.
   # blank_values:                                     # [OBBLIGATORIO] oppure []
   # positive_values:                                  # [OBBLIGATORIO] oppure []
-  # biological_values:                                # [OBBLIGATORIO]
+  # biological_values:                                # [OBBLIGATORIO] oppure []
   # Campioni da trattare come controlli negativi qualunque sia il tipo
   # dichiarato, riconosciuti dal valore di un'altra colonna (per esempio
   # materiale di campionamento mai usato). Il tipo dichiarato resta nei

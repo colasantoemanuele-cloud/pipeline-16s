@@ -426,6 +426,7 @@ COPERTURA: dict[str, str] = {
     "E-S0-17": "test_w27_ingressi.py::test_s0_dichiara_i_controlli_che_il_dataset_non_ha",
     "E-S0-18": "test_w27_ingressi.py::test_senza_motivo_conservato_g10_verifica_il_solo_primer",
     "E-S0-19": "test_w27_ingressi.py::test_g08_dichiara_le_righe_del_lotto_senza_campione",
+    "E-S0-20": "test_controlli_assenti.py::test_il_file_vuoto_di_un_controllo_negativo_supera_s0_e_si_dichiara",
     "E-S1-01": "test_w11_s01_profile.py::test_con_truncLen_120_lo_scarto_e_registrato_da_s1_non_da_s0",
     "E-S1-02": "test_w11_s01_profile.py::test_s1_ferma_se_il_troncamento_supera_il_minimo_vero",
     "E-S1-03": "test_w28_calcolo.py::test_con_poche_qualita_distinte_s1_avvisa_con_e_s1_03",
