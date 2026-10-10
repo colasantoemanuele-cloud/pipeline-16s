@@ -12,12 +12,18 @@ analisi, con le tre specie di valore della pipeline (:mod:`amplicon16s.init`):
 
 Il file non e' eseguibile cosi' com'e': ``validate`` nomina i parametri che
 mancano. L'oggetto si legge da una copia e non viene modificato.
+
+Con ``--accetta-proposte`` le proposte e i valori di partenza sono righe
+attive, con la loro origine nel commento. Restano in commento, con il loro
+valore, i parametri condizionali: sono richiesti da un metodo e respinti senza,
+e quali metodi usare e' una scelta che ``init`` non fa.
 """
 
 from __future__ import annotations
 
 import json
 import tempfile
+from dataclasses import replace
 import textwrap
 from pathlib import Path
 from typing import Any, Final
@@ -31,7 +37,7 @@ from amplicon16s_eco.config import CONDIZIONALI, FACOLTATIVI, STANDARD_DEL_METOD
 from amplicon16s_eco.esecuzione import _copia, _impronta_oggetto
 from amplicon16s_eco.ponte import esegui_r
 
-__all__ = ["QUOTA_MINIMA_ASSEGNATA", "descrivi", "prepara", "scrivi", "testo_yaml"]
+__all__ = ["QUOTA_MINIMA_ASSEGNATA", "accetta", "descrivi", "prepara", "scrivi", "testo_yaml"]
 
 #: La quota di varianti assegnate sotto la quale un rango non si propone: sotto
 #: la meta', la categoria «non assegnato» sarebbe la piu' grande del grafico.
@@ -166,16 +172,46 @@ def prepara(descrizione: dict[str, Any]) -> tuple[dict[str, Voce], list[str]]:
     return voci, fatti
 
 
+def accetta(voci: dict[str, Voce]) -> dict[str, Voce]:
+    """Le voci con proposte e valori di partenza accettati in blocco.
+
+    Un condizionale non si attiva: e' respinto se il metodo che lo richiede
+    non e' fra quelli scelti, e gli elenchi dei metodi non hanno un valore di
+    partenza. Resta in commento con il suo valore, e lo dice.
+    """
+    accettate = {}
+    for chiave, voce in voci.items():
+        if voce.valore is SENZA_VALORE:
+            pass
+        elif chiave in CONDIZIONALI:
+            elenco, metodi = CONDIZIONALI[chiave]
+            voce = replace(voce, note=(
+                *voce.note,
+                f"non attivato da --accetta-proposte: va dichiarato solo se {elenco} "
+                f"comprende {' o '.join(metodi)}, ed e' respinto altrimenti"))
+        elif voce.specie is PROPOSTO:
+            voce = replace(voce, accettata=True,
+                           origine=voce.origine + "; accettato con --accetta-proposte")
+        else:
+            voce = replace(voce, specie=Specie.PARTENZA,
+                           origine=voce.origine + "; accettato con --accetta-proposte")
+        accettate[chiave] = voce
+    return accettate
+
+
 def _sembra_continua(colonna: dict[str, Any]) -> bool:
     """La stessa regola dell'avviso sulle variabili che sembrano continue."""
     return bool(colonna["numerica"]) and colonna["distinti"] >= 10 and (
         colonna["distinti"] >= 0.8 * colonna["con_valore"])
 
 
-def testo_yaml(voci: dict[str, Voce], fatti: list[str], oggetto: str) -> str:
+def testo_yaml(
+    voci: dict[str, Voce], fatti: list[str], oggetto: str, accettate: bool = False
+) -> str:
     """Il testo del file di configurazione delle analisi."""
     da_scegliere = [v for v in voci.values() if v.specie is SCELTA]
     proposti = [v for v in voci.values() if v.specie is PROPOSTO]
+    attive = [v for v in voci.values() if v.attiva]
 
     def commento(testo: str, rientro: str = "  ##") -> list[str]:
         # Dentro i gruppi le spiegazioni portano ##, le righe dei parametri in
@@ -192,13 +228,24 @@ def testo_yaml(voci: dict[str, Voce], fatti: list[str], oggetto: str) -> str:
         "# [RILEVATO] sull'oggetto:",
         *[riga for fatto in fatti for riga in commento(fatto, "#  ")],
         "#",
-        "#   [PROPOSTO]      l'esito di un'euristica: riga in commento con il valore",
-        "#                   gia' scritto. Per accettarlo, togli il commento.",
-        "#   [DA SCEGLIERE]  una scelta di analisi: riga in commento, con un valore di",
-        "#                   partenza solo dove c'e' il predefinito di un pacchetto.",
+        *([
+            "#   [PROPOSTO]      l'esito di un'euristica: riga in commento con il valore",
+            "#                   gia' scritto. Per accettarlo, togli il commento.",
+            "#   [DA SCEGLIERE]  una scelta di analisi: riga in commento, con un valore di",
+            "#                   partenza solo dove c'e' il predefinito di un pacchetto.",
+        ] if not accettate else [
+            "#   [PROPOSTO]      l'esito di un'euristica: riga attiva, accettata con",
+            "#                   --accetta-proposte. Controllala comunque.",
+            "#   [PARTENZA]      il valore di partenza di una scelta, accettato con",
+            "#                   --accetta-proposte: riga attiva.",
+            "#   [DA SCEGLIERE]  una scelta di analisi: riga in commento, da scrivere. Un",
+            "#                   condizionale resta in commento anche se ha un valore.",
+        ]),
         "#   [CONDIZIONALE]  va dichiarato solo se il metodo indicato e' richiesto.",
         "#",
-        f"# Proposti: {len(proposti)}; da scegliere: {len(da_scegliere)}.",
+        f"# Proposti: {len(proposti)}; da scegliere: {len(da_scegliere)}."
+        + (f" Righe attive, accettate con --accetta-proposte: {len(attive)}." if accettate
+           else ""),
         "# Da scegliere:",
         *commento(", ".join(v.chiave for v in da_scegliere), "#"),
         "# Le spiegazioni cominciano con ##, le righe dei parametri in commento con #.",
@@ -231,19 +278,25 @@ def testo_yaml(voci: dict[str, Voce], fatti: list[str], oggetto: str) -> str:
             for nota in voce.note:
                 righe += commento(nota)
             scritto = "" if voce.valore is SENZA_VALORE else f" {valore_yaml(voce.valore)}"
-            righe.append(f"  # {nome}:{scritto}")
+            righe.append(f"  {'' if voce.attiva else '# '}{nome}:{scritto}")
         righe.append("")
     return "\n".join(righe)
 
 
-def scrivi(oggetto: Path | str, uscita: Path | str) -> tuple[dict[str, Voce], list[str]]:
+def scrivi(
+    oggetto: Path | str, uscita: Path | str, accettate: bool = False
+) -> tuple[dict[str, Voce], list[str]]:
     """Esamina l'oggetto e scrive la configurazione di partenza.
 
-    Solleva ``FileExistsError`` se il file esiste gia': non lo sovrascrive.
+    Con ``accettate`` le proposte e i valori di partenza sono righe attive
+    (:func:`accetta`). Solleva ``FileExistsError`` se il file esiste gia': non
+    lo sovrascrive.
     """
     uscita = Path(uscita)
     if uscita.exists():
         raise FileExistsError(uscita)
     voci, fatti = prepara(descrivi(oggetto))
-    scrivi_atomico(uscita, testo_yaml(voci, fatti, Path(oggetto).name) + "\n")
+    if accettate:
+        voci = accetta(voci)
+    scrivi_atomico(uscita, testo_yaml(voci, fatti, Path(oggetto).name, accettate) + "\n")
     return voci, fatti

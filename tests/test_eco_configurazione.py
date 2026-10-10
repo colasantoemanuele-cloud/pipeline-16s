@@ -932,3 +932,69 @@ def test_eco_init_rileva_propone_e_lascia_da_scegliere(eco_r, tmp_path, capsys):
     assert main(["init", "--object", str(oggetto), "--output", str(sola)]) == USCITA_SUCCESSO
     righe = righe_dei_parametri(sola.read_text(encoding="utf-8"), schema.ConfigEco)
     assert righe["design.variable"] == (False, '"trattamento"')
+
+
+def test_eco_init_accetta_proposte_attiva_proposte_e_partenze_non_i_condizionali():
+    """
+    **Obiettivo**: Verificare, sulla descrizione di un oggetto con una sola
+    variabile a gruppi ripetuti e un albero radicato, che con
+    ``--accetta-proposte`` siano righe attive la variabile biologica, le
+    variabili tecniche e il rango proposti, con la loro origine; che i
+    parametri condizionali che hanno un valore (la radice per UniFrac, la
+    correzione della PCoA, gli avvii della NMDS) restino in commento con quel
+    valore e con la nota che lo spiega; che le scelte senza valore restino in
+    commento; e che senza l'opzione nessuna riga sia attiva.
+
+    **Razionale scientifico e sistemistico**: Un condizionale e' respinto se
+    il metodo che lo richiede non e' fra quelli scelti: attivarlo prima che
+    distanze e ordinazioni siano scelte darebbe una configurazione che la
+    validazione rifiuta. Quali metodi usare e' una scelta di chi analizza.
+    """
+    from init_aiuti import righe_dei_parametri
+
+    from amplicon16s_eco import init
+
+    descrizione = {
+        "campioni": 12, "varianti": 4,
+        "ranghi": [{"rango": "Regno", "quota_assegnata": 1.0},
+                   {"rango": "Famiglia", "quota_assegnata": 0.75},
+                   {"rango": "Genere", "quota_assegnata": 0.25}],
+        "albero": {"presente": True, "radicato": True, "con_lunghezze": True},
+        "colonne": [
+            {"nome": "trattamento", "distinti": 3, "gruppi_ripetuti": 3, "numerica": False,
+             "con_valore": 12},
+            {"nome": "piastra", "distinti": 4, "gruppi_ripetuti": 4, "numerica": False,
+             "con_valore": 12},
+            {"nome": "corsa", "distinti": 2, "gruppi_ripetuti": 2, "numerica": False,
+             "con_valore": 12},
+        ],
+    }
+    voci, fatti = init.prepara(descrizione)
+    senza = righe_dei_parametri(init.testo_yaml(voci, fatti, "ps.rds"), schema.ConfigEco)
+    assert not [c for c, (attiva, _) in senza.items() if attiva]
+
+    testo = init.testo_yaml(init.accetta(voci), fatti, "ps.rds", True)
+    righe = righe_dei_parametri(testo, schema.ConfigEco)
+    attive = {c for c, (attiva, _) in righe.items() if attiva}
+    assert attive == {"design.variable", "design.technical_variables", "comp.rank"}
+    assert righe["design.variable"] == (True, '"trattamento"')
+    assert righe["comp.rank"] == (True, '"Famiglia"')
+    for chiave, valore in (("beta.unifrac_root", '"existing"'), ("ord.pcoa_correction", '"none"'),
+                           ("ord.nmds_trymax", "20")):
+        assert righe[chiave] == (False, valore), chiave
+    assert testo.count("non attivato da --accetta-proposte") == 3
+    assert "accettato con --accetta-proposte" in testo
+    # Nessuna riga di parametro porta [PARTENZA]: i soli valori di partenza
+    # delle analisi sono condizionali, e restano in commento.
+    assert not re.search(r"^  ## \[PARTENZA\]", testo, re.M)
+    # Una scelta non condizionale con un valore di partenza diventerebbe attiva.
+    from amplicon16s.init.scrittura import Specie as SpecieInit
+    from amplicon16s.init.scrittura import Voce
+
+    finta = init.accetta({"run.seed": Voce("run.seed", SpecieInit.DA_SCEGLIERE, 7, "prova")})
+    assert finta["run.seed"].specie is SpecieInit.PARTENZA and finta["run.seed"].attiva
+    for chiave in schema.OBBLIGATORI:
+        if chiave not in attive:
+            assert righe[chiave][0] is False, chiave
+    dati = yaml.safe_load(testo)
+    assert dati["design"]["variable"] == "trattamento" and dati["comp"] == {"rank": "Famiglia"}

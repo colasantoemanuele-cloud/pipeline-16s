@@ -315,7 +315,7 @@ def test_senza_i_parametri_obbligatori_g15_respinge_con_l_elenco_dei_mancanti(tm
     }
     assert obbligatori_mancanti(soli_percorsi) == list(defaults.OBBLIGATORI)
     quanti = len(defaults.OBBLIGATORI)
-    assert quanti == 63
+    assert quanti == 44
     with pytest.raises(ErroreGate) as rifiuto:
         esegui_g15(soli_percorsi)
     assert rifiuto.value.gate == "G15" and rifiuto.value.codice == "E-G15-10"

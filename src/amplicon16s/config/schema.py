@@ -228,7 +228,10 @@ class Meta(_Gruppo):
     # I parametri senza predefinito sono obbligatori (defaults.OBBLIGATORI):
     # in tutto lo schema, un campo senza valore dipende dai dati o dallo
     # studio e va dichiarato. Quelli che ammettono il valore nullo si
-    # dichiarano nulli quando il dataset non ha l'informazione.
+    # dichiarano nulli quando il dataset non ha l'informazione. I condizionali
+    # (defaults.CONDIZIONALI) hanno invece un valore di assenza, elenco vuoto o
+    # nullo: si dichiarano solo quando la loro condizione e' vera, e lo
+    # verifica la radice (Config._condizionali_richiesti).
     sample_id_column: StringaNonVuota = Field(description=(
         "Colonna della tabella di assay con il nome del campione."))
     accession_column: StringaNonVuota = Field(description=(
@@ -243,9 +246,10 @@ class Meta(_Gruppo):
         "Se derivare il modulo (il gruppo di posizioni a cui il campione appartiene) "
         "dalla posizione dichiarata, con meta.module_regex, quando il file del lotto "
         "non lo dichiara."))
-    module_regex: Regex | None = Field(description=(
+    module_regex: Regex | None = Field(None, description=(
         "Espressione regolare, con un gruppo di cattura, che estrae il modulo dalla "
-        "posizione del campione. Nullo: nessun modulo derivato."))
+        "posizione del campione. Nullo: nessun modulo derivato. Serve solo con "
+        "meta.derive_module vero."))
     module_column: StringaNonVuota | None = Field(description=(
         "Colonna della tabella di studio con la posizione di prelievo. Nullo: il "
         "dataset non dichiara posizioni."))
@@ -451,9 +455,9 @@ class Phylo(_Gruppo):
         "all'oggetto finale."))
     # Varianti dell'oggetto filtrato (S13) oltre le quali S9 si ferma prima del
     # calcolo (E-S9-01).
-    max_seqs: InteroPositivo = Field(description=(
+    max_seqs: InteroPositivo | None = Field(None, description=(
         "Varianti finali oltre le quali la filogenesi si ferma prima del calcolo "
-        "(E-S9-01)."))
+        "(E-S9-01). Serve solo con phylo.enabled vero."))
     # Insiemi chiusi: vanno estesi quando un'altra forma viene realizzata.
     # L'allineatore multiplo (DECIPHER::AlignSeqs) e il modello evolutivo
     # dell'albero di massima verosimiglianza (phangorn): GTR con eterogeneita'
@@ -481,11 +485,11 @@ class Ctrl(_Gruppo):
         "Colonna (della tabella di studio, o di assay se quella manca) che dice di "
         "che tipo e' il campione. Nullo: il dataset non ha controlli e ogni campione "
         "e' biologico; le tre etichette si dichiarano allora vuote."))
-    blank_values: list[StringaNonVuota] = Field(description=(
+    blank_values: list[StringaNonVuota] = Field([], description=(
         "Valori di ctrl.column per i controlli negativi. Elenco vuoto: nessuno."))
-    positive_values: list[StringaNonVuota] = Field(description=(
+    positive_values: list[StringaNonVuota] = Field([], description=(
         "Valori di ctrl.column per i controlli positivi. Elenco vuoto: nessuno."))
-    biological_values: list[StringaNonVuota] = Field(description=(
+    biological_values: list[StringaNonVuota] = Field([], description=(
         "Valori di ctrl.column per i campioni biologici: almeno uno, salvo con "
         "ctrl.column nullo."))
     # Riclassificazione in controllo negativo, indipendente dal materiale
@@ -496,18 +500,23 @@ class Ctrl(_Gruppo):
     blank_override_column: StringaNonVuota | None = Field(description=(
         "Colonna con cui riconoscere campioni da trattare come controlli negativi "
         "qualunque sia il tipo dichiarato. Nullo: nessuna riclassificazione."))
-    blank_override_values: list[StringaNonVuota] = Field(description=(
+    blank_override_values: list[StringaNonVuota] = Field([], description=(
         "Valori di ctrl.blank_override_column che fanno di un campione un controllo "
         "negativo. Elenco vuoto: nessuno."))
     # Validazione della corsa dai controlli positivi (S11).
-    min_positives: InteroPositivo = Field(description=(
+    # Condizionali: servono solo con controlli positivi dichiarati, e senza
+    # valore sono nulli (defaults.CONDIZIONALI).
+    min_positives: InteroPositivo | None = Field(None, description=(
         "Controlli positivi minimi per adattare una curva di calibrazione e per "
-        "giudicare i controlli di un livello di diluizione."))
-    min_positive_pass_frac: Frazione = Field(description=(
-        "Frazione minima di controlli positivi conformi al loro livello."))
-    positive_gate: StrictBool = Field(description=(
+        "giudicare i controlli di un livello di diluizione. Serve solo con "
+        "ctrl.positive_values non vuoto."))
+    min_positive_pass_frac: Frazione | None = Field(None, description=(
+        "Frazione minima di controlli positivi conformi al loro livello. Serve solo "
+        "con ctrl.positive_values non vuoto."))
+    positive_gate: StrictBool | None = Field(None, description=(
         "Che cosa fare sotto ctrl.min_positive_pass_frac: true ferma l'esecuzione "
-        "(E-S11-03), false prosegue con un avviso (E-S11-04)."))
+        "(E-S11-03), false prosegue con un avviso (E-S11-04). Serve solo con "
+        "ctrl.positive_values non vuoto."))
 
     @model_validator(mode="after")
     def _categorie_disgiunte(self) -> Ctrl:
@@ -549,7 +558,8 @@ class Ctrl(_Gruppo):
                         ", ".join(dichiarate), "ha" if len(dichiarate) == 1 else "hanno"
                     )
                 )
-        elif not self.biological_values:
+        elif not self.biological_values and "biological_values" in self.model_fields_set:
+            # Omesso del tutto e' un condizionale mancante: lo dice la radice.
             raise ValueError(
                 "ctrl.biological_values deve contenere almeno 1 elemento: con ctrl.column "
                 "dichiarata servono le etichette dei campioni biologici"
@@ -562,7 +572,7 @@ class Katharoseq(_Gruppo):
 
     # Obbligatori; nulli se il dataset non ha controlli positivi (G15 verifica
     # che non lo siano quando ctrl.positive_values non e' vuoto).
-    target_taxon: StringaNonVuota | None = Field(description=(
+    target_taxon: StringaNonVuota | None = Field(None, description=(
         "Taxon atteso nei controlli positivi, come lo scrive il riferimento al rango "
         "di katharoseq.collapse_rank. Nullo senza controlli positivi."))
     # Colonna con le cellule di ciascun controllo positivo, il livello di
@@ -572,21 +582,24 @@ class Katharoseq(_Gruppo):
         "Colonna con le cellule di ciascun controllo positivo, cioe' il livello di "
         "diluizione: nel file del lotto o nella tabella di studio. Nullo senza "
         "controlli positivi."))
-    collapse_rank: Literal["Phylum", "Class", "Order", "Family", "Genus"] = Field(
-        description=(
+    collapse_rank: Literal["Phylum", "Class", "Order", "Family", "Genus"] | None = Field(
+        None, description=(
             "Rango a cui si sommano le varianti del taxon atteso: il piu' fine a cui il "
-            "riferimento lo distingue con le letture disponibili."))
+            "riferimento lo distingue con le letture disponibili. Serve solo con "
+            "ctrl.positive_values non vuoto."))
     # Insiemi chiusi: vanno estesi quando un'altra forma viene realizzata.
     curve_model: Literal["allosteric_sigmoid"] = Field(
         d.KATHAROSEQ_CURVE_MODEL, description=(
             "Forma della curva di calibrazione: la sola realizzata."))
     # Strettamente fra 0 e 1: a fedelta' 1 la profondita' richiesta e' infinita.
-    target_sensitivity: Annotated[float, Field(gt=0.0, lt=1.0)] = Field(description=(
-        "Fedelta' (frazione delle letture del controllo sul taxon atteso) a cui si "
-        "legge sulla curva la profondita' minima dei campioni."))
-    min_r2: Frazione = Field(description=(
+    target_sensitivity: Annotated[float, Field(gt=0.0, lt=1.0)] | None = Field(
+        None, description=(
+            "Fedelta' (frazione delle letture del controllo sul taxon atteso) a cui si "
+            "legge sulla curva la profondita' minima dei campioni. Serve solo con "
+            "ctrl.positive_values non vuoto."))
+    min_r2: Frazione | None = Field(None, description=(
         "Bonta' minima dell'adattamento (R^2 sulla fedelta') perche' una curva sia "
-        "valida."))
+        "valida. Serve solo con ctrl.positive_values non vuoto."))
     read_stage: Literal["nonchimeric"] = Field(d.KATHAROSEQ_READ_STAGE, description=(
         "Stadio delle letture su cui si misurano profondita' e fedelta': senza "
         "chimere."))
@@ -603,12 +616,19 @@ class Decontam(_Gruppo):
     method: Literal["prevalence"] = Field(d.DECONTAM_METHOD, description=(
         "Metodo di decontam::isContaminant: per prevalenza nei controlli negativi, il "
         "solo realizzato."))
-    threshold: Frazione = Field(description=(
+    # Condizionali: soglia, negativi minimi e modalita' servono solo con
+    # controlli negativi dichiarati (ctrl.blank_values o
+    # ctrl.blank_override_values non vuoto), e senza valore sono nulli
+    # (defaults.CONDIZIONALI).
+    threshold: Frazione | None = Field(None, description=(
         "Soglia della probabilita' sotto la quale una variante e' un contaminante "
-        "(decontam::isContaminant, threshold)."))
-    min_blanks: InteroPositivo = Field(description=(
+        "(decontam::isContaminant, threshold). Serve solo con controlli negativi "
+        "dichiarati (ctrl.blank_values o ctrl.blank_override_values non vuoto)."))
+    min_blanks: InteroPositivo | None = Field(None, description=(
         "Controlli negativi con letture minimi perche' la decontaminazione si esegua, "
-        "e perche' una piastra abbia un confronto proprio."))
+        "e perche' una piastra abbia un confronto proprio. Serve solo con controlli "
+        "negativi dichiarati (ctrl.blank_values o ctrl.blank_override_values non "
+        "vuoto)."))
     # batch.combine di decontam::isContaminant, per la decontaminazione per piastra.
     batch_combine: Literal["minimum", "product", "fisher"] = Field(
         d.DECONTAM_BATCH_COMBINE, description=(
@@ -617,10 +637,11 @@ class Decontam(_Gruppo):
     # Modalita' che decide i contaminanti rimossi: aggregate (tutti i biologici
     # contro tutti i negativi) o batch (per piastra, con batch_combine). L'altra
     # si calcola come diagnostica.
-    mode: Literal["aggregate", "batch"] = Field(description=(
+    mode: Literal["aggregate", "batch"] | None = Field(None, description=(
         "Modalita' che decide i contaminanti rimossi: aggregate (tutti i biologici "
         "contro tutti i negativi) o batch (per piastra). L'altra si calcola come "
-        "diagnostica."))
+        "diagnostica. Serve solo con controlli negativi dichiarati (ctrl.blank_values "
+        "o ctrl.blank_override_values non vuoto)."))
     # Obbligatorio, anche nullo: la colonna di io.batch_table con la piastra.
     batch_column: StringaNonVuota | None = Field(description=(
         "Colonna del file del lotto con la piastra di estrazione. Nullo senza file "
@@ -630,11 +651,14 @@ class Decontam(_Gruppo):
 class Prev(_Gruppo):
     """Filtro di prevalenza sulle varianti."""
 
-    min_fraction: Frazione = Field(description=(
+    # Condizionali: servono solo con prev.apply vero, e senza valore sono
+    # nulli (defaults.CONDIZIONALI).
+    min_fraction: Frazione | None = Field(None, description=(
         "Frazione minima dei campioni biologici tenuti in cui una variante deve "
-        "comparire."))
-    min_count: InteroNonNegativo = Field(description=(
-        "Letture minime perche' una variante conti come presente in un campione."))
+        "comparire. Serve solo con prev.apply vero."))
+    min_count: InteroNonNegativo | None = Field(None, description=(
+        "Letture minime perche' una variante conti come presente in un campione. "
+        "Serve solo con prev.apply vero."))
     apply: StrictBool = Field(description="Se applicare il filtro di prevalenza.")
 
 
@@ -648,9 +672,11 @@ class Qc(_Gruppo):
         "(le soglie dei controlli positivi) oppure none (nessuna soglia di "
         "profondita')."))
     # Frazione massima delle letture dei biologici rimossa come contaminante (S12).
-    max_frac_contaminant: Frazione = Field(description=(
+    # Condizionale: senza valore e' nullo (defaults.CONDIZIONALI).
+    max_frac_contaminant: Frazione | None = Field(None, description=(
         "Frazione massima delle letture dei biologici che la decontaminazione puo' "
-        "rimuovere (E-S12-02)."))
+        "rimuovere (E-S12-02). Serve solo con controlli negativi dichiarati "
+        "(ctrl.blank_values o ctrl.blank_override_values non vuoto)."))
     # Per campione, sulle letture dell'oggetto finale (S13): sotto, il campione
     # esce dall'oggetto finale.
     min_reads_final: InteroNonNegativo = Field(description=(
@@ -916,6 +942,24 @@ class Config(_Gruppo):
     ord: Ord = Field(default_factory=Ord)
     stat: Stat = Field(default_factory=Stat)
 
+    @model_validator(mode="after")
+    def _condizionali_richiesti(self) -> Config:
+        """Respinge un condizionale non dichiarato quando la sua condizione e' vera.
+
+        I campi condizionali hanno un valore di assenza perche' si possano
+        omettere: che siano dichiarati quando servono lo garantisce questo
+        controllo, sui campi ricevuti in ingresso (``model_fields_set``).
+        """
+        dichiarati = {
+            f"{gruppo}.{nome}": getattr(getattr(self, gruppo), nome)
+            for gruppo in type(self).model_fields
+            for nome in getattr(self, gruppo).model_fields_set
+        }
+        mancanti = condizionali_mancanti(dichiarati)
+        if mancanti:
+            raise ValueError(_voce_mancanti(mancanti))
+        return self
+
 
 # --------------------------------------------------------------------------- #
 # Ispezione dello schema                                                       #
@@ -1040,31 +1084,59 @@ def _descrivi(errore: dict[str, Any]) -> str:
 INTESTAZIONE_MANCANTI: Final = "parametri obbligatori non dichiarati"
 
 
+def _valori_dichiarati(dati: dict[str, Any]) -> dict[str, Any]:
+    """I parametri presenti nel dizionario, come ``gruppo.chiave`` -> valore."""
+    return {
+        f"{gruppo}.{nome}": valore
+        for gruppo, contenuto in dati.items() if isinstance(contenuto, dict)
+        for nome, valore in contenuto.items()
+    }
+
+
+def condizionali_mancanti(valori: dict[str, Any]) -> list[str]:
+    """I condizionali richiesti e non dichiarati, dati i parametri dichiarati.
+
+    Un condizionale manca se la sua condizione e' vera e la chiave e' assente,
+    oppure, per quelli che non hanno un valore di assenza, e' nulla. La
+    condizione si valuta sui parametri dichiarati: uno assente vale come la
+    sua assenza, e cio' che ne dipende non e' richiesto.
+    """
+    return [
+        chiave for chiave in d.CONDIZIONALI
+        if d.condizione_vera(chiave, valori) and (
+            chiave not in valori
+            or (chiave in d.CONDIZIONALI_NULLI_SE_OMESSI and valori[chiave] is None)
+        )
+    ]
+
+
 def obbligatori_mancanti(dati: dict[str, Any]) -> list[str]:
-    """I parametri di :data:`defaults.OBBLIGATORI` assenti dal dizionario.
+    """I parametri obbligatori assenti dal dizionario: quelli di
+    :data:`defaults.OBBLIGATORI`, e i condizionali la cui condizione e' vera.
 
     Conta la presenza della chiave, non il valore: un parametro dichiarato
-    nullo o vuoto e' dichiarato.
+    nullo o vuoto e' dichiarato (salvo i condizionali senza un valore di
+    assenza, per i quali il nullo vale come l'omissione).
     """
-    mancanti = []
-    for chiave in d.OBBLIGATORI:
-        gruppo, nome = chiave.split(".")
-        contenuto = dati.get(gruppo)
-        if not isinstance(contenuto, dict) or nome not in contenuto:
-            mancanti.append(chiave)
-    return mancanti
+    valori = _valori_dichiarati(dati)
+    return [c for c in d.OBBLIGATORI if c not in valori] + condizionali_mancanti(valori)
 
 
 def _voce_mancanti(mancanti: list[str]) -> str:
     """La voce che elenca i parametri obbligatori non dichiarati."""
-    return (
+    voce = (
         f"{INTESTAZIONE_MANCANTI} ({len(mancanti)}): {', '.join(mancanti)}. Descrivono il "
         "dataset o le scelte di analisi che ne dipendono, e non hanno un valore "
-        "predefinito: vanno dichiarati tutti nel file di configurazione, nulli o vuoti "
-        "quando non sono pertinenti e lo schema lo ammette (per esempio le etichette dei "
-        "controlli positivi in un dataset che non ne ha). Che cosa significa ciascuno e "
-        "come si sceglie e' in GUIDA.md, sezione 6, e in config/config.example.yaml"
+        "predefinito: vanno dichiarati nel file di configurazione. Che cosa significa "
+        "ciascuno e come si sceglie e' in GUIDA.md, sezione 6, e in "
+        "config/config.example.yaml"
     )
+    condizionali = [c for c in mancanti if c in d.CONDIZIONALI]
+    if condizionali:
+        voce += ". Richiesti da una condizione: " + "; ".join(
+            f"{c} perche' {d.testo_condizione(c)}" for c in condizionali
+        )
+    return voce
 
 
 def valida(dati: dict[str, Any], origine: str | None = None) -> Config:
@@ -1091,6 +1163,9 @@ def valida(dati: dict[str, Any], origine: str | None = None) -> Config:
         problemi = []
         for e in errore.errors():
             chiave = ".".join(str(p) for p in e["loc"])
+            if not chiave and INTESTAZIONE_MANCANTI in str(e.get("msg", "")):
+                # Il rifiuto dei condizionali del modello: e' gia' nell'elenco.
+                continue
             if e["type"] != "missing":
                 problemi.append(_descrivi(e))
             elif chiave in Config.model_fields:

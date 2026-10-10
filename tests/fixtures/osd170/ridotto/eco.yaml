@@ -1,0 +1,25 @@
+# Analisi ecologiche di base sull'oggetto finale del sottoinsieme ridotto di
+# OSD-170: sei campioni, due a terra e quattro in atmosfera.
+design:
+  variable: factor_value_altitude
+  other_variables: []
+  technical_variables: []
+  subset: {}
+run:
+  seed: 100
+alpha:
+  rarefy_depth: null
+comp:
+  rank: Genus
+  top_n: 5
+beta:
+  distances: [bray, jaccard]
+ord:
+  methods: [pcoa]
+  distances: [bray, jaccard]
+  pcoa_correction: none
+stat:
+  min_group_size: 2
+  significance_level: 0.05
+  permanova_permutations: 99
+  permanova_strata: null

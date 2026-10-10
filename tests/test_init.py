@@ -18,6 +18,7 @@ I test che calcolano il profilo di qualita' richiedono R con ShortRead:
 from __future__ import annotations
 
 import functools
+import json
 import os
 import re
 import shutil
@@ -201,13 +202,99 @@ def test_il_file_di_init_non_e_eseguibile_finche_non_e_completato(tmp_path, caps
     assert len(risultato.inventario) == len(dataset.campioni)
 
 
+def test_init_non_chiede_i_condizionali_non_pertinenti(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che ``init`` scriva come ``[CONDIZIONALE]``, in
+    commento, senza valore e con la condizione, i parametri la cui condizione
+    e' falsa con i valori rilevati, proposti o di partenza; che non li conti
+    fra i «da scegliere» e li elenchi in testa fra i non richiesti; che
+    ``validate`` non li chieda; e che li chieda, con la condizione, appena chi
+    configura rende vera la condizione.
+
+    **Razionale scientifico e sistemistico**: Chiedere di scegliere un valore
+    che nessuna fase usera' costringe a inventarlo, e il report lo mostrerebbe
+    come una scelta. La condizione si valuta sulle proposte, che l'utente puo'
+    correggere: per questo il controllo vero resta quello di ``validate``.
+    """
+    # Con la colonna del tipo e i soli controlli negativi: le etichette e i
+    # parametri della decontaminazione sono richiesti, quelli dei controlli
+    # positivi no; quelli della prevalenza dipendono da prev.apply, che init
+    # lascia da scegliere.
+    dataset = sintetico.genera(tmp_path / "dati", biologici=4, negativi=2, letture=80)
+    uscita = tmp_path / "config.yaml"
+    assert _init(dataset, uscita, "--reference", str(sintetico.RIFERIMENTO),
+                 "--out-root", str(tmp_path / "out")) == 0
+    stampato = capsys.readouterr().out
+    testo = uscita.read_text(encoding="utf-8")
+    righe = righe_dei_parametri(testo)
+    non_richiesti = {
+        "ctrl.blank_override_values", "ctrl.min_positives", "ctrl.min_positive_pass_frac",
+        "ctrl.positive_gate", "katharoseq.target_taxon", "katharoseq.collapse_rank",
+        "katharoseq.min_r2", "katharoseq.target_sensitivity", "phylo.max_seqs",
+        "meta.module_regex", "prev.min_fraction", "prev.min_count",
+    }
+    for chiave in non_richiesti:
+        assert righe[chiave] == (False, ""), chiave
+        nome = chiave.split(".")[1]
+        prima = testo.split(f"\n  # {nome}:")[0].rsplit("\n\n", 1)[-1]
+        condizione = defaults.testo_condizione(chiave).split(" ")[0]
+        assert "[CONDIZIONALE] serve solo se" in prima and condizione in prima, chiave
+    for chiave in ("ctrl.blank_values", "ctrl.positive_values", "ctrl.biological_values"):
+        assert righe[chiave][1], chiave
+    intestazione = testo.split("\nio:")[0]
+    elenco = " ".join(
+        intestazione.split("# Non richiesti con le proposte attuali (condizionali):")[1]
+        .split("#\n")[0].replace("#", " ").split())
+    assert set(elenco.split(", ")) == non_richiesti
+    da_scegliere = " ".join(
+        intestazione.split("# Da scegliere:")[1].split("#\n")[0].replace("#", " ").split())
+    assert not set(da_scegliere.split(", ")) & non_richiesti
+    assert {"decontam.threshold", "decontam.min_blanks", "decontam.mode",
+            "qc.max_frac_contaminant", "prev.apply"} <= set(da_scegliere.split(", "))
+    assert f"non richiesti: {len(non_richiesti)}." in intestazione
+    assert "Non richiesti con le proposte attuali (condizionali):" in stampato
+    assert f"non richiesti: {len(non_richiesti)}" in stampato
+
+    # validate non li chiede; completate le altre scelte, la configurazione e' valida.
+    mancanti = obbligatori_mancanti(yaml.safe_load(testo))
+    assert mancanti and not set(mancanti) & non_richiesti
+    scelte = {c: v for c, v in _scelte(dataset).items() if c not in non_richiesti}
+    # Il primer non e' nelle letture di questo dataset: lo dichiara chi lo conosce.
+    scelte["qc.primer_sequence"] = sintetico.PRIMER_341F
+    # La prevalenza resta spenta: i suoi due parametri non servono.
+    scelte["prev.apply"] = False
+    completo = tmp_path / "completo.yaml"
+    completo.write_text(completa(testo, scelte), encoding="utf-8")
+    dichiarati = yaml.safe_load(completo.read_text(encoding="utf-8"))
+    assert obbligatori_mancanti(dichiarati) == []
+    assert not non_richiesti & {f"{g}.{n}" for g, v in dichiarati.items() for n in (v or {})}
+    assert esegui_s0(carica(completo)).superata
+
+    # Resa vera la condizione, validate chiede il condizionale e dice perche'.
+    con_filogenesi = tmp_path / "filogenesi.yaml"
+    con_filogenesi.write_text(
+        completa(testo, {**scelte, "phylo.enabled": True, "prev.apply": True}), encoding="utf-8")
+    capsys.readouterr()
+    assert main(["validate", "--config", str(con_filogenesi)]) == 3
+    stampato = capsys.readouterr().out
+    assert "E-G15-10" in stampato and "phylo.max_seqs perche' phylo.enabled e' vero" in stampato
+    assert "prev.min_fraction perche' prev.apply e' vero" in stampato
+    assert "prev.min_count perche' prev.apply e' vero" in stampato
+
+    # Senza colonna del tipo anche le tre etichette sono non richieste.
+    senza = sintetico.genera(tmp_path / "senza", biologici=3, letture=40, con_tipo=False)
+    assert _init(senza, tmp_path / "senza.yaml") == 0
+    righe = righe_dei_parametri((tmp_path / "senza.yaml").read_text(encoding="utf-8"))
+    assert all(righe[c] == (False, "") for c in defaults.CONDIZIONALI)
+
+
 def test_init_non_sceglie_in_silenzio_quando_la_risposta_non_e_una(tmp_path, capsys):
     """
     **Obiettivo**: Verificare i casi senza una risposta sola. Nessuna colonna
     che corrisponda ai file: colonna ed espressione della chiave restano da
     scegliere, senza valore, e il riepilogo lo dice. Due colonne con i nomi dei
     file: nessuna e' scelta, entrambe sono elencate. Nessun controllo e nessuna
-    colonna del tipo: ``ctrl.column`` proposto nullo con le etichette vuote.
+    colonna del tipo: ``ctrl.column`` proposto nullo e le etichette non richieste.
 
     **Razionale scientifico e sistemistico**: Un'euristica che sceglie fra due
     risposte plausibili sbaglia meta' delle volte senza dirlo: qui la scelta
@@ -223,7 +310,8 @@ def test_init_non_sceglie_in_silenzio_quando_la_risposta_non_e_una(tmp_path, cap
     assert "Chiave del campione non rilevata" in capsys.readouterr().out
     # Senza colonna del tipo: nessun controllo, proposto e non attivo.
     assert righe["ctrl.column"] == (False, "null")
-    assert righe["ctrl.biological_values"] == (False, "[]")
+    # Le etichette sono condizionali: senza colonna non sono richieste.
+    assert righe["ctrl.biological_values"] == (False, "")
 
     # Due colonne con i nomi dei file.
     due = sintetico.genera(tmp_path / "due", biologici=3, letture=40)
@@ -748,3 +836,163 @@ def test_il_primer_indicato_a_mano_e_una_cartella_non_scrivibile(tmp_path, capsy
         assert "non e' scrivibile" in capsys.readouterr().out
     finally:
         chiusa.chmod(0o755)
+
+
+#: Le scelte che restano dopo ``--accetta-proposte`` sul dataset sintetico:
+#: cio' che non ha ne' una proposta ne' un valore di partenza.
+def _scelte_dopo_l_accettazione(dataset, con_profilo: bool) -> dict:
+    scelte = {
+        "tax.ref_name": "sintetico", "tax.ref_version": "1", "qc.head_reads": 200,
+        "filt.remove_na_phylum": True, "filt.exclude_taxa": [], "prev.apply": False,
+        "decontam.threshold": 0.1, "decontam.min_blanks": 2, "qc.min_reads_final": 100,
+    }
+    if not con_profilo:
+        scelte |= {"filter.truncLen": dataset.troncamento, "filter.truncLen_shortfall_warn": 30}
+    return scelte
+
+
+def test_init_senza_l_opzione_scrive_gli_stessi_byte(tmp_path, monkeypatch):
+    """
+    **Obiettivo**: Verificare che ``init`` senza ``--accetta-proposte`` scriva,
+    su un dataset sintetico fissato e con la memoria della macchina fissata,
+    un file identico byte per byte a quello registrato in
+    ``tests/fixtures/init/senza_opzione.yaml`` (i soli percorsi della cartella
+    di prova e del repository sono sostituiti da segnaposto).
+
+    **Razionale scientifico e sistemistico**: L'opzione e' un gesto in piu',
+    non un altro comportamento: chi non la usa deve ottenere lo stesso file,
+    con ogni proposta in commento. Un confronto sui byte vede anche una riga
+    d'intestazione cambiata.
+    """
+    from amplicon16s.init import comando
+
+    monkeypatch.setattr(comando, "_memoria_della_macchina", lambda: 8 * 2**30)
+    dataset = sintetico.genera(tmp_path / "dati", biologici=5, negativi=2, letture=120,
+                               primer=sintetico.PRIMER_341F, con_lotto=True)
+    uscita = tmp_path / "c.yaml"
+    assert _init(dataset, uscita, "--reference", str(sintetico.RIFERIMENTO),
+                 "--out-root", str(tmp_path / "out"), "--threads", "1") == 0
+    testo = uscita.read_text(encoding="utf-8").replace(str(tmp_path), "<DATI>").replace(
+        str(RADICE), "<RADICE>")
+    atteso = (RADICE / "tests" / "fixtures" / "init" / "senza_opzione.yaml").read_text("utf-8")
+    assert testo == atteso
+
+
+def test_init_accetta_proposte_lascia_da_scrivere_le_sole_scelte(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che con ``--accetta-proposte`` le proposte siano
+    righe attive con il marcatore ``[PROPOSTO]``, i valori di partenza righe
+    attive con ``[PARTENZA]``, e le soglie che fermano o avvisano senza valore
+    di partenza righe attive con ``[ESPLORATIVA]`` e il valore che non ferma
+    (non ``qc.min_reads_final``, che cambia il risultato); che ogni riga attiva
+    sia preceduta dalla sua origine; che restino in commento le scelte senza
+    valore e i condizionali non pertinenti; che l'intestazione e la console
+    dicano che cosa e' stato accettato e che cosa resta; che ``validate``
+    elenchi come mancanti proprio le scelte rimaste; e che, scritte quelle, la
+    validazione superi tutti i gate dichiarando i controlli spenti.
+
+    **Razionale scientifico e sistemistico**: L'opzione e' il gesto con cui
+    l'utente accetta in blocco cio' che lo strumento propone. Non deve
+    inventare valori: una scelta senza proposta ne' partenza resta sua.
+    """
+    from amplicon16s.soglie import tabella
+
+    dataset = sintetico.genera(tmp_path / "dati", biologici=5, negativi=2, letture=120,
+                               primer=sintetico.PRIMER_341F, con_lotto=True)
+    uscita, senza = tmp_path / "config.yaml", tmp_path / "senza.yaml"
+    comuni = ("--reference", str(sintetico.RIFERIMENTO), "--out-root", str(tmp_path / "out"))
+    assert _init(dataset, senza, *comuni) == 0
+    capsys.readouterr()
+    assert _init(dataset, uscita, *comuni, "--accetta-proposte") == 0
+    stampato = capsys.readouterr().out
+    testo = uscita.read_text(encoding="utf-8")
+    righe, prima = righe_dei_parametri(testo), righe_dei_parametri(senza.read_text("utf-8"))
+
+    # Ogni riga che senza l'opzione portava un valore in commento ora e' attiva
+    # con lo stesso valore, salvo i condizionali; nessun valore e' cambiato.
+    da_dichiarare = {*defaults.OBBLIGATORI, *defaults.CONDIZIONALI}
+    for chiave, (attiva, valore) in prima.items():
+        if chiave not in da_dichiarare:
+            # I parametri con un predefinito restano in commento con quello.
+            assert righe[chiave] == prima[chiave], chiave
+        if attiva or valore == "" or chiave not in da_dichiarare:
+            continue
+        assert righe[chiave] == (True, valore), chiave
+    esplorative = {c for c, (attiva, _) in righe.items() if attiva and prima[c] == (False, "")}
+    attese = {s.chiave: tabella.valore_esplorativo(s) for s in tabella.SOGLIE
+              if s.unita is tabella.Unita.FRAZIONE}
+    assert esplorative == set(attese)
+    for chiave, valore in attese.items():
+        assert yaml.safe_load(righe[chiave][1]) == valore
+    assert righe["qc.min_reads_final"] == (False, "")
+    assert yaml.safe_load(righe["qc.max_zeroed_samples"][1]) == 0
+
+    # L'origine di ogni riga attiva e' nel commento che la precede.
+    blocchi = re.findall(r"## \[([A-Z ]+)\][^\n]*\n(?:  ##[^\n]*\n)*  (\w+):", testo)
+    per_nome = {nome: marcatore for marcatore, nome in blocchi}
+    assert per_nome["column"] == "PROPOSTO" and per_nome["pool"] == "PARTENZA"
+    assert per_nome["max_frac_lost_filter"] == "ESPLORATIVA"
+    assert per_nome["max_zeroed_samples"] == "PARTENZA"
+    assert "accettato con --accetta-proposte" in testo
+    assert "il controllo (E-S2-02) e' spento" in testo
+    # Con il primer tolto dal filtro la soglia sul primer non ha effetto, e lo dice.
+    assert "la validazione non cerca il primer" in testo
+    assert "scritta da init con --accetta-proposte" in testo
+    assert re.search(r"Accettati con --accetta-proposte: \d+ proposti, \d+ valori di partenza,"
+                     r"\n# 9 soglie esplorative", testo)
+    # I valori di partenza che dichiarano un'assenza sono segnalati, da rivedere.
+    assenze = re.search(r"dichiarano un'assenza \(nullo o elenco vuoto\): sono\n"
+                        r"# validi[^\n]*\n((?:# [^\n]*\n)+?)#\n", testo)
+    assert assenze and "meta.module_column" in assenze.group(1)
+    assert "out.study_columns" in assenze.group(1) and "dada.pool" not in assenze.group(1)
+    assert "dichiarano un'assenza" in stampato and "out.study_columns" in stampato
+    assert "Soglie esplorative, al valore che non ferma" in stampato
+    assert "Restano da scegliere" in stampato
+
+    mancanti = obbligatori_mancanti(yaml.safe_load(testo))
+    scelte = _scelte_dopo_l_accettazione(dataset, con_profilo=False)
+    assert set(mancanti) == set(scelte)
+    assert main(["validate", "--config", str(uscita)]) == 3
+    stampato = capsys.readouterr().out
+    assert all(m in stampato for m in mancanti)
+
+    completo = tmp_path / "completo.yaml"
+    completo.write_text(completa(testo, scelte, accetta=set()), encoding="utf-8")
+    assert main(["validate", "--config", str(completo), "--json"]) == 0
+    catturato = capsys.readouterr()
+    documento = json.loads(catturato.out)
+    spenti = {s["parametro"] for s in documento["controlli_spenti"]}
+    # Il primer con il taglio non si giudica: non e' fra gli spenti.
+    assert spenti == esplorative - {"qc.max_primer_hit_frac"}
+    assert "controlli di qualita' sono spenti" in catturato.err
+
+
+def test_init_accetta_proposte_con_il_profilo_non_chiede_il_troncamento(profilo, tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare con il profilo di qualita' calcolato che
+    ``--accetta-proposte`` scriva attivi il troncamento proposto e, come
+    valori di partenza, lo scarto ammesso e la frazione di letture corte pari
+    a zero (non il valore che non ferma: per quelle soglie ``init`` ha un
+    valore ricavato dai dati); e che le scelte rimaste non comprendano alcun
+    parametro del filtro.
+
+    **Razionale scientifico e sistemistico**: Dove lo strumento ha un valore
+    difendibile, la soglia parte attiva: il valore esplorativo serve solo dove
+    non c'e' nulla da cui partire.
+    """
+    dataset = sintetico.genera(tmp_path / "dati", biologici=5, negativi=2, letture=120,
+                               primer=sintetico.PRIMER_341F, con_lotto=True)
+    uscita = tmp_path / "config.yaml"
+    assert _init(dataset, uscita, "--reference", str(sintetico.RIFERIMENTO),
+                 "--out-root", str(tmp_path / "out"), "--accetta-proposte", profilo=True) == 0
+    capsys.readouterr()
+    testo = uscita.read_text(encoding="utf-8")
+    righe = righe_dei_parametri(testo)
+    assert righe["filter.truncLen"][0] and righe["filter.truncLen_shortfall_warn"][0]
+    assert righe["qc.max_frac_short_reads"] == (True, "0.0")
+    assert re.search(r"## \[PARTENZA\][^\n]*\n(?:  ##[^\n]*\n)*  max_frac_short_reads:", testo)
+    scelte = _scelte_dopo_l_accettazione(dataset, con_profilo=True)
+    assert set(obbligatori_mancanti(yaml.safe_load(testo))) == set(scelte)
+    completo = tmp_path / "completo.yaml"
+    completo.write_text(completa(testo, scelte, accetta=set()), encoding="utf-8")
+    assert esegui_s0(carica(completo)).superata

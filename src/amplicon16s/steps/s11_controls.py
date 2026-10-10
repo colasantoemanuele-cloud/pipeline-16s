@@ -149,13 +149,16 @@ class ValidazioneControlli(PipelineStep):
     #: 7: senza una piastra con abbastanza controlli l'aggregato si adatta su
     #: tutti i controlli utilizzabili; l'aggregato scelto come modello non e'
     #: un ripiego. 8: un livello di concentrazione con meno controlli del
-    #: minimo e' dichiarato con E-S11-06.
-    versione: ClassVar[int] = 8
+    #: minimo e' dichiarato con E-S11-06. 9: rango, R^2 minimo, controlli
+    #: minimi, frazione di conformi e arresto si leggono solo con controlli
+    #: positivi dichiarati (ctrl.positive_values, ora fra i parametri).
+    versione: ClassVar[int] = 9
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La curva (katharoseq), i controlli minimi, la frazione di conformi e il
     #: comportamento sotto di essa (ctrl), se una soglia si applica (qc).
     parametri: ClassVar[tuple[str, ...]] = (
         "katharoseq",
+        "ctrl.positive_values",
         "ctrl.min_positives", "ctrl.min_positive_pass_frac", "ctrl.positive_gate",
         "qc.min_reads_mode",
     )
@@ -172,6 +175,10 @@ class ValidazioneControlli(PipelineStep):
                   newline="") as file:
             corrispondenza = list(csv.DictReader(file, delimiter="\t"))
         colonna = colonna_dei_livelli(corrispondenza, katharoseq.cell_count_column)
+        # Rango, R^2 minimo, controlli minimi, frazione di conformi e arresto
+        # sono condizionali: servono solo con controlli positivi dichiarati, e
+        # solo allora si leggono. Senza, lo script non ha controlli da valutare.
+        con_positivi = bool(config.ctrl.positive_values)
 
         esito = esegui_script(
             cartella_r() / NOME_SCRIPT,
@@ -185,12 +192,14 @@ class ValidazioneControlli(PipelineStep):
                     "(katharoseq.cell_count_column) non e' fra le colonne dell'oggetto "
                     "integrato"
                 ),
-                "rango": katharoseq.collapse_rank,
+                "rango": katharoseq.collapse_rank if con_positivi else None,
                 "taxon": katharoseq.target_taxon,
+                # Nulla se omessa (nessun controllo positivo dichiarato): lo
+                # script la riporta tale in soglia.json e non adatta curve.
                 "sensibilita": katharoseq.target_sensitivity,
-                "min_r2": katharoseq.min_r2,
+                "min_r2": katharoseq.min_r2 if con_positivi else None,
                 "stadio": katharoseq.read_stage,
-                "min_positivi": config.ctrl.min_positives,
+                "min_positivi": config.ctrl.min_positives if con_positivi else None,
                 "modo": config.qc.min_reads_mode,
             },
             albero,
@@ -243,8 +252,8 @@ class ValidazioneControlli(PipelineStep):
             )
 
         frazione = riepilogo["frazione_conformi"]
-        minima = config.ctrl.min_positive_pass_frac
-        if frazione is not None and frazione < minima:
+        minima = config.ctrl.min_positive_pass_frac if con_positivi else None
+        if frazione is not None and minima is not None and frazione < minima:
             dettaglio = (
                 f"{riepilogo['conformi']} controlli positivi conformi su "
                 f"{riepilogo['conformi'] + riepilogo['non_conformi']} valutabili "

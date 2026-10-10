@@ -201,8 +201,9 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "descrivono il dataset (formato dei metadati, etichette, primer, "
         "troncamento) e non hanno un valore predefinito, perche' un valore "
         "ereditato da un altro dataset sarebbe quasi certamente sbagliato. Un "
-        "parametro non pertinente si dichiara nullo o con un elenco vuoto, non si "
-        "omette. Che cosa significa ciascuno e come si sceglie e' in GUIDA.md, "
+        "parametro condizionale e' richiesto solo quando la sua condizione e' vera "
+        "(il messaggio la riporta); se non e' pertinente si omette. Che cosa "
+        "significa ciascuno e come si sceglie e' in GUIDA.md, "
         "sezione 6, e in config/config.example.yaml; init li scrive a partire dai dati.",
         _UMANA,
     ),

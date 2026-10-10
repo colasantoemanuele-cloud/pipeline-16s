@@ -180,7 +180,8 @@ def test_nessun_valore_del_dataset_di_riferimento_fa_da_predefinito():
     for chiave in _parametri_di_osd734():
         gruppo, nome = chiave.split(".")
         campo = Config.model_fields[gruppo].annotation.model_fields[nome]
-        assert campo.is_required() or chiave in defaults.STANDARD_DEL_METODO, chiave
+        assert (campo.is_required() or chiave in defaults.STANDARD_DEL_METODO
+                or chiave in defaults.CONDIZIONALI), chiave
     radice = TEST.parent
     sorgenti = [radice / "src" / "amplicon16s" / "config" / nome
                 for nome in ("defaults.py", "schema.py")]
@@ -276,7 +277,8 @@ def test_ogni_scenario_dichiara_i_parametri_che_descrivono_il_dataset(tmp_path):
         gruppo, nome = chiave.split(".")
         atteso = list(valore) if isinstance(valore, tuple) else valore
         assert getattr(getattr(config, gruppo), nome) == atteso, chiave
-    assert {c for c, _ in FORMATO.scelte} <= set(defaults.OBBLIGATORI) | {"tax.min_boot"}
+    assert {c for c, _ in FORMATO.scelte} <= (
+        set(defaults.OBBLIGATORI) | set(defaults.CONDIZIONALI) | {"tax.min_boot"})
 
 
 def test_un_formato_diverso_attraversa_la_validazione(tmp_path):

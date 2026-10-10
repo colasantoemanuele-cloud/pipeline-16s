@@ -44,6 +44,11 @@ from typing import Any, Final
 import yaml
 
 from amplicon16s import __version__
+from amplicon16s.config.defaults import (
+    CONDIZIONALI,
+    CONDIZIONALI_NULLI_SE_OMESSI,
+    condizione_vera,
+)
 from amplicon16s.config.resolve import versioni_registrate
 from amplicon16s.gates.registry import REGISTRO
 from amplicon16s.io_layer.artifacts import (
@@ -67,6 +72,7 @@ from amplicon16s.runner.executor import (
 )
 from amplicon16s.runner.graph import GRAFO, Passo
 from amplicon16s.runner.project import avviso_di_provenienza, passi_realizzati
+from amplicon16s.soglie.tabella import controlli_spenti
 from amplicon16s.runner.provenienza import file_del_sorgente, impronta_sorgente
 from amplicon16s.runner.tracciamento import PREFISSO, Tracciamento, componi
 from amplicon16s.steps.base import PipelineStep
@@ -112,6 +118,12 @@ QUALITA_MINIMA_SUGGERITA: Final = 30
 def _e(valore: Any) -> str:
     """Il testo di un valore, pronto per l'HTML."""
     return html.escape(str(valore), quote=True)
+
+
+def _o_non_pertinente(valore: Any) -> Any:
+    """Il valore di un campo di un riepilogo, o ``non pertinente`` se e' nullo:
+    il campo di un parametro condizionale omesso."""
+    return "non pertinente" if valore is None else valore
 
 
 def _n(valore: Any) -> str:
@@ -474,7 +486,38 @@ def _origine(chiave: str, versione: Mapping[str, Any]) -> str:
     dichiarati = versione.get("dichiarati")
     if dichiarati is None:
         return "non registrata"
-    return "dichiarato" if chiave in dichiarati else "predefinito"
+    if chiave in dichiarati and not _senza_valore(chiave, versione):
+        return "dichiarato"
+    return "non pertinente" if _non_pertinente(chiave, versione) else "predefinito"
+
+
+def _valori_registrati(versione: Mapping[str, Any]) -> dict[str, Any]:
+    """I parametri della configurazione registrata, come ``gruppo.chiave`` -> valore."""
+    return {
+        f"{gruppo}.{nome}": valore
+        for gruppo, contenuto in versione.get("parametri", {}).items()
+        for nome, valore in contenuto.items()
+    }
+
+
+def _non_pertinente(chiave: str, versione: Mapping[str, Any]) -> bool:
+    """Se il parametro e' un condizionale la cui condizione e' falsa."""
+    return chiave in CONDIZIONALI and not condizione_vera(chiave, _valori_registrati(versione))
+
+
+def _senza_valore(chiave: str, versione: Mapping[str, Any]) -> bool:
+    """Se e' un condizionale scritto nullo, che vale come l'omissione."""
+    return (chiave in CONDIZIONALI_NULLI_SE_OMESSI
+            and _valori_registrati(versione).get(chiave) is None)
+
+
+def _nota_origine(chiave: str, versione: Mapping[str, Any]) -> str:
+    """L'origine come la mostra la tabella: un condizionale dichiarato con la
+    condizione falsa resta dichiarato, ma senza effetto."""
+    origine = _origine(chiave, versione)
+    if origine == "dichiarato" and _non_pertinente(chiave, versione):
+        return "dichiarato, senza effetto"
+    return origine
 
 
 def _aggiustamenti(esecuzione: _Esecuzione) -> list[tuple[Passo, dict[str, Any]]]:
@@ -653,16 +696,21 @@ def _sezione_configurazione(esecuzione: _Esecuzione) -> _Sezione:
                 f"{passo}: {_valore(a['precedente'])} -> {_valore(a['usato'])} dopo {a['codice']}"
             )
     righe = [
-        (chiave, _valore(valore), _origine(chiave, versione), "; ".join(aggiustati.get(chiave, [])))
+        (chiave, _valore(valore), _nota_origine(chiave, versione), "; ".join(aggiustati.get(chiave, [])))
         for chiave, valore in esecuzione.parametri.items()
     ]
-    conteggi = {o: sum(r[2] == o for r in righe) for o in ("dichiarato", "predefinito", "derivato", "non registrata")}
+    origini = [_origine(chiave, versione) for chiave in esecuzione.parametri]
+    conteggi = {o: origini.count(o) for o in (
+        "dichiarato", "predefinito", "derivato", "non registrata", "non pertinente")}
+    senza_effetto = sum(r[2] == "dichiarato, senza effetto" for r in righe)
     sezione.sottotitolo("Parametri effettivamente usati")
     sezione.sintesi((
         ("configurazione in uso", versione["file"]),
         ("digest", versione["digest"]),
         ("dichiarati nel file di configurazione", _n(conteggi["dichiarato"])),
         ("presi dal predefinito della pipeline", _n(conteggi["predefinito"])),
+        ("non pertinenti (condizionali omessi)", _n(conteggi["non pertinente"])),
+        ("dichiarati senza effetto (condizionali con la condizione falsa)", _n(senza_effetto)),
         ("derivati da altri parametri", _n(conteggi["derivato"])),
         ("aggiustati da un tentativo ripetuto", _n(len(aggiustati))),
     ))
@@ -671,7 +719,11 @@ def _sezione_configurazione(esecuzione: _Esecuzione) -> _Sezione:
         "ha impostato: non da un confronto fra valori. Un parametro <em>dichiarato</em> è "
         "scritto nel file; uno <em>predefinito</em> vi è assente e vale il predefinito della "
         "pipeline; uno <em>derivato</em> è calcolato da altri parametri e non è ammesso nel "
-        "file. Un valore <em>aggiustato</em> è quello usato da una fase dopo un tentativo "
+        "file. Uno <em>non pertinente</em> è un parametro condizionale omesso perché la "
+        "condizione che lo richiede è falsa: nessun calcolo lo usa, e dove una fase lo "
+        "riporta in un riepilogo il campo è nullo. Un condizionale "
+        "<em>dichiarato, senza effetto</em> è scritto nel file ma, con la condizione falsa, "
+        "il suo valore non entra in alcun calcolo: al più è riportato in un riepilogo. Un valore <em>aggiustato</em> è quello usato da una fase dopo un tentativo "
         "ripetuto: il valore dichiarato resta nella colonna del valore. Dichiarato non "
         "significa scelto: una configurazione copiata da un'altra dichiara anche i valori "
         "che nessuno ha rivisto per il dataset in uso."
@@ -884,9 +936,11 @@ def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
     if decontam is not None:
         sezione.sottotitolo("Modalità di decontaminazione (S12)")
         sezione.sintesi((
-            ("modalità dichiarata", decontam.get("modalita_dichiarata", "")),
+            ("modalità dichiarata",
+             _o_non_pertinente(decontam.get("modalita_dichiarata", ""))),
             ("esito", decontam.get("esito", "")),
-            ("metodo e soglia", f"{decontam.get('metodo', '')}, {decontam.get('soglia', '')}"),
+            ("metodo e soglia", f"{decontam.get('metodo', '')}, "
+                                f"{_o_non_pertinente(decontam.get('soglia', ''))}"),
             ("contaminanti rimossi", _n(decontam.get("contaminanti_rimossi", 0))),
         ))
         sezione.tabella(_tabella(
@@ -952,6 +1006,8 @@ def _decisioni_campioni(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
          for f in ordine),
     ))
     prevalenza = filtri.get("prevalenza", {})
+    # Nullo con il filtro spento e prev.min_fraction omesso: non c'e' un minimo.
+    minimo = prevalenza.get("min_campioni")
     sezione.testo(
         f"Campioni biologici: {_n(filtri['campioni']['biologici'])} in ingresso, "
         f"{_n(filtri['campioni']['finali'])} nell'oggetto finale; i "
@@ -959,8 +1015,9 @@ def _decisioni_campioni(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
         f"Varianti: {_n(filtri['varianti']['iniziali'])} in ingresso, "
         f"{_n(filtri['varianti']['finali'])} finali. Prevalenza "
         f"{'applicata' if prevalenza.get('applicata') else 'non applicata'}: denominatore "
-        f"{_e(prevalenza.get('denominatore'))} campioni tenuti, almeno "
-        f"{_e(prevalenza.get('min_campioni'))} campioni per variante."
+        f"{_e(prevalenza.get('denominatore'))} campioni tenuti, "
+        + ("minimo di campioni per variante non pertinente." if minimo is None else
+           f"almeno {_e(minimo)} campioni per variante.")
     )
     if esclusi:
         sezione.tabella(_tabella(
@@ -1299,6 +1356,37 @@ def _sezione_evidenza(
             "I manifesti di fase sono validi, ogni fase conclusa è calcolata sugli artefatti a "
             "monte oggi su disco, e ogni artefatto letto per questo documento corrisponde al "
             "checksum del suo manifesto.", "regolare",
+        )
+
+    # Una soglia al valore che non ferma, o oltre, e' una configurazione valida
+    # con un controllo che non protegge: chi legge i risultati deve saperlo.
+    conteggi = (esecuzione.json(Passo.S0, "inventario.json") or {}).get("conteggi")
+    spenti = controlli_spenti(
+        esecuzione.parametri,
+        sum(int(conteggi.get(c.value, 0)) for c in CLASSI_CONTROLLATE)
+        if isinstance(conteggi, dict) else None,
+    ) if esecuzione.parametri else []
+    sezione.sottotitolo("Controlli di qualità spenti")
+    if spenti:
+        segnalazioni.append(
+            "controlli di qualità spenti: " + ", ".join(s.chiave for s in spenti))
+        sezione.testo(
+            f"<strong>{len(spenti)} soglie</strong> sono al valore oltre il quale il loro "
+            "controllo non può scattare: l'esecuzione non è stata fermata né avvisata da quei "
+            "controlli, qualunque fosse la misura. Va bene per una prima esecuzione "
+            "esplorativa; il sottocomando <code>soglie</code> propone i valori dalle misure "
+            "di questa esecuzione.", "evidenza",
+        )
+        sezione.tabella(_tabella(
+            "controlli_spenti", "Controlli di qualità spenti",
+            ("parametro", "valore", "limite", "codici", "effetto del controllo"),
+            [(s.chiave, _valore(s.valore), s.limite, ", ".join(s.codici),
+              "arresto" if s.ferma else "avviso") for s in spenti],
+        ))
+    else:
+        sezione.testo(
+            "Nessuna soglia che ferma o avvisa è al valore oltre il quale il suo controllo "
+            "non può scattare.", "regolare",
         )
 
     sezione.sottotitolo("Decisioni automatiche")

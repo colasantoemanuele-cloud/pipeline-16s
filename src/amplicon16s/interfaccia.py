@@ -231,6 +231,8 @@ def _specie(chiave: str, obbligatorio: bool, predefinito: Any, ammessi: list[Any
     """Di che specie e' un parametro, con le stesse parole del modello."""
     if chiave in defaults.OBBLIGATORI:
         return "obbligatorio"
+    if chiave in defaults.CONDIZIONALI:
+        return "condizionale"
     if obbligatorio:
         return "percorso"
     if chiave in defaults.STANDARD_DEL_METODO:
@@ -309,6 +311,17 @@ def schema() -> dict[str, Any]:
             voce["nome"], voce["obbligatorio"], voce.get("predefinito"), voce["valori_ammessi"])
         if voce["nome"] in defaults.STANDARD_DEL_METODO:
             voce["fonte"] = defaults.STANDARD_DEL_METODO[voce["nome"]]
+        if voce["nome"] in defaults.CONDIZIONALI:
+            # Obbligatorio se la condizione e' vera, omissibile altrimenti (e,
+            # dichiarato comunque, validato come ogni valore ma senza effetto
+            # sui risultati). La condizione puo' avere piu' alternative, di cui
+            # ne basta una: la prima e' richiesto_da, le altre il suo "oppure".
+            prima, *altre = [
+                {"parametro": parametro, "condizione": forma,
+                 **({"valori": [True]} if forma == defaults.VERO else {})}
+                for parametro, forma in defaults.CONDIZIONALI[voce["nome"]]
+            ]
+            voce["richiesto_da"] = {**prima, **({"oppure": altre} if altre else {})}
     return documento_schema("amplicon16s", __version__, Config, parametri)
 
 
@@ -365,8 +378,15 @@ def esito_validazione(
     problemi: list[dict[str, Any]],
     avvisi: list[dict[str, Any]] | None = None,
     cartella: Path | str | None = None,
+    controlli_spenti: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Il documento di ``validate --json``."""
+    """Il documento di ``validate --json``.
+
+    ``controlli_spenti`` elenca le soglie il cui controllo non puo' scattare
+    (:mod:`amplicon16s.soglie.tabella`): la configurazione e' valida, ma chi la
+    esegue deve saperlo. ``None`` se non sono stati valutati, perche' la
+    configurazione e' stata respinta prima.
+    """
     return {
         "versione_formato": VERSIONE_FORMATO,
         "comando": "validate",
@@ -377,6 +397,7 @@ def esito_validazione(
         "codice_uscita": codice_uscita,
         "problemi": problemi,
         "avvisi": avvisi or [],
+        "controlli_spenti": controlli_spenti,
     }
 
 

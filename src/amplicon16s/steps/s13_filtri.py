@@ -180,6 +180,8 @@ class FiltriFinali(PipelineStep):
                 "senza_phylum": config.filt.remove_na_phylum,
                 "taxa_esclusi": list(config.filt.exclude_taxa),
                 "prevalenza": config.prev.apply,
+                # Frazione e conteggio sono nulli se omessi, con il filtro
+                # spento: lo script li riporta tali nel riepilogo.
                 "frazione": config.prev.min_fraction,
                 "minimo_conteggio": config.prev.min_count,
                 "letture_minime": config.qc.min_reads_final,

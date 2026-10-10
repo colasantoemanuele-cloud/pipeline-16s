@@ -188,7 +188,8 @@ ESCLUSI: Final[Mapping[str, str]] = {
     ),
     "amplicon16s.config.vista": (
         "restituisce i valori della configurazione senza trasformarli; un accesso "
-        "non dichiarato solleva un errore, non cambia un valore"
+        "non dichiarato, o la lettura di un condizionale omesso che non ha un "
+        "valore di assenza, solleva un errore, non cambia un valore"
     ),
     "amplicon16s.errors": "pacchetto, vuoto",
     "amplicon16s.errors.catalog": (

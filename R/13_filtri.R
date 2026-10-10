@@ -118,9 +118,17 @@ esegui_fase(function(parametri, cartella) {
   n_tenuti <- ncol(conteggi)
   # Arrotondato prima dell'intero superiore: in virgola mobile 0,07 x 100 vale
   # 7,000000000000001, e l'intero superiore sarebbe 8 invece di 7.
-  min_campioni <- ceiling(round(as.numeric(parametri$frazione) * n_tenuti, 9))
-  presenze <- rowSums(conteggi >= as.numeric(parametri$minimo_conteggio))
+  # Frazione e conteggio minimo possono arrivare nulli (parametri omessi
+  # perche' non pertinenti) solo con il filtro spento: allora nulla li usa, e
+  # il riepilogo ne riporta i campi nulli.
+  if (isTRUE(parametri$prevalenza) &&
+      (is.null(parametri$frazione) || is.null(parametri$minimo_conteggio))) {
+    stop("prev.apply e' vero ma prev.min_fraction o prev.min_count non sono dichiarati")
+  }
+  min_campioni <- if (is.null(parametri$frazione)) NULL else
+    ceiling(round(as.numeric(parametri$frazione) * n_tenuti, 9))
   if (isTRUE(parametri$prevalenza)) {
+    presenze <- rowSums(conteggi >= as.numeric(parametri$minimo_conteggio))
     via_prev <- presenze < min_campioni
     motivo_prev <- sprintf("presente con almeno %d letture in %d campioni su %d, meno di %d",
                            as.integer(parametri$minimo_conteggio), presenze, n_tenuti, min_campioni)
@@ -225,7 +233,8 @@ esegui_fase(function(parametri, cartella) {
         classi_finali = classe_di(colnames(conteggi))),
       prevalenza = list(applicata = isTRUE(parametri$prevalenza), denominatore = n_tenuti,
                         min_campioni = min_campioni,
-                        min_conteggio = as.integer(parametri$minimo_conteggio)),
+                        min_conteggio = if (is.null(parametri$minimo_conteggio)) NULL else
+                          as.integer(parametri$minimo_conteggio)),
       varianti = list(
         iniziali = length(varianti),
         rimosse = list(tassonomico = nrow(rimosse$tassonomico), prevalenza = nrow(rimosse$prevalenza),

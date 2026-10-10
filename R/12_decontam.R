@@ -44,6 +44,13 @@
 # la fase si ferma con E-S12-02 (lo dichiara la fase Python, dopo che questo
 # script ha scritto le misure).
 #
+# SENZA CONTROLLI NEGATIVI DICHIARATI soglia, min_negativi, modalita e
+# max_frazione possono arrivare nulli (parametri omessi perche' non
+# pertinenti): nessun calcolo li usa, perche' senza negativi non si stima
+# alcuna probabilita', e il riepilogo ne riporta il campo nullo. Un valore
+# nullo con controlli negativi nell'oggetto ferma lo script: la validazione
+# della configurazione lo esclude.
+#
 # DUE CONDIZIONI SENZA RISULTATO, ciascuna con il suo codice. Nessun campione
 # biologico con letture nell'oggetto integrato (E-S12-04): non c'e' nulla da
 # decontaminare ne' una frazione rimossa da giudicare, in nessuna delle due
@@ -58,11 +65,13 @@ for (f in c("io_json.R", "errors.R", "letture.R", "decontaminazione.R")) {
 
 esegui_fase(function(parametri, cartella) {
   richiedi_pacchetti(c("phyloseq", "decontam"))
-  soglia <- as.numeric(parametri$soglia)
+  o_nullo <- function(valore, converti) if (is.null(valore)) NULL else converti(valore)
+  soglia <- o_nullo(parametri$soglia, as.numeric)
   regola <- parametri$combinazione
-  min_negativi <- as.integer(parametri$min_negativi)
-  max_frazione <- as.numeric(parametri$max_frazione)
+  min_negativi <- o_nullo(parametri$min_negativi, as.integer)
+  max_frazione <- o_nullo(parametri$max_frazione, as.numeric)
   modalita <- parametri$modalita
+  per_piastra_dichiarata <- identical(modalita, "batch")
 
   ps <- readRDS(parametri$oggetto)
   dati <- methods::as(phyloseq::sample_data(ps), "data.frame")
@@ -79,6 +88,14 @@ esegui_fase(function(parametri, cartella) {
   negativo <- classe == "controllo_negativo"
   biologico <- classe == "biologico"
   positivo <- classe == "controllo_positivo"
+  omessi <- c("decontam.threshold", "decontam.min_blanks", "qc.max_frac_contaminant",
+              "decontam.mode")[c(is.null(soglia), is.null(min_negativi),
+                                 is.null(max_frazione), is.null(modalita))]
+  if (length(omessi) > 0L && any(negativo)) {
+    stop(sprintf("%s non dichiarat%s, ma l'oggetto integrato ha %d controlli negativi",
+                 paste(omessi, collapse = ", "), if (length(omessi) == 1L) "o" else "i",
+                 sum(negativo)))
+  }
   con_letture <- rowSums(conteggi) > 0
   nel_confronto <- (negativo | biologico) & con_letture
   if (!any(biologico & con_letture)) {
@@ -91,7 +108,7 @@ esegui_fase(function(parametri, cartella) {
   # Con meno di decontam.min_blanks negativi con letture in tutto il dataset la
   # prevalenza nei negativi non e' stimabile: nessuna probabilita', nessuna
   # variante rimossa, e la fase Python lo dichiara (E-S12-03).
-  insufficienti <- sum(nel_confronto & negativo) < min_negativi
+  insufficienti <- is.null(min_negativi) || sum(nel_confronto & negativo) < min_negativi
   righe <- which(nel_confronto)
   p_aggregata <- if (insufficienti) stats::setNames(rep(NA_real_, length(varianti)), varianti) else
     probabilita_prevalenza(conteggi[righe, , drop = FALSE], negativo[righe])
@@ -134,7 +151,7 @@ esegui_fase(function(parametri, cartella) {
     p_per_piastra <- stats::setNames(rep(NA_real_, length(varianti)), varianti)
   }
 
-  contaminante <- function(p) !is.na(p) & p < soglia
+  contaminante <- function(p) !is.na(p) & (if (is.null(soglia)) FALSE else p < soglia)
   c_aggregata <- contaminante(p_aggregata)
   c_per_piastra <- contaminante(p_per_piastra)
 
@@ -152,30 +169,33 @@ esegui_fase(function(parametri, cartella) {
   }
   m_aggregata <- misura(c_aggregata)
   m_per_piastra <- if (per_piastra_disponibile) misura(c_per_piastra) else NULL
-  dichiarata <- if (modalita == "batch" && !insufficienti) m_per_piastra else m_aggregata
+  dichiarata <- if (per_piastra_dichiarata && !insufficienti) m_per_piastra else m_aggregata
   if (is.null(dichiarata)) {
     # Non raggiungibile: con almeno un biologico con letture e i negativi
     # sufficienti la modalita' per piastra ha almeno un confronto.
     stop("decontam.mode e' batch ma nessuna piastra ha un confronto")
   }
   rimossa_bio <- dichiarata$letture_rimosse$biologico
-  entro <- !is.na(rimossa_bio) && rimossa_bio <= max_frazione
-  esito <- sprintf(
-    "%s: rimuove %.4f delle letture dei biologici, %s qc.max_frac_contaminant (%s)",
-    if (modalita == "batch") "per piastra" else "aggregata", rimossa_bio,
-    if (entro) "entro" else "oltre", format(max_frazione))
   if (insufficienti) {
     entro <- TRUE
+    esito <- sprintf("nessuna decontaminazione: %d controlli negativi con letture",
+                     sum(nel_confronto & negativo))
+    if (!is.null(min_negativi)) {
+      esito <- sprintf("%s, meno di decontam.min_blanks (%d)", esito, min_negativi)
+    }
+  } else {
+    entro <- !is.na(rimossa_bio) && rimossa_bio <= max_frazione
     esito <- sprintf(
-      "nessuna decontaminazione: %d controlli negativi con letture, meno di decontam.min_blanks (%d)",
-      sum(nel_confronto & negativo), min_negativi)
+      "%s: rimuove %.4f delle letture dei biologici, %s qc.max_frac_contaminant (%s)",
+      if (per_piastra_dichiarata) "per piastra" else "aggregata", rimossa_bio,
+      if (entro) "entro" else "oltre", format(max_frazione))
   }
   rimuovere <- if (!entro) rep(FALSE, length(varianti)) else
-    if (modalita == "batch") c_per_piastra else c_aggregata
+    if (per_piastra_dichiarata) c_per_piastra else c_aggregata
   if (length(varianti) > 0L && all(rimuovere)) {
     errore_catalogo("E-S12-05", sprintf(
       "la modalita' %s classifica contaminanti tutte le %d varianti, e qc.max_frac_contaminant (%s) lo ammette: l'oggetto decontaminato non avrebbe varianti",
-      if (modalita == "batch") "per piastra" else "aggregata", length(varianti),
+      if (per_piastra_dichiarata) "per piastra" else "aggregata", length(varianti),
       format(max_frazione)))
   }
 
@@ -248,7 +268,7 @@ esegui_fase(function(parametri, cartella) {
       principali_per_letture_biologiche = lapply(principali, function(i) list(
         asv_id = varianti[i], genere = if (is.na(genere[i])) NULL else genere[i],
         letture_biologici = lett(biologico)[[i]],
-        p = signif(if (modalita == "batch") p_per_piastra[[i]] else p_aggregata[[i]], 6)))
+        p = signif(if (per_piastra_dichiarata) p_per_piastra[[i]] else p_aggregata[[i]], 6)))
     ),
     file.path(cartella, "decontam_riepilogo.json")
   )

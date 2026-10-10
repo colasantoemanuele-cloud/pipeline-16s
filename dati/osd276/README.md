@@ -51,7 +51,7 @@ forward ricavate coincidono con gli R1 di OSDR: vale per 7 corse, non per tutte.
 I file di ENA cosi' come sono **non vanno dati alla pipeline**, che li respinge
 tutti e 15. La fase di validazione riconosce un file con le due letture di ogni
 coppia dalle intestazioni delle letture che ispeziona (le prime `qc.head_reads`,
-10.000 per difetto): in questi file ogni blocco e' piu' lungo (da 35.489 a 105.423
+10.000 nella configurazione di questa cartella): in questi file ogni blocco e' piu' lungo (da 35.489 a 105.423
 letture), e le letture ispezionate sono tutte dello stesso blocco. I 7 file che
 cominciano con il blocco `/2` sono respinti dalla validazione (`E-S0-07`: sole
 seconde letture); gli 8 che cominciano con il blocco `/1` sembrano, nelle letture
@@ -141,9 +141,10 @@ proprio (GUIDA.md): sulle letture e sulle tabelle di questa cartella rileva il m
 dei nomi, la colonna e l'espressione della chiave (`SRR[0-9]+`), la colonna del nome
 del campione e l'MD5 del riferimento, e propone la colonna del tipo con la sua sola
 etichetta; le scelte restano da scrivere, e quelle di questo dataset sono in
-`config_osd276.yaml`. Una proposta differisce dalla configurazione pubblicata: `init`
-propone `filter.truncLen: 151`, la lunghezza di tutte le letture, mentre qui si tronca
-a 150 per togliere l'ultima base. Con 151 la catena arriva in fondo ma l'oggetto finale
+`config_osd276.yaml`. Una proposta differisce dalla configurazione di questa cartella:
+`init` propone `filter.truncLen: 151`, la lunghezza di tutte le letture, mentre qui si
+tronca a 150 per togliere l'ultima base (una scelta di questo esempio, non degli autori
+dello studio). Con 151 la catena arriva in fondo ma l'oggetto finale
 e' un altro (990 varianti invece di 1.005): per riprodurre il risultato di questa
 cartella il troncamento e' 150. Il primer non e' nelle letture, e i metadati ne
 riportano solo il nome (515F-806R): la sequenza va scritta, o indicata con `--primer`.

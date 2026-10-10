@@ -16,6 +16,16 @@ Il file e' quindi una configurazione valida solo quando chi lo legge ha tolto
 il commento a cio' che accetta e ha scritto cio' che manca: nessun valore vi
 entra senza un suo gesto.
 
+Il gesto puo' essere uno solo per tutto il file: con ``--accetta-proposte``
+le proposte e i valori di partenza sono righe attive, ciascuna con la sua
+origine nel commento. Compaiono allora due specie in piu':
+
+* **partenza**: il valore di partenza di una scelta (il predefinito del
+  metodo, o un valore ricavato dai dati), accettato. Riga attiva;
+* **esplorativa**: una soglia di qualita' senza valore di partenza, al valore
+  che non ferma: il suo controllo e' spento. Serve alla prima esecuzione; poi
+  il sottocomando ``soglie`` propone il valore dalle misure. Riga attiva.
+
 Razionale sistemistico: le descrizioni dei parametri sono quelle dello schema
 (:mod:`amplicon16s.config.schema`), le stesse che ``schema`` esporta: una sola
 fonte per il modulo di un programma esterno, per questo file e per la guida.
@@ -42,11 +52,16 @@ class Specie(StrEnum):
     INDICATO = "INDICATO"
     PROPOSTO = "PROPOSTO"
     DA_SCEGLIERE = "DA SCEGLIERE"
+    CONDIZIONALE = "CONDIZIONALE"
+    PARTENZA = "PARTENZA"
+    ESPLORATIVA = "ESPLORATIVA"
 
     @property
     def attiva(self) -> bool:
-        """Vero se la riga entra nella configurazione senza altri gesti."""
-        return self in (Specie.RILEVATO, Specie.INDICATO)
+        """Vero se la riga entra nella configurazione senza altri gesti: un
+        fatto, un percorso indicato, o un valore accettato con l'opzione.
+        """
+        return self in (Specie.RILEVATO, Specie.INDICATO, Specie.PARTENZA, Specie.ESPLORATIVA)
 
 
 class _SenzaValore:
@@ -70,6 +85,13 @@ class Voce:
     origine: str
     #: Altre righe di commento: alternative, misure, che cosa guardare.
     note: tuple[str, ...] = ()
+    #: Vero per una proposta accettata con l'opzione: la riga e' attiva.
+    accettata: bool = False
+
+    @property
+    def attiva(self) -> bool:
+        """Vero se la riga del parametro e' scritta attiva."""
+        return self.specie.attiva or self.accettata
 
 
 #: I gruppi dello schema riservati alle analisi a valle, senza parametri: non
@@ -152,12 +174,38 @@ def _marcatori_dei_predefiniti() -> dict[str, str]:
     return {
         p["nome"]: (f"[STANDARD] {p['fonte']}" if p["specie"] == "standard"
                     else _MARCATORI[p["specie"]])
-        for p in schema()["parametri"] if not p["obbligatorio"]
+        for p in schema()["parametri"]
+        if not p["obbligatorio"] and p["specie"] != "condizionale"
     }
 
 
+def _guida_alle_specie(accettate: bool) -> list[str]:
+    """Le righe d'intestazione che spiegano i marcatori."""
+    if not accettate:
+        return [
+            "#   [PROPOSTO]      l'esito di un'euristica, che puo' sbagliare: riga in",
+            "#                   commento con il valore gia' scritto. Per accettarlo,",
+            "#                   togli il commento; altrimenti correggilo.",
+            "#   [DA SCEGLIERE]  una scelta di chi conduce l'analisi: riga in commento,",
+            "#                   con un valore di partenza e il suo motivo, o senza valore.",
+        ]
+    return [
+        "#   [PROPOSTO]      l'esito di un'euristica, che puo' sbagliare: riga attiva,",
+        "#                   accettata con --accetta-proposte. Controllala comunque.",
+        "#   [PARTENZA]      il valore di partenza di una scelta (il predefinito del",
+        "#                   metodo, o un valore ricavato dai dati), accettato con",
+        "#                   --accetta-proposte: riga attiva.",
+        "#   [ESPLORATIVA]   una soglia di qualita' al valore che non ferma: riga attiva,",
+        "#                   ma il controllo e' spento. Serve alla prima esecuzione;",
+        "#                   poi il sottocomando soglie propone il valore dalle misure.",
+        "#   [DA SCEGLIERE]  una scelta di chi conduce l'analisi, senza un valore di",
+        "#                   partenza: riga in commento. Va scritta.",
+    ]
+
+
 def testo_yaml(
-    voci: Mapping[str, Voce], intestazione: Sequence[str], non_indovinati: Sequence[str]
+    voci: Mapping[str, Voce], intestazione: Sequence[str], non_indovinati: Sequence[str],
+    accettate: bool = False,
 ) -> str:
     """Il testo del file di configurazione.
 
@@ -177,7 +225,9 @@ def testo_yaml(
     barra = "# " + "=" * (_LARGHEZZA - 2)
     righe = [
         barra,
-        "# Configurazione di partenza scritta da init: da rivedere prima di eseguire",
+        "# Configurazione di partenza scritta da init: da rivedere prima di eseguire"
+        if not accettate else
+        "# Configurazione di partenza scritta da init con --accetta-proposte",
         barra,
         "#",
         *[f"# {r}" for r in intestazione],
@@ -185,18 +235,33 @@ def testo_yaml(
         "# Ogni riga dice da dove viene il suo valore:",
         "#   [RILEVATO]      un fatto verificato sui file: riga attiva.",
         "#   [INDICATO]      un percorso dato sulla riga di comando: riga attiva.",
-        "#   [PROPOSTO]      l'esito di un'euristica, che puo' sbagliare: riga in",
-        "#                   commento con il valore gia' scritto. Per accettarlo,",
-        "#                   togli il commento; altrimenti correggilo.",
-        "#   [DA SCEGLIERE]  una scelta di chi conduce l'analisi: riga in commento,",
-        "#                   con un valore di partenza e il suo motivo, o senza valore.",
+        *_guida_alle_specie(accettate),
+        "#   [CONDIZIONALE]  un parametro che serve solo se una condizione e' vera, e",
+        "#                   con i valori di questo file non lo e': riga in commento,",
+        "#                   senza valore. Non va scelto; validate lo chiede se la",
+        "#                   condizione diventa vera.",
         "# I parametri con un predefinito (standard del metodo, una sola forma,",
         "# dello strumento) sono in commento con quello: si possono lasciare cosi'.",
         "# Le spiegazioni cominciano con ##, le righe dei parametri in commento con #.",
         "#",
         f"# Rilevati: {len(per_specie[Specie.RILEVATO])}; indicati: "
         f"{len(per_specie[Specie.INDICATO])}; proposti: {len(per_specie[Specie.PROPOSTO])}; "
-        f"da scegliere: {len(da_scegliere)}.",
+        f"da scegliere: {len(da_scegliere)}; non richiesti: "
+        f"{len(per_specie[Specie.CONDIZIONALE])}.",
+        *([
+            "#",
+            f"# Accettati con --accetta-proposte: {len(per_specie[Specie.PROPOSTO])} proposti, "
+            f"{len(per_specie[Specie.PARTENZA])} valori di partenza,",
+            f"# {len(per_specie[Specie.ESPLORATIVA])} soglie esplorative, al valore che non ferma:",
+            *_commento(", ".join(v.chiave for v in per_specie[Specie.ESPLORATIVA]) or "nessuna",
+                       "", "#"),
+            "#",
+            "# Valori di partenza che dichiarano un'assenza (nullo o elenco vuoto): sono",
+            "# validi, ma se lo studio ha quell'informazione va scritta.",
+            *_commento(", ".join(
+                v.chiave for v in per_specie[Specie.PARTENZA] if v.valore in (None, [])
+            ) or "nessuno", "", "#"),
+        ] if accettate else []),
         "#",
         "# Finche' una riga [PROPOSTO] o [DA SCEGLIERE] resta in commento il parametro",
         "# non e' dichiarato: validate elenca quelli che mancano (E-G15-10).",
@@ -205,6 +270,12 @@ def testo_yaml(
         *[riga for testo in (
             ", ".join(v.chiave for v in da_scegliere) or "nulla",)
           for riga in _commento(testo, "", "#")],
+    ]
+    righe += [
+        "#",
+        "# Non richiesti con le proposte attuali (condizionali):",
+        *_commento(", ".join(v.chiave for v in per_specie[Specie.CONDIZIONALE]) or "nessuno",
+                   "", "#"),
     ]
     if non_indovinati:
         righe += ["#", "# Che cosa init non stabilisce:"]
@@ -240,6 +311,6 @@ def testo_yaml(
             for nota in voce.note:
                 righe += _commento(nota)
             scritto = "" if voce.valore is SENZA_VALORE else f" {valore_yaml(voce.valore)}"
-            righe.append(f"  {'' if voce.specie.attiva else '# '}{nome}:{scritto}")
+            righe.append(f"  {'' if voce.attiva else '# '}{nome}:{scritto}")
         righe.append("")
     return "\n".join(righe)

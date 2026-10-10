@@ -22,6 +22,9 @@
 # Parametri: oggetto (ps_integrato.rds di S10), colonna_cellule (il nome nell'oggetto
 # della colonna dei livelli, o null) e motivo_colonna, rango, taxon, sensibilita,
 # min_r2, min_positivi, stadio (katharoseq.read_stage), modo (qc.min_reads_mode).
+# rango, min_r2 e min_positivi servono solo a valutare i controlli positivi: una
+# configurazione che non ne dichiara li passa nulli, e senza controlli positivi
+# nell'inventario nessun calcolo li usa.
 #
 # La curva, la bonta', l'AIC e la conformita' sono in R/lib/katharoseq.R.
 #
@@ -103,7 +106,9 @@ numero <- function(x, cifre = 6L) {
 
 esegui_fase(function(parametri, cartella) {
   richiedi_pacchetti("phyloseq")
-  sensibilita <- as.numeric(parametri$sensibilita)
+  # Nulla se omessa perche' senza controlli positivi dichiarati: allora
+  # nessuna curva si adatta, e soglia.json ne riporta il campo nullo.
+  sensibilita <- if (is.null(parametri$sensibilita)) NULL else as.numeric(parametri$sensibilita)
   min_r2 <- as.numeric(parametri$min_r2)
   min_positivi <- as.integer(parametri$min_positivi)
   senza_soglia <- identical(parametri$modo, "none")
@@ -125,6 +130,10 @@ esegui_fase(function(parametri, cartella) {
   motivo_globale <- character()
   rango <- parametri$rango
   positivi <- which(dati$classe == "controllo_positivo")
+  if (is.null(sensibilita) && length(positivi) > 0L) {
+    stop(sprintf(paste0("katharoseq.target_sensitivity non dichiarato, ma l'oggetto ",
+                        "integrato ha %d controlli positivi"), length(positivi)))
+  }
   if (length(positivi) == 0L) {
     bersaglio <- rep(FALSE, nrow(tax))
     motivo_globale <- "nessun controllo positivo nell'inventario"

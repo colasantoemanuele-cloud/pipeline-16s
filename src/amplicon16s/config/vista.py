@@ -15,6 +15,13 @@ processori usare, quanti campioni elaborare insieme, dove scrivere, se
 conservare le letture filtrate, se e quante volte ritentare. Non entrano
 nell'impronta di nessuna fase, e dichiararli sarebbe un errore.
 
+Un parametro condizionale omesso perche' non pertinente non ha un valore: la
+vista solleva :class:`CondizionaleNonPertinente` se una fase lo legge senza
+aver prima verificato la condizione che lo rende pertinente. Fanno eccezione i
+condizionali che una fase riporta in un riepilogo
+(``defaults.CONDIZIONALI_RIPORTATI``): omessi si leggono nulli, perche' la fase
+li scrive tali, e sono gli script di calcolo a fermarsi se un nullo servisse.
+
 ``ParametroNonDichiarato`` non deriva da ``AttributeError`` di proposito: un
 ``getattr(vista, nome, predefinito)`` o un ``hasattr`` lo inghiottirebbero, e
 la dipendenza dimenticata tornerebbe silenziosa.
@@ -26,10 +33,13 @@ from collections.abc import Iterable
 from dataclasses import fields
 from typing import Any
 
+from amplicon16s.config.defaults import CONDIZIONALI_SENZA_VALORE, testo_condizione
 from amplicon16s.config.resolve import PARAMETRI_SENZA_EFFETTO, ConfigRisolta, Derivati
 from amplicon16s.config.schema import Config
 
-__all__ = ["ParametroNonDichiarato", "VistaConfig", "risolta_ristretta"]
+__all__ = [
+    "CondizionaleNonPertinente", "ParametroNonDichiarato", "VistaConfig", "risolta_ristretta",
+]
 
 
 class ParametroNonDichiarato(LookupError):
@@ -41,6 +51,15 @@ class ParametroNonDichiarato(LookupError):
     """
 
 
+class CondizionaleNonPertinente(LookupError):
+    """Una fase ha letto un condizionale omesso senza guardarne la condizione.
+
+    Un condizionale non pertinente non ha un valore: restituire un nullo
+    lascerebbe passare in silenzio una lettura che la fase non dovrebbe fare.
+    Come ``ParametroNonDichiarato``, non deriva da ``AttributeError``.
+    """
+
+
 def _ammessi(parametri: Iterable[str]) -> tuple[frozenset[str], frozenset[str]]:
     """Gruppi dichiarati per intero, e chiavi ``gruppo.parametro`` ammesse una a una."""
     gruppi = {p for p in parametri if "." not in p}
@@ -49,9 +68,10 @@ def _ammessi(parametri: Iterable[str]) -> tuple[frozenset[str], frozenset[str]]:
 
 
 class _VistaGruppo:
-    """Un gruppo di parametri di cui la fase ha dichiarato solo alcune chiavi."""
+    """Un gruppo di parametri visto da una fase: le sole chiavi dichiarate, o
+    tutte (``chiavi`` nullo) se la fase ha dichiarato il gruppo per intero."""
 
-    def __init__(self, nome: str, gruppo: Any, chiavi: frozenset[str]) -> None:
+    def __init__(self, nome: str, gruppo: Any, chiavi: frozenset[str] | None) -> None:
         object.__setattr__(self, "_nome", nome)
         object.__setattr__(self, "_gruppo", gruppo)
         object.__setattr__(self, "_chiavi", chiavi)
@@ -59,11 +79,18 @@ class _VistaGruppo:
     def __getattr__(self, chiave: str) -> Any:
         if chiave.startswith("_"):
             raise AttributeError(chiave)
-        if chiave not in self._chiavi:
+        if self._chiavi is not None and chiave not in self._chiavi:
             raise ParametroNonDichiarato(
                 f"{self._nome}.{chiave} non e' fra i parametri dichiarati dalla fase"
             )
-        return getattr(self._gruppo, chiave)
+        valore = getattr(self._gruppo, chiave)
+        nome = f"{self._nome}.{chiave}"
+        if valore is None and nome in CONDIZIONALI_SENZA_VALORE:
+            raise CondizionaleNonPertinente(
+                f"{nome} non e' dichiarato perche' non pertinente: si legge solo dopo "
+                f"aver verificato che {testo_condizione(nome)}"
+            )
+        return valore
 
     def __setattr__(self, nome: str, valore: Any) -> None:
         raise AttributeError("la configurazione di una fase non si modifica")
@@ -89,7 +116,9 @@ class VistaConfig:
             )
         gruppo = getattr(self._config, nome)
         if nome in self._gruppi:
-            return gruppo
+            # Dichiarato per intero: ogni chiave si legge, sotto la sola guardia
+            # dei condizionali senza valore.
+            return _VistaGruppo(nome, gruppo, None)
         # Anche un gruppo non dichiarato si attraversa: l'errore arriva sulla
         # chiave letta, e ne porta il nome completo.
         chiavi = frozenset(c.split(".", 1)[1] for c in self._chiavi if c.split(".", 1)[0] == nome)

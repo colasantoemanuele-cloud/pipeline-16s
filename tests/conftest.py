@@ -292,8 +292,8 @@ def scelte_del_formato(formato: Formato = FORMATO) -> dict[str, dict[str, Any]]:
 
 def dichiarazione_minima(config: Config) -> dict[str, Any]:
     """La configurazione piu' breve che la pipeline accetta: i percorsi, il
-    riferimento e i parametri obbligatori, con i valori che hanno in
-    ``config``. Tutto il resto resta al predefinito.
+    riferimento e i parametri obbligatori e condizionali, con i valori che
+    hanno in ``config``. Tutto il resto resta al predefinito.
 
     Serve ai test che scrivono un file di configurazione e lo passano alla riga
     di comando: senza i parametri obbligatori G15 lo respingerebbe.
@@ -305,8 +305,12 @@ def dichiarazione_minima(config: Config) -> dict[str, Any]:
         "tax": {n: completa["tax"][n] for n in ("ref_fasta", "ref_md5")},
         "run": {"container": completa["run"]["container"], "threads": 1},
     }
-    for chiave in defaults.OBBLIGATORI:
+    # I condizionali si dichiarano con il valore che hanno: quelli senza valore
+    # (non pertinenti nello scenario) restano fuori, come in un file scritto a mano.
+    for chiave in (*defaults.OBBLIGATORI, *defaults.CONDIZIONALI):
         gruppo, nome = chiave.split(".")
+        if chiave in defaults.CONDIZIONALI_SENZA_VALORE and completa[gruppo][nome] is None:
+            continue
         dati.setdefault(gruppo, {})[nome] = completa[gruppo][nome]
     return dati
 

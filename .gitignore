@@ -75,6 +75,9 @@ htmlcov/
 # i file di ENA e le letture forward che se ne ricavano.
 dati/osd276/ena/
 dati/osd276/fastq/
+# Le letture forward degli altri dataset, recuperate dai loro scarica_letture.py.
+dati/osd170/fastq/
+dati/comunita_nota/fastq/
 
 # --- Documenti di lavoro -----------------------------------------------------
 # Il repository contiene lo strumento e le istruzioni per usarlo: i documenti

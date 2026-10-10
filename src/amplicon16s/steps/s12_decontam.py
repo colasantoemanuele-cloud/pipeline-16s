@@ -38,6 +38,12 @@ stimabile: nessuna variante viene rimossa, e la fase lo dichiara con
 ``E-S12-03``. L'oggetto prosegue con i suoi contaminanti: e' un risultato non
 decontaminato, e il manifesto lo dice.
 
+**Senza controlli negativi dichiarati** (``ctrl.blank_values`` e
+``ctrl.blank_override_values`` vuoti) soglia, negativi minimi, modalita' e
+frazione massima sono condizionali e si possono omettere: nessun calcolo li
+usa. Dichiarati, il riepilogo ne riporta il valore; omessi, i loro campi
+valgono nullo. L'esito e' lo stesso: nessuna decontaminazione, ``E-S12-03``.
+
 **La rimozione.** I contaminanti della modalita' dichiarata escono dall'oggetto in
 tutti i campioni; le altre varianti tengono il loro identificativo, senza
 rinumerazione. L'oggetto ripulito e' ``ps_decontaminato.rds``.
@@ -109,8 +115,9 @@ class Decontaminazione(PipelineStep):
             (albero.cartella(self.cartella) / NOME_RIEPILOGO).read_text(encoding="utf-8")
         )
         # Senza abbastanza negativi non c'e' stata decontaminazione: l'oggetto
-        # passa a S13 con i suoi contaminanti, e va detto.
-        if riepilogo["confronto"]["negativi"] < decontam.min_blanks:
+        # passa a S13 con i suoi contaminanti, e va detto. Il minimo e' nullo
+        # se omesso, cioe' senza controlli negativi dichiarati.
+        if decontam.min_blanks is None or riepilogo["confronto"]["negativi"] < decontam.min_blanks:
             contesto.degrada("E-S12-03", riepilogo["esito"],
                              negativi=riepilogo["confronto"]["negativi"])
         if not riepilogo["entro_max_frazione"]:

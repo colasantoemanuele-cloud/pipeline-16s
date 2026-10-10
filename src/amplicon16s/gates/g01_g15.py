@@ -344,8 +344,9 @@ def controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
     violazioni: list[Violazione] = []
 
     # E-G15-02 : lo schema ammette [0, 1]; agli estremi la soglia e' degenere.
+    # Nulla, la soglia e' un condizionale omesso: non c'e' nulla da giudicare.
     soglia = config.decontam.threshold
-    if not (0.0 < soglia < 1.0):
+    if soglia is not None and not (0.0 < soglia < 1.0):
         violazioni.append(
             Violazione(
                 "E-G15-02",
@@ -1535,9 +1536,12 @@ def _g08_lotto_coerente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
         if campione.classe is ClasseCampione.CONTROLLO_NEGATIVO:
             per_piastra[campione.piastra] += 1
 
+    # Il minimo e' un condizionale: nullo se omesso, e allora il dataset non
+    # dichiara controlli negativi e ogni piastra ne ha zero.
+    minimo = config.decontam.min_blanks
     for piastra in sorted(per_piastra, key=lambda p: (len(p), p)):
         negativi = per_piastra[piastra]
-        if negativi < config.decontam.min_blanks:
+        if minimo is None or negativi < minimo:
             avvisi.append(
                 Avviso(
                     # Codice distinto da quello delle violazioni di G08: questo
@@ -1545,9 +1549,10 @@ def _g08_lotto_coerente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
                     # significherebbe condividere la categoria di gestione, e
                     # una sola delle due puo' essere giusta.
                     "E-S0-15",
-                    f"la piastra {piastra} ha {negativi} controlli negativi, meno dei "
-                    f"{config.decontam.min_blanks} di decontam.min_blanks: la "
-                    f"decontaminazione su questa piastra sara' meno fondata",
+                    f"la piastra {piastra} ha {negativi} controlli negativi"
+                    + ("" if minimo is None else
+                       f", meno dei {minimo} di decontam.min_blanks")
+                    + ": la decontaminazione su questa piastra sara' meno fondata",
                 )
             )
     return violazioni, avvisi
@@ -1574,7 +1579,9 @@ def _g11_classi_e_controlli(contesto: Contesto) -> tuple[list[Violazione], list[
     minimo = contesto.config.decontam.min_blanks
     avvisi: list[Avviso] = []
     negativi = conteggi[ClasseCampione.CONTROLLO_NEGATIVO]
-    if negativi < minimo:
+    # Il minimo e' un condizionale: nullo se omesso, e allora il dataset non
+    # dichiara controlli negativi.
+    if minimo is None or negativi < minimo:
         dichiarati = (
             "ctrl.column e' nullo" if contesto.config.ctrl.column is None
             else "ctrl.blank_values e' vuoto" if not contesto.config.ctrl.blank_values
@@ -1584,9 +1591,9 @@ def _g11_classi_e_controlli(contesto: Contesto) -> tuple[list[Violazione], list[
         avvisi.append(
             Avviso(
                 "E-S0-17",
-                f"il dataset ha {negativi} controlli negativi, meno dei {minimo} di "
-                f"decontam.min_blanks ({dichiarati}): i contaminanti non sono "
-                f"stimabili dai controlli",
+                f"il dataset ha {negativi} controlli negativi"
+                + ("" if minimo is None else f", meno dei {minimo} di decontam.min_blanks")
+                + f" ({dichiarati}): i contaminanti non sono stimabili dai controlli",
             )
         )
     if conteggi[ClasseCampione.CONTROLLO_POSITIVO] == 0:

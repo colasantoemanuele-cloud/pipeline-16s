@@ -30,8 +30,9 @@ import os
 import statistics
 import tempfile
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Final
 
@@ -45,6 +46,7 @@ from amplicon16s.io_layer.artifacts import AlberoOutput, Fase, scrivi_atomico
 from amplicon16s.io_layer.reads import espandi_iupac
 from amplicon16s.metadata.models import ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
+from amplicon16s.soglie.tabella import SOGLIE, non_eseguito, valore_esplorativo
 from amplicon16s.report.builder import QUALITA_MINIMA_SUGGERITA, troncamento_suggerito
 from amplicon16s.steps.s01_profile import (
     NOME_LUNGHEZZE,
@@ -54,7 +56,7 @@ from amplicon16s.steps.s01_profile import (
     QUALITA_RAGGRUPPATE,
 )
 
-__all__ = ["USCITA_RIFIUTO", "Rifiuto", "aggiungi_argomenti", "esegui", "prepara"]
+__all__ = ["USCITA_RIFIUTO", "Rifiuto", "accetta", "aggiungi_argomenti", "esegui", "prepara"]
 
 USCITA_RIFIUTO: Final = 3
 
@@ -125,6 +127,10 @@ def aggiungi_argomenti(parser: argparse.ArgumentParser) -> None:
                              "troncamento ne' di funzione d'errore")
     parser.add_argument("--threads", type=_intero_positivo, metavar="N",
                         help="processi per l'ispezione (senza: quelli utilizzabili)")
+    parser.add_argument("--accetta-proposte", action="store_true",
+                        help="scrive come righe attive le proposte, i valori di partenza e, "
+                             "per le soglie di qualita' senza partenza, il valore che non "
+                             "ferma: restano da scrivere le sole scelte senza valore")
 
 
 # --------------------------------------------------------------------------- #
@@ -816,8 +822,9 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
     metti("decontam.mode", SCELTA, "aggregate",
           "partenza: tutti i biologici contro tutti i negativi; l'altra modalita' si "
           "calcola comunque come diagnostica")
+    if voci["ctrl.blank_values"].valore:
+        non_indovinati.append("decontam.threshold: la soglia di decontaminazione.")
     non_indovinati += [
-        "decontam.threshold: la soglia di decontaminazione.",
         "Ogni scelta legata alla biomassa o al disegno dello studio: le soglie di qualita' "
         "(qc.*), la prevalenza (prev.*), i taxa da escludere (filt.*), la fedelta' della "
         "calibrazione, la riclassificazione di campioni in controlli negativi.",
@@ -854,8 +861,22 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
         metti(parametro, SCELTA, SENZA_VALORE,
               f"soglia di qualita' da fissare sui propri dati; misura da guardare: {misura}")
 
-    mancanti = [c for c in defaults.OBBLIGATORI if c not in voci]
+    mancanti = [c for c in (*defaults.OBBLIGATORI, *defaults.CONDIZIONALI) if c not in voci]
     assert not mancanti, mancanti
+
+    # I condizionali la cui condizione e' falsa con i valori rilevati, proposti
+    # o di partenza: non si chiede di sceglierli. Un parametro senza valore
+    # (da scegliere, o gia' non richiesto) vale come la sua assenza, e la
+    # condizione che ne dipende e' falsa: validate chiedera' il condizionale se
+    # l'utente la rende vera. L'ordine dell'elenco mette prima le etichette, da
+    # cui dipendono i parametri dei controlli positivi.
+    for chiave in defaults.CONDIZIONALI:
+        valori = {c: v.valore for c, v in voci.items() if v.valore is not SENZA_VALORE}
+        if not defaults.condizione_vera(chiave, valori):
+            voci[chiave] = Voce(
+                chiave, Specie.CONDIZIONALE, SENZA_VALORE,
+                f"serve solo se {defaults.testo_condizione(chiave)}: con i valori di "
+                "questo file non e' richiesto e si puo' lasciare in commento")
 
     intestazione = [
         f"Letture: {len(file)} file in {cartella}, ispezionate {quante} di ogni file.",
@@ -863,6 +884,45 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
         + (f"; file del lotto {lotto.name}" if lotto else "; nessun file del lotto") + ".",
     ]
     return voci, intestazione, non_indovinati, note
+
+
+def accetta(voci: Mapping[str, Voce]) -> dict[str, Voce]:
+    """Le voci con proposte e valori di partenza accettati in blocco.
+
+    E' il gesto di ``--accetta-proposte``: ogni proposta diventa una riga
+    attiva, ogni scelta con un valore di partenza lo prende (``[PARTENZA]``), e
+    ogni soglia che ferma o avvisa rimasta senza valore prende quello che non
+    ferma (``[ESPLORATIVA]``), se ne ha uno. Nessun valore e' inventato: una
+    scelta senza valore di partenza resta da scegliere, un condizionale non
+    pertinente resta omesso.
+    """
+    accettate = {}
+    valori = {c: x.valore for c, x in voci.items() if x.valore is not SENZA_VALORE}
+    esplorative = {s.chiave: s for s in SOGLIE}
+    for chiave, voce in voci.items():
+        if voce.specie is PROPOSTO:
+            voce = replace(voce, accettata=True,
+                           origine=voce.origine + "; accettato con --accetta-proposte")
+        elif voce.specie is SCELTA and voce.valore is not SENZA_VALORE:
+            voce = replace(voce, specie=Specie.PARTENZA,
+                           origine=voce.origine.removeprefix("partenza: ")
+                           + "; accettato con --accetta-proposte")
+        elif voce.specie is SCELTA and chiave in esplorative:
+            soglia = esplorative[chiave]
+            valore = valore_esplorativo(soglia)
+            if valore is not None:
+                senza_effetto = non_eseguito(soglia, {**valori, chiave: valore})
+                voce = replace(
+                    voce, specie=Specie.ESPLORATIVA, valore=valore,
+                    origine=(
+                        "il valore che non ferma: il controllo "
+                        f"({', '.join(soglia.codici)}) e' spento. Serve alla prima "
+                        "esecuzione; poi il sottocomando soglie propone il valore dalla "
+                        "misura" if senza_effetto is None else
+                        f"il valore che non ferma; {senza_effetto}"),
+                    note=(voce.origine, *voce.note))
+        accettate[chiave] = voce
+    return accettate
 
 
 def _chiave_del_file(chiave: r.Chiave, nome: str) -> str | None:
@@ -917,7 +977,10 @@ def esegui(args: argparse.Namespace, stampa: Callable[[str], None] = print) -> i
     except Rifiuto as rifiuto:
         stampa(f"init: {rifiuto}. Nulla e' stato scritto")
         return USCITA_RIFIUTO
-    scrivi_atomico(uscita, testo_yaml(voci, intestazione, non_indovinati) + "\n")
+    accettate = bool(getattr(args, "accetta_proposte", False))
+    if accettate:
+        voci = accetta(voci)
+    scrivi_atomico(uscita, testo_yaml(voci, intestazione, non_indovinati, accettate) + "\n")
 
     da_schema = [
         f"{gruppo}.{nome}" for gruppo, campo in Config.model_fields.items()
@@ -930,17 +993,36 @@ def esegui(args: argparse.Namespace, stampa: Callable[[str], None] = print) -> i
         stampa(f"  {riga}")
     stampa(f"  rilevati: {len(per_specie[Specie.RILEVATO])}, indicati: "
            f"{len(per_specie[Specie.INDICATO])}, proposti: {len(per_specie[Specie.PROPOSTO])}, "
-           f"da scegliere: {len(per_specie[Specie.DA_SCEGLIERE])}")
+           f"da scegliere: {len(per_specie[Specie.DA_SCEGLIERE])}, "
+           f"non richiesti: {len(per_specie[Specie.CONDIZIONALE])}")
     stampa("Rilevati sui file (righe attive):")
     for voce in per_specie[Specie.RILEVATO]:
         stampa(f"  {voce.chiave}: {_breve(voce.valore)}")
-    stampa("Proposti (righe in commento: togli il commento per accettare):")
+    stampa("Proposti (righe attive, accettati con --accetta-proposte: controllali):"
+           if accettate else
+           "Proposti (righe in commento: togli il commento per accettare):")
     for voce in per_specie[Specie.PROPOSTO]:
         stampa(f"  {voce.chiave}: {_breve(voce.valore)}")
-    stampa("Da scegliere:")
+    if accettate:
+        stampa("Valori di partenza accettati (righe attive):")
+        for voce in per_specie[Specie.PARTENZA]:
+            stampa(f"  {voce.chiave}: {_breve(voce.valore)}")
+        assenze = [x.chiave for x in per_specie[Specie.PARTENZA] if x.valore in (None, [])]
+        if assenze:
+            stampa("  Fra questi dichiarano un'assenza (nullo o elenco vuoto), da rivedere se "
+                   "lo studio ha quell'informazione: " + ", ".join(assenze))
+        stampa("Soglie esplorative, al valore che non ferma (righe attive):")
+        for voce in per_specie[Specie.ESPLORATIVA]:
+            stampa(f"  {voce.chiave}: {_breve(voce.valore)}")
+    stampa("Restano da scegliere (righe in commento, da scrivere):" if accettate else
+           "Da scegliere:")
     for voce in per_specie[Specie.DA_SCEGLIERE]:
         partenza = "" if voce.valore is SENZA_VALORE else f" (partenza: {_breve(voce.valore)})"
         stampa(f"  {voce.chiave}{partenza}")
+    if per_specie[Specie.CONDIZIONALE]:
+        stampa("Non richiesti con le proposte attuali (condizionali):")
+        for voce in per_specie[Specie.CONDIZIONALE]:
+            stampa(f"  {voce.chiave}: {voce.origine.split(':')[0]}")
     if non_indovinati:
         stampa("Che cosa init non stabilisce:")
         for testo in non_indovinati:
@@ -949,6 +1031,9 @@ def esegui(args: argparse.Namespace, stampa: Callable[[str], None] = print) -> i
         stampa(f"Nota: {testo}")
     stampa(f"Poi: rivedi {uscita}, e lancia validate: elenca i parametri ancora da "
            "dichiarare (E-G15-10).")
+    if accettate:
+        stampa("Dopo la prima esecuzione, il sottocomando soglie propone dalle misure le "
+               "soglie ora esplorative.")
     return 0
 
 

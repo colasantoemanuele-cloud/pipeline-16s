@@ -19,10 +19,15 @@ in uno di questi casi, e ogni costante dice in quale ricade:
 Tutti gli altri parametri dipendono dai dati o dallo studio (regione
 amplificata e primer, lunghezza delle letture, biomassa, disegno dei controlli,
 soglie di qualità) e sono **obbligatori** (:data:`OBBLIGATORI`): non hanno
-alcun predefinito, vanno dichiarati tutti nella configurazione, anche vuoti o
-nulli quando non sono pertinenti, e G15 non parte finché ne manca uno. Nel
-dubbio un parametro è obbligatorio: ereditare in silenzio una scelta fatta per
-un altro dataset è il rischio che questa regola toglie.
+alcun predefinito, vanno dichiarati tutti nella configurazione, e G15 non parte
+finché ne manca uno. Nel dubbio un parametro è obbligatorio: ereditare in
+silenzio una scelta fatta per un altro dataset è il rischio che questa regola
+toglie.
+
+Alcuni di essi servono solo a una parte dell'analisi (i controlli positivi e
+negativi, la filogenesi, il filtro di prevalenza): sono **condizionali**
+(:data:`CONDIZIONALI`), obbligatori quando la condizione che li rende
+pertinenti è vera e omissibili altrimenti.
 """
 
 from __future__ import annotations
@@ -174,11 +179,9 @@ RUN_STRICT_PROVENANCE: Final = False
 # --------------------------------------------------------------------------- #
 
 #: I parametri che dipendono dai dati o dallo studio e non hanno predefinito.
-#: Vanno dichiarati tutti nel file di configurazione; quelli non pertinenti al
-#: dataset si dichiarano nulli o vuoti dove lo schema lo ammette (per esempio
-#: le etichette dei controlli positivi in un dataset che non ne ha). G15
-#: respinge la configurazione elencando quelli che mancano (E-G15-10). Che
-#: cosa significa ciascuno e come si sceglie e' in config/config.example.yaml.
+#: Vanno dichiarati tutti nel file di configurazione. G15 respinge la
+#: configurazione elencando quelli che mancano (E-G15-10). Che cosa significa
+#: ciascuno e come si sceglie e' in config/config.example.yaml.
 OBBLIGATORI: Final[tuple[str, ...]] = (
     # come si riconoscono file e campioni
     "io.fastq_glob",
@@ -187,7 +190,6 @@ OBBLIGATORI: Final[tuple[str, ...]] = (
     "meta.accession_column",
     # il formato dei metadati
     "meta.derive_module",
-    "meta.module_regex",
     "meta.module_column",
     "meta.non_surface_positions",
     "meta.batch_key_column",
@@ -195,11 +197,7 @@ OBBLIGATORI: Final[tuple[str, ...]] = (
     "err.batch_column",
     "decontam.batch_column",
     "ctrl.column",
-    "ctrl.blank_values",
-    "ctrl.positive_values",
-    "ctrl.biological_values",
     "ctrl.blank_override_column",
-    "ctrl.blank_override_values",
     "katharoseq.cell_count_column",
     "out.study_columns",
     "out.batch_columns",
@@ -219,21 +217,7 @@ OBBLIGATORI: Final[tuple[str, ...]] = (
     "filt.remove_na_phylum",
     "filt.exclude_taxa",
     "phylo.enabled",
-    "phylo.max_seqs",
-    "prev.min_fraction",
-    "prev.min_count",
     "prev.apply",
-    # i controlli sperimentali
-    "ctrl.min_positives",
-    "ctrl.min_positive_pass_frac",
-    "ctrl.positive_gate",
-    "katharoseq.target_taxon",
-    "katharoseq.collapse_rank",
-    "katharoseq.target_sensitivity",
-    "katharoseq.min_r2",
-    "decontam.threshold",
-    "decontam.min_blanks",
-    "decontam.mode",
     # le soglie di qualita'
     "qc.head_reads",
     "qc.max_primer_hit_frac",
@@ -246,7 +230,129 @@ OBBLIGATORI: Final[tuple[str, ...]] = (
     "qc.stop_frac_chimeric",
     "qc.min_frac_phylum",
     "qc.min_reads_mode",
-    "qc.max_frac_contaminant",
     "qc.min_reads_final",
     "qc.min_frac_reads_retained",
 )
+
+
+# --------------------------------------------------------------------------- #
+# Parametri condizionali: obbligatori solo se pertinenti                       #
+# --------------------------------------------------------------------------- #
+
+#: Le forme di una condizione: il parametro che la decide non e' nullo, non e'
+#: un elenco vuoto, oppure e' vero.
+NON_NULLO: Final = "non_nullo"
+NON_VUOTO: Final = "non_vuoto"
+VERO: Final = "vero"
+
+#: La condizione dei parametri della decontaminazione: il dataset dichiara
+#: controlli negativi, con le etichette o con la riclassificazione.
+_CON_NEGATIVI: Final = (
+    ("ctrl.blank_values", NON_VUOTO),
+    ("ctrl.blank_override_values", NON_VUOTO),
+)
+
+#: I parametri obbligatori solo quando la condizione e' vera: chiave -> le
+#: alternative della condizione, ciascuna (parametro che la decide, forma). Ne
+#: basta una vera. Con la condizione falsa nessun calcolo delle fasi usa il
+#: valore, e il parametro si puo' omettere; dichiarato comunque, e' validato
+#: come ogni valore (tipo, intervallo, coerenza con gli altri parametri) e non
+#: ha effetto sui risultati.
+CONDIZIONALI: Final[Mapping[str, tuple[tuple[str, str], ...]]] = MappingProxyType({
+    # senza la colonna del tipo di campione ogni campione e' biologico
+    "ctrl.blank_values": (("ctrl.column", NON_NULLO),),
+    "ctrl.positive_values": (("ctrl.column", NON_NULLO),),
+    "ctrl.biological_values": (("ctrl.column", NON_NULLO),),
+    # la riclassificazione in controllo negativo
+    "ctrl.blank_override_values": (("ctrl.blank_override_column", NON_NULLO),),
+    # la calibrazione e la conformita' dei controlli positivi
+    "ctrl.min_positives": (("ctrl.positive_values", NON_VUOTO),),
+    "ctrl.min_positive_pass_frac": (("ctrl.positive_values", NON_VUOTO),),
+    "ctrl.positive_gate": (("ctrl.positive_values", NON_VUOTO),),
+    "katharoseq.target_taxon": (("ctrl.positive_values", NON_VUOTO),),
+    "katharoseq.collapse_rank": (("ctrl.positive_values", NON_VUOTO),),
+    "katharoseq.min_r2": (("ctrl.positive_values", NON_VUOTO),),
+    "katharoseq.target_sensitivity": (("ctrl.positive_values", NON_VUOTO),),
+    # la decontaminazione: un campione e' un controllo negativo per la sua
+    # etichetta o per la regola di riclassificazione, e non c'e' un'altra via
+    "decontam.threshold": _CON_NEGATIVI,
+    "decontam.min_blanks": _CON_NEGATIVI,
+    "decontam.mode": _CON_NEGATIVI,
+    "qc.max_frac_contaminant": _CON_NEGATIVI,
+    # la filogenesi
+    "phylo.max_seqs": (("phylo.enabled", VERO),),
+    # il filtro di prevalenza
+    "prev.min_fraction": (("prev.apply", VERO),),
+    "prev.min_count": (("prev.apply", VERO),),
+    # il modulo derivato dalla posizione
+    "meta.module_regex": (("meta.derive_module", VERO),),
+})
+
+#: I condizionali che, omessi, non hanno un valore che significhi "assente"
+#: (gli altri valgono elenco vuoto o nullo, valori che lo schema ammette):
+#: senza valore sono nulli, e una fase che li leggesse riceve un errore.
+CONDIZIONALI_SENZA_VALORE: Final[frozenset[str]] = frozenset({
+    "ctrl.min_positives",
+    "ctrl.min_positive_pass_frac",
+    "ctrl.positive_gate",
+    "katharoseq.collapse_rank",
+    "katharoseq.min_r2",
+    "phylo.max_seqs",
+})
+
+#: I condizionali il cui valore una fase riporta in un riepilogo anche con la
+#: condizione falsa, senza usarlo in alcun calcolo. Omessi sono nulli, e la
+#: fase li legge per riportarli tali: dichiarati, il riepilogo ne porta il
+#: valore; omessi, il campo resta e vale nullo. Gli script R si fermano se un
+#: valore nullo servisse a un calcolo.
+CONDIZIONALI_RIPORTATI: Final[frozenset[str]] = frozenset({
+    "katharoseq.target_sensitivity",
+    "decontam.threshold",
+    "decontam.min_blanks",
+    "decontam.mode",
+    "qc.max_frac_contaminant",
+    "prev.min_fraction",
+    "prev.min_count",
+})
+
+#: I condizionali per cui il nullo scritto a mano vale come l'omissione: con la
+#: condizione vera e' un parametro mancante.
+CONDIZIONALI_NULLI_SE_OMESSI: Final[frozenset[str]] = (
+    CONDIZIONALI_SENZA_VALORE | CONDIZIONALI_RIPORTATI
+)
+
+_TESTO_FORMA: Final[Mapping[str, str]] = MappingProxyType({
+    NON_NULLO: "non e' nullo",
+    NON_VUOTO: "non e' vuoto",
+    VERO: "e' vero",
+})
+
+
+def testo_condizione(chiave: str) -> str:
+    """La condizione che rende pertinente un condizionale, in parole."""
+    return " oppure ".join(
+        f"{parametro} {_TESTO_FORMA[forma]}" for parametro, forma in CONDIZIONALI[chiave]
+    )
+
+
+def _alternativa_vera(parametro: str, forma: str, valore_di: Mapping[str, object]) -> bool:
+    """Se una alternativa della condizione e' vera."""
+    valore = valore_di.get(parametro)
+    if forma == NON_NULLO:
+        return valore is not None
+    if forma == NON_VUOTO:
+        return bool(valore)
+    return valore is True
+
+
+def condizione_vera(chiave: str, valore_di: Mapping[str, object]) -> bool:
+    """Se la condizione di un condizionale e' vera, dati i valori ``gruppo.chiave``.
+
+    Basta una alternativa vera. Un parametro assente dalla mappa vale come la
+    sua assenza (nullo, elenco vuoto, falso): l'alternativa che ne dipende e'
+    falsa.
+    """
+    return any(
+        _alternativa_vera(parametro, forma, valore_di)
+        for parametro, forma in CONDIZIONALI[chiave]
+    )

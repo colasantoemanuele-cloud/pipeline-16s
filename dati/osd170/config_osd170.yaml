@@ -1,0 +1,143 @@
+# =========================================================================== #
+# Configurazione per OSD-170 con i dati recuperati in dati/osd170/             #
+# =========================================================================== #
+#
+# OSD-170 (NASA Aircraft Bioaerosol Collector): 30 campioni sequenziati a
+# letture appaiate (MiSeq, 251 basi), di cui qui si usano le sole forward come
+# dato single-end (README della cartella). 24 campioni di bioaerosol raccolti a
+# terra e in quota in quattro voli, 4 campioni dell'attrezzatura di prelievo e
+# 2 controlli negativi (filtri bianchi); nessun controllo positivo e nessun
+# file del lotto: i parametri condizionali che servono solo con i controlli
+# positivi, con la filogenesi o con il modulo derivato sono omessi.
+#
+# I percorsi sono relativi alla radice del clone, da cui si lancia il comando.
+# Le letture si scaricano con dati/osd170/scarica_letture.py, il riferimento
+# con dati/riferimento/scarica_riferimento.py.
+
+io:
+  fastq_dir: dati/osd170/fastq
+  assay_table: dati/osd170/metadati/a_OSD-170_amplicon-sequencing_16s_Illumina.txt
+  study_table: dati/osd170/metadati/s_OSD-170.txt
+  out_root: output/osd170
+  batch_table: null
+  fastq_glob: "*.fastq.gz"
+  # I file forward prendono il nome dal campione (L18002364.fastq.gz).
+  accession_regex: "L[0-9]+"
+
+meta:
+  sample_id_column: "Sample Name"
+  # Due colonne corrispondono uno a uno ai file ("Sample Name" ed "Extract
+  # Name", con gli stessi valori): si usa il nome del campione.
+  accession_column: "Sample Name"
+  derive_module: false
+  module_column: "Factor Value[Sample Location]"
+  non_surface_positions: []
+  batch_key_column: null
+  batch_module_column: null
+
+filter:
+  # Tutte le letture sono di 251 basi, con qualita' mediana almeno 30 fino in
+  # fondo: il troncamento non scarta letture. Le letture sono depositate senza
+  # primer: nessun taglio in testa.
+  truncLen: 251
+  truncLen_shortfall_warn: 0
+  trimLeft: 0
+
+err:
+  randomize: false
+  batch_column: null
+
+dada:
+  # Campioni d'aria a bassa biomassa: contano le varianti rare presenti in piu'
+  # campioni.
+  pool: pseudo
+
+chimera:
+  min_fold_parent_over_abundance: 1.5
+
+tax:
+  ref_fasta: dati/riferimento/silva_nr99_v138_train_set.fa.gz
+  ref_md5: "56821dd6f365f64c8518a21e049c3232"
+  ref_name: SILVA
+  ref_version: "138"
+  try_rc: false
+
+filt:
+  remove_na_phylum: true
+  exclude_taxa:
+    - Chloroplast
+    - Mitochondria
+    - Eukaryota
+
+phylo:
+  enabled: false
+
+ctrl:
+  # Il fattore "Time" distingue i due filtri bianchi ("Negative control") dai
+  # campioni. I quattro campioni dell'attrezzatura (sonda e piastra della
+  # finestra, prima e dopo il volo) portano "Pre-flight" o "Post-flight" e
+  # restano fra i campioni: sono tamponi di superfici, non bianchi.
+  column: "Factor Value[Time]"
+  blank_values:
+    - "Negative control"
+  positive_values: []
+  biological_values:
+    - "Ascent/Descent, in-flight"
+    - "Cruise, in-flight"
+    - "Post-flight"
+    - "Pre-flight"
+  blank_override_column: null
+
+katharoseq:
+  cell_count_column: null
+  # Senza controlli positivi non si adatta alcuna curva: il valore non entra
+  # in alcun calcolo, ma la fase lo riporta nel suo riepilogo e va dichiarato.
+  target_sensitivity: 0.9
+
+decontam:
+  batch_column: null
+  # Bassa biomassa: soglia piu' alta del predefinito del pacchetto (0,1). I
+  # controlli negativi sono due, e due e' il minimo dichiarato.
+  threshold: 0.5
+  min_blanks: 2
+  mode: aggregate
+
+prev:
+  # Una variante resta se ha almeno 2 letture in almeno il 5% dei campioni
+  # tenuti: con 28 campioni, due.
+  apply: true
+  min_fraction: 0.05
+  min_count: 2
+
+qc:
+  head_reads: 10000
+  # Il primer forward che i metadati dichiarano; le letture non lo portano (ne'
+  # alcun altro primer), e iniziano con il motivo a valle del primer 515F: la
+  # regione letta e' la V4.
+  primer_sequence: TCCTACGGGAGGCAGCAGT
+  max_primer_hit_frac: 0.05
+  conserved_motif: "TAC[AG].AG[CG][GT][GT][CG]C[AG]AG[CG]GTT"
+  min_motif_frac: 0.5
+  max_frac_short_reads: 0.0
+  max_zeroed_samples: 0
+  max_frac_lost_filter: 0.30
+  max_asv_count: 6300000
+  warn_frac_chimeric: 0.10
+  stop_frac_chimeric: 0.30
+  min_frac_phylum: 0.80
+  min_reads_mode: none
+  max_frac_contaminant: 0.20
+  min_reads_final: 1000
+  min_frac_reads_retained: 0.50
+
+out:
+  study_columns:
+    - "Characteristics[Flight Name]"
+    - "Characteristics[Collection Date]"
+    - "Factor Value[Altitude]"
+    - "Factor Value[Time]"
+    - "Factor Value[Sample Location]"
+  batch_columns: []
+
+run:
+  container: "ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154"

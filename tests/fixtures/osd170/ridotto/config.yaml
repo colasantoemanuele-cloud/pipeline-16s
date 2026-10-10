@@ -1,0 +1,95 @@
+# Configurazione del sottoinsieme ridotto di OSD-170: sei campioni e i due
+# controlli negativi, le prime letture di ogni file (manifesto.tsv), con un
+# riferimento tassonomico sintetico. Serve ai test e come esempio che non
+# richiede di scaricare nulla; le soglie sono larghe perche' poche migliaia di
+# letture per campione non fermino la catena, e non valgono per il dataset
+# intero (dati/osd170/config_osd170.yaml).
+#
+# I percorsi sono relativi alla radice del clone, da cui si lancia il comando.
+io:
+  fastq_dir: tests/fixtures/osd170/ridotto/fastq
+  assay_table: tests/fixtures/osd170/ridotto/metadati/assay.txt
+  study_table: tests/fixtures/osd170/ridotto/metadati/studio.txt
+  out_root: output/osd170_ridotto
+  batch_table: null
+  fastq_glob: "*.fastq.gz"
+  accession_regex: "L[0-9]+"
+meta:
+  sample_id_column: "Sample Name"
+  accession_column: "Sample Name"
+  derive_module: false
+  module_column: "Factor Value[Sample Location]"
+  non_surface_positions: []
+  batch_key_column: null
+  batch_module_column: null
+filter:
+  truncLen: 251
+  truncLen_shortfall_warn: 0
+  trimLeft: 0
+err:
+  randomize: false
+  batch_column: null
+dada:
+  pool: pseudo
+chimera:
+  min_fold_parent_over_abundance: 1.5
+tax:
+  # Le varianti piu' abbondanti del sottoinsieme, con linee tassonomiche
+  # inventate (scripts/costruisci_riferimento_sintetico.py).
+  ref_fasta: tests/fixtures/osd170/ridotto/riferimento/riferimento.fa.gz
+  ref_md5: "9fc77c027de02edc18d371bff05e2bf0"
+  ref_name: sintetico
+  ref_version: "1"
+  try_rc: false
+filt:
+  remove_na_phylum: false
+  exclude_taxa: []
+phylo:
+  enabled: false
+ctrl:
+  column: "Factor Value[Time]"
+  blank_values:
+    - "Negative control"
+  positive_values: []
+  biological_values:
+    - "Ascent/Descent, in-flight"
+    - "Cruise, in-flight"
+    - "Post-flight"
+    - "Pre-flight"
+  blank_override_column: null
+katharoseq:
+  cell_count_column: null
+  target_sensitivity: 0.9
+decontam:
+  batch_column: null
+  threshold: 0.5
+  min_blanks: 2
+  mode: aggregate
+prev:
+  apply: true
+  min_fraction: 0.2
+  min_count: 2
+qc:
+  head_reads: 3000
+  primer_sequence: TCCTACGGGAGGCAGCAGT
+  max_primer_hit_frac: 0.05
+  conserved_motif: "TAC[AG].AG[CG][GT][GT][CG]C[AG]AG[CG]GTT"
+  min_motif_frac: 0.2
+  max_frac_short_reads: 0.0
+  max_zeroed_samples: 0
+  max_frac_lost_filter: 0.90
+  max_asv_count: 100000
+  warn_frac_chimeric: 0.50
+  stop_frac_chimeric: 0.90
+  min_frac_phylum: 0.0
+  min_reads_mode: none
+  max_frac_contaminant: 0.90
+  min_reads_final: 100
+  min_frac_reads_retained: 0.0
+out:
+  study_columns:
+    - "Factor Value[Altitude]"
+    - "Factor Value[Time]"
+  batch_columns: []
+run:
+  threads: 2

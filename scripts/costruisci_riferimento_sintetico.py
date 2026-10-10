@@ -18,6 +18,10 @@ Uso, con la tabella di S7 di un'esecuzione di S0-S7 sulla versione ridotta:
 
     python scripts/costruisci_riferimento_sintetico.py <07_chimera/tabella_asv.rds>
 
+Con un secondo argomento il riferimento si scrive nella cartella indicata
+invece che in ``tests/fixtures/riferimento_sintetico``: serve a costruire, con
+lo stesso metodo, il riferimento di un altro sottoinsieme di prova.
+
 L'archivio si scrive senza nome ne' istante nell'intestazione gzip, cosi' da
 essere identico a ogni rigenerazione.
 """
@@ -71,20 +75,22 @@ def linea(genere: int) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    """Scrive il riferimento e il file dei taxa difettosi in ``tests/fixtures``."""
-    if len(argv) != 1:
+    """Scrive il riferimento e il file dei taxa difettosi nella cartella di
+    destinazione (per difetto quella dei test di S8)."""
+    if len(argv) not in (1, 2):
         print(__doc__, file=sys.stderr)
         return 2
+    destinazione = Path(argv[1]) if len(argv) == 2 else DESTINAZIONE
     scelte = varianti_per_abbondanza(Path(argv[0]))[:VARIANTI]
     if len(scelte) < VARIANTI:
         raise SystemExit(f"servono {VARIANTI} varianti, la tabella ne ha {len(scelte)}")
 
     testo = "".join(f">{';'.join(linea(i))};\n{s}\n" for i, (s, _) in enumerate(scelte))
-    DESTINAZIONE.mkdir(parents=True, exist_ok=True)
+    destinazione.mkdir(parents=True, exist_ok=True)
     buffer = io.BytesIO()
     with gzip.GzipFile(filename="", mode="wb", fileobj=buffer, mtime=0) as archivio:
         archivio.write(testo.encode("ascii"))
-    (DESTINAZIONE / "riferimento.fa.gz").write_bytes(buffer.getvalue())
+    (destinazione / "riferimento.fa.gz").write_bytes(buffer.getvalue())
 
     righe = ["rank,name,path,ranks_present,ranks_expected"]
     difettosi = [i for i in range(VARIANTI) if i // 2 == FAMIGLIA_DIFETTOSA]
@@ -92,8 +98,8 @@ def main(argv: list[str]) -> int:
     righe.append(f"family,Famiglia_{FAMIGLIA_DIFETTOSA},{';'.join(percorso)};,4,5")
     for i in difettosi:
         righe.append(f"genus,Genere_{i:02d},{';'.join(linea(i))};,5,6")
-    (DESTINAZIONE / "taxa_difettosi.csv").write_text("\n".join(righe) + "\n", encoding="ascii")
-    print(f"{VARIANTI} sequenze in {DESTINAZIONE / 'riferimento.fa.gz'}, "
+    (destinazione / "taxa_difettosi.csv").write_text("\n".join(righe) + "\n", encoding="ascii")
+    print(f"{VARIANTI} sequenze in {destinazione / 'riferimento.fa.gz'}, "
           f"{len(righe) - 1} taxa difettosi")
     return 0
 

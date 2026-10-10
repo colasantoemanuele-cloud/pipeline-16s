@@ -72,6 +72,8 @@ from amplicon16s.runner.executor import Conclusione, Esecutore, EsitoEsecuzione
 from amplicon16s.runner.graph import Passo
 from amplicon16s.report.builder import CARTELLA_TABELLE, costruisci, scrivi
 from amplicon16s.runner.project import ProjectRun, passi_realizzati
+from amplicon16s.soglie import tabella as soglie_tabella
+from amplicon16s.soglie.misure import campioni_controllati
 from amplicon16s.steps.base import PipelineStep
 
 __all__ = [
@@ -204,10 +206,13 @@ def _problemi_di(violazioni: Sequence[Violazione], gate: str | None = None) -> l
     for v in violazioni:
         if v.codice == "E-G15-10":
             mancanti = interfaccia.parametri_nel_testo(
-                v.dettaglio.split(". Descrivono")[0], defaults.OBBLIGATORI)
+                v.dettaglio.split(". Descrivono")[0],
+                (*defaults.OBBLIGATORI, *defaults.CONDIZIONALI))
             problemi += [
                 interfaccia.problema(
-                    v.codice, f"parametro obbligatorio non dichiarato: {nome}",
+                    v.codice, f"parametro obbligatorio non dichiarato: {nome}" + (
+                        f" (richiesto perche' {defaults.testo_condizione(nome)})"
+                        if nome in defaults.CONDIZIONALI else ""),
                     parametri=[nome], gate=gate)
                 for nome in mancanti
             ]
@@ -281,6 +286,27 @@ def _uscita(esito: EsitoEsecuzione) -> int:
     return USCITA_ARRESTO
 
 
+def _controlli_spenti(config: Config) -> list[soglie_tabella.ControlloSpento]:
+    """Le soglie della configurazione il cui controllo non puo' scattare, con
+    l'avviso per l'operatore e nel log.
+
+    Una configurazione con soglie al valore che non ferma e' valida, ma quei
+    controlli non proteggono: chi esegue deve saperlo. L'avviso non entra in
+    alcun artefatto di fase. Il numero dei campioni controllati viene
+    dall'inventario di S0: se S0 non e' conclusa, la soglia sui campioni
+    azzerati non si giudica.
+    """
+    spenti = soglie_tabella.controlli_spenti(
+        soglie_tabella.valori_piatti(config), campioni_controllati(config.io.out_root))
+    for riga in soglie_tabella.righe_di_avviso(spenti):
+        _stampa(riga)
+    if spenti:
+        ottieni("run").warning(
+            "controlli di qualita' spenti: " + "; ".join(s.testo for s in spenti),
+            extra={"controlli_spenti": [s.chiave for s in spenti]})
+    return spenti
+
+
 def _cmd_validate(config: Config, percorso: Path, args: argparse.Namespace) -> int:
     """Comando ``validate``: esegue la sola S0 e ne riporta l'esito.
 
@@ -288,6 +314,7 @@ def _cmd_validate(config: Config, percorso: Path, args: argparse.Namespace) -> i
     documento con ogni problema: parametro, codice, messaggio e azione.
     """
     uscita = _valida(config, percorso, args)
+    spenti = _controlli_spenti(config)
     if args.json:
         radice = Path(config.io.out_root)
         problemi, avvisi = _esiti_dei_gate(radice)
@@ -301,7 +328,11 @@ def _cmd_validate(config: Config, percorso: Path, args: argparse.Namespace) -> i
                 gate=dichiarato["origine"])]
         _stampa_json(interfaccia.esito_validazione(
             configurazione=percorso, codice_uscita=uscita, problemi=problemi,
-            avvisi=avvisi, cartella=radice))
+            avvisi=avvisi, cartella=radice,
+            controlli_spenti=[
+                {"parametro": s.chiave, "valore": s.valore, "limite": s.limite,
+                 "codici": list(s.codici), "ferma": s.ferma, "messaggio": s.testo}
+                for s in spenti]))
     return uscita
 
 
@@ -343,12 +374,19 @@ def _cmd_run(config: Config, percorso: Path, args: argparse.Namespace) -> int:
             "nuova o vuota"
         )
         return USCITA_CONFIGURAZIONE
-    return _uscita(_esegui(config, percorso, programma=args.programma))
+    return _esegui_e_avvisa(config, percorso, args)
+
+
+def _esegui_e_avvisa(config: Config, percorso: Path, args: argparse.Namespace) -> int:
+    """Esegue il grafo, riporta l'esito e, in coda, i controlli spenti."""
+    uscita = _uscita(_esegui(config, percorso, programma=args.programma))
+    _controlli_spenti(config)
+    return uscita
 
 
 def _cmd_resume(config: Config, percorso: Path, args: argparse.Namespace) -> int:
     """Comando ``resume``: riprende l'esecuzione dalla prima fase non valida."""
-    return _uscita(_esegui(config, percorso, programma=args.programma))
+    return _esegui_e_avvisa(config, percorso, args)
 
 
 def _cmd_report(config: Config, percorso: Path, args: argparse.Namespace) -> int:
@@ -429,6 +467,13 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return USCITA_SUCCESSO
 
 
+def _cmd_soglie(args: argparse.Namespace) -> int:
+    """Comando ``soglie``: propone le soglie dalle misure di un'esecuzione conclusa."""
+    from amplicon16s.soglie.comando import esegui as esegui_soglie
+
+    return esegui_soglie(args, _percorsi_assoluti, _stampa, _stampa_json)
+
+
 def _cmd_init(args: argparse.Namespace) -> int:
     """Comando ``init``: scrive una configurazione di partenza dai dati."""
     from amplicon16s.init.comando import esegui as esegui_init
@@ -493,6 +538,13 @@ def build_parser() -> argparse.ArgumentParser:
         "init", help="scrive una configurazione di partenza a partire dai dati")
     aggiungi_argomenti(init)
     init.set_defaults(senza_config=_cmd_init)
+
+    from amplicon16s.soglie.comando import aggiungi_argomenti as argomenti_soglie
+
+    soglie = subparsers.add_parser(
+        "soglie", help="propone le soglie di qualita' dalle misure di un'esecuzione conclusa")
+    argomenti_soglie(soglie)
+    soglie.set_defaults(senza_config=_cmd_soglie)
 
     return parser
 

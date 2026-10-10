@@ -9,7 +9,13 @@
 #
 # Il sottocomando init scrive un file come questo a partire dai propri dati,
 # con i valori che rileva gia' attivi e quelli che propone gia' scritti: e' il
-# modo consigliato di cominciare (GUIDA.md).
+# modo consigliato di cominciare (GUIDA.md). Nel file scritto da init ogni riga
+# porta un marcatore di origine: [RILEVATO], [INDICATO], [PROPOSTO],
+# [DA SCEGLIERE] e, con --accetta-proposte, [PARTENZA] (il valore di partenza
+# di una scelta, accettato) ed [ESPLORATIVA]: una soglia di qualita' al valore
+# che non ferma, con il controllo spento. Serve alla sola prima esecuzione; poi
+# il sottocomando soglie propone il valore dalle misure, e la riga porta
+# [PROPOSTO] con la misura accanto.
 #
 # Nessun valore di questo file viene da un dataset. Ogni parametro e' di una di
 # queste specie, indicata accanto:
@@ -18,8 +24,15 @@
 #                 predefinito. La riga e' commentata e senza valore: va tolta
 #                 dal commento e dichiarata, seguendo l'indicazione che la
 #                 precede. La pipeline elenca quelli che mancano (E-G15-10).
-#                 Dove e' indicato "oppure null" o "oppure []", un parametro
-#                 non pertinente si dichiara nullo o vuoto.
+#                 Dove e' indicato "oppure null" o "oppure []", il valore
+#                 nullo o vuoto e' ammesso e dice che il dataset non ha
+#                 quell'informazione.
+# [CONDIZIONALE]  Obbligatorio solo se la condizione indicata e' vera: allora
+#                 va dichiarato come un obbligatorio. Se e' falsa il parametro
+#                 non e' pertinente e si omette (la riga resta in commento);
+#                 dichiarato comunque, deve essere un valore valido (e' controllato
+#                 come ogni altro) e non cambia conteggi, tassonomia, campioni
+#                 ne' varianti. "oppure" fra due condizioni: ne basta una.
 # [PERCORSO]      Un file o una cartella di questa esecuzione: da sostituire.
 # [STANDARD]      Il valore predefinito e' quello del pacchetto che realizza il
 #                 calcolo, o una raccomandazione dei suoi autori; la fonte e'
@@ -29,7 +42,8 @@
 #                 si conclude dai dati: si puo' omettere.
 #
 # Il report di ogni esecuzione dice, per ciascun parametro, se il valore e'
-# stato dichiarato o preso dal predefinito.
+# stato dichiarato o preso dal predefinito, e quali condizionali non sono
+# pertinenti.
 
 # --------------------------------------------------------------------------- #
 # io: percorsi di ingresso e uscita, e come si individuano i file di lettura  #
@@ -82,7 +96,7 @@ meta:
   # derive_module:                                    # [OBBLIGATORIO]
   # Espressione regolare, con un gruppo di cattura, che estrae il modulo dalla
   # posizione. Si scrive guardando i valori di module_column.
-  # module_regex:                                     # [OBBLIGATORIO] oppure null
+  # module_regex:                     # [CONDIZIONALE] se meta.derive_module e' vero
   # Colonna della tabella di studio con la posizione di prelievo. E' la
   # posizione dichiarata, non il nome del campione.
   # module_column:                                    # [OBBLIGATORIO] oppure null
@@ -223,7 +237,7 @@ phylo:
   # Varianti finali oltre le quali la fase si ferma prima del calcolo
   # (E-S9-01): il costo cresce rapidamente con il loro numero. Si sceglie
   # secondo il tempo e la memoria disponibili.
-  # max_seqs:                                         # [OBBLIGATORIO]
+  # max_seqs:                         # [CONDIZIONALE] se phylo.enabled e' vero
   aligner: decipher         # [UNICA FORMA] DECIPHER::AlignSeqs
   model: "GTR+G+I"          # [UNICA FORMA] massima verosimiglianza con phangorn
 
@@ -235,32 +249,32 @@ ctrl:
   # Colonna (della tabella di studio, o di assay se quella manca) che dice di
   # che tipo e' il campione. Con null il dataset non ha controlli ne' una
   # colonna che distingua i campioni: sono tutti biologici, e le tre etichette
-  # si dichiarano vuote.
+  # si omettono.
   # column:                                           # [OBBLIGATORIO] oppure null
   # I valori di quella colonna per i controlli negativi, per i controlli
   # positivi e per i campioni biologici. Si copiano dalla tabella; maiuscole e
   # spazi ai bordi non contano. Le etichette dei biologici sono almeno una,
   # salvo con column null.
-  # blank_values:                                     # [OBBLIGATORIO] oppure []
-  # positive_values:                                  # [OBBLIGATORIO] oppure []
-  # biological_values:                                # [OBBLIGATORIO] oppure []
+  # blank_values:                     # [CONDIZIONALE] se ctrl.column non e' nullo
+  # positive_values:                  # [CONDIZIONALE] se ctrl.column non e' nullo
+  # biological_values:                # [CONDIZIONALE] se ctrl.column non e' nullo
   # Campioni da trattare come controlli negativi qualunque sia il tipo
   # dichiarato, riconosciuti dal valore di un'altra colonna (per esempio
   # materiale di campionamento mai usato). Il tipo dichiarato resta nei
   # metadati.
   # blank_override_column:                            # [OBBLIGATORIO] oppure null
-  # blank_override_values:                            # [OBBLIGATORIO] oppure []
+  # blank_override_values:            # [CONDIZIONALE] se ctrl.blank_override_column non e' nullo
   # Controlli positivi minimi per adattare una curva di calibrazione e per
   # giudicare i controlli di un livello di diluizione. Dipende dal disegno:
   # quanti controlli ha ogni piastra e ogni livello. Sotto il minimo una
   # piastra non ha una curva propria (E-S11-02) e un livello non e' valutato
   # (E-S11-06).
-  # min_positives:                                    # [OBBLIGATORIO]
+  # min_positives:                    # [CONDIZIONALE] se ctrl.positive_values non e' vuoto
   # Frazione minima di controlli positivi conformi al loro livello, e che cosa
   # fare sotto di essa: true ferma l'esecuzione (E-S11-03), false prosegue con
   # un avviso (E-S11-04).
-  # min_positive_pass_frac:                           # [OBBLIGATORIO]
-  # positive_gate:                                    # [OBBLIGATORIO]
+  # min_positive_pass_frac:           # [CONDIZIONALE] se ctrl.positive_values non e' vuoto
+  # positive_gate:                    # [CONDIZIONALE] se ctrl.positive_values non e' vuoto
 
 # --------------------------------------------------------------------------- #
 # katharoseq: calibrazione sui controlli positivi                             #
@@ -268,22 +282,22 @@ ctrl:
 katharoseq:
   # Il taxon atteso nei controlli positivi, come lo scrive il riferimento al
   # rango di collapse_rank.
-  # target_taxon:                                     # [OBBLIGATORIO] oppure null
+  # target_taxon:                     # [CONDIZIONALE] se ctrl.positive_values non e' vuoto
   # Colonna con le cellule di ciascun controllo positivo, cioe' il livello di
   # diluizione: nel file del lotto o nella tabella di studio.
   # cell_count_column:                                # [OBBLIGATORIO] oppure null
   # Rango a cui si sommano le varianti del taxon atteso: il piu' fine a cui il
   # riferimento lo distingue con le letture disponibili.
-  # collapse_rank:                                    # [OBBLIGATORIO]
+  # collapse_rank:                    # [CONDIZIONALE] se ctrl.positive_values non e' vuoto
   curve_model: allosteric_sigmoid   # [UNICA FORMA]
   # Fedelta' (frazione delle letture del controllo sul taxon atteso) a cui si
   # legge sulla curva la profondita' minima dei campioni. Piu' alta, piu'
   # campioni esclusi: si sceglie secondo quanta contaminazione si accetta nei
   # campioni a bassa biomassa, e conviene verificarne la stabilita'.
-  # target_sensitivity:                               # [OBBLIGATORIO]
+  # target_sensitivity:               # [CONDIZIONALE] se ctrl.positive_values non e' vuoto
   # Bonta' minima dell'adattamento (R^2 sulla fedelta') perche' una curva sia
   # valida.
-  # min_r2:                                           # [OBBLIGATORIO]
+  # min_r2:                           # [CONDIZIONALE] se ctrl.positive_values non e' vuoto
   read_stage: nonchimeric           # [UNICA FORMA] letture senza chimere
 
 # --------------------------------------------------------------------------- #
@@ -295,17 +309,17 @@ decontam:
   # Il predefinito di decontam::isContaminant e' 0.1; un valore piu' alto
   # toglie di piu' e si usa quando la contaminazione da reagente e' una quota
   # rilevante del segnale (bassa biomassa).
-  # threshold:                                        # [OBBLIGATORIO]
+  # threshold:                        # [CONDIZIONALE] se ctrl.blank_values non e' vuoto oppure ctrl.blank_override_values non e' vuoto
   # Controlli negativi minimi perche' una piastra abbia un confronto proprio;
   # con meno, i suoi campioni si confrontano con i negativi di tutte.
-  # min_blanks:                                       # [OBBLIGATORIO]
+  # min_blanks:                       # [CONDIZIONALE] se ctrl.blank_values non e' vuoto oppure ctrl.blank_override_values non e' vuoto
   # Colonna del file del lotto con la piastra di estrazione.
   # batch_column:                                     # [OBBLIGATORIO] oppure null
   batch_combine: minimum    # [STANDARD] decontam::isContaminant
   # aggregate (tutti i biologici contro tutti i negativi) o batch (per piastra,
   # con batch_combine). Per piastra serve un numero adeguato di negativi in
   # ogni piastra; l'altra modalita' si calcola comunque, come diagnostica.
-  # mode:                                             # [OBBLIGATORIO]
+  # mode:                             # [CONDIZIONALE] se ctrl.blank_values non e' vuoto oppure ctrl.blank_override_values non e' vuoto
 
 # --------------------------------------------------------------------------- #
 # prev: filtro di prevalenza sulle varianti                                   #
@@ -317,8 +331,8 @@ prev:
   # uno studio con molti ambienti diversi una variante di pochi campioni puo'
   # essere segnale.
   # apply:                                            # [OBBLIGATORIO]
-  # min_fraction:                                     # [OBBLIGATORIO]
-  # min_count:                                        # [OBBLIGATORIO]
+  # min_fraction:                     # [CONDIZIONALE] se prev.apply e' vero
+  # min_count:                        # [CONDIZIONALE] se prev.apply e' vero
 
 # --------------------------------------------------------------------------- #
 # qc: soglie che governano avvisi e arresti                                   #
@@ -360,7 +374,7 @@ qc:
   # min_reads_mode:                                   # [OBBLIGATORIO]
   # Frazione massima delle letture dei biologici che la decontaminazione puo'
   # rimuovere (E-S12-02).
-  # max_frac_contaminant:                             # [OBBLIGATORIO]
+  # max_frac_contaminant:             # [CONDIZIONALE] se ctrl.blank_values non e' vuoto oppure ctrl.blank_override_values non e' vuoto
   # Letture minime di un campione nell'oggetto finale (sotto, il campione
   # esce) e frazione minima di letture trattenute dall'insieme (E-S14-01).
   # min_reads_final:                                  # [OBBLIGATORIO]

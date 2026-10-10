@@ -109,6 +109,7 @@ from conftest import Campione, copia_esecuzione, crea_scenario, discendenti, NEG
 from sottoinsieme import config_ridotta, motivo_pacchetti_r_assenti, processori_disponibili
 
 import amplicon16s.steps.s09_phylogeny as s09
+from amplicon16s.config import defaults
 from amplicon16s.config.resolve import risolvi
 from amplicon16s.config.schema import Config, ErroreConfigurazione, valida
 from amplicon16s.errors.catalog import Categoria, voce
@@ -310,9 +311,11 @@ def test_i_parametri_della_filogenesi(tmp_path):
     parametro dimenticato nella dichiarazione non rifarebbe la fase.
     """
     config = config_ridotta(tmp_path)
-    # Attivazione e limite delle varianti non hanno un predefinito: vanno dichiarati.
+    # L'attivazione non ha un predefinito; il limite delle varianti e' richiesto
+    # solo con la filogenesi attiva.
     campi = Config.model_fields["phylo"].annotation.model_fields
-    assert campi["enabled"].is_required() and campi["max_seqs"].is_required()
+    assert campi["enabled"].is_required()
+    assert defaults.CONDIZIONALI["phylo.max_seqs"] == (("phylo.enabled", defaults.VERO),)
     assert config.phylo.enabled is False and config.phylo.max_seqs > 0
     for chiave, valore in (("aligner", "mafft"), ("model", "JC")):
         with pytest.raises(ErroreConfigurazione, match=f"phylo.{chiave}"):

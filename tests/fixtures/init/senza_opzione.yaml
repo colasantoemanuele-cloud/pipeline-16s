@@ -1,0 +1,620 @@
+# ============================================================================
+# Configurazione di partenza scritta da init: da rivedere prima di eseguire
+# ============================================================================
+#
+# Letture: 7 file in <DATI>/dati/letture, ispezionate tutte le letture di ogni file.
+# Metadati: campioni.tsv; file del lotto lotto.tsv.
+#
+# Ogni riga dice da dove viene il suo valore:
+#   [RILEVATO]      un fatto verificato sui file: riga attiva.
+#   [INDICATO]      un percorso dato sulla riga di comando: riga attiva.
+#   [PROPOSTO]      l'esito di un'euristica, che puo' sbagliare: riga in
+#                   commento con il valore gia' scritto. Per accettarlo,
+#                   togli il commento; altrimenti correggilo.
+#   [DA SCEGLIERE]  una scelta di chi conduce l'analisi: riga in commento,
+#                   con un valore di partenza e il suo motivo, o senza valore.
+#   [CONDIZIONALE]  un parametro che serve solo se una condizione e' vera, e
+#                   con i valori di questo file non lo e': riga in commento,
+#                   senza valore. Non va scelto; validate lo chiede se la
+#                   condizione diventa vera.
+# I parametri con un predefinito (standard del metodo, una sola forma,
+# dello strumento) sono in commento con quello: si possono lasciare cosi'.
+# Le spiegazioni cominciano con ##, le righe dei parametri in commento con #.
+#
+# Rilevati: 7; indicati: 6; proposti: 8; da scegliere: 37; non richiesti: 12.
+#
+# Finche' una riga [PROPOSTO] o [DA SCEGLIERE] resta in commento il parametro
+# non e' dichiarato: validate elenca quelli che mancano (E-G15-10).
+#
+# Da scegliere:
+# meta.derive_module, meta.module_column, meta.non_surface_positions,
+# meta.batch_module_column, filter.truncLen, filter.truncLen_shortfall_warn,
+# err.randomize, dada.pool, chimera.min_fold_parent_over_abundance,
+# tax.ref_name, tax.ref_version, tax.try_rc, filt.remove_na_phylum,
+# filt.exclude_taxa, phylo.enabled, ctrl.blank_override_column,
+# katharoseq.cell_count_column, decontam.threshold, decontam.min_blanks,
+# decontam.mode, prev.apply, qc.min_reads_mode, qc.max_frac_contaminant,
+# qc.min_reads_final, qc.min_frac_reads_retained, qc.max_asv_count,
+# qc.max_zeroed_samples, qc.max_frac_lost_filter, qc.max_frac_short_reads,
+# qc.warn_frac_chimeric, qc.stop_frac_chimeric, qc.min_frac_phylum,
+# qc.head_reads, qc.max_primer_hit_frac, qc.min_motif_frac, out.study_columns,
+# out.batch_columns
+#
+# Non richiesti con le proposte attuali (condizionali):
+# meta.module_regex, phylo.max_seqs, ctrl.blank_override_values,
+# ctrl.min_positives, ctrl.min_positive_pass_frac, ctrl.positive_gate,
+# katharoseq.target_taxon, katharoseq.collapse_rank,
+# katharoseq.target_sensitivity, katharoseq.min_r2, prev.min_fraction,
+# prev.min_count
+#
+# Che cosa init non stabilisce:
+#   - decontam.threshold: la soglia di decontaminazione.
+#   - Ogni scelta legata alla biomassa o al disegno dello studio: le soglie di
+#     qualita' (qc.*), la prevalenza (prev.*), i taxa da escludere (filt.*),
+#     la fedelta' della calibrazione, la riclassificazione di campioni in
+#     controlli negativi.
+
+# Percorsi di ingresso e di uscita, e individuazione dei file di lettura.
+io:
+  ## Cartella con i file delle letture, uno per campione, senza sottocartelle.
+  ## [INDICATO] --reads
+  fastq_dir: "<DATI>/dati/letture"
+  ## Tabella di assay, o tabella dei campioni: una riga per campione, con il
+  ## nome del campione e il riferimento al suo file di letture. Testo UTF-8
+  ## separato da tabulazioni.
+  ## [INDICATO] --metadata
+  assay_table: "<DATI>/dati/campioni.tsv"
+  ## Tabella di studio con il tipo di ogni campione e le sue variabili. Nullo:
+  ## tipo e variabili si leggono dalla tabella di assay.
+  ## [INDICATO] nessuna tabella di studio: tipo e variabili si leggono dalla
+  ## tabella dei campioni
+  study_table: null
+  ## Cartella di uscita dell'esecuzione: una sottocartella per fase.
+  ## [INDICATO] --out-root
+  out_root: "<DATI>/out"
+  ## File del lotto: per ogni campione la piastra di estrazione e la corsa di
+  ## sequenziamento. Nullo: corsa singola e nessun lotto.
+  ## [INDICATO] --batch-table
+  batch_table: "<DATI>/dati/lotto.tsv"
+  ## Modello dei nomi dei file delle letture dentro io.fastq_dir, per esempio
+  ## l'estensione comune preceduta da un asterisco.
+  ## [RILEVATO] i 7 file di letture della cartella hanno tutti questa
+  ## estensione
+  fastq_glob: "*.fq.gz"
+  ## Espressione regolare che estrae dal nome di ogni file la chiave del
+  ## campione: la corrispondenza intera oppure il primo gruppo di cattura. La
+  ## stessa chiave deve ricavarsi dal valore di meta.accession_column, ed
+  ## essere unica per campione.
+  ## [RILEVATO] estrae da ogni file una chiave unica, la stessa che si ricava
+  ## dalla colonna 'file_letture': verificato su tutti i file e le righe (7)
+  ## altre espressioni verificate: LIB[0-9]+_[A-Z]+[0-9]+,
+  ## ^(LIB[0-9]+_[A-Z]+[0-9]+), (LIB[0-9]+_[A-Z]+[0-9]+)\.fq\.gz$,
+  ## ^([A-Za-z0-9]+)
+  accession_regex: "LIB[0-9]+"
+
+# Lettura della tabella dei metadati e derivazione dei campi.
+meta:
+  ## Colonna della tabella di assay con il nome del campione.
+  ## [PROPOSTO] la prima colonna con un valore diverso per ogni riga
+  # sample_id_column: "campione"
+  ## Colonna della tabella di assay da cui si ricava la chiave del campione
+  ## con io.accession_regex: di solito quella che riporta il file delle
+  ## letture.
+  ## [RILEVATO] la sola colonna con nomi di file di letture i cui valori
+  ## corrispondono uno a uno ai file (7)
+  ## abbinamento, per esempio: LIB001_T01.fq.gz -> LIB001; LIB002_T02.fq.gz ->
+  ## LIB002; LIB003_T03.fq.gz -> LIB003
+  accession_column: "file_letture"
+  ## Colonna del nome del campione nella tabella di studio, se ha un nome
+  ## diverso da meta.sample_id_column. Nullo: lo stesso nome.
+  ## [FACOLTATIVO] il predefinito e' l'assenza
+  # study_sample_id_column: null
+  ## Se derivare il modulo (il gruppo di posizioni a cui il campione
+  ## appartiene) dalla posizione dichiarata, con meta.module_regex, quando il
+  ## file del lotto non lo dichiara.
+  ## [DA SCEGLIERE] partenza: nessun raggruppamento di posizioni da derivare
+  # derive_module: false
+  ## Espressione regolare, con un gruppo di cattura, che estrae il modulo
+  ## dalla posizione del campione. Nullo: nessun modulo derivato. Serve solo
+  ## con meta.derive_module vero.
+  ## [CONDIZIONALE] serve solo se meta.derive_module e' vero: con i valori di
+  ## questo file non e' richiesto e si puo' lasciare in commento
+  # module_regex:
+  ## Colonna della tabella di studio con la posizione di prelievo. Nullo: il
+  ## dataset non dichiara posizioni.
+  ## [DA SCEGLIERE] partenza: nessuna colonna della posizione di prelievo
+  ## colonne della tabella: 'campione', 'file_letture', 'sito', 'trattamento',
+  ## 'tipo'
+  # module_column: null
+  ## Valori di meta.module_column che non sono superfici: i campioni che li
+  ## riportano non appartengono a un modulo. Elenco vuoto se non ce ne sono.
+  ## [DA SCEGLIERE] partenza: nessuna; ha senso solo con meta.module_column
+  # non_surface_positions: []
+  ## Colonna con cui il file del lotto identifica il campione: deve contenere
+  ## la chiave estratta da io.accession_regex. Nullo senza file del lotto.
+  ## [RILEVATO] la sola colonna del file del lotto che da' per ogni campione
+  ## la sua chiave, in una e una sola riga
+  batch_key_column: "libreria"
+  ## Colonna del file del lotto che dichiara il modulo; ha la precedenza sulla
+  ## derivazione da meta.module_regex. Nullo se il file non la porta.
+  ## [DA SCEGLIERE] partenza: nessuna colonna del modulo nel file del lotto
+  # batch_module_column: null
+
+# Filtraggio e troncamento delle letture grezze.
+filter:
+  ## Lunghezza a cui si troncano le letture; quelle piu' corte sono scartate.
+  ## Si sceglie dal profilo delle lunghezze e della qualita' delle proprie
+  ## letture.
+  ## [DA SCEGLIERE] il profilo di qualita' non e' stato calcolato
+  ## (--skip-profile): si sceglie dal profilo delle lunghezze e della qualita'
+  # truncLen:
+  ## Di quante basi il troncamento puo' stare sotto la lettura piu' corta
+  ## osservata prima che il profilo lo segnali (E-S1-01).
+  ## [DA SCEGLIERE] si sceglie insieme a filter.truncLen
+  # truncLen_shortfall_warn:
+  ## Basi tolte in testa a ogni lettura: la lunghezza del primer se le letture
+  ## lo contengono ancora, zero se e' gia' stato rimosso.
+  ## [RILEVATO] la lunghezza del primer 341F, che le letture portano in testa
+  trimLeft: 17
+  ## Errori attesi massimi per lettura (dada2::filterAndTrim, maxEE).
+  ## [STANDARD] tutorial di dada2, standard filtering parameters (maxEE = 2)
+  # maxEE: 2.0
+  ## Qualita' alla quale una lettura viene troncata (dada2::filterAndTrim,
+  ## truncQ).
+  ## [STANDARD] dada2::filterAndTrim, truncQ = 2
+  # truncQ: 2
+  ## Basi indeterminate ammesse per lettura (dada2::filterAndTrim, maxN).
+  ## [STANDARD] dada2::filterAndTrim, maxN = 0
+  # maxN: 0
+  ## Se scartare le letture del genoma di controllo PhiX
+  ## (dada2::filterAndTrim, rm.phix).
+  ## [STANDARD] dada2::filterAndTrim, rm.phix = TRUE
+  # rm_phix: true
+
+# Apprendimento del modello di errore di sequenziamento.
+err:
+  ## Funzione che stima i tassi d'errore: loess (quella di dada2) oppure
+  ## loess_monotono, per le qualita' raggruppate in pochi valori.
+  ## [STANDARD] dada2::learnErrors, errorEstimationFunction = loessErrfun
+  # error_function: "loess"
+  ## Basi minime su cui si stima il modello d'errore (dada2::learnErrors,
+  ## nbases).
+  ## [STANDARD] dada2::learnErrors, nbases = 1e8
+  # nbases: 100000000.0
+  ## Iterazioni massime della stima del modello d'errore (dada2::learnErrors,
+  ## MAX_CONSIST).
+  ## [STANDARD] dada2::learnErrors, MAX_CONSIST = 10
+  # max_consist: 10
+  ## Se scegliere a caso, invece che nell'ordine dei file, i campioni da cui
+  ## si stima il modello d'errore (dada2::learnErrors, randomize).
+  ## [DA SCEGLIERE] partenza: il predefinito di dada2::learnErrors (randomize
+  ## = FALSE); true se l'ordine dei file segue una struttura dello studio
+  # randomize: false
+  ## Colonna del file del lotto con la corsa di sequenziamento: un modello
+  ## d'errore per corsa. Nullo: un solo modello.
+  ## [PROPOSTO] il nome della colonna dice la corsa di sequenziamento
+  # batch_column: "corsa_sequenziamento"
+
+# Inferenza delle varianti di sequenza.
+dada:
+  ## Come i campioni condividono l'informazione nell'inferenza: false (ogni
+  ## campione da solo), true (tutti insieme) o pseudo (due passate)
+  ## (dada2::dada, pool).
+  ## [DA SCEGLIERE] partenza: il predefinito di dada2::dada (pool = FALSE);
+  ## "pseudo" recupera le varianti rare presenti in piu' campioni
+  # pool: false
+  ## Soglia di significativita' con cui una sequenza e' riconosciuta come
+  ## variante (dada2::setDadaOpt, OMEGA_A).
+  ## [STANDARD] dada2::setDadaOpt, OMEGA_A = 1e-40
+  # omega_a: 1.0e-40
+
+# Rimozione delle sequenze chimeriche.
+chimera:
+  ## Metodo di riconoscimento delle chimere (dada2::removeBimeraDenovo,
+  ## method).
+  ## [STANDARD] dada2::removeBimeraDenovo, method = "consensus"
+  # method: "consensus"
+  ## Quanto un genitore deve essere piu' abbondante di una variante perche'
+  ## questa possa essere giudicata chimerica (dada2,
+  ## minFoldParentOverAbundance).
+  ## [DA SCEGLIERE] partenza: il predefinito del metodo di consenso
+  ## (dada2::isBimeraDenovoTable, minFoldParentOverAbundance = 1.5)
+  # min_fold_parent_over_abundance: 1.5
+  ## Letture minime di un genitore (dada2::isBimeraDenovoTable,
+  ## minParentAbundance).
+  ## [STANDARD] dada2::isBimeraDenovoTable, minParentAbundance = 2
+  # min_parent_abundance: 2
+  ## Frazione minima dei campioni in cui una variante deve risultare chimerica
+  ## (dada2::isBimeraDenovoTable, minSampleFraction).
+  ## [STANDARD] dada2::isBimeraDenovoTable, minSampleFraction = 0.9
+  # min_sample_fraction: 0.9
+  ## Se ammettere una differenza dal modello a due genitori
+  ## (dada2::isBimeraDenovoTable, allowOneOff).
+  ## [STANDARD] dada2::isBimeraDenovoTable, allowOneOff = FALSE
+  # allow_one_off: false
+
+# Selezione delle sequenze varianti.
+asv:
+  ## Tolleranza sulla lunghezza delle varianti rispetto a quella attesa
+  ## (filter.truncLen meno filter.trimLeft).
+  ## [STRUMENTO] governa come si esegue, non che cosa si conclude dai dati
+  # len_tol: 0
+
+# Assegnazione tassonomica e riferimento impiegato.
+tax:
+  ## Riferimento tassonomico nel formato dei training set di dada2.
+  ## [INDICATO] --reference
+  ref_fasta: "<RADICE>/tests/fixtures/riferimento_sintetico/riferimento.fa.gz"
+  ## MD5 del file del riferimento, verificato a ogni avvio.
+  ## [RILEVATO] calcolato sul file indicato
+  ref_md5: "03e74cebdc719e466b4abfb83d22bb07"
+  ## Nome del riferimento, come va riportato con i risultati.
+  ## [DA SCEGLIERE] il nome del riferimento non si legge dal nome del file
+  ## (riferimento.fa.gz)
+  # ref_name:
+  ## Versione del riferimento, come va riportata con i risultati.
+  ## [DA SCEGLIERE] la versione del riferimento non si legge dal nome del file
+  ## (riferimento.fa.gz)
+  # ref_version:
+  ## Classificatore: il bayesiano ingenuo di dada2::assignTaxonomy.
+  ## [UNICA FORMA] la pipeline realizza questo solo valore
+  # classifier: "naive_bayes"
+  ## Bootstrap minimo per assegnare un rango (dada2::assignTaxonomy, minBoot).
+  ## [STANDARD] dada2::assignTaxonomy, minBoot = 50
+  # min_boot: 50
+  ## Se provare anche il complemento inverso di ogni variante
+  ## (dada2::assignTaxonomy, tryRC).
+  ## [DA SCEGLIERE] partenza: il predefinito di dada2::assignTaxonomy (tryRC =
+  ## FALSE); true se le letture possono essere nell'orientamento opposto al
+  ## riferimento
+  # try_rc: false
+  ## Assegnazione della specie: non realizzata, il solo valore ammesso e'
+  ## false.
+  ## [UNICA FORMA] la pipeline realizza questo solo valore
+  # assign_species: false
+  ## Elenco dei taxa con un difetto noto del riferimento (colonne name e
+  ## rank): le assegnazioni che vi ricadono sono marcate. Nullo se non ce n'e'
+  ## uno.
+  ## [FACOLTATIVO] il predefinito e' l'assenza
+  # ref_bad_taxa: null
+
+# Filtraggio tassonomico successivo all'assegnazione.
+filt:
+  ## Se togliere le varianti senza phylum assegnato.
+  ## [DA SCEGLIERE] dipende da che cosa lo studio considera fuori bersaglio
+  # remove_na_phylum:
+  ## Nomi di taxa, a qualunque rango, le cui varianti si tolgono, scritti come
+  ## li scrive il riferimento. Elenco vuoto: nessuno.
+  ## [DA SCEGLIERE] i nomi dipendono dallo studio e da come li scrive il
+  ## riferimento; [] per non togliere nulla
+  # exclude_taxa:
+
+# Costruzione dell'albero filogenetico.
+phylo:
+  ## Se costruire l'albero filogenetico delle varianti finali e aggiungerlo
+  ## all'oggetto finale.
+  ## [DA SCEGLIERE] partenza: disattivata; la filogenesi e' una fase
+  ## facoltativa, che serve alle distanze filogenetiche fra campioni
+  # enabled: false
+  ## Varianti finali oltre le quali la filogenesi si ferma prima del calcolo
+  ## (E-S9-01). Serve solo con phylo.enabled vero.
+  ## [CONDIZIONALE] serve solo se phylo.enabled e' vero: con i valori di
+  ## questo file non e' richiesto e si puo' lasciare in commento
+  # max_seqs:
+  ## Allineatore multiplo: DECIPHER::AlignSeqs.
+  ## [UNICA FORMA] la pipeline realizza questo solo valore
+  # aligner: "decipher"
+  ## Modello evolutivo dell'albero di massima verosimiglianza (phangorn).
+  ## [UNICA FORMA] la pipeline realizza questo solo valore
+  # model: "GTR+G+I"
+
+# Riconoscimento di controlli negativi, positivi e campioni biologici, e
+# validazione della corsa dai controlli positivi.
+ctrl:
+  ## Colonna (della tabella di studio, o di assay se quella manca) che dice di
+  ## che tipo e' il campione. Nullo: il dataset non ha controlli e ogni
+  ## campione e' biologico; le tre etichette si dichiarano allora vuote.
+  ## [PROPOSTO] colonna proposta perche' ha valori con le parole dei controlli
+  # column: "tipo"
+  ## Valori di ctrl.column per i controlli negativi. Elenco vuoto: nessuno.
+  ## [PROPOSTO] i valori con una parola dei controlli negativi (blank,
+  ## negative, ntc, no template)
+  # blank_values: ["bianco di estrazione (blank)"]
+  ## Valori di ctrl.column per i controlli positivi. Elenco vuoto: nessuno.
+  ## [PROPOSTO] nessun valore ha una parola dei controlli positivi
+  # positive_values: []
+  ## Valori di ctrl.column per i campioni biologici: almeno uno, salvo con
+  ## ctrl.column nullo.
+  ## [PROPOSTO] i valori senza parole dei controlli
+  # biological_values: ["tampone"]
+  ## Colonna con cui riconoscere campioni da trattare come controlli negativi
+  ## qualunque sia il tipo dichiarato. Nullo: nessuna riclassificazione.
+  ## [DA SCEGLIERE] partenza: nessuna riclassificazione. Campioni dichiarati
+  ## di un tipo ma da trattare come controlli negativi (per esempio materiale
+  ## mai usato) si riconoscono solo conoscendo lo studio: init non li puo'
+  ## rilevare
+  # blank_override_column: null
+  ## Valori di ctrl.blank_override_column che fanno di un campione un
+  ## controllo negativo. Elenco vuoto: nessuno.
+  ## [CONDIZIONALE] serve solo se ctrl.blank_override_column non e' nullo: con
+  ## i valori di questo file non e' richiesto e si puo' lasciare in commento
+  # blank_override_values:
+  ## Controlli positivi minimi per adattare una curva di calibrazione e per
+  ## giudicare i controlli di un livello di diluizione. Serve solo con
+  ## ctrl.positive_values non vuoto.
+  ## [CONDIZIONALE] serve solo se ctrl.positive_values non e' vuoto: con i
+  ## valori di questo file non e' richiesto e si puo' lasciare in commento
+  # min_positives:
+  ## Frazione minima di controlli positivi conformi al loro livello. Serve
+  ## solo con ctrl.positive_values non vuoto.
+  ## [CONDIZIONALE] serve solo se ctrl.positive_values non e' vuoto: con i
+  ## valori di questo file non e' richiesto e si puo' lasciare in commento
+  # min_positive_pass_frac:
+  ## Che cosa fare sotto ctrl.min_positive_pass_frac: true ferma l'esecuzione
+  ## (E-S11-03), false prosegue con un avviso (E-S11-04). Serve solo con
+  ## ctrl.positive_values non vuoto.
+  ## [CONDIZIONALE] serve solo se ctrl.positive_values non e' vuoto: con i
+  ## valori di questo file non e' richiesto e si puo' lasciare in commento
+  # positive_gate:
+
+# Calibrazione KatharoSeq sui controlli positivi.
+katharoseq:
+  ## Taxon atteso nei controlli positivi, come lo scrive il riferimento al
+  ## rango di katharoseq.collapse_rank. Nullo senza controlli positivi.
+  ## [CONDIZIONALE] serve solo se ctrl.positive_values non e' vuoto: con i
+  ## valori di questo file non e' richiesto e si puo' lasciare in commento
+  # target_taxon:
+  ## Colonna con le cellule di ciascun controllo positivo, cioe' il livello di
+  ## diluizione: nel file del lotto o nella tabella di studio. Nullo senza
+  ## controlli positivi.
+  ## [DA SCEGLIERE] partenza: nessuna; nessuna colonna del file del lotto ha
+  ## un nome che dica le cellule dei controlli positivi
+  ## colonne del file: 'libreria', 'piastra_estrazione',
+  ## 'corsa_sequenziamento'
+  # cell_count_column: null
+  ## Rango a cui si sommano le varianti del taxon atteso: il piu' fine a cui
+  ## il riferimento lo distingue con le letture disponibili. Serve solo con
+  ## ctrl.positive_values non vuoto.
+  ## [CONDIZIONALE] serve solo se ctrl.positive_values non e' vuoto: con i
+  ## valori di questo file non e' richiesto e si puo' lasciare in commento
+  # collapse_rank:
+  ## Forma della curva di calibrazione: la sola realizzata.
+  ## [UNICA FORMA] la pipeline realizza questo solo valore
+  # curve_model: "allosteric_sigmoid"
+  ## Fedelta' (frazione delle letture del controllo sul taxon atteso) a cui si
+  ## legge sulla curva la profondita' minima dei campioni. Serve solo con
+  ## ctrl.positive_values non vuoto.
+  ## [CONDIZIONALE] serve solo se ctrl.positive_values non e' vuoto: con i
+  ## valori di questo file non e' richiesto e si puo' lasciare in commento
+  # target_sensitivity:
+  ## Bonta' minima dell'adattamento (R^2 sulla fedelta') perche' una curva sia
+  ## valida. Serve solo con ctrl.positive_values non vuoto.
+  ## [CONDIZIONALE] serve solo se ctrl.positive_values non e' vuoto: con i
+  ## valori di questo file non e' richiesto e si puo' lasciare in commento
+  # min_r2:
+  ## Stadio delle letture su cui si misurano profondita' e fedelta': senza
+  ## chimere.
+  ## [UNICA FORMA] la pipeline realizza questo solo valore
+  # read_stage: "nonchimeric"
+
+# Rimozione dei contaminanti a partire dai controlli negativi.
+decontam:
+  ## Metodo di decontam::isContaminant: per prevalenza nei controlli negativi,
+  ## il solo realizzato.
+  ## [UNICA FORMA] la pipeline realizza questo solo valore
+  # method: "prevalence"
+  ## Soglia della probabilita' sotto la quale una variante e' un contaminante
+  ## (decontam::isContaminant, threshold). Serve solo con controlli negativi
+  ## dichiarati (ctrl.blank_values o ctrl.blank_override_values non vuoto).
+  ## [DA SCEGLIERE] la soglia di decontaminazione dipende dalla biomassa: init
+  ## non la propone
+  ## il predefinito di decontam::isContaminant e' 0.1; un valore piu' alto
+  ## toglie di piu'
+  # threshold:
+  ## Controlli negativi con letture minimi perche' la decontaminazione si
+  ## esegua, e perche' una piastra abbia un confronto proprio. Serve solo con
+  ## controlli negativi dichiarati (ctrl.blank_values o
+  ## ctrl.blank_override_values non vuoto).
+  ## [DA SCEGLIERE] quanti controlli negativi con letture servono per stimare
+  ## i contaminanti: dipende dal disegno dei controlli
+  # min_blanks:
+  ## Come si combinano le probabilita' delle piastre (decontam::isContaminant,
+  ## batch.combine).
+  ## [STANDARD] decontam::isContaminant, batch.combine = "minimum"
+  # batch_combine: "minimum"
+  ## Modalita' che decide i contaminanti rimossi: aggregate (tutti i biologici
+  ## contro tutti i negativi) o batch (per piastra). L'altra si calcola come
+  ## diagnostica. Serve solo con controlli negativi dichiarati
+  ## (ctrl.blank_values o ctrl.blank_override_values non vuoto).
+  ## [DA SCEGLIERE] partenza: tutti i biologici contro tutti i negativi;
+  ## l'altra modalita' si calcola comunque come diagnostica
+  # mode: "aggregate"
+  ## Colonna del file del lotto con la piastra di estrazione. Nullo senza file
+  ## del lotto.
+  ## [PROPOSTO] il nome della colonna dice la piastra di estrazione
+  # batch_column: "piastra_estrazione"
+
+# Filtro di prevalenza sulle varianti.
+prev:
+  ## Frazione minima dei campioni biologici tenuti in cui una variante deve
+  ## comparire. Serve solo con prev.apply vero.
+  ## [CONDIZIONALE] serve solo se prev.apply e' vero: con i valori di questo
+  ## file non e' richiesto e si puo' lasciare in commento
+  # min_fraction:
+  ## Letture minime perche' una variante conti come presente in un campione.
+  ## Serve solo con prev.apply vero.
+  ## [CONDIZIONALE] serve solo se prev.apply e' vero: con i valori di questo
+  ## file non e' richiesto e si puo' lasciare in commento
+  # min_count:
+  ## Se applicare il filtro di prevalenza.
+  ## [DA SCEGLIERE] se filtrare le varianti presenti in pochi campioni
+  # apply:
+
+# Soglie dei controlli di qualita' che governano avvisi e arresti.
+qc:
+  ## Da dove viene la profondita' minima dei campioni: katharoseq_if_available
+  ## (le soglie dei controlli positivi) oppure none (nessuna soglia di
+  ## profondita').
+  ## [DA SCEGLIERE] partenza: nessuna soglia di profondita', perche' la
+  ## proposta non ha controlli positivi con la colonna delle cellule
+  # min_reads_mode: "none"
+  ## Frazione massima delle letture dei biologici che la decontaminazione puo'
+  ## rimuovere (E-S12-02). Serve solo con controlli negativi dichiarati
+  ## (ctrl.blank_values o ctrl.blank_override_values non vuoto).
+  ## [DA SCEGLIERE] soglia di qualita' da fissare sui propri dati; misura da
+  ## guardare: frazione di letture rimosse dalla decontaminazione, nel report
+  # max_frac_contaminant:
+  ## Letture minime di un campione nell'oggetto finale: sotto, il campione
+  ## esce.
+  ## [DA SCEGLIERE] soglia di qualita' da fissare sui propri dati; misura da
+  ## guardare: letture per campione nell'oggetto finale, nel report
+  # min_reads_final:
+  ## Frazione minima di letture trattenute dall'insieme dei campioni finali,
+  ## rispetto a quelle senza chimere (E-S14-01).
+  ## [DA SCEGLIERE] soglia di qualita' da fissare sui propri dati; misura da
+  ## guardare: letture trattenute dall'insieme, nel report
+  # min_frac_reads_retained:
+  ## Varianti distinte oltre le quali la tabella delle sequenze non si
+  ## costruisce (E-S5-01): secondo la memoria disponibile.
+  ## [DA SCEGLIERE] partenza: la tabella delle sequenze piu' grande che occupa
+  ## il 10% della memoria di questa macchina (8 GB), con 7 campioni e 4 byte
+  ## per cella, non oltre il numero di letture
+  # max_asv_count: 720
+  ## Campioni biologici o controlli positivi che il filtro puo' lasciare senza
+  ## letture (E-S2-01).
+  ## [DA SCEGLIERE] partenza: nessun campione biologico perso nel filtro senza
+  ## che lo si veda
+  # max_zeroed_samples: 0
+  ## Perdita media massima di letture nel filtro, sui biologici e sui
+  ## controlli positivi (E-S2-02).
+  ## [DA SCEGLIERE] soglia di qualita' da fissare sui propri dati; misura da
+  ## guardare: perdita media nel filtro, nel tracciamento delle letture del
+  ## report
+  # max_frac_lost_filter:
+  ## Frazione massima di letture piu' corte di filter.truncLen, per classe
+  ## (E-S0-09, E-S1-02).
+  ## [DA SCEGLIERE] si sceglie insieme a filter.truncLen
+  # max_frac_short_reads:
+  ## Frazione di letture chimeriche che da' un avviso; non puo' superare
+  ## qc.stop_frac_chimeric.
+  ## [DA SCEGLIERE] soglia di qualita' da fissare sui propri dati; misura da
+  ## guardare: frazione di letture chimeriche, nel report
+  # warn_frac_chimeric:
+  ## Frazione di letture chimeriche che ferma la rimozione delle chimere.
+  ## [DA SCEGLIERE] soglia di qualita' da fissare sui propri dati; misura da
+  ## guardare: frazione di letture chimeriche, nel report
+  # stop_frac_chimeric:
+  ## Frazione minima di varianti con il phylum assegnato (E-S8-02).
+  ## [DA SCEGLIERE] soglia di qualita' da fissare sui propri dati; misura da
+  ## guardare: frazione di varianti con il phylum assegnato, nel report
+  # min_frac_phylum:
+  ## Letture ispezionate per file dalla validazione iniziale.
+  ## [DA SCEGLIERE] letture ispezionate per file dalla validazione: abbastanza
+  ## da rappresentare il file, poche abbastanza da validare in minuti
+  ## il file mediano ha 120 letture: un valore pari o superiore legge quel
+  ## file per intero
+  # head_reads:
+  ## Frazione di letture che iniziano con il primer oltre la quale lo si
+  ## considera presente (E-S0-10).
+  ## [DA SCEGLIERE] soglia di qualita' da fissare sui propri dati; misura da
+  ## guardare: frazione di letture con il primer in testa, in
+  ## 01_input_validation/letture_ispezionate.tsv
+  # max_primer_hit_frac:
+  ## Frazione minima di letture che devono portare il motivo conservato, sulla
+  ## mediana dei campioni biologici e dei controlli positivi (E-S0-16).
+  ## [DA SCEGLIERE] soglia di qualita' da fissare sui propri dati; misura da
+  ## guardare: frazione di letture con il motivo, nello stesso file
+  # min_motif_frac:
+  ## Primer di amplificazione forward, in codici IUPAC.
+  ## [RILEVATO] primer 341F (Klindworth et al. 2013, Nucleic Acids Res 41:e1
+  ## (V3-V4)), in testa alle letture di ogni file: dal 95% al 100% delle
+  ## letture, su tutte le letture
+  primer_sequence: "CCTACGGGNGGCWGCAG"
+  ## Motivo conservato atteso all'inizio della regione amplificata, come
+  ## espressione regolare. Nullo: si verifica la sola assenza del primer.
+  ## [PROPOSTO] il consenso delle 17 basi che seguono il primer, su non piu'
+  ## di 2000 letture per file: una base o una coppia di basi dove copre almeno
+  ## il 90% delle letture
+  ## validate ne misura la frequenza con qc.min_motif_frac
+  ## esclusi 2 file dei campioni proposti come controlli negativi
+  # conserved_motif: "TAC[AG][GT]AG[AG]...C.AG[CT]G"
+
+# Nuovi tentativi sulle fasi fallite.
+retry:
+  ## Se ritentare in automatico gli errori ammessi.
+  ## [STRUMENTO] governa come si esegue, non che cosa si conclude dai dati
+  # enabled: true
+  ## Numero totale di tentativi, compreso il primo.
+  ## [STRUMENTO] governa come si esegue, non che cosa si conclude dai dati
+  # max_attempts: 2
+  ## Codici per cui e' ammesso un nuovo tentativo automatico: solo dove
+  ## l'azione correttiva non modifica alcuna assunzione dell'analisi.
+  ## [STRUMENTO] governa come si esegue, non che cosa si conclude dai dati
+  # whitelist: ["E-S2-03", "E-S4-02"]
+
+# Forma degli artefatti prodotti.
+out:
+  ## Formato dell'oggetto finale: RDS.
+  ## [UNICA FORMA] la pipeline realizza questo solo valore
+  # serialization: "rds"
+  ## Come si nominano le varianti: per abbondanza decrescente nei campioni
+  ## biologici.
+  ## [UNICA FORMA] la pipeline realizza questo solo valore
+  # asv_id_scheme: "abundance_rank"
+  ## Orientamento della tabella dei conteggi: varianti sulle righe, il solo
+  ## realizzato.
+  ## [UNICA FORMA] la pipeline realizza questo solo valore
+  # taxa_are_rows: true
+  ## Se scrivere accanto all'oggetto finale gli stessi dati in testo.
+  ## [STRUMENTO] governa come si esegue, non che cosa si conclude dai dati
+  # export_flat: true
+  ## Identificativo dei campioni nell'oggetto: la chiave del campione.
+  ## [UNICA FORMA] la pipeline realizza questo solo valore
+  # sample_id_source: "accession"
+  ## Colonne della tabella di studio da portare nell'oggetto oltre a quelle
+  ## dell'inventario. Elenco vuoto: nessuna.
+  ## [DA SCEGLIERE] partenza: nessuna colonna oltre a quelle dell'inventario;
+  ## elenca qui le variabili dello studio che le analisi a valle useranno
+  ## colonne disponibili: 'campione', 'file_letture', 'sito', 'trattamento',
+  ## 'tipo'
+  # study_columns: []
+  ## Colonne del file del lotto da portare nell'oggetto. Elenco vuoto:
+  ## nessuna.
+  ## [DA SCEGLIERE] partenza: nessuna colonna del file del lotto oltre a
+  ## piastra e corsa
+  ## colonne disponibili: 'libreria', 'piastra_estrazione',
+  ## 'corsa_sequenziamento'
+  # batch_columns: []
+
+# Parametri dell'esecuzione: ambiente, parallelismo, riproducibilita'.
+run:
+  ## Immagine con cui si dichiara di eseguire, ancorata per digest: e'
+  ## registrata nella provenienza, non sceglie l'immagine.
+  ## [FACOLTATIVO] il predefinito e' l'assenza
+  # container: null
+  ## File di blocco delle versioni dei pacchetti R.
+  ## [STRUMENTO] governa come si esegue, non che cosa si conclude dai dati
+  # lockfile: "renv.lock"
+  ## Seme dei generatori di numeri casuali.
+  ## [STRUMENTO] governa come si esegue, non che cosa si conclude dai dati
+  # seed: 100
+  ## Processori da usare. Nullo: quelli utilizzabili dal processo.
+  ## [FACOLTATIVO] il predefinito e' l'assenza
+  # threads: null
+  ## Tempo massimo in secondi di ogni processo R (E-R-05). Nullo: nessun
+  ## limite.
+  ## [FACOLTATIVO] il predefinito e' l'assenza
+  # r_timeout_s: null
+  ## Campioni elaborati insieme: governa la memoria richiesta, non i
+  ## risultati.
+  ## [STRUMENTO] governa come si esegue, non che cosa si conclude dai dati
+  # batch_size: 24
+  ## Se conservare le letture filtrate a esecuzione conclusa.
+  ## [STRUMENTO] governa come si esegue, non che cosa si conclude dai dati
+  # keep_filtered_fastq: true
+  ## Regola rigorosa sulla provenienza: con true l'esecuzione parte solo da un
+  ## clone senza modifiche non committate al codice e in un ambiente R
+  ## identico al file di blocco.
+  ## [STRUMENTO] governa come si esegue, non che cosa si conclude dai dati
+  # strict_provenance: false
+

@@ -34,6 +34,7 @@ Sull'oggetto finale lavora un secondo pacchetto, le **analisi ecologiche di base
 (più sotto). **Per un dataset proprio la strada è in [GUIDA.md](GUIDA.md)**: come
 preparare i dati, come scrivere la configurazione con `init`, che cosa significa ogni
 parametro.
+
 ## Dati supportati
 
 - Letture Illumina **single-end** dell'amplicone 16S, un file FASTQ per campione,
@@ -54,9 +55,9 @@ File e metadati si agganciano con una chiave estratta dal nome di ogni file, uni
 campione (`io.accession_regex`). Come preparare letture e tabelle è in GUIDA.md,
 sezione 1.
 
-Nel repository ci sono due dataset su cui la pipeline è eseguita, con dati,
-configurazione e istruzioni: `dati/osd734/` (960 campioni della Stazione Spaziale
-Internazionale, con controlli e file del lotto) e `dati/osd276/` (15, senza controlli).
+Nel repository ci sono i dataset su cui la pipeline è eseguita, con dati, configurazione e
+istruzioni: `dati/osd734/` (960 campioni, controlli e file del lotto), `dati/osd276/` (15, senza
+controlli), `dati/osd170/` (30, soli controlli negativi), `dati/comunita_nota/` (uno standard noto).
 
 ## Requisiti
 
@@ -93,6 +94,7 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
 | `status` | dice a che punto è un'esecuzione, anche mentre è in corso |
 | `resume` | riprende un'esecuzione dagli artefatti esistenti, rifacendo solo ciò che serve |
 | `report` | genera il report dell'esecuzione |
+| `soglie` | da un'esecuzione conclusa, propone le soglie di qualità dalle sue misure |
 | `schema` | esporta in JSON lo schema della configurazione |
 | `eco ...` | le analisi ecologiche di base: `eco init`, `eco validate`, `eco run`, `eco status`, `eco schema` |
 
@@ -135,23 +137,25 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
     --metadata <tabella dei campioni o cartella ISA-Tab> --output <configurazione.yaml>
 ```
 
-Nel file ogni valore dichiara da dove viene: **rilevato** sui file (riga attiva),
-**proposto** da un'euristica (riga in commento con il valore già scritto: per
-accettarlo si toglie il commento), oppure **da scegliere** (riga in commento, con un
-valore di partenza e il suo motivo, o senza valore). Nessun valore entra nella
-configurazione senza un gesto di chi la scrive; `validate` elenca ciò che resta da
-dichiarare. Argomenti, regole e significato di ogni parametro sono in GUIDA.md.
+Nel file ogni valore dichiara da dove viene: **rilevato** sui file (riga attiva), **proposto** da
+un'euristica o **da scegliere** (righe in commento, con il valore proposto o di partenza quando
+c'è). Nessun valore entra senza un gesto: si toglie il commento riga per riga, oppure si accettano
+tutti con `--accetta-proposte`. Il percorso breve: `init ... --accetta-proposte` (proposte e
+valori di partenza attivi, soglie di qualità al valore che non ferma); si scrivono le scelte che
+`validate` elenca; `run`; `soglie --config <configurazione.yaml> --output <nuova.yaml>
+--accetta-proposte` propone le soglie dalle misure di quell'esecuzione, e `resume --config
+<nuova.yaml>` le attiva. Una soglia proposta protegge dai peggioramenti, non giudica la misura.
+Dettagli in GUIDA.md (sezioni 2 e 6.6); le configurazioni in `dati/` sono esempi commentati.
 
-- I parametri che dipendono dai dati o dallo studio sono **obbligatori** e senza
-  predefinito: se ne manca uno la pipeline si ferma prima di ogni calcolo e li elenca
-  (`E-G15-10`). Uno non pertinente si dichiara nullo o vuoto. Hanno un predefinito solo
-  i valori standard del metodo, le forme uniche e i parametri di esecuzione.
+- I parametri che dipendono dai dati o dallo studio sono **obbligatori**, senza predefinito
+  (lo hanno solo standard del metodo, forme uniche e parametri di esecuzione): se uno manca
+  la pipeline li elenca e si ferma (`E-G15-10`). I **condizionali** si omettono se non
+  pertinenti: omessi o dichiarati con un valore danno gli stessi conteggi, tassonomia, campioni
+  e varianti ma un digest diverso; sette, se omessi, sono nulli nei riepiloghi (GUIDA.md, 2.5).
 - Lo schema rifiuta le chiavi che non conosce: un refuso ferma l'esecuzione.
 - `run.strict_provenance: true` fa partire l'esecuzione solo da un clone senza
   modifiche non committate in `src/` e `R/` e in un ambiente R identico a `renv.lock`:
   è il modo di produrre risultati da consegnare.
-
-Le configurazioni dei due dataset del repository, in `dati/`, sono esempi commentati.
 
 ## Uscite
 
@@ -176,18 +180,15 @@ i nomi non cambiano dopo i filtri, quindi la numerazione finale ha dei vuoti.
 Lo ricava da ciò che l'esecuzione ha lasciato su disco, senza ricalcolare nulla. Le
 sezioni, nell'ordine:
 
-- **Segnalazioni in apertura**: arresti, tentativi ripetuti e *degradazioni*, cioè gli
-  avvisi con cui la pipeline prosegue rinunciando a qualcosa, ciascuno con il suo codice.
-  Poi **Stato della catena** e **Gate di validazione e controlli di avvio**.
+- **Segnalazioni in apertura**: arresti, tentativi ripetuti, *degradazioni* (gli avvisi con cui
+  la pipeline prosegue rinunciando a qualcosa), integrità di ciò che è stato letto e controlli di
+  qualità spenti. Poi **Stato della catena** e **Gate di validazione e controlli di avvio**.
 - **Configurazione** (ogni parametro con il valore e l'origine: *dichiarato*,
   *predefinito*, *derivato*, *aggiustato*) e **Provenienza delle fasi**.
 - **Decisioni prese automaticamente**: curve di calibrazione e soglia di profondità per
   piastra, contaminanti rimossi, campioni riclassificati, troncamento suggerito.
-- **Tracciamento delle letture**, **Risultato finale** (campioni e varianti, esclusi
-  con il motivo), **Integrità di ciò che è stato letto**.
-
-Ogni avviso o arresto porta un codice (`E-S11-02`, `E-G15-10`, ...): il messaggio
-riporta il dettaglio del caso e che cosa fare.
+- **Tracciamento delle letture** e **Risultato finale** (campioni e varianti, esclusi
+  con il motivo).
 
 ## Codici di uscita
 
@@ -200,7 +201,8 @@ riporta il dettaglio del caso e che cosa fare.
 | 4 | arresto con punto di ripresa, stampato e scritto in `99_logs/punto_di_ripresa.json` |
 | 5 | una fase prevista dal grafo non è realizzata; non si presenta con le fasi attuali |
 
-Corretta la causa di un arresto, `resume` riparte da lì. Gli avvisi non fermano.
+Corretta la causa di un arresto, `resume` riparte da lì. Gli avvisi non fermano. Ogni messaggio
+porta un codice (`E-S11-02`, `E-G15-10`, ...), il dettaglio del caso e che cosa fare.
 
 ## Analisi ecologiche di base
 
@@ -222,7 +224,7 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
 (completate quelle, `eco validate` la controlla contro l'oggetto); `eco run` scrive
 tabelle, grafici, un riepilogo con gli avvisi (`E-ECO-`) e un manifesto con lo SHA-256
 di ogni file, identici byte per byte a parità di oggetto, configurazione e seme. Esempi
-in `dati/osd734/eco_osd734.yaml` e `dati/osd276/eco_osd276.yaml`; dettagli in GUIDA.md.
+in `dati/osd734/`, `dati/osd276/` e `dati/osd170/` (`eco_*.yaml`); dettagli in GUIDA.md.
 
 ## Integrazione con altri programmi
 
@@ -235,8 +237,7 @@ Tre comandi scrivono sullo standard output un documento JSON con il campo
 | `validate --json` | per ogni problema: parametro, codice, messaggio, azione suggerita |
 | `status --json` | fasi concluse, fase in corso, arresto con il codice e il punto di ripresa |
 
-`status` legge soltanto: si può usare durante un'esecuzione. Il formato dei tre
-documenti è in GUIDA.md, sezione 5.
+`status` legge soltanto, anche durante un'esecuzione. Formati, e `soglie --json`: GUIDA.md, 5.
 
 ## Riprodurre il riferimento
 
@@ -257,15 +258,14 @@ python3 dati/osd734/confronta_risultati.py        # 1.033 artefatti, fase per fa
 
 Il confronto termina con `RISULTATI IDENTICI` oppure indica il primo artefatto diverso.
 La regola rigorosa è attiva: si esegue da un clone senza modifiche. Dettagli e requisiti
-misurati sono in `dati/osd734/README.md`; il secondo dataset è in `dati/osd276/README.md`.
+misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in `dati/`.
 
 ## Limiti noti
 
-- Un file con le due letture di ogni coppia è riconosciuto dai marcatori `/1` e `/2`,
-  dal commento `1:N:` e `2:N:`, dal nome ripetuto, e dal marcatore `1` e `2` o `R1` e
-  `R2` in fondo all'identificativo. Non lo è se contiene una sola coppia, se usa un
-  altro marcatore, o se con i marcatori in fondo all'identificativo riporta prima tutte
-  le prime letture e poi le seconde, o le sole seconde.
+- Un file con le due letture di ogni coppia è riconosciuto dai marcatori `/1` e `/2`, dal commento
+  `1:N:` e `2:N:`, dal nome ripetuto, e dal marcatore `1` e `2` o `R1` e `R2` in fondo
+  all'identificativo. Non lo è con una sola coppia, con un altro marcatore, o se con i marcatori in
+  fondo all'identificativo riporta prima tutte le prime letture e poi le seconde, o le sole seconde.
 - Un file il cui nome finisce con `R2`, o con `_2` quando c'è lo stesso nome con `_1`,
   è preso per il secondo di una coppia e respinto; così un dataset single-end le cui
   letture portano tutte il marcatore `/2`. Due file `_R1` e `_R2` con la stessa chiave
@@ -279,21 +279,21 @@ misurati sono in `dati/osd734/README.md`; il secondo dataset è in `dati/osd276/
 - I parametri reali accettano `true` e `false`, letti come 1 e 0. Il file di
   `tax.ref_bad_taxa` deve avere le colonne `name` e `rank`. Una riga finale di soli
   spazi in un FASTQ ferma S2 (`E-S2-03`); byte estranei dopo l'archivio gzip, S0 o S1.
+- Il testo generale «che cosa fare» di alcuni codici descrive solo il caso più frequente (quelli
+  sui controlli negativi citano `decontam.min_blanks` anche se omesso): fa fede il dettaglio.
 - S8 cerca il rango `Phylum`: un riferimento con ranghi nominati diversamente dà un
   errore senza codice. La tassonomia arriva al genere; l'albero di S9 serve alle
   distanze fra campioni, non come risultato filogenetico.
-- Le analisi ecologiche trattano ogni variabile come categorica: una variabile che
-  sembra continua dà un avviso (`E-ECO-29`), non un'analisi di regressione. Un'analisi
-  respinta non lascia nulla nella cartella di uscita: `eco status` non la riporta, il
-  codice lo dà il comando.
+- Le analisi ecologiche trattano ogni variabile come categorica: una variabile che sembra continua
+  dà un avviso (`E-ECO-29`), non un'analisi di regressione. Un'analisi respinta non lascia nulla
+  nella cartella di uscita: `eco status` non la riporta, il codice lo dà il comando.
 
 ## Test
 
 La suite verifica pipeline e analisi su dataset sintetici e sul sottoinsieme di prova.
-Nell'immagine, dalla radice del clone (in un ambiente Python 3.11 senza R i test che
-richiedono R si saltano e dicono perché):
+Nell'immagine, dalla radice del clone (senza R i test che lo richiedono si saltano):
 
 ```bash
-docker run --rm -e PYTHONPATH=/app/src -e AMPLICON16S_R_DIR=/app/R \
-  -v "$(pwd)":/app -w /app <immagine> pytest -o cache_dir=/tmp/.pytest_cache
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e PYTHONPATH=/app/src \
+  -e AMPLICON16S_R_DIR=/app/R -v "$(pwd)":/app -w /app <immagine> pytest -o cache_dir=/tmp/.pytest_cache
 ```

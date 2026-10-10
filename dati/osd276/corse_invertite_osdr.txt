@@ -1,0 +1,11 @@
+# Campioni in cui i file R1 e R2 pubblicati da OSDR sono scambiati rispetto alle
+# letture forward e inverse (README di questa cartella): l'elaborazione di GeneLab
+# di queste corse non e' confrontabile.
+SP1
+SP3
+SP6
+SP8
+SP11
+SP12
+SP14
+SP15

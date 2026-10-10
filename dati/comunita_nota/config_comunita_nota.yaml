@@ -1,0 +1,126 @@
+# =========================================================================== #
+# Configurazione della comunita' nota: cinque repliche di uno standard di DNA  #
+# =========================================================================== #
+#
+# Cinque corse dello standard ZymoBIOMICS Microbial Community DNA Standard
+# (studio PRJNA758928, regione V4, primer 515F-806R, MiSeq 2 x 250), trattate
+# come campioni: non ci sono controlli, e i parametri condizionali che servono
+# solo con i controlli, con la filogenesi o con il modulo derivato sono omessi.
+#
+# I percorsi sono relativi alla radice del clone, da cui si lancia il comando.
+# Le letture si scaricano con dati/comunita_nota/scarica_letture.py, il
+# riferimento con dati/riferimento/scarica_riferimento.py.
+#
+# I filtri finali sono quelli di una verifica di composizione: nessun filtro
+# di prevalenza, nessuna rimozione delle varianti senza phylum, nessuna soglia
+# sulle letture finali. Filtri piu' stretti, su cinque repliche, toglierebbero
+# proprio cio' che la verifica deve contare: i contaminanti rari e le letture
+# non assegnate.
+
+io:
+  fastq_dir: dati/comunita_nota/fastq
+  # La tabella dei campioni e' un TSV semplice, non ISA-Tab: una riga per corsa.
+  assay_table: dati/comunita_nota/campioni.tsv
+  study_table: null
+  out_root: output/comunita_nota
+  batch_table: null
+  fastq_glob: "*.fastq.gz"
+  accession_regex: "SRR[0-9]+"
+
+meta:
+  sample_id_column: "campione"
+  accession_column: "file_letture"
+  derive_module: false
+  module_column: null
+  non_surface_positions: []
+  batch_key_column: null
+  batch_module_column: null
+
+filter:
+  # Le letture forward sono di 250 basi e iniziano con il primer 515F (19
+  # basi), che si toglie in testa. Il troncamento e' la lunghezza piu' lunga
+  # che non scarta letture e precede il calo di qualita' in coda.
+  truncLen: 249
+  truncLen_shortfall_warn: 1
+  trimLeft: 19
+
+err:
+  randomize: false
+  batch_column: null
+
+dada:
+  pool: false
+
+chimera:
+  min_fold_parent_over_abundance: 1.5
+
+tax:
+  ref_fasta: dati/riferimento/silva_nr99_v138_train_set.fa.gz
+  ref_md5: "56821dd6f365f64c8518a21e049c3232"
+  ref_name: SILVA
+  ref_version: "138"
+  try_rc: false
+
+filt:
+  remove_na_phylum: false
+  # I soli organelli, come li scrive il riferimento.
+  exclude_taxa:
+    - Chloroplast
+    - Mitochondria
+
+phylo:
+  enabled: false
+
+ctrl:
+  # Nessuna colonna distingue controlli e campioni: ogni corsa e' un campione.
+  # (La colonna "titolo" dice "positive control" perche' nello studio di
+  # origine lo standard era il controllo positivo: qui e' l'oggetto.)
+  column: null
+  blank_override_column: null
+
+katharoseq:
+  cell_count_column: null
+  # Senza controlli positivi non si adatta alcuna curva: il valore non entra
+  # in alcun calcolo, ma la fase lo riporta nel suo riepilogo e va dichiarato.
+  target_sensitivity: 0.5
+
+decontam:
+  batch_column: null
+  # Senza controlli negativi la decontaminazione non toglie nulla (E-S12-03):
+  # soglia e minimo sono riportati nel riepilogo della fase e vanno dichiarati.
+  threshold: 0.1
+  min_blanks: 1
+  mode: aggregate
+
+prev:
+  apply: false
+  # Con il filtro spento non hanno effetto; restano nel riepilogo dei filtri.
+  min_fraction: 0.0
+  min_count: 1
+
+qc:
+  head_reads: 10000
+  primer_sequence: GTGYCAGCMGCCGCGGTAA
+  max_primer_hit_frac: 0.05
+  conserved_motif: "TACG[GT]AGG[GT][GT]GCAAGCGTT"
+  min_motif_frac: 0.5
+  max_frac_short_reads: 0.0
+  max_zeroed_samples: 0
+  max_frac_lost_filter: 0.40
+  max_asv_count: 170000
+  # La frazione di letture chimeriche di queste corse e' alta: la soglia
+  # d'avviso resta sotto di essa, perche' il report lo segnali (E-S6-02).
+  warn_frac_chimeric: 0.25
+  stop_frac_chimeric: 0.60
+  min_frac_phylum: 0.80
+  min_reads_mode: none
+  max_frac_contaminant: 0.40
+  min_reads_final: 0
+  min_frac_reads_retained: 0.40
+
+out:
+  study_columns: []
+  batch_columns: []
+
+run:
+  container: "ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154"

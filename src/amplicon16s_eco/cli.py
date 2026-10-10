@@ -84,6 +84,9 @@ def build_parser(programma: str = "python3 -m amplicon16s_eco") -> argparse.Argu
                         help="l'oggetto phyloseq finale (ps_final.rds)")
     inizio.add_argument("--output", required=True, type=Path, metavar="FILE",
                         help="il file di configurazione da scrivere: non deve esistere")
+    inizio.add_argument("--accetta-proposte", action="store_true",
+                        help="scrive come righe attive le proposte e i valori di partenza "
+                             "(non i condizionali): restano da scrivere le scelte")
     sotto.add_parser("schema", help="esporta in JSON lo schema della configurazione")
     stato = sotto.add_parser("status", help="dice a che punto e' l'analisi di una cartella di uscita")
     stato.add_argument("--out", dest="uscita", required=True, type=Path, metavar="CARTELLA",
@@ -115,16 +118,24 @@ def _cmd_init(args: argparse.Namespace) -> int:
         print(f"init: {args.output} esiste gia': init non scrive su una configurazione "
               "esistente. Indica con --output un file nuovo", file=sys.stderr)
         return USCITA_RIFIUTO
-    voci, fatti = scrivi(args.oggetto, args.output)
+    accettate = bool(args.accetta_proposte)
+    voci, fatti = scrivi(args.oggetto, args.output, accettate)
     print(f"Configurazione di partenza scritta in {args.output}")
     print("Rilevato sull'oggetto:")
     for fatto in fatti:
         print(f"  {fatto}")
-    print("Proposti (righe in commento: togli il commento per accettare):")
+    print("Proposti (righe attive, accettati con --accetta-proposte: controllali):"
+          if accettate else "Proposti (righe in commento: togli il commento per accettare):")
     for voce in voci.values():
         if voce.specie is Specie.PROPOSTO:
+            print(f"  {voce.chiave}: {valore_yaml(voce.valore)}"
+                  + ("" if voce.attiva or not accettate else " (condizionale: in commento)"))
+    partenze = [voce for voce in voci.values() if voce.specie is Specie.PARTENZA]
+    if partenze:
+        print("Valori di partenza accettati (righe attive):")
+        for voce in partenze:
             print(f"  {voce.chiave}: {valore_yaml(voce.valore)}")
-    print("Da scegliere:")
+    print("Restano da scegliere (righe in commento):" if accettate else "Da scegliere:")
     for voce in voci.values():
         if voce.specie is Specie.DA_SCEGLIERE:
             partenza = "" if voce.valore is SENZA_VALORE else f" (partenza: {valore_yaml(voce.valore)})"

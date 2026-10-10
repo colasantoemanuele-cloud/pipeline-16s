@@ -129,30 +129,48 @@ DEL_DATASET = (
     # come si riconoscono file e campioni
     "io.fastq_glob", "io.accession_regex", "meta.sample_id_column", "meta.accession_column",
     # il formato dei metadati
-    "meta.derive_module", "meta.module_regex", "meta.module_column",
+    "meta.derive_module", "meta.module_column",
     "meta.non_surface_positions", "meta.batch_key_column", "meta.batch_module_column",
     "err.batch_column", "decontam.batch_column",
-    "ctrl.column", "ctrl.blank_values", "ctrl.positive_values", "ctrl.biological_values",
-    "ctrl.blank_override_column", "ctrl.blank_override_values",
+    "ctrl.column", "ctrl.blank_override_column",
     "katharoseq.cell_count_column", "out.study_columns", "out.batch_columns",
     # la regione amplificata, le letture e il riferimento
     "filter.truncLen", "filter.truncLen_shortfall_warn", "filter.trimLeft",
     "qc.primer_sequence", "qc.conserved_motif", "tax.ref_name", "tax.ref_version", "tax.try_rc",
     # le scelte di analisi che dipendono dallo studio
     "err.randomize", "dada.pool", "chimera.min_fold_parent_over_abundance",
-    "filt.remove_na_phylum", "filt.exclude_taxa", "phylo.enabled", "phylo.max_seqs",
-    "prev.min_fraction", "prev.min_count", "prev.apply",
-    # i controlli sperimentali
-    "ctrl.min_positives", "ctrl.min_positive_pass_frac", "ctrl.positive_gate",
-    "katharoseq.target_taxon", "katharoseq.collapse_rank", "katharoseq.target_sensitivity",
-    "katharoseq.min_r2", "decontam.threshold", "decontam.min_blanks", "decontam.mode",
+    "filt.remove_na_phylum", "filt.exclude_taxa", "phylo.enabled", "prev.apply",
     # le soglie di qualita'
     "qc.head_reads", "qc.max_primer_hit_frac", "qc.min_motif_frac", "qc.max_frac_short_reads",
     "qc.max_zeroed_samples", "qc.max_frac_lost_filter", "qc.max_asv_count",
     "qc.warn_frac_chimeric", "qc.stop_frac_chimeric", "qc.min_frac_phylum",
-    "qc.min_reads_mode", "qc.max_frac_contaminant", "qc.min_reads_final",
+    "qc.min_reads_mode", "qc.min_reads_final",
     "qc.min_frac_reads_retained",
 )
+
+#: I controlli negativi sono dichiarati con le etichette o con la
+#: riclassificazione: la condizione dei parametri della decontaminazione.
+_NEGATIVI = ("ctrl.blank_values", "ctrl.blank_override_values")
+#: I parametri obbligatori solo quando la loro condizione e' vera, con i
+#: parametri che la decidono (ne basta uno): scritti per esteso per la stessa
+#: ragione.
+CONDIZIONALI = {
+    "ctrl.blank_values": ("ctrl.column",), "ctrl.positive_values": ("ctrl.column",),
+    "ctrl.biological_values": ("ctrl.column",),
+    "ctrl.blank_override_values": ("ctrl.blank_override_column",),
+    "ctrl.min_positives": ("ctrl.positive_values",),
+    "ctrl.min_positive_pass_frac": ("ctrl.positive_values",),
+    "ctrl.positive_gate": ("ctrl.positive_values",),
+    "katharoseq.target_taxon": ("ctrl.positive_values",),
+    "katharoseq.collapse_rank": ("ctrl.positive_values",),
+    "katharoseq.min_r2": ("ctrl.positive_values",),
+    "katharoseq.target_sensitivity": ("ctrl.positive_values",),
+    "decontam.threshold": _NEGATIVI, "decontam.min_blanks": _NEGATIVI,
+    "decontam.mode": _NEGATIVI, "qc.max_frac_contaminant": _NEGATIVI,
+    "phylo.max_seqs": ("phylo.enabled",),
+    "prev.min_fraction": ("prev.apply",), "prev.min_count": ("prev.apply",),
+    "meta.module_regex": ("meta.derive_module",),
+}
 
 #: Elenco tassativo dei parametri privi di valore predefinito nello schema: i
 #: percorsi e il checksum del riferimento, piu' quelli di ``DEL_DATASET``.
@@ -189,12 +207,12 @@ NULLI = (
 def _modello() -> dict[str, set[str]]:
     """Le chiavi ``gruppo.parametro`` del modello di configurazione, per specie:
     quelle con un valore, e quelle lasciate in commento con il loro marcatore
-    (``[OBBLIGATORIO]``) o senza (``commentate``).
+    (``[OBBLIGATORIO]``, ``[CONDIZIONALE]``) o senza (``commentate``).
     """
     import re
 
     chiavi: dict[str, set[str]] = {"con_valore": set(), "obbligatorie": set(), "commentate": set(),
-                                   "standard": set()}
+                                   "standard": set(), "condizionali": set()}
     gruppo = None
     for riga in ESEMPIO.read_text(encoding="utf-8").splitlines():
         if trovato := re.match(r"^([a-z]+):", riga):
@@ -204,7 +222,8 @@ def _modello() -> dict[str, set[str]]:
             if "[STANDARD]" in riga:
                 chiavi["standard"].add(f"{gruppo}.{trovato.group(1)}")
         elif trovato := re.match(r"^  # ([A-Za-z_0-9]+):\s*(#.*|\d+)?$", riga):
-            specie = "obbligatorie" if "[OBBLIGATORIO]" in riga else "commentate"
+            specie = ("obbligatorie" if "[OBBLIGATORIO]" in riga
+                      else "condizionali" if "[CONDIZIONALE]" in riga else "commentate")
             chiavi[specie].add(f"{gruppo}.{trovato.group(1)}")
     return chiavi
 
@@ -304,7 +323,8 @@ def test_nessuna_chiave_dello_schema_manca_nel_file():
     che non vi compare non verrebbe mai rivisto.
     """
     modello = _modello()
-    presenti = modello["con_valore"] | modello["obbligatorie"] | modello["commentate"]
+    presenti = (modello["con_valore"] | modello["obbligatorie"] | modello["commentate"]
+                | modello["condizionali"])
     mancanti = chiavi_schema() - presenti
     assert not mancanti, f"chiavi dello schema assenti dal file: {sorted(mancanti)}"
     # run.threads e run.r_timeout_s sono nulli per difetto: restano in commento.
@@ -348,11 +368,11 @@ def test_elenco_obbligatori_coincide_con_lo_schema():
     **Obiettivo**: Verificare che l'insieme dei campi richiesti senza default
     in ``Config`` coincida esattamente con la tupla ``OBBLIGATORI`` scritta in
     questo modulo, e che ``defaults.OBBLIGATORI`` sia, nello stesso ordine,
-    l'elenco letterale dei 25 parametri del dataset (``DEL_DATASET``).
+    l'elenco letterale dei parametri del dataset (``DEL_DATASET``).
 
     **Razionale scientifico e sistemistico**: I percorsi dei dati di input
     (``io.fastq_dir``, ``io.assay_table``, ``io.out_root``), il riferimento
-    tassonomico con il suo checksum (``tax.ref_fasta``, ``tax.ref_md5``) e i 25
+    tassonomico con il suo checksum (``tax.ref_fasta``, ``tax.ref_md5``) e i
     parametri che descrivono il dataset dipendono dall'ambiente e dallo
     studio: un valore di default per uno di essi farebbe girare la pipeline su
     file sbagliati o con il formato di un altro dataset senza avvertire.
@@ -362,8 +382,11 @@ def test_elenco_obbligatori_coincide_con_lo_schema():
     letterale perche' un elenco letto dal codice verificherebbe il codice
     contro se stesso.
     """
-    assert len(DEL_DATASET) == 63 and len(set(DEL_DATASET)) == 63
+    assert len(DEL_DATASET) == 44 and len(set(DEL_DATASET)) == 44
     assert defaults.OBBLIGATORI == DEL_DATASET
+    assert {c: tuple(p for p, _ in alternative)
+            for c, alternative in defaults.CONDIZIONALI.items()} == CONDIZIONALI
+    assert not set(CONDIZIONALI) & set(DEL_DATASET)
     assert not {"io.study_table", "run.container"} & set(OBBLIGATORI)
     dallo_schema = {
         f"{gruppo}.{campo}"
@@ -761,7 +784,10 @@ def test_ogni_predefinito_e_di_una_specie_ammessa():
         if not sotto.is_required()
     }
     ammessi = set(defaults.STANDARD_DEL_METODO) | set(UNICA_FORMA) | set(DELLO_STRUMENTO) | set(NULLI)
-    assert set(con_predefinito) == ammessi
+    # Un condizionale non ha un predefinito ma un valore di assenza (nullo o
+    # elenco vuoto), che non descrive alcun dataset.
+    assert set(con_predefinito) == ammessi | set(CONDIZIONALI)
+    assert all(con_predefinito[c] in (None, []) for c in CONDIZIONALI)
     assert not ammessi & set(DEL_DATASET)
     assert {c for c in NULLI if con_predefinito[c] is not None} == set()
     for chiave, fonte in defaults.STANDARD_DEL_METODO.items():
@@ -791,6 +817,7 @@ def test_i_marcatori_del_modello_coincidono_con_il_codice():
     """
     modello = _modello()
     assert modello["obbligatorie"] == set(defaults.OBBLIGATORI)
+    assert modello["condizionali"] == set(defaults.CONDIZIONALI)
     assert modello["standard"] == set(defaults.STANDARD_DEL_METODO)
     scritti = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
     for chiave in (*defaults.STANDARD_DEL_METODO, *UNICA_FORMA, *DELLO_STRUMENTO):
@@ -818,6 +845,11 @@ def test_il_modello_lascia_da_dichiarare_ogni_parametro_obbligatorio():
     for riga in righe:
         assert re.fullmatch(r"  # [A-Za-z_0-9]+: +# \[OBBLIGATORIO\]( oppure (null|\[\]))?", riga), riga
     assert obbligatori_mancanti(yaml.safe_load(testo)) == list(defaults.OBBLIGATORI)
+    # Ogni condizionale e' in commento, senza valore, con la sua condizione.
+    for chiave in defaults.CONDIZIONALI:
+        nome = chiave.split(".")[1]
+        condizione = re.escape(defaults.testo_condizione(chiave))
+        assert re.search(rf"^  # {nome}: +# \[CONDIZIONALE\] se {condizione}$", testo, re.M), chiave
     assert not re.search(r"OSD|GLDS", testo)
 
 
