@@ -25,6 +25,11 @@ python3 dati/comunita_nota/scarica_letture.py                  # 5 file in dati/
 python3 dati/comunita_nota/scarica_letture.py --solo-verifica  # controlla i file presenti
 ```
 
+Con `--coppie` lo script scarica invece i due file di ogni corsa in `fastq_coppie/`
+(`<nome>_R1` il primo file del deposito, `<nome>_R2` il secondo), nell'ordine del
+deposito e senza scambiarli: sono l'ingresso della modalita' appaiata della pipeline
+(`io.layout: paired-end`), che riconosce da se' una corsa invertita.
+
 Di ogni corsa lo script (`dati/letture_forward.py`) tiene il file le cui letture iniziano
 con il primer 515F, dopo aver verificato dimensione e MD5 dichiarati da ENA, e lo salva
 come `<corsa>.fastq.gz`. In queste corse e' sempre il primo file.

@@ -1,6 +1,6 @@
 # Guida: configurare ed eseguire la pipeline su un nuovo dataset
 
-Questa guida accompagna chi ha un dataset 16S single-end proprio, dai file grezzi
+Questa guida accompagna chi ha un dataset 16S proprio, single-end o appaiato, dai file grezzi
 all'oggetto finale e alle analisi ecologiche di base. Il README dice che cosa fa lo
 strumento; qui c'è come lo si usa, passo per passo, e che cosa significa ogni parametro
 da decidere.
@@ -12,7 +12,7 @@ lanciano dalla radice di un clone del repository.
 
 ### 1.1 Le letture
 
-- Un file FASTQ per campione, compresso con gzip o no (`.fastq.gz`, `.fq.gz`, `.fastq`,
+- Un file FASTQ per campione (due in modalità appaiata, sezione 1.2), compresso con gzip o no (`.fastq.gz`, `.fq.gz`, `.fastq`,
   `.fq`), tutti nella stessa cartella, senza sottocartelle. Conviene che abbiano tutti
   la stessa estensione.
 - Il nome di ogni file deve contenere una parte unica per campione (un accession, un
@@ -24,33 +24,63 @@ lanciano dalla radice di un clone del repository.
 
 ### 1.2 Letture appaiate
 
-La pipeline tratta dati single-end. Di una corsa appaiata si usano le sole letture
-forward: un file per campione con la prima lettura di ogni coppia, in una cartella a
-parte. I file delle seconde letture (`_R2`, `_2`) non vanno nella cartella. Se un
-archivio distribuisce le due letture di ogni coppia nello stesso file, vanno separate
-prima: `dati/osd276/scarica_letture.py` mostra come, per un dataset pubblico.
+Di una corsa appaiata si possono usare le due letture di ogni frammento (modalità
+appaiata, `io.layout: paired-end`) oppure le sole forward (modalità single-end). La
+modalità appaiata serve quando una lettura da sola non copre la regione amplificata:
+le due letture si filtrano, si modellano e si inferiscono separatamente, poi ogni
+coppia si fonde in una sequenza lunga quanto la regione (`dada2::mergePairs`) e la
+catena prosegue su quelle. Perché le coppie si fondano le due letture, dopo il
+troncamento, devono sovrapporsi: è il vincolo che guida la scelta dei troncamenti
+(sezione 6.3).
 
-Il file forward è quello le cui letture partono dal primer forward, non
-necessariamente quello che il deposito chiama R1 o `_1`: in alcuni depositi i due file
-di una corsa sono scambiati, e con il file sbagliato la pipeline leggerebbe l'altra
-estremità dell'amplicone senza alcun errore. `dati/letture_forward.py` (usato da
-`dati/osd170/scarica_letture.py` e `dati/comunita_nota/scarica_letture.py`) lo verifica
-sulle prime letture dei due file, tiene quello che porta il primer e dichiara le corse
-invertite. Se le letture sono depositate senza primer il controllo non è possibile: si
-tiene il file dichiarato forward, e conviene guardare il motivo che `init` propone
-(sezione 6.3), che dice con quale regione iniziano le letture. Il file tenuto va salvato
-con un nome senza `R1`, `R2`, `_1` o `_2`: quei marcatori dicono alla validazione che il
-file fa parte di una coppia.
+**I file, in modalità appaiata.** Due file per campione nella stessa cartella, che si
+distinguono per un marcatore in fondo al nome, prima dell'estensione (`_R1` e `_R2`,
+`_1` e `_2`, `.1` e `.2`, anche seguiti da un numero di blocco di tre cifre come
+`_R1_001`): si dichiarano in `pair.file_markers`. Il file reverse ha il nome del file
+forward con il secondo marcatore al posto del primo, e la chiave del campione si estrae
+dal nome del file forward. Un file senza compagno ferma la validazione (`E-S0-23`). I due file devono
+avere le stesse letture nello stesso ordine: S1 lo verifica su tutte le letture, dal
+nome di ciascuna, e si ferma con `E-S1-08` dicendo a quale lettura i due file smettono
+di corrispondere (un file filtrato o troncato senza l'altro). La verifica vale quanto i
+nomi: se ogni lettura di un file ha lo stesso nome, non distingue nulla. Un file che contiene
+entrambe le letture di ogni coppia (`E-S0-27`, `E-S1-11`) va separato in due:
+`dati/osd276/scarica_letture.py --coppie` mostra come, per un dataset pubblico.
 
-`init` e la validazione riconoscono le letture appaiate dal nome dei file e dalle
-intestazioni delle letture, e si fermano senza proporre né eseguire nulla.
+**Quale file è il forward.** Il file forward è quello le cui letture partono dal primer
+forward, non necessariamente quello che il deposito chiama R1 o `_1`: in alcuni
+depositi i due file di una corsa sono scambiati. In modalità appaiata i file si
+lasciano come sono nel deposito, e lo scambio lo riconosce la pipeline:
 
-Un file con le sole seconde letture, o con tutte le prime seguite da tutte le seconde,
-può non avere alcun segno nelle intestazioni. Lo riconosce il contenuto: la fase S1
+- dalle intestazioni, se le letture dichiarano la propria posizione nella coppia
+  (`1:N:0` e `2:N:0`, `/1` e `/2`): la validazione si ferma con `E-S0-26`;
+- dal contenuto, altrimenti: S1 conta in ogni file le letture con il segnale delle
+  forward (il motivo `qc.conserved_motif` dopo le basi di `filter.trimLeft`; con il
+  taglio, anche il primer in testa) e quelle con il segnale delle reverse
+  (`pair.conserved_motif_reverse`, `pair.trimLeft_reverse`,
+  `pair.primer_sequence_reverse`). Una corsa in cui il file forward porta il segnale
+  delle reverse e viceversa ferma l'esecuzione con `E-S1-09`, che nomina la corsa: si
+  scambiano i nomi dei suoi due file e si riprende.
+
+Un file in cui le letture dei due versi sono mescolate (una libreria costruita con gli
+adattatori nei due orientamenti) ferma S1 con `E-S1-10`: le coppie si fonderebbero
+tutte, e ogni variante uscirebbe due volte, una come complemento inverso dell'altra.
+Questi controlli hanno bisogno dei due segnali: con un motivo nullo e nessun primer
+nelle basi tagliate quel verso non si giudica, e l'esecuzione lo dichiara nel log.
+
+**Usare le sole letture forward.** In modalità single-end la cartella contiene un file
+per campione, con la prima lettura di ogni coppia. Se nella cartella ci sono i due
+file di ogni campione la validazione si ferma con `E-S0-24` e scrive la modalità e i
+marcatori da dichiarare per usarli entrambi; per usare le sole forward si tengono
+nella cartella quei soli file (o li si seleziona con `io.fastq_glob`).
+`dati/letture_forward.py` (usato da `dati/osd170/scarica_letture.py` e
+`dati/comunita_nota/scarica_letture.py`) sceglie il file forward dal primer in testa
+alle prime letture dei due file e dichiara le corse invertite; con `--coppie` scarica
+invece i due file di ogni corsa, nell'ordine del deposito e senza scambiarli, in una
+cartella separata (`fastq_coppie/`).
+
+In modalità single-end il verso delle letture lo giudica il contenuto: la fase S1
 conta, su tutte le letture di ogni file, quelle che portano il segnale di una lettura
-forward (il motivo conservato, `qc.conserved_motif`, dopo le basi di
-`filter.trimLeft`; con il taglio, anche il primer in testa) e si ferma con `E-S1-07`,
-nominando il file e la quota misurata, in due casi:
+forward e si ferma con `E-S1-07`, nominando il file e la quota misurata, in due casi:
 
 - un file di un campione biologico o di un controllo positivo con almeno 500 letture in
   cui meno di una lettura su mille porta il segnale: sono le letture inverse. Vale
@@ -59,6 +89,15 @@ nominando il file e la quota misurata, in due casi:
   un'altra meno di un decimo della sua quota: riporta le letture dei due versi, a
   blocchi (il file si confronta in dieci tratti consecutivi) o alternate (le letture
   di posto dispari con quelle di posto pari).
+
+Un file il cui nome indica una seconda lettura (finisce con `R2`, oppure con `_2` o
+`.2` e nella cartella c'è lo stesso nome con `1`) è accettato se il suo contenuto si può
+giudicare, cioè se
+c'è un segnale da cercare, il campione è biologico o un controllo positivo e le letture
+ispezionate sono almeno 50: per quel file la prima regola vale da 50 letture invece
+che da 500. Dove il contenuto non si può giudicare (nessun segnale, meno di 50 letture,
+un controllo negativo) il nome resta l'unico segno, e la validazione respinge il file
+(`E-S0-07`): se le letture sono forward va rinominato.
 
 Due casi in cui il controllo ferma un file di sole letture forward: un campione che non
 ha quasi nulla del bersaglio (va tolto dal dataset: non avrebbe dato varianti utili), e
@@ -72,9 +111,10 @@ il motivo dal consenso dei file che iniziano come la maggioranza: un file che in
 un altro modo (un file di letture inverse fra file forward, per esempio) esce dal
 consenso ed è nominato nel riepilogo e nel commento del motivo, e va guardato prima di
 eseguire. Se però la maggior parte dei file è di letture inverse, il motivo proposto
-descrive quelle, e il controllo passa. Non
-sono riconosciuti un file di letture inverse con meno di 500 letture, uno di un
-controllo negativo, e una libreria in cui i due versi sono mescolati in ogni file.
+descrive quelle, e il controllo passa. In modalità single-end non sono riconosciuti un
+file di letture inverse con meno di 500 letture (50 se il nome lo rende sospetto), uno
+di un controllo negativo, e una libreria in cui i due versi sono mescolati in ogni
+file.
 
 ### 1.3 I metadati
 
@@ -180,6 +220,51 @@ proposte e valori di partenza in commento, e nulla entra nella configurazione fi
 non si toglie il commento alla sua riga (sezioni 2.1 e 2.5). Le due strade portano
 allo stesso file; cambia quando si guarda ogni valore.
 
+### In modalità appaiata
+
+Il percorso è lo stesso. Se nella cartella ogni file ha il suo compagno, `init` rileva
+la modalità (`io.layout: paired-end`) e i marcatori dei file (`pair.file_markers`), e
+scrive il gruppo `pair` (sezione 6.7). Dalle letture ricava:
+
+- il primer reverse e il taglio (`pair.primer_sequence_reverse`,
+  `pair.trimLeft_reverse`), come per il primer forward, cercando in testa alle letture
+  reverse i primer del suo elenco o quello indicato con `--primer-reverse`. L'elenco:
+  806R `GGACTACNVGGGTWTCTAAT` (Apprill 2015) e `GGACTACHVGGGTWTCTAAT` (Caporaso 2011);
+  805R, detto anche 785R, `GACTACHVGGGTATCTAATCC`; 926R `CCGYCAATTYMTTTRAGTTT`; 518R
+  `ATTACCGCGGCTGCTGG`; 338R `GCTGCCTCCCGTAGGAGT`; 1492R `TACGGYTACCTTGTTACGACTT`. Se le
+  letture non portano i primer (tolti prima del deposito) e i metadati non ne riportano
+  la sequenza, primer e motivi restano nulli: conviene rilanciare `init` con `--primer`
+  e `--primer-reverse` e un altro `--output`, perché senza i due motivi una corsa con i
+  file scambiati e una libreria con i versi mescolati non si riconoscono dal contenuto
+  (sezione 1.2);
+- il motivo con cui proseguono le letture reverse (`pair.conserved_motif_reverse`), se
+  il primer reverse è noto;
+- la lunghezza dell'inserto, cioè del frammento di cui le due letture sono le
+  estremità: su 500 coppie per campione cerca la sovrapposizione fra la lettura forward
+  e il complemento inverso della reverse. Dalla sua distribuzione, tolte le basi dei
+  due tagli, propone `pair.expected_merged_len` (la mediana), `pair.len_min` e
+  `pair.len_max` (i percentili 0,5 e 99,5). Se riconosce i due primer confronta la
+  misura con la distanza fra i due primer sul 16S di *E. coli*, e dice se non
+  concordano: vale la misurata;
+- i due troncamenti (`filter.truncLen`, `pair.truncLen_reverse`), dai due profili di
+  qualità, e il vincolo che devono rispettare perché le coppie si fondano (sezione
+  6.7), scritto nel commento con i numeri del dataset.
+
+Se meno di metà delle coppie esaminate si sovrappone `init` non stima l'inserto: non
+propone le lunghezze né verifica il vincolo, e lo dice. Può voler dire che le letture
+sono troppo corte per la regione: in quel caso si usano le sole forward, con
+`io.layout: "single-end"` e i soli file forward nella cartella (sezione 1.2).
+
+Con `--accetta-proposte` le due soglie sulla quota di coppie fuse e quella del primer
+reverse sono esplorative come le altre; dopo la prima esecuzione `soglie` le propone
+dalla misura (sezione 6.6). La configurazione appaiata di un dataset piccolo, eseguibile
+senza scaricare nulla, è `tests/fixtures/osd276/appaiato/config.yaml`:
+
+```bash
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
+  python3 scripts/esegui.py run --config tests/fixtures/osd276/appaiato/config.yaml
+```
+
 ### Il comando
 
 Con i dati fuori dal repository, montati nel container. La cartella di lavoro deve
@@ -204,6 +289,7 @@ docker run --rm -u "$(id -u):$(id -g)" \
 | `--batch-table FILE` | il file del lotto |
 | `--reference FILE` | il riferimento tassonomico |
 | `--primer SEQUENZA` | il primer forward usato, in codici IUPAC, se `init` non lo riconosce da sé |
+| `--primer-reverse SEQUENZA` | in modalità appaiata, il primer reverse usato, in codici IUPAC e scritto da 5' a 3', se `init` non lo riconosce da sé |
 | `--out-root CARTELLA` | la cartella di uscita prevista per l'esecuzione |
 | `--output FILE` | il file di configurazione da scrivere (obbligatorio; non deve esistere) |
 | `--head-reads N` | ispeziona le sole prime N letture di ogni file; senza, tutte |
@@ -218,8 +304,9 @@ lanciato con gli stessi `-v`. Dati in più cartelle si montano con un `-v` ciasc
 `init` legge tutte le letture per riconoscere le coppie e cercare il primer, e calcola
 il profilo di qualità con lo stesso calcolo della fase S1: su 960 campioni e 21 milioni
 di letture impiega alcuni minuti. Esce con 0 se ha scritto il file, con 3 se si rifiuta
-(file già esistente, letture appaiate, ingressi non trovati): in quel caso non scrive
-nulla.
+(file già esistente, ingressi non trovati, file di seconde letture senza che ogni file
+della cartella abbia il suo compagno, file con le due letture di ogni coppia insieme):
+in quel caso non scrive nulla.
 
 ### 2.1 Le specie di valore
 
@@ -292,6 +379,11 @@ condizionale, e allora si scrive come ogni altra scelta.
   `--head-reads`, primer e taglio sono una proposta, e i file che non lo portano sono
   nominati: un taglio fisso toglierebbe loro basi vere.
 
+- La modalità (`io.layout`): `paired-end` se ogni file della cartella ha il suo
+  compagno, con i marcatori in `pair.file_markers`; altrimenti `single-end`. In
+  modalità appaiata, il primer reverse e il suo taglio, alle stesse condizioni del
+  primer forward.
+
 Una chiave del campione di sole cifre, o più corta di tre caratteri, può corrispondere
 ai file per coincidenza: in quel caso colonna ed espressione sono una proposta, e il
 commento mostra alcuni abbinamenti file-chiave da controllare.
@@ -323,6 +415,10 @@ commento mostra alcuni abbinamenti file-chiave da controllare.
   metadati nominano.
 - Il motivo conservato (`qc.conserved_motif`), solo se il primer è noto: il consenso
   delle basi con cui inizia la regione amplificata.
+
+- In modalità appaiata: il troncamento delle letture reverse, il motivo delle letture
+  reverse, la lunghezza attesa e l'intervallo delle sequenze fuse (sezione 2, «In
+  modalità appaiata»).
 
 ### 2.4 Che cosa non viene stabilito
 
@@ -461,6 +557,13 @@ esegue l'immagine: gli artefatti di fase hanno gli stessi checksum, e differisco
 solo i campi che descrivono l'esecuzione (istante, identificativo, e le impronte che
 ne derivano).
 
+La regola rigorosa sulla provenienza (`run.strict_provenance: true`) vale con Apptainer
+come con Docker, senza opzioni in più: il clone montato su `/app` è letto da git con
+l'utente di chi lancia, e l'ambiente R verificato è quello del file `.sif`. Il clone può
+essere montato in sola lettura (`--bind "$(pwd)":/app:ro`), con la cartella di uscita
+montata a parte; un clone con modifiche non committate in `src/` o in `R/` è rifiutato
+con `E-PROV-02`, come con Docker.
+
 ## 4. Analisi ecologiche di base
 
 Lavorano sull'oggetto finale (`12_final/ps_final.rds`), che non modificano, con una
@@ -594,12 +697,24 @@ soggetti che hanno un campione in ogni livello della variabile:
 
 - `test/alfa_appaiata.tsv`: con due livelli il test di Wilcoxon dei ranghi con segno;
   con più di due il test di Friedman e un Wilcoxon dei ranghi con segno per ogni
-  coppia di livelli;
+  coppia di livelli. Il verso della differenza si legge dalla statistica del
+  Wilcoxon: è la somma dei ranghi delle differenze positive fra `livello_1` e
+  `livello_2` (il primo meno il secondo). Con n soggetti va da 0 a n(n+1)/2: vicina
+  al massimo, i valori di `livello_1` sono più alti; vicina a zero, lo sono quelli di
+  `livello_2`;
 - `test/permanova_appaiata.tsv`: la PERMANOVA con il soggetto come primo termine e le
   permutazioni ristrette entro il soggetto, con il test delle dispersioni. Con una
   distanza non euclidea (Bray-Curtis, Jaccard) il soggetto e la variabile possono
   spiegare insieme più della variabilità totale: il test non è allora valutabile, e la
-  tabella lo dice; la distanza di Aitchison non ha questo limite;
+  tabella lo dice; la distanza di Aitchison non ha questo limite. Il test delle
+  dispersioni entro soggetto è un po' permissivo quando i soggetti sono pochi e
+  differiscono molto fra loro: in una simulazione senza alcuna differenza di
+  dispersione, con 6, 8 e 12 soggetti, ha segnalato dispersioni diverse in circa l'8%
+  dei casi al livello nominale del 5% (il 6% con 20 soggetti). L'errore è nel verso
+  prudente, una nota «dispersioni diverse» un po' più frequente del dovuto; la
+  PERMANOVA entro soggetto tiene il suo livello. `stat.permanova_strata` non entra in
+  questa analisi, che permuta già entro il soggetto: se è dichiarato, l'analisi lo
+  dice con l'avviso `E-ECO-35` e nell'intestazione della tabella;
 - `test/soggetti.tsv`: ogni soggetto, i livelli che ha e se è completo o perché è
   escluso.
 
@@ -799,7 +914,9 @@ dei campioni (solo se `ctrl.column` non è nullo), `ctrl.blank_override_values` 
 `katharoseq.collapse_rank`, `katharoseq.min_r2` e `katharoseq.target_sensitivity`; e,
 solo se il dataset dichiara controlli negativi (`ctrl.blank_values` non vuoto oppure
 `ctrl.blank_override_values` non vuoto), `decontam.threshold`, `decontam.min_blanks`,
-`decontam.mode` e `qc.max_frac_contaminant`.
+`decontam.mode` e `qc.max_frac_contaminant`. I parametri del gruppo `pair` valgono solo
+in modalità appaiata (`io.layout: paired-end`, sezione 6.7): in modalità single-end
+dichiararne uno è un errore (`E-G15-15`).
 
 Le configurazioni dei dataset del repository sono esempi commentati di ogni scelta:
 `dati/osd734/config_osd734.yaml` (960 campioni, controlli negativi e positivi, file del
@@ -1039,6 +1156,10 @@ report lo segnalano. `init --accetta-proposte` scrive il valore che non ferma
 | `qc.min_frac_phylum` | frazione minima di varianti con il phylum assegnato | la frazione di una classe le sta sotto (`E-S8-02`) | 0 | nessuna |
 | `qc.max_frac_contaminant` | frazione massima di letture rimosse come contaminanti; solo con controlli negativi | la frazione rimossa dai biologici la supera (`E-S12-02`) | 1 | nessuna |
 | `qc.min_frac_reads_retained` | frazione minima di letture trattenute dall'insieme | letture finali su letture senza chimere le sta sotto (`E-S14-01`) | 0 | nessuna |
+| `pair.max_primer_hit_frac_reverse` | solo in modalità appaiata: frazione di letture reverse con il primer reverse in testa oltre la quale è considerato presente | la frazione di un file reverse di un campione biologico o di un controllo positivo la supera (`E-S0-25`); con `pair.trimLeft_reverse` maggiore di zero, o con `pair.primer_sequence_reverse` nullo, non ha effetto | 1 | nessuna |
+| `pair.truncLen_shortfall_warn_reverse` | solo in modalità appaiata: di quante basi il troncamento delle reverse può stare sotto la lettura reverse più corta | lo scarto la supera (avviso `E-S1-01`) | `pair.truncLen_reverse` meno 1, il massimo ammesso | lo scarto del troncamento proposto |
+| `pair.min_merged_frac_warn` | solo in modalità appaiata: quota di coppie fuse che dà un avviso | la quota sui campioni biologici e sui controlli positivi le sta sotto (avviso `E-SM-02`) | 0 | nessuna |
+| `pair.min_merged_frac_stop` | solo in modalità appaiata: quota di coppie fuse che ferma | la quota le sta sotto (`E-SM-01`) | 0 | nessuna |
 | `qc.max_asv_count` | varianti oltre le quali la tabella non si costruisce: protegge la memoria | le varianti distinte sono di più (`E-S5-01`) | nessun limite: non è mai riportata come spenta | dalla memoria della macchina; `soglie` non la propone |
 | `ctrl.min_positive_pass_frac` | frazione minima di controlli positivi conformi; solo con controlli positivi | i conformi sono meno: arresto `E-S11-03` con `ctrl.positive_gate` vero, altrimenti avviso `E-S11-04` | 0 | nessuna, mai: è una scelta; `soglie` non la propone |
 
@@ -1065,8 +1186,8 @@ Per ogni soglia legge **la stessa misura che il controllo confronta con la sogli
 mediana o la misura d'insieme dove giudica quella) e propone:
 
 - per una soglia massima la misura più un margine, per una minima la misura meno un
-  margine: 0,05 per le frazioni; 0,10 per l'arresto delle chimere, così che fra avviso
-  e arresto resti una fascia; nessun margine per i campioni azzerati (ogni campione
+  margine: 0,05 per le frazioni; 0,10 per l'arresto delle chimere e per l'arresto delle
+  coppie fuse, così che fra avviso e arresto resti una fascia; nessun margine per i campioni azzerati (ogni campione
   perso deve essere visto) e per le basi dello scarto;
 - **non propone** `qc.max_asv_count` né `ctrl.min_positive_pass_frac`: restano al
   valore del file letto, e il comando lo dichiara con il motivo. Le varianti crescono
@@ -1082,7 +1203,8 @@ mediana o la misura d'insieme dove giudica quella) e propone:
 - se la soglia del file letto è attiva, è rispettata dalla misura e non è più larga
   del suggerimento, **tiene quella** e lo dice;
 - l'avviso delle chimere non supera mai l'arresto: se l'arresto tenuto è sotto
-  l'avviso proposto, l'avviso è riportato all'arresto;
+  l'avviso proposto, l'avviso è riportato all'arresto; allo stesso modo l'avviso delle
+  coppie fuse non scende sotto l'arresto;
 - se il valore proposto coincide con il limite (la misura è già lì, o misura e margine
   escono dall'intervallo), lo dichiara come **controllo spento**;
 - una soglia **senza misura** in quell'esecuzione (motivo nullo, primer con il taglio,
@@ -1107,3 +1229,72 @@ alta: va guardata prima di accettarla.
 `qc.min_reads_final` non è fra queste soglie: decide quali campioni restano nell'oggetto
 finale (un campione con meno letture esce), quindi cambia il risultato e si sceglie
 prima dell'esecuzione.
+
+### 6.7 Modalità appaiata
+
+Il gruppo `pair` e `io.layout: paired-end` (sezione 1.2). Ogni parametro senza un
+predefinito va dichiarato; `init` li rileva o li propone tutti dai dati, salvo le
+soglie.
+
+| Parametro | Significato | Come si ricava | Partenza (fonte) | Conferma |
+|---|---|---|---|---|
+| `io.layout` | `single-end` (un file per campione; vale anche omesso) o `paired-end` (due file per campione) | dalla cartella delle letture | rilevato: `paired-end` se ogni file ha il suo compagno | S0, gate G05 e G07 |
+| `pair.file_markers` | i due marcatori che distinguono nel nome i file di una coppia, prima quello del forward | dai nomi dei file | rilevati | `01_input_validation/crosswalk.tsv`, colonna `file_reverse` |
+| `pair.truncLen_reverse` | lunghezza a cui si troncano le letture reverse | dal profilo delle reverse e dal vincolo della fusione (vedi sotto) | proposta dal profilo di qualità delle reverse | report, «Tracciamento delle letture»: quota di coppie fuse |
+| `pair.trimLeft_reverse` | basi tolte in testa alle letture reverse: la lunghezza del primer reverse se è nelle letture, altrimenti 0 | dal primer reverse | rilevato se un primer dell'elenco è in testa alle reverse; altrimenti proposto 0 | S0, `E-S0-25` |
+| `pair.maxEE_reverse` | errori attesi massimi per lettura reverse | predefinito 2 (tutorial di dada2) | predefinito | letture perse nel filtro |
+| `pair.truncLen_shortfall_warn_reverse` | di quante basi il troncamento può stare sotto la lettura reverse più corta | dalla variabilità delle lunghezze | lo scarto fra lettura più corta e troncamento proposto | segnalazione `E-S1-01` |
+| `pair.primer_sequence_reverse` | primer reverse, in codici IUPAC, da 5' a 3' come compare in testa alle letture reverse; nullo se non è noto | dal protocollo di amplificazione | rilevato nelle letture reverse; proposto dai metadati; indicato con `--primer-reverse`; altrimenti nullo | `01_input_validation/letture_ispezionate_reverse.tsv` |
+| `pair.conserved_motif_reverse` | espressione del motivo con cui iniziano le letture reverse dopo il taglio; nullo | dal consenso delle prime basi delle reverse | proposto se il primer reverse è noto; altrimenti nullo | `letture_ispezionate_reverse.tsv`, `frazione_motivo` |
+| `pair.min_overlap`, `pair.max_mismatch` | sovrapposizione minima fra le due letture e discordanze ammesse nella sovrapposizione | predefiniti 12 e 0 (`dada2::mergePairs`) | predefiniti | `05_pair_merge/fusione.tsv` |
+| `pair.len_min`, `pair.len_max` | intervallo ammesso della lunghezza delle sequenze fuse; prende il posto di `asv.len_tol` | dalla regione amplificata e dalla sua variabilità fra i taxa | proposti: percentili 0,5 e 99,5 dell'inserto misurato, tolti i due tagli | `07_chimera/lunghezze.tsv` |
+| `pair.expected_merged_len` | lunghezza attesa delle sequenze fuse; nullo se non si vuole il confronto | dalla regione amplificata | proposta: la mediana dell'inserto misurato, tolti i due tagli | segnalazione `E-SM-03`, `05_pair_merge/fusione.json` |
+
+Le soglie del gruppo (`pair.max_primer_hit_frac_reverse`, `pair.min_merged_frac_warn`,
+`pair.min_merged_frac_stop`) sono nella sezione 6.6.
+
+**Il vincolo della fusione.** Due letture si fondono se, troncate, si sovrappongono per
+almeno `pair.min_overlap` basi senza più di `pair.max_mismatch` discordanze. Detta L la
+lunghezza della regione amplificata senza i primer, deve valere
+
+    (filter.truncLen - filter.trimLeft) + (pair.truncLen_reverse - pair.trimLeft_reverse)
+        >= L + pair.min_overlap
+
+**L'intervallo delle lunghezze.** `init` propone `pair.len_min` e `pair.len_max` dai
+percentili dell'inserto misurato: descrivono le coppie del dataset, non la regione. Se
+sotto la lunghezza attesa c'è una popolazione a sé (amplificazioni fuori bersaglio, più
+corte di decine di basi) il percentile basso la comprende, e quelle sequenze restano nella tabella finché un filtro
+tassonomico o di prevalenza non le toglie; e il percentile alto può lasciare fuori
+qualche variante vera più lunga. Dopo la prima esecuzione si guarda
+`05_pair_merge/lunghezze_fuse.tsv` e si porta l'intervallo attorno alla regione.
+
+Il vincolo dei troncamenti va rispettato per i frammenti più lunghi del dataset, non per la mediana: la lunghezza della regione
+varia fra i taxa. `init` verifica i due troncamenti che propone contro l'inserto più
+lungo che ha misurato (il percentile 99,5) con 8 basi di margine oltre
+`pair.min_overlap`, e scrive il conto nel commento dei due parametri. Se il vincolo non
+è rispettato lo dice, e i troncamenti restano da scegliere: accorciare le letture dove
+la qualità cala migliora l'inferenza, ma sotto il vincolo le coppie dei taxa con la
+regione più lunga non si fondono, e quei taxa escono dal risultato senza alcun errore.
+Con letture più lunghe della regione le code di una lettura oltre l'inizio dell'altra
+sono tolte dalla sequenza fusa.
+
+**Che cosa guardare dopo la prima esecuzione.** In `05_pair_merge/`: `fusione.tsv` (per
+campione le coppie entrate nella fusione, cioè quelle in cui entrambe le letture sono
+state attribuite a una variante, quelle fuse e la quota), `fusione.json` (la
+quota sull'insieme dei campioni biologici e dei controlli positivi, la lunghezza
+mediana, minima e massima delle sequenze fuse) e `lunghezze_fuse.tsv` (la
+distribuzione). Una quota bassa in tutti i campioni dice troncamenti troppo corti o
+qualità bassa nella sovrapposizione; in un solo campione, un problema di quel campione.
+Nel report la sezione «Tracciamento delle letture» riporta la quota, le lunghezze e la
+tabella per campione, e il tracciamento ha due colonne in più, `denoised_reverse` e
+`fuse`. Le soglie giudicano la quota dell'insieme: un solo campione con la quota molto
+più bassa degli altri non ferma né avvisa, e va cercato nella tabella per campione. Le fasi successive lavorano sulle sequenze fuse: `pair.len_min` e
+`pair.len_max` decidono quali varianti restano dopo la rimozione delle chimere
+(`07_chimera/lunghezze.tsv`); se non ne resta nessuna l'esecuzione si ferma con
+`E-S7-02`.
+
+Cambiare `pair.min_overlap`, `pair.max_mismatch` o le soglie della fusione e
+riprendere rifà la fusione e le fasi successive, non il filtro né l'inferenza: la
+fusione legge ciò che l'inferenza ha conservato per ogni campione, non le letture. Fa
+eccezione un'esecuzione conclusa con `run.keep_filtered_fastq: false`: le letture
+filtrate tolte alla fine si rigenerano, e con esse l'inferenza.

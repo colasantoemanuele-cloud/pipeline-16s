@@ -93,7 +93,7 @@ import copy
 from pathlib import Path
 
 import pytest
-from conftest import FORMATO, chiavi_schema, esegui_g15
+from conftest import FORMATO, chiavi_della_modalita_appaiata, chiavi_schema, esegui_g15
 import yaml
 
 from amplicon16s.errors.catalog import Categoria, voce
@@ -172,6 +172,17 @@ CONDIZIONALI = {
     "meta.module_regex": ("meta.derive_module",),
 }
 
+#: I parametri della modalita' appaiata senza predefinito: obbligatori con
+#: ``io.layout: paired-end``, respinti altrimenti. Scritti per esteso, come gli
+#: altri elenchi di questo modulo.
+DELLE_COPPIE = (
+    "pair.file_markers", "pair.truncLen_reverse", "pair.trimLeft_reverse",
+    "pair.truncLen_shortfall_warn_reverse", "pair.primer_sequence_reverse",
+    "pair.conserved_motif_reverse", "pair.max_primer_hit_frac_reverse",
+    "pair.min_merged_frac_warn", "pair.min_merged_frac_stop",
+    "pair.len_min", "pair.len_max", "pair.expected_merged_len",
+)
+
 #: Elenco tassativo dei parametri privi di valore predefinito nello schema: i
 #: percorsi e il checksum del riferimento, piu' quelli di ``DEL_DATASET``.
 OBBLIGATORI = (
@@ -191,6 +202,7 @@ UNICA_FORMA = (
     "tax.classifier", "tax.assign_species", "phylo.aligner", "phylo.model",
     "katharoseq.curve_model", "katharoseq.read_stage", "decontam.method",
     "out.serialization", "out.asv_id_scheme", "out.taxa_are_rows", "out.sample_id_source",
+    "pair.trim_overhang",
 )
 DELLO_STRUMENTO = (
     "asv.len_tol", "out.export_flat", "retry.enabled", "retry.max_attempts", "retry.whitelist",
@@ -201,6 +213,8 @@ DELLO_STRUMENTO = (
 NULLI = (
     "io.study_table", "io.batch_table", "meta.study_sample_id_column", "tax.ref_bad_taxa",
     "run.container", "run.threads", "run.r_timeout_s",
+    # La modalita' di lettura: l'assenza e' la modalita' single-end.
+    "io.layout",
 )
 
 
@@ -225,7 +239,32 @@ def _modello() -> dict[str, set[str]]:
             specie = ("obbligatorie" if "[OBBLIGATORIO]" in riga
                       else "condizionali" if "[CONDIZIONALE]" in riga else "commentate")
             chiavi[specie].add(f"{gruppo}.{trovato.group(1)}")
+        elif trovato := _RIGA_IN_COMMENTO_CON_VALORE.match(riga):
+            # Un parametro della modalita' appaiata con un predefinito: in
+            # commento con il suo valore, perche' il gruppo pair non si dichiara
+            # in modalita' single-end; e la modalita' stessa.
+            chiavi["commentate"].add(f"{gruppo}.{trovato.group(1)}")
+            if "[STANDARD]" in riga:
+                chiavi["standard"].add(f"{gruppo}.{trovato.group(1)}")
     return chiavi
+
+
+#: Una riga del modello con un parametro in commento e il suo valore, seguita
+#: dal marcatore della specie.
+_RIGA_IN_COMMENTO_CON_VALORE = __import__("re").compile(
+    r"^  # ([A-Za-z_0-9]+): (\S+) +# \[(?:STANDARD|UNICA FORMA|MODALITA')\]")
+
+
+def _valori_in_commento() -> dict[str, object]:
+    """I valori dei parametri che il modello riporta in commento con il valore."""
+    valori: dict[str, object] = {}
+    gruppo = None
+    for riga in ESEMPIO.read_text(encoding="utf-8").splitlines():
+        if trovato := __import__("re").match(r"^([a-z]+):", riga):
+            gruppo = trovato.group(1)
+        elif trovato := _RIGA_IN_COMMENTO_CON_VALORE.match(riga):
+            valori[f"{gruppo}.{trovato.group(1)}"] = yaml.safe_load(trovato.group(2))
+    return valori
 
 
 @pytest.fixture
@@ -328,7 +367,11 @@ def test_nessuna_chiave_dello_schema_manca_nel_file():
     mancanti = chiavi_schema() - presenti
     assert not mancanti, f"chiavi dello schema assenti dal file: {sorted(mancanti)}"
     # run.threads e run.r_timeout_s sono nulli per difetto: restano in commento.
-    assert modello["commentate"] == {"run.threads", "run.r_timeout_s"}
+    # Restano in commento anche la modalita' e i predefiniti del gruppo pair,
+    # che in modalita' single-end non si dichiara.
+    assert modello["commentate"] == {
+        "run.threads", "run.r_timeout_s", "io.layout", "pair.maxEE_reverse",
+        "pair.min_overlap", "pair.max_mismatch", "pair.trim_overhang"}
 
 
 def test_nessuna_chiave_del_file_e_sconosciuta_allo_schema():
@@ -581,6 +624,35 @@ def test_md5_malformato_viene_respinto(dati_esempio):
         valida(dati_esempio)
 
 
+def test_un_md5_di_sole_cifre_letto_come_numero_chiede_le_virgolette(dati_esempio):
+    """
+    **Obiettivo**: Verificare che un ``tax.ref_md5`` di sole cifre scritto
+    senza virgolette, che YAML legge come numero intero, sia respinto con un
+    messaggio che chiede di scriverlo fra virgolette, e che G15 gli attribuisca
+    il codice dei problemi di schema (``E-G15-99``); lo stesso valore fra
+    virgolette e' accettato.
+
+    **Razionale scientifico e sistemistico**: Convertire il numero in testo
+    perderebbe gli zeri iniziali, e il checksum verificato non sarebbe quello
+    scritto: il rifiuto deve dire che cosa fare, non solo che il tipo e'
+    sbagliato.
+    """
+    import yaml
+
+    from amplicon16s.gates.g01_g15 import rifiuto_di_g15
+
+    cifre = "12345678901234567890123456789012"
+    assert isinstance(yaml.safe_load(f"v: {cifre}")["v"], int)
+    dati_esempio["tax"]["ref_md5"] = yaml.safe_load(f"v: {cifre}")["v"]
+    with pytest.raises(ErroreConfigurazione, match="fra virgolette") as rifiuto:
+        valida(dati_esempio)
+    assert len(rifiuto.value.problemi) == 1
+    assert rifiuto.value.problemi[0].startswith("tax.ref_md5:")
+    assert [v.codice for v in rifiuto_di_g15(rifiuto.value).violazioni] == ["E-G15-99"]
+    dati_esempio["tax"]["ref_md5"] = cifre
+    assert valida(dati_esempio).tax.ref_md5 == cifre
+
+
 # --------------------------------------------------------------------------- #
 # Chiavi sconosciute (W3)                                                      #
 # --------------------------------------------------------------------------- #
@@ -786,8 +858,11 @@ def test_ogni_predefinito_e_di_una_specie_ammessa():
     ammessi = set(defaults.STANDARD_DEL_METODO) | set(UNICA_FORMA) | set(DELLO_STRUMENTO) | set(NULLI)
     # Un condizionale non ha un predefinito ma un valore di assenza (nullo o
     # elenco vuoto), che non descrive alcun dataset.
-    assert set(con_predefinito) == ammessi | set(CONDIZIONALI)
+    assert set(con_predefinito) == ammessi | set(CONDIZIONALI) | set(DELLE_COPPIE)
     assert all(con_predefinito[c] in (None, []) for c in CONDIZIONALI)
+    assert all(con_predefinito[c] is None for c in DELLE_COPPIE)
+    assert set(DELLE_COPPIE) == set(defaults.CONDIZIONALI_DELLE_COPPIE)
+    assert set(DELLE_COPPIE) == set(defaults.PARAMETRI_DELLE_COPPIE)
     assert not ammessi & set(DEL_DATASET)
     assert {c for c in NULLI if con_predefinito[c] is not None} == set()
     for chiave, fonte in defaults.STANDARD_DEL_METODO.items():
@@ -796,6 +871,10 @@ def test_ogni_predefinito_e_di_una_specie_ammessa():
     dati = _esempio_compilato()
     for chiave in UNICA_FORMA:
         gruppo, campo = chiave.split(".")
+        if gruppo == "pair":
+            # La sola forma del gruppo pair si prova sulla configurazione
+            # appaiata (test della modalita' appaiata): qui e' single-end.
+            continue
         altro = copy.deepcopy(dati)
         attuale = altro[gruppo][campo]
         altro[gruppo][campo] = (not attuale) if isinstance(attuale, bool) else "un_altro_valore"
@@ -817,14 +896,18 @@ def test_i_marcatori_del_modello_coincidono_con_il_codice():
     """
     modello = _modello()
     assert modello["obbligatorie"] == set(defaults.OBBLIGATORI)
-    assert modello["condizionali"] == set(defaults.CONDIZIONALI)
+    assert modello["condizionali"] == set(defaults.CONDIZIONALI) | set(DELLE_COPPIE)
     assert modello["standard"] == set(defaults.STANDARD_DEL_METODO)
     scritti = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
+    # Il gruppo pair e' tutto in commento: il modello, cosi' com'e', e' single-end.
+    assert scritti["pair"] is None and "layout" not in scritti["io"]
+    in_commento = _valori_in_commento()
     for chiave in (*defaults.STANDARD_DEL_METODO, *UNICA_FORMA, *DELLO_STRUMENTO):
         gruppo, campo = chiave.split(".")
         predefinito = Config.model_fields[gruppo].annotation.model_fields[campo].get_default(
             call_default_factory=True)
-        assert scritti[gruppo][campo] == predefinito, chiave
+        scritto = in_commento[chiave] if gruppo == "pair" else scritti[gruppo][campo]
+        assert scritto == predefinito, chiave
 
 
 def test_il_modello_lascia_da_dichiarare_ogni_parametro_obbligatorio():
@@ -846,7 +929,7 @@ def test_il_modello_lascia_da_dichiarare_ogni_parametro_obbligatorio():
         assert re.fullmatch(r"  # [A-Za-z_0-9]+: +# \[OBBLIGATORIO\]( oppure (null|\[\]))?", riga), riga
     assert obbligatori_mancanti(yaml.safe_load(testo)) == list(defaults.OBBLIGATORI)
     # Ogni condizionale e' in commento, senza valore, con la sua condizione.
-    for chiave in defaults.CONDIZIONALI:
+    for chiave in (*defaults.CONDIZIONALI, *defaults.CONDIZIONALI_DELLE_COPPIE):
         nome = chiave.split(".")[1]
         condizione = re.escape(defaults.testo_condizione(chiave))
         assert re.search(rf"^  # {nome}: +# \[CONDIZIONALE\] se {condizione}$", testo, re.M), chiave
@@ -1335,7 +1418,11 @@ def test_resolved_registra_tutti_i_parametri_dichiarati(dati_esempio, tmp_path):
         for gruppo, contenuto in documento["parametri"].items()
         for campo in contenuto
     }
-    assert chiavi_schema() <= scritte
+    # In modalita' single-end la configurazione registrata non ha alcuna
+    # chiave della modalita' appaiata: ne' la modalita', ne' il gruppo pair.
+    assert chiavi_schema() - chiavi_della_modalita_appaiata() <= scritte
+    assert not chiavi_della_modalita_appaiata() & scritte
+    assert "pair" not in documento["parametri"]
     assert set(PARAMETRI_DERIVATI) <= scritte
 
 

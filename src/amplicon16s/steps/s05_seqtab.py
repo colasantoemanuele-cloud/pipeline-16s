@@ -23,12 +23,12 @@ from typing import ClassVar, Final
 
 from amplicon16s.errors.exceptions import ErrorePipeline, errore
 from amplicon16s.io_layer.artifacts import Fase
-from amplicon16s.io_layer.conteggi import leggi_conteggi
+from amplicon16s.io_layer.conteggi import letture_in_ingresso_alla_tabella
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s02_filter import NOME_FILTRATE
 from amplicon16s.steps.s04_dada import NOME_VARIANTI
+from amplicon16s.steps.s04m_merge import NOME_VARIANTI_FUSE
 
 __all__ = ["NOME_TABELLA", "TabellaSequenze"]
 
@@ -61,7 +61,11 @@ class TabellaSequenze(PipelineStep):
         if contesto.inventario is None:
             raise RuntimeError("S5 richiede l'inventario prodotto da S0")
         config = contesto.config
-        letture = leggi_conteggi(contesto.albero.cartella(Fase.FILTERED) / NOME_FILTRATE)
+        letture = letture_in_ingresso_alla_tabella(contesto.albero, config.appaiata)
+        # In modalita' appaiata le varianti sono le sequenze fuse.
+        varianti = (
+            contesto.albero.cartella(Fase.PAIR_MERGE) / NOME_VARIANTI_FUSE if config.appaiata
+            else contesto.albero.cartella(Fase.ASV_INFERENCE) / NOME_VARIANTI)
         senza_letture = sorted(
             c.accession for c in contesto.inventario if letture.get(c.accession, 0) == 0
         )
@@ -69,7 +73,7 @@ class TabellaSequenze(PipelineStep):
             esito = esegui_script(
                 cartella_r() / NOME_SCRIPT,
                 {
-                    "varianti": str(contesto.albero.cartella(Fase.ASV_INFERENCE) / NOME_VARIANTI),
+                    "varianti": str(varianti),
                     "senza_letture": senza_letture,
                     "max_varianti": config.qc.max_asv_count,
                 },

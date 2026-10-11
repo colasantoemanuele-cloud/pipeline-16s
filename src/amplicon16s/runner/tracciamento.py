@@ -74,9 +74,13 @@ def componi(albero: AlberoOutput, concluse: Iterable[PipelineStep]) -> Tracciame
     for fase in concluse:
         manifesto = albero.manifesto_passo(fase.passo, fase.cartella)
         assert manifesto is not None
-        for passo in fase.passi_tracciamento:
+        for passo in (*fase.passi_tracciamento, *fase.passi_tracciamento_appaiata):
             nome = f"{PREFISSO}{passo}.tsv"
             if nome not in manifesto.nomi:
+                if passo in fase.passi_tracciamento_appaiata:
+                    # Il passo esiste solo in modalita' appaiata: senza il suo
+                    # file la fase e' stata calcolata in modalita' single-end.
+                    continue
                 raise ValueError(f"{fase.passo} dichiara il passo {passo} ma non ha {nome}")
             if passo in origine:
                 raise ValueError(

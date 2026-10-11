@@ -82,6 +82,14 @@ TAX_MIN_BOOT: Final = 50
 # dipendere da un predefinito che una versione nuova potrebbe cambiare.
 DECONTAM_BATCH_COMBINE: Final = "minimum"
 
+# pair: modalita' appaiata (dada2::filterAndTrim con le due letture, dada2::mergePairs)
+# Errori attesi massimi della lettura reverse: lo stesso valore della forward
+# negli "standard filtering parameters" del tutorial di dada2, maxEE = c(2,2).
+PAIR_MAXEE_REVERSE: Final = 2.0
+# Predefiniti di dada2::mergePairs (dada2 1.36): minOverlap = 12, maxMismatch = 0.
+PAIR_MIN_OVERLAP: Final = 12
+PAIR_MAX_MISMATCH: Final = 0
+
 #: I parametri il cui predefinito e' il valore standard del metodo, con la
 #: fonte. E' l'elenco che un test confronta con lo schema: un predefinito che
 #: non e' qui, non e' una sola forma realizzata e non e' un parametro dello
@@ -101,6 +109,9 @@ STANDARD_DEL_METODO: Final[Mapping[str, str]] = MappingProxyType({
     "chimera.allow_one_off": "dada2::isBimeraDenovoTable, allowOneOff = FALSE",
     "tax.min_boot": "dada2::assignTaxonomy, minBoot = 50",
     "decontam.batch_combine": "decontam::isContaminant, batch.combine = \"minimum\"",
+    "pair.maxEE_reverse": "tutorial di dada2, standard filtering parameters (maxEE = c(2,2))",
+    "pair.min_overlap": "dada2::mergePairs, minOverlap = 12",
+    "pair.max_mismatch": "dada2::mergePairs, maxMismatch = 0",
 })
 
 # --------------------------------------------------------------------------- #
@@ -121,6 +132,12 @@ KATHAROSEQ_CURVE_MODEL: Final = "allosteric_sigmoid"
 KATHAROSEQ_READ_STAGE: Final = "nonchimeric"
 # La sola decontaminazione realizzata e' quella per prevalenza.
 DECONTAM_METHOD: Final = "prevalence"
+# Le code di una lettura oltre l'inizio dell'altra si tolgono sempre nella
+# fusione (dada2::mergePairs, trimOverhang = TRUE): con letture piu' lunghe
+# dell'amplicone sono il complemento del primer opposto e dell'adattatore, e
+# il predefinito del pacchetto le porterebbe nelle sequenze fuse. Senza code
+# l'opzione non cambia nulla.
+PAIR_TRIM_OVERHANG: Final = True
 OUT_SERIALIZATION: Final = "rds"
 OUT_ASV_ID_SCHEME: Final = "abundance_rank"
 # Le fasi dopo l'oggetto integrato lavorano con le varianti sulle righe.
@@ -239,11 +256,48 @@ OBBLIGATORI: Final[tuple[str, ...]] = (
 # Parametri condizionali: obbligatori solo se pertinenti                       #
 # --------------------------------------------------------------------------- #
 
+#: Le due modalita' di lettura. La single-end e' l'assenza: una configurazione
+#: che non dichiara io.layout, o lo dichiara single-end, e' la stessa.
+LAYOUT_SINGOLO: Final = "single-end"
+LAYOUT_APPAIATO: Final = "paired-end"
+
 #: Le forme di una condizione: il parametro che la decide non e' nullo, non e'
-#: un elenco vuoto, oppure e' vero.
+#: un elenco vuoto, e' vero, oppure (per io.layout) dichiara la modalita'
+#: appaiata.
 NON_NULLO: Final = "non_nullo"
 NON_VUOTO: Final = "non_vuoto"
 VERO: Final = "vero"
+APPAIATA: Final = "appaiata"
+
+#: La condizione dei parametri della modalita' appaiata.
+_CON_LE_COPPIE: Final = (("io.layout", APPAIATA),)
+
+#: I parametri della modalita' appaiata senza un predefinito: obbligatori con
+#: io.layout paired-end, respinti altrimenti (non sono solo omissibili: in
+#: modalita' single-end il gruppo pair non esiste nella configurazione
+#: risolta, e un suo parametro dichiarato non potrebbe restarne fuori).
+PARAMETRI_DELLE_COPPIE: Final[tuple[str, ...]] = (
+    "pair.file_markers",
+    "pair.truncLen_reverse",
+    "pair.trimLeft_reverse",
+    "pair.truncLen_shortfall_warn_reverse",
+    "pair.primer_sequence_reverse",
+    "pair.conserved_motif_reverse",
+    "pair.max_primer_hit_frac_reverse",
+    "pair.min_merged_frac_warn",
+    "pair.min_merged_frac_stop",
+    "pair.len_min",
+    "pair.len_max",
+    "pair.expected_merged_len",
+)
+
+#: Quelli che dichiarati possono valere nullo: il primer e il motivo della
+#: lettura reverse, se non sono noti, e la lunghezza attesa delle sequenze fuse.
+PARAMETRI_DELLE_COPPIE_ANCHE_NULLI: Final[frozenset[str]] = frozenset({
+    "pair.primer_sequence_reverse",
+    "pair.conserved_motif_reverse",
+    "pair.expected_merged_len",
+})
 
 #: La condizione dei parametri della decontaminazione: il dataset dichiara
 #: controlli negativi, con le etichette o con la riclassificazione.
@@ -288,6 +342,24 @@ CONDIZIONALI: Final[Mapping[str, tuple[tuple[str, str], ...]]] = MappingProxyTyp
     "meta.module_regex": (("meta.derive_module", VERO),),
 })
 
+#: I condizionali della modalita' appaiata, con la loro condizione. Stanno in
+#: un elenco proprio perche' non sono condizionali come gli altri: con la
+#: condizione falsa non sono omissibili ma respinti, e in modalita' single-end
+#: non esistono (ne' nella configurazione risolta, ne' fra i parametri che il
+#: report e ``init`` elencano come non pertinenti).
+CONDIZIONALI_DELLE_COPPIE: Final[Mapping[str, tuple[tuple[str, str], ...]]] = MappingProxyType({
+    chiave: _CON_LE_COPPIE for chiave in PARAMETRI_DELLE_COPPIE
+})
+
+#: Quelli fra loro per cui il nullo scritto a mano vale come l'omissione.
+COPPIE_NULLE_SE_OMESSE: Final[frozenset[str]] = frozenset(
+    c for c in PARAMETRI_DELLE_COPPIE if c not in PARAMETRI_DELLE_COPPIE_ANCHE_NULLI
+)
+
+_OGNI_CONDIZIONE: Final[Mapping[str, tuple[tuple[str, str], ...]]] = MappingProxyType({
+    **CONDIZIONALI, **CONDIZIONALI_DELLE_COPPIE,
+})
+
 #: I condizionali che, omessi, non hanno un valore che significhi "assente"
 #: (gli altri valgono elenco vuoto o nullo, valori che lo schema ammette):
 #: senza valore sono nulli, e una fase che li leggesse riceve un errore.
@@ -325,13 +397,14 @@ _TESTO_FORMA: Final[Mapping[str, str]] = MappingProxyType({
     NON_NULLO: "non e' nullo",
     NON_VUOTO: "non e' vuoto",
     VERO: "e' vero",
+    APPAIATA: f"e' {LAYOUT_APPAIATO}",
 })
 
 
 def testo_condizione(chiave: str) -> str:
     """La condizione che rende pertinente un condizionale, in parole."""
     return " oppure ".join(
-        f"{parametro} {_TESTO_FORMA[forma]}" for parametro, forma in CONDIZIONALI[chiave]
+        f"{parametro} {_TESTO_FORMA[forma]}" for parametro, forma in _OGNI_CONDIZIONE[chiave]
     )
 
 
@@ -342,6 +415,8 @@ def _alternativa_vera(parametro: str, forma: str, valore_di: Mapping[str, object
         return valore is not None
     if forma == NON_VUOTO:
         return bool(valore)
+    if forma == APPAIATA:
+        return valore == LAYOUT_APPAIATO
     return valore is True
 
 
@@ -354,5 +429,5 @@ def condizione_vera(chiave: str, valore_di: Mapping[str, object]) -> bool:
     """
     return any(
         _alternativa_vera(parametro, forma, valore_di)
-        for parametro, forma in CONDIZIONALI[chiave]
+        for parametro, forma in _OGNI_CONDIZIONE[chiave]
     )

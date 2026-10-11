@@ -246,7 +246,7 @@ ECCEZIONI_PER_FASE: Final[Mapping[str, Mapping[str, str]]] = {
 }
 
 #: I moduli delle fasi: ``amplicon16s.steps.s00_validate`` e cosi' via.
-MODULO_DI_FASE: Final = re.compile(r"^amplicon16s\.steps\.s\d{2}_")
+MODULO_DI_FASE: Final = re.compile(r"^amplicon16s\.steps\.s\d{2}[a-z]?_")
 
 
 def _importati(modulo: str) -> set[str]:

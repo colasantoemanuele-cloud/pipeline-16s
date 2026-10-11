@@ -271,15 +271,13 @@ permanova_continua <- function(matrice, distanza, piano, tecnici, valori_strati,
     esito <- as.data.frame(grezzo)
     # Con una distanza non euclidea i termini possono spiegare insieme piu'
     # della variabilita' totale: senza un residuo positivo F non ha significato.
-    valutabile <- isTRUE(esito["Residual", "SumOfSqs"] > 0)
+    valutabile <- residuo_positivo(esito["Residual", "SumOfSqs"], esito["Total", "SumOfSqs"])
     for (termine in names(nomi)) {
       if (termine %in% rownames(esito)) {
         e <- esito[termine, ]
         riga("permanova", nomi[[termine]], ruolo[[termine]], e$Df, e$SumOfSqs, e$R2,
              if (valutabile) e$F else NA, if (valutabile) e[["Pr(>F)"]] else NA,
-             if (valutabile) "" else paste0(
-               "non valutabile: somma dei quadrati residua non positiva; con questa ",
-               "distanza, non euclidea, i termini spiegano piu' della variabilita' totale"))
+             if (valutabile) "" else nota_residuo_non_positivo(distanza, "i termini"))
       } else {
         riga("permanova", nomi[[termine]], ruolo[[termine]], 0L, NA, NA, NA, NA,
              "non stimabile: nessun grado di liberta' dopo i termini precedenti")

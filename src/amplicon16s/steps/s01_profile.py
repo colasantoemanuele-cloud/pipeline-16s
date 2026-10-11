@@ -64,6 +64,24 @@ sequenziatore che raggruppa le qualità: è una degradazione dichiarata, che
 rimanda a ``err.error_function``. Con un solo valore non c'è una funzione da
 scegliere (S3 non ha una curva da stimare, ``E-S3-04``), e il messaggio lo dice.
 
+**In modalita' appaiata** la fase legge anche il file reverse di ogni campione
+e ripete su di esso gli stessi controlli, con i parametri della lettura
+reverse. In piu':
+
+* confronta i nomi delle letture dei due file, una coppia per volta, e si
+  ferma con ``E-S1-08`` alla prima coppia fuori posto o se i due file hanno un
+  numero diverso di letture: la fusione di coppie non corrispondenti darebbe
+  sequenze inesistenti, e con questa verifica il filtro non deve piu'
+  confrontare gli identificativi;
+* cerca in ogni file il segnale di entrambi i versi: un file forward senza il
+  suo segnale il cui compagno lo porta, e viceversa, e' una corsa con i due
+  file scambiati (``E-S1-09``, come il marcatore dell'altra lettura nelle
+  intestazioni); un file reverse senza il suo segnale e' ``E-S1-09``; un file
+  con una quota rilevante dei due versi e' una libreria mescolata
+  (``E-S1-10``), che darebbe ogni variante due volte;
+* scrive il profilo della lettura reverse accanto a quello della forward, con
+  il suffisso ``_reverse``.
+
 **Registra lo scarto in difetto, E-S1-01.** Se ``filter.truncLen`` è sotto il
 minimo osservato di più di ``filter.truncLen_shortfall_warn``, ogni lettura
 cede basi che si potrebbero conservare: è una degradazione, che non ferma e
@@ -79,15 +97,22 @@ from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from functools import partial
+from pathlib import Path
 from typing import Any, ClassVar, Final
 
 from amplicon16s.config.schema import thread_effettivi
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.reads import (
+    LETTURE_MINIME_PER_LA_QUOTA,
+    LETTURE_MINIME_PER_UN_NOME_SOSPETTO,
     StatisticheFile,
     conta_coppie,
+    corsa_invertita,
+    nome_da_seconda_lettura,
     segnale_di_orientamento,
     senza_righe_vuote_finali,
+    verifica_sincronia,
+    versi_mescolati,
 )
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
@@ -106,6 +131,15 @@ NOME_RIEPILOGO: Final = "riepilogo.json"
 NOME_VALORI_QUALITA: Final = "valori_qualita.tsv"
 #: I segni di coppia contati su tutte le letture di ogni file.
 NOME_COPPIE: Final = "coppie.tsv"
+#: In modalita' appaiata i file della lettura reverse portano questo suffisso
+#: prima dell'estensione: lunghezze_reverse.tsv, qualita_reverse.tsv e cosi' via.
+SUFFISSO_REVERSE: Final = "_reverse"
+
+
+def nome_reverse(nome: str) -> str:
+    """Il nome dell'artefatto della lettura reverse che corrisponde a ``nome``."""
+    base, punto, estensione = nome.rpartition(".")
+    return f"{base}{SUFFISSO_REVERSE}{punto}{estensione}"
 
 
 #: Con questo numero di valori di qualita' distinti, o meno, le qualita' sono
@@ -184,8 +218,10 @@ class ProfiloLetture(PipelineStep):
     #: letture di un controllo negativo non e' un guasto: il campione entra nel
     #: conteggio con zero letture e non ha un profilo. 9: ferma un file che non
     #: contiene le sole letture forward (E-S1-07) e una riga finale di soli
-    #: spazi (E-S1-05).
-    versione: ClassVar[int] = 9
+    #: spazi (E-S1-05). 10: un file con il nome di una seconda lettura e'
+    #: giudicato sulla quota del segnale da un numero minore di letture; in
+    #: modalita' appaiata legge i due file di ogni campione.
+    versione: ClassVar[int] = 10
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("grezze",)
     #: I profili dipendono solo dalle letture, cioe' da S0; il troncamento, la
@@ -197,6 +233,14 @@ class ProfiloLetture(PipelineStep):
     parametri: ClassVar[tuple[str, ...]] = (
         "filter.truncLen", "filter.truncLen_shortfall_warn", "qc.max_frac_short_reads",
         "qc.primer_sequence", "qc.conserved_motif", "filter.trimLeft",
+    )
+    #: Il troncamento della reverse e la sua tolleranza (E-S1-01, E-S1-02);
+    #: primer, motivo e taglio della reverse, che ne definiscono il segnale
+    #: (E-S1-09, E-S1-10).
+    parametri_appaiata: ClassVar[tuple[str, ...]] = (
+        "pair.truncLen_reverse", "pair.truncLen_shortfall_warn_reverse",
+        "pair.primer_sequence_reverse", "pair.conserved_motif_reverse",
+        "pair.trimLeft_reverse",
     )
 
     def calcola(self, contesto: StepContext) -> Produzione:
@@ -221,12 +265,44 @@ class ProfiloLetture(PipelineStep):
                 "seconde letture di ogni coppia non sarebbe riconosciuto dal contenuto",
                 extra={"passo": "S1"},
             )
+        appaiata = contesto.config.appaiata
+        reverse: dict[str, str] = {}
+        segnale_reverse = None
+        if appaiata:
+            reverse = {
+                c.accession: str(c.file_reverse) for c in contesto.inventario
+                if c.file is not None and c.file_reverse is not None
+            }
+            delle_coppie = contesto.config.pair
+            segnale_reverse = segnale_di_orientamento(
+                delle_coppie.primer_sequence_reverse, delle_coppie.conserved_motif_reverse,
+                delle_coppie.trimLeft_reverse)
+            if segnale_reverse is None:
+                contesto.logger.warning(
+                    "il controllo sull'orientamento delle letture reverse non si applica: "
+                    "pair.conserved_motif_reverse e' nullo e non c'e' un primer reverse da "
+                    "cercare nelle basi tagliate (pair.trimLeft_reverse 0, o "
+                    "pair.primer_sequence_reverse nullo). Una corsa con i due file scambiati "
+                    "si riconosce allora solo dal segnale delle letture forward",
+                    extra={"passo": "S1"},
+                )
+        coppie_reverse: dict[str, StatisticheFile] = {}
+        sincronie: dict[str, Any] = {}
         # Un processo per file: la decompressione e la lettura dei nomi non
         # condividono nulla, e i nomi di un file vivono solo nel suo processo.
         try:
             with ProcessPoolExecutor(max_workers=processi) as gruppo:
                 coppie = dict(zip(campioni, gruppo.map(
-                    partial(conta_coppie, orientamento=segnale), campioni.values())))
+                    partial(conta_coppie, orientamento=segnale,
+                            altro_orientamento=segnale_reverse if appaiata else None),
+                    campioni.values())))
+                if appaiata:
+                    coppie_reverse = dict(zip(reverse, gruppo.map(
+                        partial(conta_coppie, orientamento=segnale_reverse,
+                                altro_orientamento=segnale),
+                        reverse.values())))
+                    sincronie = dict(zip(reverse, gruppo.map(
+                        verifica_sincronia, [campioni[c] for c in reverse], reverse.values())))
         except BrokenProcessPool as guasto:
             # Un processo del conteggio e' stato ucciso dal sistema: tiene in
             # memoria i nomi delle letture del suo file, e con molti processi
@@ -244,16 +320,28 @@ class ProfiloLetture(PipelineStep):
         vuoti = [c for c, s in coppie.items()
                  if s.vuoto and classi[c] is ClasseCampione.CONTROLLO_NEGATIVO]
         guasti = {c: s for c, s in coppie.items() if s.errore is not None and c not in vuoti}
+        # In modalita' appaiata anche i file reverse: quello senza letture di un
+        # controllo negativo segue il suo forward.
+        guasti.update({
+            f"{c} (reverse)": s for c, s in coppie_reverse.items()
+            if s.errore is not None and not (
+                s.vuoto and classi[c] is ClasseCampione.CONTROLLO_NEGATIVO)
+        })
         if guasti:
             elenco = "; ".join(f"{c} ({s.nome}): {s.errore}" for c, s in list(guasti.items())[:5])
             raise errore(
                 "E-S1-05",
-                f"{len(guasti)} file su {len(coppie)} non si leggono fino in fondo: {elenco}"
+                f"{len(guasti)} file su {len(coppie) + len(coppie_reverse)} non si leggono "
+                f"fino in fondo: {elenco}"
                 + ("" if len(guasti) <= 5 else f"; e altri {len(guasti) - 5}")
                 + ". Riscarica i file dalla sorgente e verificane il checksum",
                 campioni=sorted(guasti),
             )
         tabella = contesto.albero.scrivi_testo(self.cartella, NOME_COPPIE, self._tsv_coppie(coppie))
+        if appaiata:
+            return self._appaiata(
+                contesto, campioni, reverse, coppie, coppie_reverse, sincronie, classi, vuoti,
+                tabella, processi)
         respinti = {c: s.coppie_nello_stesso_file for c, s in coppie.items()
                     if s.coppie_nello_stesso_file}
         if respinti:
@@ -269,9 +357,16 @@ class ProfiloLetture(PipelineStep):
             )
         # Le letture inverse prese per forward: la quota si giudica dove ci si
         # attende il bersaglio, la struttura a blocchi in ogni file.
+        # Un file il cui nome finisce come il secondo di una coppia e' giudicato
+        # sulla quota da un numero minore di letture: il nome e' gia' un indizio.
+        nomi_dei_file = [Path(p).name for p in campioni.values()]
         inattesi = {
             c: motivo for c, s in coppie.items()
-            if (motivo := s.orientamento_inatteso(classi[c] in CLASSI_CONTROLLATE))
+            if (motivo := s.orientamento_inatteso(
+                classi[c] in CLASSI_CONTROLLATE,
+                LETTURE_MINIME_PER_UN_NOME_SOSPETTO
+                if nome_da_seconda_lettura(Path(campioni[c]).name, nomi_dei_file)
+                else LETTURE_MINIME_PER_LA_QUOTA))
         }
         if inattesi:
             elenco = "; ".join(f"{c} ({coppie[c].nome}): {motivo}"
@@ -285,12 +380,48 @@ class ProfiloLetture(PipelineStep):
                 + _descrivi_il_segnale(contesto.config),
                 campioni=sorted(inattesi),
             )
+        esito, metriche = self._profilo_e_lunghezze(
+            contesto, campioni, coppie, classi, vuoti, processi)
+        return Produzione((tabella, *esito), metriche)
+
+    def _profilo_e_lunghezze(
+        self,
+        contesto: StepContext,
+        campioni: dict[str, str],
+        coppie: dict[str, StatisticheFile],
+        classi: dict[str, ClasseCampione],
+        vuoti: list[str],
+        processi: int,
+        *,
+        reverse: bool = False,
+    ) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        """Il profilo in R dei file dati e i controlli sulle lunghezze contro il
+        troncamento: gli artefatti e le metriche. Con ``reverse`` i file sono
+        quelli della lettura reverse, i parametri quelli del gruppo ``pair``, e
+        gli artefatti portano il suffisso della reverse.
+        """
+        config = contesto.config
+        if reverse:
+            troncamento = config.pair.truncLen_reverse
+            tolleranza = config.pair.truncLen_shortfall_warn_reverse
+            parametro, parametro_tolleranza = (
+                "pair.truncLen_reverse", "pair.truncLen_shortfall_warn_reverse")
+            quali = " reverse"
+        else:
+            troncamento = config.filter.truncLen
+            tolleranza = config.filter.truncLen_shortfall_warn
+            parametro, parametro_tolleranza = "filter.truncLen", "filter.truncLen_shortfall_warn"
+            quali = ""
+
+        def nome(file: str) -> str:
+            return nome_reverse(file) if reverse else file
+
         # Le righe vuote in fondo a un file sono tollerate, ma il lettore a
         # blocchi di R le rifiuta: quei soli file gli arrivano in copia ripulita.
         vuote = [c for c, s in coppie.items() if s.righe_vuote_finali]
         if vuote:
             contesto.logger.info(
-                f"{len(vuote)} file hanno righe vuote in fondo: tollerate, lette da una "
+                f"{len(vuote)} file{quali} hanno righe vuote in fondo: tollerate, lette da una "
                 "copia senza quelle righe, scritta nella cartella della fase e tolta alla "
                 "fine",
                 extra={"passo": "S1", "campioni": sorted(vuote)},
@@ -307,10 +438,11 @@ class ProfiloLetture(PipelineStep):
                     "vuoti": vuoti,
                     "ordine": list(campioni),
                     "processi": processi,
+                    **({"suffisso": SUFFISSO_REVERSE} if reverse else {}),
                 },
                 contesto.albero,
                 self.cartella,
-                passo=self.passo,
+                passo=f"{self.passo}{SUFFISSO_REVERSE}" if reverse else self.passo,
                 # Un processo per file, ognuno con un blocco di letture e le
                 # loro qualita' in memoria: con molti processi e poca memoria
                 # il sistema ne uccide alcuni.
@@ -320,20 +452,18 @@ class ProfiloLetture(PipelineStep):
             )
 
         cartella = contesto.albero.cartella(self.cartella)
-        riepilogo = json.loads((cartella / NOME_RIEPILOGO).read_text(encoding="utf-8"))
+        riepilogo = json.loads((cartella / nome(NOME_RIEPILOGO)).read_text(encoding="utf-8"))
         minimo = int(riepilogo["lunghezza_minima"])
-        filtro = contesto.config.filter
-        troncamento = filtro.truncLen
 
         # Le letture piu' corte del troncamento, che il filtro scartera': una
         # sola non e' un motivo per fermarsi, una quota rilevante dei campioni
         # da cui ci si attende il segnale si'.
-        lunghezze = self._lunghezze(cartella)
+        lunghezze = self._lunghezze(cartella, nome(NOME_LUNGHEZZE))
         corte = letture_corte(lunghezze, classi, troncamento)
         massima = contesto.config.qc.max_frac_short_reads
         oltre = classi_oltre_soglia(corte, massima)
 
-        with open(cartella / NOME_VALORI_QUALITA, encoding="utf-8", newline="") as file:
+        with open(cartella / nome(NOME_VALORI_QUALITA), encoding="utf-8", newline="") as file:
             valori = [int(r["qualita"]) for r in csv.DictReader(file, delimiter="\t")]
         metriche = {
             "campioni": riepilogo["campioni"],
@@ -349,24 +479,25 @@ class ProfiloLetture(PipelineStep):
         if oltre:
             raise errore(
                 "E-S1-02",
-                self._dettaglio_corte(lunghezze, classi, corte, oltre, troncamento, minimo, massima),
+                self._dettaglio_corte(lunghezze, classi, corte, oltre, troncamento, minimo,
+                                      massima, parametro, quali),
                 truncLen=troncamento,
                 lunghezza_minima=minimo,
                 frazione={classe: corte[classe]["frazione"] for classe in oltre},
             )
 
         scarto = minimo - troncamento
-        if scarto > filtro.truncLen_shortfall_warn:
+        if scarto > tolleranza:
             contesto.degrada(
                 "E-S1-01",
-                f"la lettura piu' corta, su tutte le letture, e' di {minimo} bp e "
-                f"filter.truncLen vale {troncamento}: uno scarto di {scarto} bp, oltre "
-                f"i {filtro.truncLen_shortfall_warn} di filter.truncLen_shortfall_warn",
+                f"la lettura{quali} piu' corta, su tutte le letture, e' di {minimo} bp e "
+                f"{parametro} vale {troncamento}: uno scarto di {scarto} bp, oltre "
+                f"i {tolleranza} di {parametro_tolleranza}",
                 lunghezza_minima=minimo,
                 truncLen=troncamento,
                 scarto=scarto,
             )
-        if len(valori) <= QUALITA_RAGGRUPPATE:
+        if not reverse and len(valori) <= QUALITA_RAGGRUPPATE:
             # Con un solo valore non c'e' una curva da adattare, con nessuna
             # funzione: suggerire loess_monotono manderebbe a un secondo arresto.
             seguito = (
@@ -387,7 +518,130 @@ class ProfiloLetture(PipelineStep):
                 valori=sorted(valori),
             )
 
-        return Produzione((tabella, *esito.artefatti), metriche)
+        return esito.artefatti, metriche
+
+    def _appaiata(
+        self,
+        contesto: StepContext,
+        campioni: dict[str, str],
+        reverse: dict[str, str],
+        coppie: dict[str, StatisticheFile],
+        coppie_reverse: dict[str, StatisticheFile],
+        sincronie: dict[str, Any],
+        classi: dict[str, ClasseCampione],
+        vuoti: list[str],
+        tabella: Any,
+        processi: int,
+    ) -> Produzione:
+        """Il seguito della fase in modalita' appaiata: i giudizi sulle coppie
+        di file, poi il profilo delle due letture.
+        """
+        albero = contesto.albero
+        tabella_reverse = albero.scrivi_testo(
+            self.cartella, nome_reverse(NOME_COPPIE), self._tsv_coppie(coppie_reverse))
+
+        def nomi(campione: str) -> str:
+            return f"{coppie[campione].nome} e {coppie_reverse[campione].nome}"
+
+        def elenca(voci: dict[str, str], quanti: int = 5) -> str:
+            testo = "; ".join(f"{c}: {m}" for c, m in list(voci.items())[:quanti])
+            return testo + ("" if len(voci) <= quanti else f"; e altri {len(voci) - quanti}")
+
+        # Le intestazioni: ogni file deve riportare una sola lettura di ogni
+        # coppia, la prima nel forward e la seconda nel reverse.
+        intercalati: dict[str, str] = {}
+        invertite: dict[str, str] = {}
+        for campione in reverse:
+            for statistiche, attesa in ((coppie[campione], "1"), (coppie_reverse[campione], "2")):
+                esito = statistiche.segni_di_coppia_inattesi(attesa)
+                if esito is None:
+                    continue
+                specie, descrizione = esito
+                (intercalati if specie == "intercalato" else invertite).setdefault(
+                    campione, f"{statistiche.nome}: {descrizione}")
+        if intercalati:
+            raise errore(
+                "E-S1-11",
+                f"{len(intercalati)} file, su tutte le loro letture, contengono le due letture "
+                f"di ogni coppia: {elenca(intercalati)}. In modalita' appaiata ogni file riporta "
+                f"una sola lettura di ogni coppia; i conteggi sono in {NOME_COPPIE} e in "
+                f"{nome_reverse(NOME_COPPIE)}",
+                campioni=sorted(intercalati),
+            )
+
+        fuori_posto = {c: s.difetto for c, s in sincronie.items() if s.difetto is not None}
+        if fuori_posto:
+            raise errore(
+                "E-S1-08",
+                f"{len(fuori_posto)} campioni su {len(sincronie)} hanno i due file non in "
+                "sincronia: " + elenca({f"{c} ({nomi(c)})": m for c, m in fuori_posto.items()}),
+                campioni=sorted(fuori_posto),
+            )
+
+        # L'orientamento, dal contenuto. Prima la corsa invertita, che spiega
+        # insieme il difetto dei suoi due file; poi ciascun file per se'.
+        for campione in reverse:
+            if campione not in invertite:
+                motivo = corsa_invertita(coppie[campione], coppie_reverse[campione])
+                if motivo is not None:
+                    invertite[campione] = motivo
+        senza_orientamento: dict[str, str] = {}
+        inattesi: dict[str, str] = {}
+        mescolati: dict[str, str] = {}
+        for campione in reverse:
+            if campione in invertite:
+                continue
+            controllata = classi[campione] in CLASSI_CONTROLLATE
+            if motivo := coppie[campione].orientamento_inatteso(controllata):
+                inattesi[campione] = motivo
+            if motivo := coppie_reverse[campione].orientamento_inatteso(controllata):
+                senza_orientamento[campione] = f"{coppie_reverse[campione].nome}: {motivo}"
+            for statistiche in (coppie[campione], coppie_reverse[campione]):
+                if motivo := versi_mescolati(statistiche):
+                    mescolati.setdefault(campione, f"{statistiche.nome}: {motivo}")
+        if invertite or senza_orientamento:
+            parti = []
+            if invertite:
+                parti.append(
+                    f"{len(invertite)} corse hanno i due file scambiati: "
+                    + elenca({f"{c} ({nomi(c)})": m for c, m in invertite.items()})
+                    + ". Scambia i nomi dei due file di ciascuna")
+            if senza_orientamento:
+                parti.append(
+                    f"{len(senza_orientamento)} file reverse non contengono le sole letture "
+                    f"reverse: {elenca(senza_orientamento)}")
+            raise errore(
+                "E-S1-09", ". ".join(parti),
+                campioni=sorted({*invertite, *senza_orientamento}),
+                invertite=sorted(invertite),
+            )
+        if inattesi:
+            raise errore(
+                "E-S1-07",
+                f"{len(inattesi)} file forward su {len(coppie)}, su tutte le loro letture, non "
+                "contengono le sole letture forward: "
+                + elenca({f"{c} ({coppie[c].nome})": m for c, m in inattesi.items()})
+                + ". Il segnale di una lettura forward e' "
+                + _descrivi_il_segnale(contesto.config),
+                campioni=sorted(inattesi),
+            )
+        if mescolati:
+            raise errore(
+                "E-S1-10",
+                f"{len(mescolati)} campioni hanno un file con le letture dei due versi: "
+                + elenca(mescolati),
+                campioni=sorted(mescolati),
+            )
+
+        artefatti, metriche = self._profilo_e_lunghezze(
+            contesto, campioni, coppie, classi, vuoti, processi)
+        vuoti_reverse = [c for c, s in coppie_reverse.items() if s.vuoto]
+        artefatti_reverse, metriche_reverse = self._profilo_e_lunghezze(
+            contesto, reverse, coppie_reverse, classi, vuoti_reverse, processi, reverse=True)
+        metriche["reverse"] = metriche_reverse
+        metriche["coppie_in_sincronia"] = sum(s.coppie for s in sincronie.values())
+        return Produzione(
+            (tabella, tabella_reverse, *artefatti, *artefatti_reverse), metriche)
 
     @staticmethod
     def _tsv_coppie(coppie: dict[str, StatisticheFile]) -> str:
@@ -403,10 +657,10 @@ class ProfiloLetture(PipelineStep):
         return "\n".join(righe) + "\n"
 
     @staticmethod
-    def _lunghezze(cartella: Any) -> dict[str, dict[int, int]]:
+    def _lunghezze(cartella: Any, nome: str = NOME_LUNGHEZZE) -> dict[str, dict[int, int]]:
         """Per campione, le letture di ogni lunghezza (da ``lunghezze.tsv``)."""
         lunghezze: dict[str, dict[int, int]] = defaultdict(dict)
-        with open(cartella / NOME_LUNGHEZZE, encoding="utf-8", newline="") as file:
+        with open(cartella / nome, encoding="utf-8", newline="") as file:
             for riga in csv.DictReader(file, delimiter="\t"):
                 lunghezze[riga["campione"]][int(riga["lunghezza"])] = int(float(riga["letture"]))
         return dict(lunghezze)
@@ -420,6 +674,8 @@ class ProfiloLetture(PipelineStep):
         troncamento: int,
         minimo: int,
         massima: float,
+        parametro: str = "filter.truncLen",
+        quali: str = "",
     ) -> str:
         """Le classi oltre la soglia, la frazione di ogni classe e i campioni
         piu' colpiti fra quelli delle classi oltre la soglia.
@@ -441,8 +697,8 @@ class ProfiloLetture(PipelineStep):
             for classe in oltre
         )
         return (
-            f"filter.truncLen vale {troncamento} e {superano} e' piu' corto, oltre il "
-            f"{massima:.1%} di qc.max_frac_short_reads; la lettura piu' corta e' di {minimo} "
+            f"{parametro} vale {troncamento} e {superano} e' piu' corto, oltre il "
+            f"{massima:.1%} di qc.max_frac_short_reads; la lettura{quali} piu' corta e' di {minimo} "
             f"bp. Per classe: {per_classe}. {len(colpiti)} campioni di "
             f"{'questa classe' if len(oltre) == 1 else 'queste classi'} hanno letture piu' "
             f"corte, che verrebbero scartate; i piu' colpiti: {elenco}"

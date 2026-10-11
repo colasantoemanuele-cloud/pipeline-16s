@@ -31,6 +31,11 @@ python3 dati/osd170/scarica_letture.py                  # 30 file in dati/osd170
 python3 dati/osd170/scarica_letture.py --solo-verifica  # controlla i file presenti
 ```
 
+Con `--coppie` lo script scarica invece i due file di ogni corsa in `fastq_coppie/`
+(`<nome>_R1` il primo file del deposito, `<nome>_R2` il secondo), nell'ordine del
+deposito e senza scambiarli: sono l'ingresso della modalita' appaiata della pipeline
+(`io.layout: paired-end`), che riconosce da se' una corsa invertita.
+
 Lo script (`dati/letture_forward.py`) legge le prime letture dei due file di ogni corsa e
 tiene quello che inizia con il primer forward; una corsa in cui lo porta il secondo file
 e' dichiarata invertita. **Le letture di questo dataset sono depositate senza primer**: lo

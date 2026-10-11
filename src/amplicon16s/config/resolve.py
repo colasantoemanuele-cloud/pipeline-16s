@@ -121,6 +121,11 @@ def _deriva_statici(config: Config) -> Derivati:
     base = config.filter.truncLen - config.filter.trimLeft
     len_min = base - config.asv.len_tol
     len_max = base + config.asv.len_tol
+    if config.appaiata:
+        # Le sequenze fuse hanno lunghezza variabile, quella della regione
+        # amplificata: l'intervallo non discende dal troncamento ma e'
+        # dichiarato, e la tolleranza intorno a un'unica lunghezza non entra.
+        len_min, len_max = config.pair.len_min, config.pair.len_max
 
     return Derivati(asv_len_min=len_min, asv_len_max=len_max)
 
@@ -201,6 +206,10 @@ def parametri_dichiarati(config: Config) -> tuple[str, ...]:
             for chiave in type(modello).model_fields
             if chiave in modello.model_fields_set
         ]
+    if not config.appaiata:
+        # La modalita' single-end dichiarata vale come omessa: non e' fra i
+        # parametri della configurazione registrata.
+        dichiarati = [chiave for chiave in dichiarati if chiave != "io.layout"]
     return tuple(dichiarati)
 
 

@@ -12,7 +12,7 @@ OSD-276 non e' un dataset single-end. E' depositato come PAIRED, e ENA distribui
 per ciascuna delle 15 corse **un solo file** che contiene le due letture di ogni
 coppia, in due blocchi: i record la cui intestazione termina con `/1` e quelli che
 terminano con `/2`; in 8 corse viene prima il blocco `/1`, in 7 il blocco `/2`. La
-pipeline tratta dati single-end: **qui si usano le sole letture
+configurazione di questa cartella e' single-end: **qui si usano le sole letture
 forward come dato single-end**. E' un uso legittimo (la lettura forward di un
 amplicone V4 e' cio' che un sequenziamento single-end produrrebbe) ma va dichiarato:
 i risultati non sono confrontabili con un'analisi paired-end dello stesso dataset, che
@@ -25,6 +25,17 @@ sono in numero uguale o se la somma non e' il numero di letture dichiarato dal
 deposito; un file forward con un'impronta diversa dall'attesa viene messo da parte
 (`.md5_errato`) e non resta in `fastq/`; il guasto di una corsa finisce nel riepilogo
 finale senza fermare le altre.
+
+Con `--coppie` lo script ricava entrambe le letture, per la modalita' appaiata della
+pipeline (`io.layout: paired-end`), in una cartella separata: per ogni corsa
+`fastq_coppie/<corsa>_<campione>_R1.fastq.gz` (i record `/1`) e `..._R2.fastq.gz` (i
+record `/2`), verificati contro `letture_forward.md5` e `letture_reverse.md5`. I due
+file prendono il nome dall'etichetta del deposito e non vengono scambiati; `fastq/` non
+viene toccata.
+
+```bash
+python3 dati/osd276/scarica_letture.py --coppie   # 30 file in dati/osd276/fastq_coppie/
+```
 
 ### Confronto con i file pubblicati da OSDR
 
@@ -107,11 +118,13 @@ In che cosa OSD-276 differisce da OSD-734:
 | `metadati/` | si' | le tabelle ISA di OSDR: campioni di studio e assay 16S |
 | `letture_ena.tsv` | si' | le 15 corse con indirizzo, MD5 e dimensione dichiarati da ENA, e il numero di letture forward attese |
 | `letture_forward.md5` | si' | l'MD5 del contenuto non compresso di ogni file forward ricavato |
-| `scarica_letture.py` | si' | scarica, verifica e ricava le forward |
+| `letture_reverse.md5` | si' | l'MD5 del contenuto non compresso di ogni file reverse ricavato con `--coppie` |
+| `scarica_letture.py` | si' | scarica, verifica e ricava le forward; con `--coppie`, le due letture |
 | `config_osd276.yaml` | si' | la configurazione della pipeline per questo dataset |
 | `eco_osd276.yaml` | si' | la configurazione d'esempio delle analisi ecologiche di base |
 | `FONTI.tsv` | si' | fonte, licenza e controllo di ogni file |
 | `ena/`, `fastq/` | no | i file di ENA (196 MB) e le forward ricavate (91 MB) |
+| `fastq_coppie/` | no | le due letture di ogni corsa, ricavate con `--coppie` |
 
 Il riferimento tassonomico (SILVA 138) e' comune ai dataset: sta in
 `dati/riferimento/` e si ottiene con `dati/riferimento/scarica_riferimento.py`.

@@ -111,14 +111,16 @@ CODICI_DI_FASE = (
     "E-S0-01", "E-S0-02", "E-S0-03", "E-S0-04", "E-S0-05", "E-S0-06", "E-S0-07",
     "E-S0-08", "E-S0-09", "E-S0-10", "E-S0-11", "E-S0-12",
     "E-S0-13", "E-S0-14", "E-S0-15", "E-S0-16", "E-S0-17", "E-S0-18",
-    "E-S0-19", "E-S0-20", "E-S0-21", "E-S0-22",
+    "E-S0-19", "E-S0-20", "E-S0-21", "E-S0-22", "E-S0-23", "E-S0-24", "E-S0-25", "E-S0-26", "E-S0-27",
     "E-S1-01", "E-S1-02", "E-S1-03", "E-S1-04", "E-S1-05", "E-S1-06", "E-S1-07",
+    "E-S1-08", "E-S1-09", "E-S1-10", "E-S1-11",
     "E-S2-01", "E-S2-02", "E-S2-03",
     "E-S3-01", "E-S3-02", "E-S3-03", "E-S3-04", "E-S3-05",
     "E-S4-02",
+    "E-SM-01", "E-SM-02", "E-SM-03",
     "E-S5-01",
     "E-S6-01", "E-S6-02",
-    "E-S7-01",
+    "E-S7-01", "E-S7-02",
     "E-S8-02", "E-S8-03",
     "E-S9-01", "E-S9-02",
     "E-S10-01", "E-S10-02",
@@ -476,6 +478,9 @@ def test_nessun_controllo_di_configurazione_e_ritentabile():
 DEGRADAZIONI = (
     "E-S0-15", "E-S0-17", "E-S0-18", "E-S0-19", "E-S0-20", "E-S0-21", "E-S1-01", "E-S1-03", "E-S6-02", "E-S8-03", "E-S11-02", "E-S11-04",
     "E-S11-05", "E-S11-06", "E-S12-03", "E-S13-02", "E-S13-03", "E-S13-05",
+    # la fusione delle coppie: quota sotto la soglia d'avviso, lunghezza
+    # mediana lontana dall'attesa
+    "E-SM-02", "E-SM-03",
 )
 
 

@@ -35,9 +35,10 @@ from amplicon16s.io_layer.artifacts import Fase, nome_manifesto_passo
 from amplicon16s.metadata.lettura_inventario import NOME_CROSSWALK
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE
 from amplicon16s.soglie.tabella import non_eseguito, soglia
-from amplicon16s.steps.s00_validate import NOME_INVENTARIO, NOME_LETTURE
-from amplicon16s.steps.s01_profile import NOME_LUNGHEZZE
+from amplicon16s.steps.s00_validate import NOME_INVENTARIO, NOME_LETTURE, NOME_LETTURE_REVERSE
+from amplicon16s.steps.s01_profile import NOME_LUNGHEZZE, nome_reverse
 from amplicon16s.steps.s01_profile import NOME_RIEPILOGO as RIEPILOGO_PROFILO
+from amplicon16s.steps.s04m_merge import NOME_RIEPILOGO as RIEPILOGO_FUSIONE
 from amplicon16s.steps.s05_seqtab import NOME_RIEPILOGO as RIEPILOGO_TABELLA
 from amplicon16s.steps.s06_chimera import NOME_RIEPILOGO as RIEPILOGO_CHIMERE
 from amplicon16s.steps.s08_taxonomy import NOME_RIEPILOGO as RIEPILOGO_TASSONOMIA
@@ -145,11 +146,14 @@ def campioni_controllati(radice: Path | str) -> int | None:
         return None
 
 
-def _letture_ispezionate(radice: Path) -> tuple[str, list[dict[str, str]]]:
+def _letture_ispezionate(
+    radice: Path, nome: str = NOME_LETTURE
+) -> tuple[str, list[dict[str, str]]]:
     """Le righe dei file leggibili dei campioni controllati, come le giudicano
-    i gate che leggono le sequenze.
+    i gate che leggono le sequenze. Con il nome della tabella dei file reverse,
+    quelle della lettura reverse.
     """
-    relativo = f"{Fase.INPUT_VALIDATION.value}/{NOME_LETTURE}"
+    relativo = f"{Fase.INPUT_VALIDATION.value}/{nome}"
     classi = _classi(radice)
     righe = [
         r for r in _tsv(radice, relativo)
@@ -158,11 +162,17 @@ def _letture_ispezionate(radice: Path) -> tuple[str, list[dict[str, str]]]:
     return relativo, righe
 
 
-def _primer(radice: Path, valori: Mapping[str, Any]) -> Misura:
+def _primer(radice: Path, valori: Mapping[str, Any], reverse: bool = False) -> Misura:
     statistica = ("massimo, fra i file dei campioni biologici e dei controlli positivi, della "
                   "frazione delle prime letture che iniziano con il primer")
-    relativo, righe = _letture_ispezionate(radice)
-    motivo = non_eseguito(soglia("qc.max_primer_hit_frac"), valori)
+    if reverse:
+        statistica = statistica.replace("fra i file", "fra i file reverse").replace(
+            "il primer", "il primer reverse")
+    relativo, righe = _letture_ispezionate(
+        radice, NOME_LETTURE_REVERSE if reverse else NOME_LETTURE)
+    motivo = non_eseguito(
+        soglia("pair.max_primer_hit_frac_reverse" if reverse else "qc.max_primer_hit_frac"),
+        valori)
     if motivo is not None:
         return Misura(None, statistica, relativo, assente=motivo)
     if not righe:
@@ -208,16 +218,45 @@ def _letture_corte(radice: Path, valori: Mapping[str, Any]) -> Misura:
                   "letture piu' corte di filter.truncLen (su tutte le letture, e sulle prime "
                   "lette dalla validazione)")
     manifesto = f"{Fase.QC_PROFILES.value}/{nome_manifesto_passo('S1')}"
-    corte = _campo(_json(radice, manifesto), manifesto, "metriche",
-                   "letture_piu_corte_del_troncamento")
+    metriche = _campo(_json(radice, manifesto), manifesto, "metriche")
+    forward = _corte_di_una_lettura(
+        radice, manifesto, _campo(metriche, manifesto, "letture_piu_corte_del_troncamento"),
+        int(valori["filter.truncLen"]), NOME_LETTURE, NOME_LUNGHEZZE, statistica)
+    if valori.get("io.layout") != "paired-end" or forward.non_leggibile is not None:
+        return forward
+    # In modalita' appaiata la stessa soglia giudica anche le letture reverse,
+    # con il loro troncamento: la misura e' la peggiore fra le due letture.
+    statistica = statistica.replace(
+        "filter.truncLen", "filter.truncLen o, per le reverse, di pair.truncLen_reverse")
+    reverse = _corte_di_una_lettura(
+        radice, manifesto,
+        _campo(metriche, manifesto, "reverse", "letture_piu_corte_del_troncamento"),
+        int(valori["pair.truncLen_reverse"]), NOME_LETTURE_REVERSE, nome_reverse(NOME_LUNGHEZZE),
+        statistica)
+    origine = f"{forward.origine}; {Fase.INPUT_VALIDATION.value}/{NOME_LETTURE_REVERSE}"
+    if reverse.non_leggibile is not None:
+        return Misura(None, statistica, origine, non_leggibile=reverse.non_leggibile)
+    presenti = [m.valore for m in (forward, reverse) if m.valore is not None]
+    if not presenti:
+        return Misura(None, statistica, origine, assente=forward.assente)
+    return Misura(max(presenti), statistica, origine)
+
+
+def _corte_di_una_lettura(
+    radice: Path, manifesto: str, corte: Any, troncamento: int, nome_letture: str,
+    nome_lunghezze: str, statistica: str,
+) -> Misura:
+    """La frazione di letture corte di una delle due letture (o della sola
+    lettura, in modalita' single-end): dal manifesto di S1 e dalla tabella
+    delle letture ispezionate dalla validazione.
+    """
     del_profilo = [
         _frazione(_campo(corte, manifesto, classe, "frazione"))
         for classe in _CONTROLLATE if classe in corte
     ]
-    origine = f"{manifesto}; {Fase.INPUT_VALIDATION.value}/{NOME_LETTURE}"
-    troncamento = int(valori["filter.truncLen"])
+    origine = f"{manifesto}; {Fase.INPUT_VALIDATION.value}/{nome_letture}"
 
-    relativo, righe = _letture_ispezionate(radice)
+    relativo, righe = _letture_ispezionate(radice, nome_letture)
     classi = _classi(radice)
     lunghezze: dict[str, int] | None = None
     per_classe: dict[str, list[int]] = defaultdict(lambda: [0, 0])
@@ -234,7 +273,7 @@ def _letture_corte(radice: Path, valori: Mapping[str, Any]) -> Misura:
             # Il file e' stato letto per intero: le prime letture sono tutte le
             # letture, e quelle corte sono nella tabella delle lunghezze di S1.
             if lunghezze is None:
-                lunghezze = _corte_per_campione(radice, troncamento)
+                lunghezze = _corte_per_campione(radice, troncamento, nome_lunghezze)
             corte_del_file = lunghezze.get(riga["accession"], 0)
         else:
             return Misura(
@@ -254,9 +293,11 @@ def _letture_corte(radice: Path, valori: Mapping[str, Any]) -> Misura:
     return Misura(max(tutte), statistica, origine)
 
 
-def _corte_per_campione(radice: Path, troncamento: int) -> dict[str, int]:
+def _corte_per_campione(
+    radice: Path, troncamento: int, nome: str = NOME_LUNGHEZZE
+) -> dict[str, int]:
     """Per campione, le letture piu' corte del troncamento secondo il profilo di S1."""
-    relativo = f"{Fase.QC_PROFILES.value}/{NOME_LUNGHEZZE}"
+    relativo = f"{Fase.QC_PROFILES.value}/{nome}"
     corte: dict[str, int] = defaultdict(int)
     try:
         for riga in _tsv(radice, relativo):
@@ -267,12 +308,26 @@ def _corte_per_campione(radice: Path, troncamento: int) -> dict[str, int]:
     return dict(corte)
 
 
-def _scarto(radice: Path, valori: Mapping[str, Any]) -> Misura:
-    relativo = f"{Fase.QC_PROFILES.value}/{RIEPILOGO_PROFILO}"
+def _scarto(radice: Path, valori: Mapping[str, Any], reverse: bool = False) -> Misura:
+    riepilogo = nome_reverse(RIEPILOGO_PROFILO) if reverse else RIEPILOGO_PROFILO
+    parametro = "pair.truncLen_reverse" if reverse else "filter.truncLen"
+    relativo = f"{Fase.QC_PROFILES.value}/{riepilogo}"
     minima = int(_campo(_json(radice, relativo), relativo, "lunghezza_minima"))
     return Misura(
-        Fraction(max(minima - int(valori["filter.truncLen"]), 0)),
-        "basi fra la lettura piu' corta, su tutte le letture, e filter.truncLen", relativo)
+        Fraction(max(minima - int(valori[parametro]), 0)),
+        f"basi fra la lettura{' reverse' if reverse else ''} piu' corta, su tutte le letture, "
+        f"e {parametro}", relativo)
+
+
+def _fusione(radice: Path) -> Misura:
+    relativo = f"{Fase.PAIR_MERGE.value}/{RIEPILOGO_FUSIONE}"
+    statistica = ("quota di coppie fuse, sulle coppie dei campioni biologici e dei controlli "
+                  "positivi entrate nella fusione")
+    quota = _campo(_json(radice, relativo), relativo, "quota_controllata")
+    if quota is None:
+        return Misura(None, statistica, relativo,
+                      assente="nessuna coppia di un campione biologico o di un controllo positivo")
+    return Misura(_frazione(quota), statistica, relativo)
 
 
 def _filtro(radice: Path) -> tuple[Misura, Misura]:
@@ -396,7 +451,17 @@ def leggi(radice: Path | str, valori: Mapping[str, Any]) -> dict[str, Misura]:
 def _leggi(radice: Path, valori: Mapping[str, Any]) -> dict[str, Misura]:
     azzerati, perdita = _filtro(radice)
     chimere = _chimere(radice)
+    delle_coppie: dict[str, Misura] = {}
+    if valori.get("io.layout") == "paired-end":
+        fusione = _fusione(radice)
+        delle_coppie = {
+            "pair.max_primer_hit_frac_reverse": _primer(radice, valori, reverse=True),
+            "pair.truncLen_shortfall_warn_reverse": _scarto(radice, valori, reverse=True),
+            "pair.min_merged_frac_warn": fusione,
+            "pair.min_merged_frac_stop": fusione,
+        }
     return {
+        **delle_coppie,
         "qc.max_primer_hit_frac": _primer(radice, valori),
         "qc.min_motif_frac": _motivo(radice, valori),
         "qc.max_frac_short_reads": _letture_corte(radice, valori),

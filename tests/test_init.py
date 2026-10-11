@@ -131,7 +131,7 @@ def test_init_distingue_rilevato_proposto_e_da_scegliere(tmp_path, capsys):
         "io.fastq_dir", "io.assay_table", "io.study_table", "io.out_root", "io.batch_table",
         "io.fastq_glob", "io.accession_regex", "meta.accession_column",
         "meta.batch_key_column", "qc.primer_sequence", "filter.trimLeft", "tax.ref_fasta",
-        "tax.ref_md5",
+        "tax.ref_md5", "io.layout",
     }
     # La chiave: unica per file, e la stessa dalla tabella.
     espressione = re.compile(yaml.safe_load(attive["io.accession_regex"]))
@@ -163,7 +163,12 @@ def test_init_distingue_rilevato_proposto_e_da_scegliere(tmp_path, capsys):
     assert "Che cosa init non stabilisce:" in stampato and "decontam.threshold" in stampato
     # I parametri con un predefinito non hanno una riga attiva.
     con_predefinito = {p["nome"] for p in interfaccia.schema()["parametri"] if not p["obbligatorio"]}
-    assert not (set(attive) & con_predefinito) - {"io.study_table", "io.batch_table"}
+    # La modalita' ha un predefinito (l'assenza, cioe' single-end) ed e' un
+    # fatto rilevato sui nomi dei file: e' scritta attiva.
+    assert not (set(attive) & con_predefinito) - {
+        "io.study_table", "io.batch_table", "io.layout"}
+    assert attive["io.layout"] == '"single-end"'
+    assert not any(chiave.startswith("pair.") for chiave in righe)
 
 
 def test_il_file_di_init_non_e_eseguibile_finche_non_e_completato(tmp_path, capsys):
@@ -332,25 +337,52 @@ def test_init_non_sceglie_in_silenzio_quando_la_risposta_non_e_una(tmp_path, cap
 def test_init_rifiuta_letture_appaiate_e_un_file_gia_esistente(tmp_path, capsys):
     """
     **Obiettivo**: Verificare che ``init`` non scriva alcuna configurazione, ed
-    esca con 3, quando le letture risultano appaiate: per il nome dei file
-    (``_R1`` e ``_R2``) e per il contenuto (le due letture di ogni coppia nello
-    stesso file); che il messaggio dica di usare le sole forward; e che un file
-    di configurazione gia' esistente non venga toccato.
+    esca con 3, quando un file ha il nome di una seconda lettura (``_R2``) ma
+    non ogni file della cartella ha il suo compagno, e quando un file contiene
+    le due letture di ogni coppia; che il messaggio nomini i file senza
+    compagno e dica le due strade (completare le coppie, o le sole forward); e che un file di configurazione gia' esistente non venga toccato.
+    Se invece ogni file ha il suo compagno ``init`` rileva la modalita'
+    appaiata, e quando le letture delle coppie non si sovrappongono lo dice:
+    lascia da scegliere i troncamenti e l'intervallo delle lunghezze, e indica
+    la modalita' single-end come alternativa.
 
-    **Razionale scientifico e sistemistico**: La pipeline tratta dati
-    single-end: proporre una configurazione per letture appaiate porterebbe a
-    un arresto in S0, o a varianti di due regioni mescolate. E un comando che
-    riscrive una configurazione gia' rivista cancellerebbe delle scelte.
+    **Razionale scientifico e sistemistico**: Una cartella con una parte dei
+    file appaiati non e' ne' un dataset single-end ne' uno appaiato: proporre
+    una configurazione porterebbe a un arresto in S0, o a varianti di due
+    regioni mescolate. E un comando che riscrive una configurazione gia'
+    rivista cancellerebbe delle scelte.
     """
+    spaiato = sintetico.genera(tmp_path / "spaiato", biologici=3, letture=30)
+    primo = sorted(spaiato.letture.iterdir())[0]
+    chiave = primo.name.split("_")[0]
+    shutil.copy(primo, spaiato.letture / f"{chiave}_R2.fq.gz")
+    primo.rename(spaiato.letture / f"{chiave}_R1.fq.gz")
+    assert _init(spaiato, tmp_path / "a.yaml") == 3
+    stampato = capsys.readouterr().out
+    assert "modalita' appaiata" in stampato and "sole letture forward" in stampato
+    assert "non ogni file della cartella ha il suo compagno" in stampato
+    # Sono nominati i file rimasti soli, non quelli che il compagno ce l'hanno.
+    soli = sorted(p.name for p in spaiato.letture.iterdir() if not p.name.startswith(chiave))
+    assert len(soli) >= 2 and all(nome in stampato for nome in soli)
+    assert "(senza compagno)" in stampato and f"{chiave}_R1.fq.gz" not in stampato
+    assert not (tmp_path / "a.yaml").exists()
+
     per_nome = sintetico.genera(tmp_path / "nome", biologici=2, letture=30)
     for file in sorted(per_nome.letture.iterdir()):
         chiave = file.name.split("_")[0]
         shutil.copy(file, per_nome.letture / f"{chiave}_R2.fq.gz")
         file.rename(per_nome.letture / f"{chiave}_R1.fq.gz")
-    assert _init(per_nome, tmp_path / "a.yaml") == 3
+    assert _init(per_nome, tmp_path / "coppie.yaml") == 0
     stampato = capsys.readouterr().out
-    assert "appaiate" in stampato and "sole letture forward" in stampato
-    assert not (tmp_path / "a.yaml").exists()
+    righe = righe_dei_parametri((tmp_path / "coppie.yaml").read_text(encoding="utf-8"))
+    assert righe["io.layout"] == (True, '"paired-end"')
+    assert righe["pair.file_markers"] == (True, '["_R1", "_R2"]')
+    # Il file reverse e' una copia del forward: le due letture non sono le
+    # estremita' opposte di un frammento, e la lunghezza non si stima.
+    for chiave in ("filter.truncLen", "pair.truncLen_reverse", "pair.len_min", "pair.len_max"):
+        assert righe[chiave] == (False, ""), chiave
+    assert "la lunghezza dell'inserto non si stima dalle letture" in stampato
+    assert "come alternativa, la modalita' single-end" in stampato
 
     intercalato = sintetico.genera(tmp_path / "contenuto", biologici=2, letture=30)
     for file in sorted(intercalato.letture.iterdir()):
@@ -926,7 +958,7 @@ def test_init_accetta_proposte_lascia_da_scrivere_le_sole_scelte(tmp_path, capsy
             continue
         assert righe[chiave] == (True, valore), chiave
     esplorative = {c for c, (attiva, _) in righe.items() if attiva and prima[c] == (False, "")}
-    attese = {s.chiave: tabella.valore_esplorativo(s) for s in tabella.SOGLIE
+    attese = {s.chiave: tabella.valore_esplorativo(s) for s in tabella.soglie_di({})
               if s.unita is tabella.Unita.FRAZIONE and s.non_proposta is None}
     assert esplorative == set(attese)
     for chiave, valore in attese.items():

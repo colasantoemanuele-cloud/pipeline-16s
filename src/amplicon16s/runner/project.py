@@ -58,6 +58,7 @@ from amplicon16s.steps.s01_profile import ProfiloLetture
 from amplicon16s.steps.s02_filter import FiltroLetture
 from amplicon16s.steps.s03_learn_errors import ModelloErrore
 from amplicon16s.steps.s04_dada import InferenzaVarianti
+from amplicon16s.steps.s04m_merge import FusioneCoppie
 from amplicon16s.steps.s05_seqtab import TabellaSequenze
 from amplicon16s.steps.s06_chimera import RimozioneChimere
 from amplicon16s.steps.s07_asv_length import FiltroLunghezza
@@ -87,6 +88,7 @@ def passi_realizzati() -> dict[Passo, PipelineStep]:
         Passo.S2: FiltroLetture(),
         Passo.S3: ModelloErrore(),
         Passo.S4: InferenzaVarianti(),
+        Passo.SM: FusioneCoppie(),
         Passo.S5: TabellaSequenze(),
         Passo.S6: RimozioneChimere(),
         Passo.S7: FiltroLunghezza(),
@@ -263,7 +265,7 @@ class ProjectRun:
                     f"{type(fase).__name__} ({passo}) non dichiara i parametri da cui "
                     "dipende: ogni fase deve dichiararli per essere registrata"
                 )
-            impronta_parametri(risolta, fase.parametri)
+            impronta_parametri(risolta, fase.parametri_per(config))
 
     # ----------------------------------------------------------------- #
     # Valutazione                                                        #
@@ -297,7 +299,7 @@ class ProjectRun:
             if manifesto is None or not self.albero.rimossi_del_passo(manifesto):
                 continue
             dipendenti = [
-                str(p) for p in self.grafo.ordine()
+                str(p) for p in self.grafo.elencate(self.config)
                 if passo in self.grafo.dipendenze_attive(p, self.config)
                 and valutazione.situazioni[p].stato is StatoPasso.DA_ESEGUIRE
             ]
@@ -317,7 +319,9 @@ class ProjectRun:
         inventario: Inventario | None = None
         risolta = risolvi(self.config)
 
-        for passo in self.grafo.ordine():
+        # Le sole fasi di cui si parla con questa configurazione: una fase che
+        # esiste solo nell'altra modalita' non entra nella valutazione.
+        for passo in self.grafo.elencate(self.config):
             nodo = self.grafo.nodo(passo)
             impronte[passo] = None
 

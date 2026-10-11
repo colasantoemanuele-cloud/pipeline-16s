@@ -994,6 +994,90 @@ def test_un_effetto_entro_soggetto_e_trovato_dal_test_appaiato_e_non_da_quello_f
     assert "misure_ripetute" not in senza.riepilogo and "soggetto" not in senza.riepilogo
 
 
+def test_gli_strati_non_entrano_nella_permanova_entro_soggetto_e_l_analisi_lo_dichiara(
+    eco_r, tmp_path
+):
+    """
+    **Obiettivo**: con ``design.subject`` e ``stat.permanova_strata``
+    dichiarati insieme, la PERMANOVA entro soggetto da' le stesse righe che da'
+    senza gli strati, e l'analisi lo dichiara: un avviso ``E-ECO-35`` che
+    nomina il soggetto e lo strato, e una riga nell'intestazione di
+    ``permanova_appaiata.tsv``. Senza gli strati non c'e' ne' l'avviso ne' la
+    riga.
+
+    **Razionale scientifico e sistemistico**: entro soggetto le permutazioni
+    sono gia' ristrette al soggetto; uno strato dichiarato che non ha effetto
+    su un'analisi va detto, altrimenti chi legge la tabella crede che le
+    permutazioni ne abbiano tenuto conto.
+    """
+    colonne, tempo, chi, blocco = [], [], [], []
+    for s in range(1, 9):
+        colonne += [_colonna(5 * s, 60), _colonna(5 * s + s + 1, 60, comune=100)]
+        tempo += ["prima", "dopo"]
+        chi += [f"s{s}"] * 2
+        blocco += ["a" if s <= 4 else "b"] * 2
+    oggetto = costruisci(tmp_path, _per_varianti(colonne),
+                         {"tempo": tempo, "paziente": chi, "blocco": blocco})
+    aitchison = {"distances": ["aitchison"], "clr_pseudocount": 0.5}
+    disegno = {"variable": "tempo", "subject": "paziente"}
+    senza = esegui(oggetto, _config(design=disegno, stat={"min_group_size": 2}, beta=aitchison),
+                   tmp_path / "senza")
+    con = esegui(oggetto, _config(design=disegno, beta=aitchison,
+                                  stat={"min_group_size": 2, "permanova_strata": "blocco"}),
+                 tmp_path / "con")
+    assert "E-ECO-35" not in _codici(senza)
+    dichiarati = [a.dettaglio for a in con.avvisi if a.codice == "E-ECO-35"]
+    assert len(dichiarati) == 1
+    assert "'paziente'" in dichiarati[0] and "'blocco'" in dichiarati[0]
+    assert CATALOGO["E-ECO-35"].specie is Specie.AVVISO
+    commenti_senza, righe_senza = leggi_tsv(tmp_path / "senza" / "test" / "permanova_appaiata.tsv")
+    commenti_con, righe_con = leggi_tsv(tmp_path / "con" / "test" / "permanova_appaiata.tsv")
+    assert righe_con == righe_senza and len(righe_con) > 0
+    assert [c for c in commenti_con if "permanova_strata" in c] == [
+        "stat.permanova_strata (blocco) non si applica: le permutazioni sono ristrette "
+        "entro il soggetto"]
+    assert not [c for c in commenti_senza if "permanova_strata" in c]
+
+
+def test_un_residuo_nullo_con_la_distanza_di_aitchison_non_e_attribuito_alla_distanza(
+    eco_r, tmp_path
+):
+    """
+    **Obiettivo**: con soggetti i cui due campioni sono identici, la PERMANOVA
+    entro soggetto sulla distanza di Aitchison ha somma dei quadrati residua
+    non positiva: la nota la dichiara «non valutabile» senza dire che la
+    distanza non e' euclidea. Sulla distanza di Bray-Curtis la nota resta
+    quella che lo attribuisce alla distanza.
+
+    **Razionale scientifico e sistemistico**: la distanza di Aitchison e'
+    euclidea sui dati trasformati; li' un residuo nullo vuol dire che il
+    soggetto descrive i campioni per intero, e una nota che ne desse la causa
+    alla distanza manderebbe chi legge a cambiarla senza motivo.
+    """
+    colonne, tempo, chi = [], [], []
+    for s in range(1, 9):
+        colonne += [_colonna(5 * s, 60), _colonna(5 * s, 60)]
+        tempo += ["prima", "dopo"]
+        chi += [f"s{s}"] * 2
+    oggetto = costruisci(tmp_path, _per_varianti(colonne), {"tempo": tempo, "paziente": chi})
+    config = _config(design={"variable": "tempo", "subject": "paziente"},
+                     stat={"min_group_size": 2},
+                     beta={"distances": ["bray", "aitchison"], "clr_pseudocount": 0.5})
+    esegui(oggetto, config, tmp_path / "uscita")
+    _, entro = leggi_tsv(tmp_path / "uscita" / "test" / "permanova_appaiata.tsv")
+    note = {}
+    for distanza in ("aitchison", "bray"):
+        righe = {(r["analisi"], r["termine"]): r for r in entro if r["distanza"] == distanza}
+        assert float(righe[("permanova", "residuo")]["somma_quadrati"]) < 1e-9
+        assert righe[("permanova", "tempo")]["f"] == "NA"
+        note[distanza] = righe[("permanova", "tempo")]["nota"]
+    assert note["aitchison"].startswith(
+        "non valutabile: somma dei quadrati residua non positiva")
+    assert "euclidea" not in note["aitchison"]
+    assert "non lasciano variabilita' residua" in note["aitchison"]
+    assert "con questa distanza, non euclidea" in note["bray"]
+
+
 def test_i_soggetti_incompleti_escono_e_sotto_le_condizioni_il_test_appaiato_non_si_esegue(
     eco_r, tmp_path
 ):

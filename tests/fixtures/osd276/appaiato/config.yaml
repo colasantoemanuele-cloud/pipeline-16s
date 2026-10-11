@@ -1,0 +1,101 @@
+# Configurazione del sottoinsieme appaiato ridotto di OSD-276: quattro campioni,
+# le prime coppie di ogni corsa (manifesto.tsv), con un riferimento
+# tassonomico sintetico. Serve ai test della modalita' appaiata e come esempio
+# che non richiede di scaricare nulla; le soglie sono larghe perche' poche
+# migliaia di coppie per campione non fermino la catena, e non valgono per il
+# dataset intero.
+#
+# I percorsi sono relativi alla radice del clone, da cui si lancia il comando.
+io:
+  fastq_dir: tests/fixtures/osd276/appaiato/fastq
+  assay_table: tests/fixtures/osd276/appaiato/metadati/assay.txt
+  study_table: tests/fixtures/osd276/appaiato/metadati/studio.txt
+  out_root: output/osd276_appaiato
+  batch_table: null
+  fastq_glob: "*.fastq.gz"
+  accession_regex: "SRR[0-9]+"
+  # Due file per campione, le due letture di ogni coppia.
+  layout: paired-end
+meta:
+  sample_id_column: "Sample Name"
+  accession_column: "Raw Data File"
+  derive_module: false
+  module_column: null
+  non_surface_positions: []
+  batch_key_column: null
+  batch_module_column: null
+filter:
+  # Le letture sono di 151 basi e non portano i primer.
+  truncLen: 151
+  truncLen_shortfall_warn: 0
+  trimLeft: 0
+err:
+  randomize: false
+  batch_column: null
+dada:
+  pool: pseudo
+chimera:
+  min_fold_parent_over_abundance: 1.5
+tax:
+  # Le sequenze fuse piu' abbondanti del sottoinsieme, con linee tassonomiche
+  # inventate (scripts/costruisci_riferimento_sintetico.py).
+  ref_fasta: tests/fixtures/osd276/appaiato/riferimento/riferimento.fa.gz
+  ref_md5: "772d5510b381d57985291712df814f69"
+  ref_name: sintetico
+  ref_version: "1"
+  try_rc: false
+filt:
+  remove_na_phylum: false
+  exclude_taxa: []
+phylo:
+  enabled: false
+ctrl:
+  column: "Characteristics[Material Type]"
+  blank_values: []
+  positive_values: []
+  biological_values:
+    - Cells
+  blank_override_column: null
+katharoseq:
+  cell_count_column: null
+decontam:
+  batch_column: null
+prev:
+  apply: false
+qc:
+  head_reads: 2500
+  # Regione V4, primer 515F e 806R: le letture iniziano a valle dei primer.
+  primer_sequence: GTGYCAGCMGCCGCGGTAA
+  max_primer_hit_frac: 0.05
+  conserved_motif: "TAC[AG].A[AG]G...C[AG]AGCGTT"
+  min_motif_frac: 0.2
+  max_frac_short_reads: 0.0
+  max_zeroed_samples: 0
+  max_frac_lost_filter: 0.90
+  max_asv_count: 100000
+  warn_frac_chimeric: 0.50
+  stop_frac_chimeric: 0.90
+  min_frac_phylum: 0.0
+  min_reads_mode: none
+  min_reads_final: 100
+  min_frac_reads_retained: 0.0
+pair:
+  file_markers: ["_R1", "_R2"]
+  # Le due letture intere: 151 + 151 basi coprono la regione (circa 253) con
+  # una cinquantina di basi di sovrapposizione.
+  truncLen_reverse: 151
+  trimLeft_reverse: 0
+  truncLen_shortfall_warn_reverse: 0
+  primer_sequence_reverse: GGACTACNVGGGTWTCTAAT
+  conserved_motif_reverse: "CC[CT][AG][GT]T[CT]G[AC]T[AC]CCC[AT].[AG]CT[CT]"
+  max_primer_hit_frac_reverse: 0.05
+  min_merged_frac_warn: 0.50
+  min_merged_frac_stop: 0.10
+  len_min: 240
+  len_max: 260
+  expected_merged_len: 253
+out:
+  study_columns: []
+  batch_columns: []
+run:
+  threads: 2

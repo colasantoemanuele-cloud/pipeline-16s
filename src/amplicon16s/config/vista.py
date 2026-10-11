@@ -63,7 +63,10 @@ class CondizionaleNonPertinente(LookupError):
 def _ammessi(parametri: Iterable[str]) -> tuple[frozenset[str], frozenset[str]]:
     """Gruppi dichiarati per intero, e chiavi ``gruppo.parametro`` ammesse una a una."""
     gruppi = {p for p in parametri if "." not in p}
-    chiavi = {p for p in parametri if "." in p} | set(PARAMETRI_SENZA_EFFETTO)
+    # La modalita' di lettura si legge sempre: decide quali parametri la fase
+    # dichiara (PipelineStep.parametri_per), e una fase che non la dichiara e'
+    # una fase che in modalita' single-end non ne dipende.
+    chiavi = {p for p in parametri if "." in p} | set(PARAMETRI_SENZA_EFFETTO) | {"io.layout"}
     return frozenset(gruppi), frozenset(chiavi)
 
 
@@ -108,6 +111,8 @@ class VistaConfig:
     def __getattr__(self, nome: str) -> Any:
         if nome.startswith("_"):
             raise AttributeError(nome)
+        if nome == "appaiata":
+            return self._config.appaiata
         if nome not in Config.model_fields:
             # Anche model_dump e simili: l'intera configurazione non si legge.
             raise ParametroNonDichiarato(

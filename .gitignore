@@ -75,6 +75,7 @@ htmlcov/
 # i file di ENA e le letture forward che se ne ricavano.
 dati/osd276/ena/
 dati/osd276/fastq/
+dati/*/fastq_coppie/
 # Le letture forward degli altri dataset, recuperate dai loro scarica_letture.py.
 dati/osd170/fastq/
 dati/comunita_nota/fastq/

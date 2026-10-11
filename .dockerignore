@@ -40,6 +40,7 @@ dati/osd734/lotto/
 # Le letture di OSD-276 scaricate in dati/osd276/.
 dati/osd276/ena/
 dati/osd276/fastq/
+dati/*/fastq_coppie/
 results/
 output/
 outputs/

@@ -67,6 +67,8 @@ class Campione:
     #: il file di arricchimento non c'è o non copre questo campione.
     piastra: str | None = None
     corsa: str | None = None
+    #: Il file delle letture reverse, solo in modalita' appaiata.
+    file_reverse: Path | None = None
 
     @property
     def ha_lotto(self) -> bool:

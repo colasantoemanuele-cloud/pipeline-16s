@@ -290,6 +290,9 @@ def testo_yaml(
     for gruppo, campo_gruppo in Config.model_fields.items():
         if gruppo in _GRUPPI_RISERVATI:
             continue
+        if gruppo == "pair" and not any(chiave.startswith("pair.") for chiave in voci):
+            # Il gruppo della modalita' appaiata non esiste in un file single-end.
+            continue
         modello = campo_gruppo.annotation
         righe += _commento(_primo_capoverso(modello.__doc__), "", "#")
         righe.append(f"{gruppo}:")

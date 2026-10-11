@@ -34,6 +34,18 @@ raccolto nel riepilogo finale, e l'esito e' 1.
     python3 dati/osd276/scarica_letture.py --cartella ALTRA
 
 L'esito e' 0 se alla fine tutti i file forward sono presenti e conformi.
+
+**Con ``--coppie``** lo script ricava entrambe le letture, per la modalita'
+appaiata della pipeline, in una cartella separata, ``<cartella>/fastq_coppie/``:
+per ogni corsa ``<SRR>_<campione>_R1.fastq.gz`` (i record ``/1``) e
+``<SRR>_<campione>_R2.fastq.gz`` (i record ``/2``), nell'ordine del deposito.
+La cartella ``fastq/`` delle sole forward non viene toccata. Il contenuto di
+ciascun file si verifica contro ``letture_forward.md5`` e
+``letture_reverse.md5``. I due file prendono il nome dall'etichetta del
+deposito e **non si scambiano mai**: se in una corsa il deposito avesse le due
+letture invertite, deve accorgersene la pipeline.
+
+    python3 dati/osd276/scarica_letture.py --coppie
 """
 
 from __future__ import annotations
@@ -55,6 +67,10 @@ from scaricamento import Atteso, ErroreScarico, metti_da_parte, scarica, valido 
 
 ELENCO = QUI / "letture_ena.tsv"
 IMPRONTE = QUI / "letture_forward.md5"
+IMPRONTE_REVERSE = QUI / "letture_reverse.md5"
+#: La cartella delle due letture di ogni coppia (``--coppie``), separata da
+#: quella delle sole forward.
+CARTELLA_COPPIE = "fastq_coppie"
 
 
 def leggi_elenco() -> list[dict[str, str]]:
@@ -63,10 +79,11 @@ def leggi_elenco() -> list[dict[str, str]]:
         return list(csv.DictReader(file, delimiter="\t"))
 
 
-def leggi_impronte() -> dict[str, str]:
-    """L'MD5 atteso del contenuto non compresso di ogni file forward."""
+def leggi_impronte(elenco: Path | None = None) -> dict[str, str]:
+    """L'MD5 atteso del contenuto non compresso di ogni file forward (o, con
+    l'elenco delle reverse, di ogni file reverse)."""
     impronte = {}
-    for riga in IMPRONTE.read_text(encoding="utf-8").splitlines():
+    for riga in (elenco or IMPRONTE).read_text(encoding="utf-8").splitlines():
         md5, nome = riga.split()
         impronte[nome] = md5
     return impronte
@@ -130,9 +147,10 @@ def verifica_conteggi(deposito: Path, letture_deposito: int) -> int:
     return prime
 
 
-def ricava_forward(deposito: Path, destinazione: Path) -> int:
-    """Scrive in ``destinazione`` i record ``/1`` di ``deposito``; ne restituisce
-    il numero. La scrittura e' atomica, e l'archivio non porta ne' data ne' nome.
+def ricava_forward(deposito: Path, destinazione: Path, marcatore: bytes = b"/1") -> int:
+    """Scrive in ``destinazione`` i record ``/1`` di ``deposito`` (o, con un
+    altro ``marcatore``, i ``/2``); ne restituisce il numero. La scrittura e'
+    atomica, e l'archivio non porta ne' data ne' nome.
     """
     destinazione.parent.mkdir(parents=True, exist_ok=True)
     descrittore, temporaneo = tempfile.mkstemp(dir=destinazione.parent, prefix=".scrittura-")
@@ -153,7 +171,7 @@ def ricava_forward(deposito: Path, destinazione: Path) -> int:
                 record = [intestazione, ingresso.readline(), ingresso.readline(), ingresso.readline()]
                 if not record[3]:
                     raise DepositoInatteso(f"{deposito.name}: record incompleto")
-                if intestazione.rstrip().endswith(b"/1"):
+                if intestazione.rstrip().endswith(marcatore):
                     uscita.writelines(record)
                     scritti += 1
         os.replace(temporaneo, destinazione)
@@ -188,6 +206,78 @@ def prepara_corsa(riga: dict[str, str], cartella: Path, attese: tuple[str, int],
             f"da parte in {metti_da_parte(forward).name}")
 
 
+def nome_reverse(nome_forward: str) -> str:
+    """Il nome del file reverse di una corsa, da quello del file forward."""
+    assert nome_forward.count("_R1.") == 1, nome_forward
+    return nome_forward.replace("_R1.", "_R2.")
+
+
+def prepara_coppie(riga: dict[str, str], cartella: Path, attese: dict[str, tuple[str, int]],
+                   tentativi: int, pausa: float) -> None:
+    """Scarica se serve il file di una corsa, lo verifica e ne ricava le due
+    letture in :data:`CARTELLA_COPPIE`, senza scambiarle. Solleva un'eccezione
+    con il motivo se la corsa non va a buon fine.
+    """
+    deposito = cartella / "ena" / f"{riga['run_accession']}.fastq.gz"
+    voce = Atteso(riga["fastq_url"], riga["fastq_md5"], int(riga["fastq_bytes"]))
+    if not valido(deposito, voce):
+        if deposito.exists():
+            print(f"{deposito.name}: MD5 o dimensione diversi, messo da parte in "
+                  f"{metti_da_parte(deposito).name}", flush=True)
+        scarica(voce, deposito, tentativi=tentativi)
+        time.sleep(pausa)
+    verifica_conteggi(deposito, int(riga["letture_deposito"]))
+    for nome, marcatore in ((riga["file"], b"/1"), (nome_reverse(riga["file"]), b"/2")):
+        destinazione = cartella / CARTELLA_COPPIE / nome
+        ricava_forward(deposito, destinazione, marcatore)
+        if impronta_contenuto(destinazione) != attese[nome]:
+            raise DepositoInatteso(
+                f"{nome}: le letture ricavate non sono quelle attese; file messo da parte in "
+                f"{metti_da_parte(destinazione).name}")
+
+
+def coppie(opzioni: argparse.Namespace) -> int:
+    """Controlla, e se serve scarica e ricava, le due letture di ogni corsa."""
+    righe = leggi_elenco()
+    forward, reverse = leggi_impronte(), leggi_impronte(IMPRONTE_REVERSE)
+    conformi = 0
+    mancanti: list[str] = []
+    for indice, riga in enumerate(righe, start=1):
+        letture = int(riga["letture_forward"])
+        attese = {
+            riga["file"]: (forward[riga["file"]], letture),
+            nome_reverse(riga["file"]): (reverse[nome_reverse(riga["file"])], letture),
+        }
+        percorsi = {nome: opzioni.cartella / CARTELLA_COPPIE / nome for nome in attese}
+        try:
+            conforme = all(
+                p.is_file() and impronta_contenuto(p) == attese[n] for n, p in percorsi.items())
+        except GUASTI as guasto:
+            conforme = False
+            print(f"{riga['file']}: illeggibile ({type(guasto).__name__}: {guasto})", flush=True)
+        if conforme:
+            conformi += 1
+            continue
+        if opzioni.solo_verifica:
+            mancanti.append(f"{riga['file']} e il suo reverse: assenti o non conformi")
+            continue
+        try:
+            prepara_coppie(riga, opzioni.cartella, attese, opzioni.tentativi, opzioni.pausa)
+        except GUASTI as guasto:
+            for percorso in percorsi.values():
+                percorso.unlink(missing_ok=True)
+            mancanti.append(f"{riga['file']}: {type(guasto).__name__}: {guasto}")
+            continue
+        conformi += 1
+        print(f"[{indice}/{len(righe)}] {riga['file']} e {nome_reverse(riga['file'])}: "
+              f"{letture} coppie", flush=True)
+    print(f"corse {len(righe)}: coppie di file conformi {conformi}, "
+          f"mancanti o non conformi {len(mancanti)}")
+    for voce in mancanti:
+        print(f"  {voce}")
+    return 0 if not mancanti else 1
+
+
 def main(argomenti: list[str] | None = None) -> int:
     """Controlla, e se serve scarica e ricava, le letture forward."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -198,7 +288,12 @@ def main(argomenti: list[str] | None = None) -> int:
     parser.add_argument("--pausa", type=float, default=0.5,
                         help="secondi fra una richiesta e la successiva")
     parser.add_argument("--tentativi", type=int, default=4)
+    parser.add_argument("--coppie", action="store_true",
+                        help="ricava entrambe le letture di ogni coppia in fastq_coppie/, per "
+                             "la modalita' appaiata, senza toccare fastq/")
     opzioni = parser.parse_args(argomenti)
+    if opzioni.coppie:
+        return coppie(opzioni)
 
     righe = leggi_elenco()
     impronte = leggi_impronte()

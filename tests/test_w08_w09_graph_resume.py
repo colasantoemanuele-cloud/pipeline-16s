@@ -132,6 +132,9 @@ TUTTE = (
     Passo.S0, Passo.S1, Passo.S2, Passo.S3, Passo.S4, Passo.S5, Passo.S6, Passo.S7,
     Passo.S8, Passo.S10, Passo.S11, Passo.S12, Passo.S13, Passo.S9, Passo.S14,
 )
+#: La fusione delle coppie esiste solo in modalita' appaiata: nel grafo sta fra
+#: S4 e S5, e in modalita' single-end non e' elencata.
+CON_LA_FUSIONE = (TUTTE[:5] + (Passo.SM,) + TUTTE[5:])
 
 
 # --------------------------------------------------------------------------- #
@@ -304,8 +307,10 @@ def test_il_grafo_ordina_le_quindici_fasi():
     del DAG di pipeline copra l'intero ciclo di vita bioinformatico dalla
     validazione degli ingressi (``S0``) alla generazione dei report finali (``S14``).
     """
-    assert GRAFO.ordine() == TUTTE
-    assert set(TUTTE) == set(Passo) and len(GRAFO) == 15
+    assert GRAFO.ordine() == CON_LA_FUSIONE
+    assert set(CON_LA_FUSIONE) == set(Passo) and len(GRAFO) == 16
+    # Le fasi di cui si parla in modalita' single-end sono quindici: la fusione non e' fra esse.
+    assert tuple(n.passo for n in GRAFO if n.elencata_se_inattiva) == TUTTE
 
 
 def test_la_decontaminazione_precede_il_filtro_di_prevalenza():
@@ -352,8 +357,12 @@ def test_la_sola_fase_facoltativa_e_la_filogenesi():
     filogenetico (``S9``, computazionalmente oneroso con DECIPHER + phangorn) è
     opzionale quando non sono richieste metriche UniFrac.
     """
-    assert [n.passo for n in GRAFO if n.facoltativa] == [Passo.S9]
+    assert [n.passo for n in GRAFO if n.facoltativa and n.elencata_se_inattiva] == [Passo.S9]
     assert GRAFO.nodo(Passo.S9).parametro_attivazione == "phylo.enabled"
+    # La fusione delle coppie e' attiva solo in modalita' appaiata, e quando non
+    # lo e' non si elenca: non e' una fase disattivata della modalita' single-end.
+    assert [n.passo for n in GRAFO if n.facoltativa and not n.elencata_se_inattiva] == [Passo.SM]
+    assert GRAFO.nodo(Passo.SM).parametro_attivazione == "io.layout"
 
 
 def test_fasi_che_condividono_una_cartella():

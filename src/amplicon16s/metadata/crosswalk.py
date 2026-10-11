@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from amplicon16s.config.schema import Config
+from amplicon16s.io_layer.reads import abbina_file, compagni_per_nome
 from amplicon16s.metadata.controls_map import MappaControlli
 from amplicon16s.metadata.models import Campione, ClasseCampione, Inventario
 from amplicon16s.metadata.tabelle import leggi_tsv, tabella_di_studio
@@ -138,6 +139,20 @@ class Analisi:
     senza_piastra: list[str] = field(default_factory=list)
     senza_corsa: list[str] = field(default_factory=list)
 
+    # --- coppie di file --------------------------------------------------------
+    #: In modalita' single-end, gli accession i cui file ripetuti sono le due
+    #: letture di una coppia, riconosciute dal marcatore nel nome: accession ->
+    #: (marcatori, file).
+    coppie_in_single_end: dict[str, tuple[tuple[str, str], list[str]]] = field(
+        default_factory=dict)
+    #: In modalita' appaiata, i file senza compagno e quelli il cui nome porta
+    #: i due marcatori in modo ambiguo.
+    file_senza_compagno: tuple[str, ...] = ()
+    marcatori_di_file: tuple[str, str] | None = None
+    file_ambigui: tuple[str, ...] = ()
+    #: In modalita' appaiata, il file reverse di ogni accession.
+    reverse_per_accession: dict[str, Path] = field(default_factory=dict)
+
     # --- risultato ------------------------------------------------------------
     #: File di letture trovati, per accession. Serve ai gate che ispezionano
     #: le sequenze senza doverli cercare una seconda volta.
@@ -156,7 +171,20 @@ def _accessioni_dei_file(config: Config, analisi: Analisi) -> dict[str, Path]:
     espressione = re.compile(config.io.accession_regex)
     per_accession: dict[str, list[Path]] = defaultdict(list)
 
-    for percorso in sorted(Path(config.io.fastq_dir).glob(config.io.fastq_glob)):
+    trovati = sorted(Path(config.io.fastq_dir).glob(config.io.fastq_glob))
+    reverse_di: dict[str, Path] = {}
+    if config.appaiata:
+        # I file si abbinano per nome prima di estrarre la chiave, che si
+        # ricava dal solo file forward: il reverse e' il suo compagno.
+        per_nome = {p.name: p for p in trovati}
+        abbinamento = abbina_file(per_nome, config.pair.file_markers)
+        analisi.file_senza_compagno = abbinamento.senza_compagno
+        analisi.marcatori_di_file = tuple(config.pair.file_markers)
+        analisi.file_ambigui = abbinamento.ambigui
+        trovati = [per_nome[nome] for nome in sorted(abbinamento.coppie)]
+        reverse_di = {f: per_nome[r] for f, r in abbinamento.coppie.items()}
+
+    for percorso in trovati:
         try:
             accession = estrai_accession(percorso.name, espressione)
         except AccessionNonEstraibile as guasto:
@@ -168,6 +196,15 @@ def _accessioni_dei_file(config: Config, analisi: Analisi) -> dict[str, Path]:
         accession: [p.name for p in percorsi]
         for accession, percorsi in per_accession.items()
         if len(percorsi) > 1
+    }
+    if not config.appaiata:
+        for accession, nomi in analisi.accession_ripetuti_nei_file.items():
+            marcatori = compagni_per_nome(nomi)
+            if marcatori is not None:
+                analisi.coppie_in_single_end[accession] = (marcatori, sorted(nomi))
+    analisi.reverse_per_accession = {
+        accession: reverse_di[percorsi[0].name]
+        for accession, percorsi in per_accession.items() if percorsi[0].name in reverse_di
     }
     return {accession: percorsi[0] for accession, percorsi in per_accession.items()}
 
@@ -425,6 +462,7 @@ def analizza(config: Config) -> Analisi:
                 modulo=modulo,
                 piastra=piastra,
                 corsa=corsa,
+                file_reverse=analisi.reverse_per_accession.get(accession),
             )
         )
 

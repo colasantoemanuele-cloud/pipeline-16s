@@ -18,8 +18,16 @@ nelle letture un primer di un elenco di primer 16S comuni; calcola il profilo
 di qualita' con lo script di S1 e ne ricava il troncamento che il report
 suggerirebbe; propone colonne ed etichette; scrive il file e un riepilogo.
 
+**Letture appaiate.** Se ogni file della cartella ha il suo compagno, con una
+delle convenzioni dei nomi (``_R1`` e ``_R2``, ``_1`` e ``_2``), ``init``
+rileva la modalita' appaiata e propone anche i parametri del gruppo ``pair``:
+il primer e il motivo della lettura reverse come per la forward, la lunghezza
+dell'inserto misurata sulle coppie, i due troncamenti dal profilo di qualita'
+entro il vincolo che la fusione richiede, l'intervallo delle lunghezze fuse.
+
 **Codici di uscita**: ``0`` file scritto; ``3`` rifiuto (file gia' esistente,
-letture appaiate, ingressi non trovati o non leggibili), nulla e' stato scritto.
+file con le due letture di ogni coppia, ingressi non trovati o non leggibili),
+nulla e' stato scritto.
 """
 
 from __future__ import annotations
@@ -44,7 +52,7 @@ from amplicon16s.init import rilevamento as r
 from amplicon16s.init import vocabolario as v
 from amplicon16s.init.scrittura import SENZA_VALORE, Specie, Voce, testo_yaml
 from amplicon16s.io_layer.artifacts import AlberoOutput, Fase, scrivi_atomico
-from amplicon16s.io_layer.reads import espandi_iupac
+from amplicon16s.io_layer.reads import MARCATORI_DI_FILE, abbina_file, espandi_iupac
 from amplicon16s.metadata.models import ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.soglie.tabella import SOGLIE, non_eseguito, valore_esplorativo
@@ -74,6 +82,18 @@ _BYTE_PER_CELLA: Final = 4
 #: margine con cui il sottocomando soglie propone le soglie in frazione:
 #: l'errore di stima resta piccolo rispetto alla tolleranza.
 QUANTILE_NORMALE_95: Final = 1.96
+#: Le basi di sovrapposizione che i troncamenti proposti lasciano oltre la
+#: sovrapposizione minima della fusione: con il predefinito di 12 fanno le 20
+#: basi che il tutorial di dada2 chiede oltre la variabilita' di lunghezza
+#: della regione ("truncLen must be large enough to maintain 20 +
+#: biological.length.variation nucleotides of overlap").
+MARGINE_DI_SOVRAPPOSIZIONE: Final = 8
+
+#: Di quanto la lunghezza misurata dell'inserto puo' scostarsi da quella attesa
+#: dai primer prima che init lo dica: la stessa quota con cui la fusione
+#: confronta la mediana delle lunghezze fuse con l'attesa.
+SCARTO_DALL_ATTESA_DEI_PRIMER: Final = 0.05
+
 PRECISIONE_DELLE_FRAZIONI: Final = 0.01
 LETTURE_PER_UNA_FRAZIONE: Final = math.ceil(
     (QUANTILE_NORMALE_95 * 0.5 / PRECISIONE_DELLE_FRAZIONI) ** 2)
@@ -125,6 +145,10 @@ def aggiungi_argomenti(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--primer", type=_sequenza_iupac, metavar="SEQUENZA",
                         help="il primer forward usato per l'amplificazione, in codici IUPAC, "
                              "se non e' fra quelli che init riconosce da se'")
+    parser.add_argument("--primer-reverse", type=_sequenza_iupac, metavar="SEQUENZA",
+                        help="in modalita' appaiata, il primer reverse usato per "
+                             "l'amplificazione, in codici IUPAC e scritto da 5' a 3', se non e' "
+                             "fra quelli che init riconosce da se'")
     parser.add_argument("--reference", type=Path, metavar="FILE",
                         help="il riferimento tassonomico, nel formato di dada2")
     parser.add_argument("--out-root", type=Path, metavar="CARTELLA",
@@ -219,7 +243,11 @@ def _profilo(
         albero = AlberoOutput(temporanea)
         esegui_script(
             cartella_r() / NOME_SCRIPT,
-            {"campioni": {c: str(p) for c, p in file_per_chiave.items()}, "processi": processi},
+            # Percorsi assoluti: lo script lavora in una cartella temporanea, e
+            # una cartella delle letture indicata in forma relativa non vi si
+            # troverebbe.
+            {"campioni": {c: str(Path(p).resolve()) for c, p in file_per_chiave.items()},
+             "processi": processi},
             albero, Fase.QC_PROFILES, passo="S1",
         )
         cartella = albero.cartella(Fase.QC_PROFILES)
@@ -241,7 +269,19 @@ def _profilo(
             distribuzione[int(riga["lunghezza"])] += int(float(riga["letture"]))
     totale = sum(distribuzione.values())
     moda = max(distribuzione, key=lambda x: (distribuzione[x], x)) if distribuzione else None
+    # L'ultima posizione in cui la qualita' mediana dei campioni non di
+    # controllo negativo (la mediana, fra i campioni, della mediana di ciascuno)
+    # raggiunge la soglia del troncamento suggerito. Serve alla modalita'
+    # appaiata: una lettura reverse puo' avere la prima base sotto la soglia e
+    # il resto sopra, e la regola del primo calo non le darebbe un troncamento.
+    mediane: dict[int, list[float]] = {}
+    for riga in qualita:
+        if riga["campione"] not in negativi:
+            mediane.setdefault(int(riga["posizione"]), []).append(float(riga["mediana"]))
+    buone = [posizione for posizione, valori_q in mediane.items()
+             if statistics.median(valori_q) >= QUALITA_MINIMA_SUGGERITA]
     return {
+        "ultima_di_qualita": max(buone) if buone else None,
         "suggerito": suggerito,
         "valori_di_qualita": sorted(valori),
         "minima": min(distribuzione) if distribuzione else None,
@@ -252,6 +292,329 @@ def _profilo(
             if moda is not None and totale else None
         ),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Modalita' appaiata                                                           #
+# --------------------------------------------------------------------------- #
+
+
+def _voci_delle_coppie(
+    args: argparse.Namespace,
+    metti: Callable[..., None],
+    voci: dict[str, Voce],
+    note: list[str],
+    non_indovinati: list[str],
+    avanzamento: Callable[[str], None],
+    *,
+    file: list[Path],
+    nomi: list[str],
+    reverse_di: dict[str, Path],
+    chiave: r.Chiave | None,
+    negativi: set[str],
+    ispezioni: dict[str, r.Ispezione],
+    cercati: tuple[v.Primer, ...],
+    inserti: list[list[int | None]],
+    quante: str,
+    processi: int,
+    tabelle: list[Any],
+    taglio_forward: int,
+    primer_forward: v.Primer | None,
+    profilo_forward: dict[str, Any] | None,
+) -> None:
+    """Le voci del gruppo ``pair`` per un dataset appaiato, e i troncamenti
+    delle due letture entro il vincolo della fusione.
+
+    Segue per la lettura reverse le stesse regole della forward (primer
+    dall'elenco, motivo dal consenso, troncamento dal profilo), e in piu'
+    misura sulle coppie la lunghezza dell'inserto: da quella vengono il vincolo
+    sui troncamenti e l'intervallo delle lunghezze fuse.
+    """
+    PROPOSTO, RILEVATO, SCELTA, INDICATO = (
+        Specie.PROPOSTO, Specie.RILEVATO, Specie.DA_SCEGLIERE, Specie.INDICATO)
+    da_considerare = {
+        n: i for n, i in ispezioni.items()
+        if chiave is None or _chiave_del_file(chiave, n) not in negativi
+    } or dict(ispezioni)
+
+    # ---- Primer reverse e taglio ---------------------------------------------
+    osservato, parziali = r.primer_nelle_letture(ispezioni, cercati)
+    dai_metadati: list[str] = []
+    r.primer_dai_metadati(tabelle, dai_metadati)
+    primer_noto: str | None = None
+    taglio = 0
+    if osservato is not None:
+        trovato = osservato.primer
+        primer_noto, taglio = trovato.sequenza, len(trovato.sequenza)
+        if osservato.in_ogni_file and args.head_reads is None:
+            specie, limite = RILEVATO, ""
+            dove = (f"in testa alle letture reverse di ogni file: dal {osservato.minima:.0%} al "
+                    f"{osservato.massima:.0%} delle letture, su {quante}")
+        elif not osservato.in_ogni_file:
+            sotto = osservato.sotto_soglia
+            specie = PROPOSTO
+            dove = (f"in testa alle letture reverse nella mediana dei file "
+                    f"({osservato.mediana:.0%}), ma non in tutti: dal {osservato.minima:.0%} al "
+                    f"{osservato.massima:.0%}")
+            limite = (
+                f"attenzione: {len(sotto)} file su {len(ispezioni)} non lo portano in testa "
+                f"({', '.join(sotto[:5])}{'...' if len(sotto) > 5 else ''}): un taglio fisso "
+                "toglierebbe loro basi vere. Vanno capiti prima di accettare")
+            note.append(
+                f"Il primer reverse {trovato.nome} e' in testa alle letture reverse della "
+                f"maggior parte dei file ma non di {len(sotto)}: primer e taglio sono proposti.")
+        else:
+            specie = PROPOSTO
+            dove = f"in testa alle letture reverse di ogni file, su {quante}"
+            limite = ("verificato sulle sole prime letture (--head-reads): senza l'opzione "
+                      "init lo verifica su tutte")
+        metti("pair.primer_sequence_reverse", specie, trovato.sequenza,
+              f"primer {trovato.nome} ({trovato.fonte}), {dove}", limite)
+        metti("pair.trimLeft_reverse", specie, taglio,
+              f"la lunghezza del primer {trovato.nome}, che le letture reverse portano in testa",
+              limite)
+    else:
+        variabile = "; ".join(f"{p.nome} nel {f:.1%}" for p, f in parziali)
+        metti("pair.trimLeft_reverse", PROPOSTO, 0,
+              f"nessun primer reverse dell'elenco e' in testa alle letture reverse (su "
+              f"{quante}); un primer fuori elenco va indicato a mano, con la sua lunghezza qui",
+              "primer cercati: " + ", ".join(p.nome for p in cercati),
+              (f"attenzione: una parte delle letture reverse inizia con un primer "
+               f"({variabile}): e' in posizione variabile, e un taglio fisso non lo toglie")
+              if variabile else "")
+        if args.primer_reverse is not None:
+            primer_noto = args.primer_reverse
+            metti("pair.primer_sequence_reverse", INDICATO, args.primer_reverse,
+                  "--primer-reverse; non e' in testa alle letture reverse")
+        elif len(dai_metadati) == 1:
+            primer_noto = dai_metadati[0]
+            metti("pair.primer_sequence_reverse", PROPOSTO, primer_noto,
+                  "sequenza che i metadati dichiarano come primer reverse; non e' nelle "
+                  "letture reverse")
+        else:
+            nominati = r.primer_nominati(tabelle, v.PRIMER_16S_REVERSE)
+            metti("pair.primer_sequence_reverse", SCELTA, None,
+                  "partenza: nullo, perche' il primer reverse non e' nelle letture reverse e "
+                  "i metadati non ne riportano una sola sequenza. Con il primer nullo la "
+                  "validazione non lo cerca. Se e' noto, rilancia init con --primer-reverse "
+                  "SEQUENZA: init propone allora anche il motivo delle letture reverse",
+                  ("i metadati riportano piu' sequenze con un'etichetta di reverse: "
+                   + ", ".join(dai_metadati)) if dai_metadati else "",
+                  ("i metadati nominano un primer reverse senza riportarne la sequenza; le "
+                   "forme che init conosce con quel nome: "
+                   + "; ".join(f"{p.nome} {p.sequenza} ({p.fonte})" for p in nominati))
+                  if nominati else "")
+            non_indovinati.append(
+                "pair.primer_sequence_reverse: il primer reverse non e' nelle letture reverse, "
+                "e i metadati non ne riportano una sola sequenza.")
+
+    # ---- Motivo della reverse --------------------------------------------------
+    motivo = None
+    dissentono: list[str] = []
+    if primer_noto is not None:
+        dissentono = r.file_che_dissentono(da_considerare, taglio, len(primer_noto))
+        motivo = r.motivo_dal_consenso(
+            [i for n, i in da_considerare.items() if n not in dissentono],
+            taglio, len(primer_noto))
+    if dissentono:
+        elenco = ", ".join(reverse_di[n].name for n in dissentono[:5]) + (
+            "..." if len(dissentono) > 5 else "")
+        note.append(
+            f"{len(dissentono)} file reverse non iniziano come gli altri e sono esclusi dal "
+            f"consenso del motivo delle letture reverse ({elenco}): da guardare (una corsa con "
+            "i due file scambiati, un'altra regione, sequenze fuori bersaglio).")
+    if motivo is not None:
+        metti("pair.conserved_motif_reverse", PROPOSTO, motivo,
+              f"il consenso delle {len(primer_noto or '')} basi "
+              + ("che seguono il primer reverse" if taglio else
+                 "con cui iniziano le letture reverse")
+              + f", su non piu' di {r.LETTURE_PER_IL_MOTIVO} letture per file: una base o "
+              f"una coppia di basi dove copre almeno il {r.SOGLIA_BASE_DEL_MOTIVO:.0%} delle "
+              "letture",
+              "serve a riconoscere una corsa con i due file scambiati e una libreria con i "
+              "due versi mescolati",
+              (f"attenzione: {len(dissentono)} file reverse non iniziano come gli altri e "
+               "sono esclusi dal consenso: da guardare prima di eseguire") if dissentono else "")
+    else:
+        metti("pair.conserved_motif_reverse", SCELTA, None,
+              "partenza: nullo. "
+              + ("Il consenso delle letture reverse non da' un motivo abbastanza definito"
+                 if primer_noto else
+                 "Senza conoscere il primer reverse init non propone il motivo con cui "
+                 "iniziano le letture reverse")
+              + ". Con motivo e primer reverse nulli l'orientamento delle letture reverse "
+              "non si verifica")
+
+    # ---- Lunghezza dell'inserto ---------------------------------------------------
+    inserto = r.stima_dell_inserto(inserti)
+    dei_primer = None
+    if primer_forward is not None and osservato is not None:
+        if primer_forward.posizione is not None and osservato.primer.posizione is not None:
+            dei_primer = osservato.primer.posizione - primer_forward.posizione + 1
+    tagli = taglio_forward + taglio
+    if inserto is not None:
+        confronto = ""
+        if dei_primer is not None:
+            concordano = abs(inserto.mediana - dei_primer) <= (
+                SCARTO_DALL_ATTESA_DEI_PRIMER * dei_primer)
+            confronto = (
+                f"dai primer riconosciuti nelle letture ({primer_forward.nome} e "
+                f"{osservato.primer.nome}) su Escherichia coli se ne attendono {dei_primer}: "
+                + ("concordano" if concordano else
+                   "NON concordano, e vale la lunghezza misurata sulle letture"))
+            if not concordano:
+                note.append(
+                    f"La lunghezza dell'inserto misurata sulle letture (mediana "
+                    f"{inserto.mediana}) non concorda con quella attesa dai primer riconosciuti "
+                    f"({dei_primer}): vale la misurata. Verifica la regione amplificata.")
+        misura = (
+            f"misurata su {inserto.sovrapposte} coppie con le letture sovrapposte, su "
+            f"{inserto.coppie} campionate (le prime {r.COPPIE_PER_L_INSERTO} di ogni "
+            f"campione): mediana {inserto.mediana}, dal {inserto.minima} al {inserto.massima} "
+            "(percentili 0,5 e 99,5)"
+            + ("; comprende i primer, che le letture portano" if tagli else ""))
+        metti("pair.expected_merged_len", PROPOSTO, inserto.mediana - tagli,
+              "la mediana della lunghezza dell'inserto, tolte le basi dei due tagli", misura,
+              confronto)
+        metti("pair.len_min", PROPOSTO, max(1, inserto.minima - tagli),
+              "il percentile 0,5 della lunghezza dell'inserto, tolte le basi dei due tagli",
+              "una sequenza fusa piu' corta esce dalla tabella: allarga l'intervallo se la "
+              "regione varia di piu' fra i taxa attesi",
+              "l'intervallo descrive le coppie misurate, non la regione: se molto sotto la "
+              "lunghezza attesa c'e' una popolazione a se' (amplificazioni fuori bersaglio), "
+              "il percentile basso la comprende. Dopo la prima esecuzione guarda 05_pair_merge/lunghezze_fuse.tsv "
+              "e stringi l'intervallo attorno alla regione")
+        metti("pair.len_max", PROPOSTO, max(1, inserto.massima - tagli),
+              "il percentile 99,5 della lunghezza dell'inserto, tolte le basi dei due tagli")
+    else:
+        campionate = sum(len(x) for x in inserti)
+        sovrapposte = sum(1 for x in inserti for y in x if y is not None)
+        perche = (
+            f"la lunghezza dell'inserto non si stima dalle letture: solo {sovrapposte} coppie "
+            f"su {campionate} campionate hanno le due letture sovrapposte")
+        metti("pair.expected_merged_len", SCELTA, None,
+              f"partenza: nullo, perche' {perche}. Senza una lunghezza attesa il confronto "
+              "della mediana delle sequenze fuse non si fa")
+        metti("pair.len_min", SCELTA, SENZA_VALORE,
+              f"{perche}: l'intervallo delle lunghezze fuse va dichiarato conoscendo la "
+              "regione amplificata")
+        metti("pair.len_max", SCELTA, SENZA_VALORE, "si sceglie insieme a pair.len_min")
+        note.append(
+            perche[0].upper() + perche[1:] + ". Le letture non coprono l'intera regione "
+            "amplificata, e le coppie non si potrebbero fondere: come alternativa, la "
+            "modalita' single-end con le sole letture forward (io.layout: \"single-end\", "
+            "senza il gruppo pair, e i soli file forward nella cartella).")
+        non_indovinati.append(
+            "pair.len_min, pair.len_max e i due troncamenti: la lunghezza dell'inserto non si "
+            "stima dalle letture.")
+
+    # ---- Profilo della reverse e troncamenti ------------------------------------
+    profilo: dict[str, Any] | None = None
+    if not args.skip_profile and profilo_forward is not None:
+        avanzamento("profilo di qualita' delle letture reverse...")
+        leggibili = {
+            (_chiave_del_file(chiave, n) if chiave else n): reverse_di[n]
+            for n in nomi if ispezioni[n].statistiche.valido
+        }
+        try:
+            profilo = _profilo(leggibili, negativi, processi)
+        except ErrorePipeline as guasto:
+            note.append(
+                f"Profilo di qualita' delle letture reverse non calcolato ({guasto.codice}: "
+                f"{guasto.dettaglio or guasto.voce.sintesi}).")
+    sovrapposizione = defaults.PAIR_MIN_OVERLAP + MARGINE_DI_SOVRAPPOSIZIONE
+    vincolo = (
+        "vincolo della fusione: (filter.truncLen - filter.trimLeft) + (pair.truncLen_reverse "
+        "- pair.trimLeft_reverse) deve superare la lunghezza della regione senza i primer di "
+        f"almeno pair.min_overlap piu' {MARGINE_DI_SOVRAPPOSIZIONE} basi di margine")
+    forward = profilo_forward["suggerito"] if profilo_forward else None
+    della_reverse = profilo["suggerito"] if profilo else None
+    proposti: tuple[int, int] | None = None
+    if (inserto is not None and forward and della_reverse
+            and forward["senza_perdite"] is not None
+            and della_reverse["senza_perdite"] is not None):
+        necessarie = inserto.massima + sovrapposizione
+        massimo_forward = int(forward["senza_perdite"])
+        massimo_reverse = int(della_reverse["senza_perdite"])
+
+        def dalla_qualita(del_profilo: dict[str, Any], massimo: int) -> int:
+            # Il troncamento suggerito dal profilo; dove la regola del primo
+            # calo non ne da' uno (la prima base sotto la soglia), l'ultima
+            # posizione con la qualita' mediana alla soglia; mai oltre la
+            # lunghezza che non scarta letture.
+            suggerito = del_profilo["suggerito"]["suggerito"]
+            if suggerito is None:
+                suggerito = del_profilo["ultima_di_qualita"] or 0
+            return min(int(suggerito), massimo)
+
+        t_forward = dalla_qualita(profilo_forward, massimo_forward)
+        t_reverse = dalla_qualita(profilo, massimo_reverse)
+        allungati = False
+        if t_forward + t_reverse < necessarie:
+            # Prima la forward, che di norma ha la qualita' migliore in coda;
+            # poi la reverse; mai oltre la lunghezza che non scarta letture.
+            allungati = True
+            t_forward = min(massimo_forward, max(t_forward, necessarie - t_reverse))
+            t_reverse = min(massimo_reverse, max(t_reverse, necessarie - t_forward))
+        if t_forward + t_reverse >= necessarie:
+            proposti = (t_forward, t_reverse)
+            conto = (
+                f"{t_forward} + {t_reverse} = {t_forward + t_reverse} basi, e ne servono "
+                f"{necessarie}: l'inserto piu' lungo misurato ({inserto.massima}) piu' "
+                f"{sovrapposizione} di sovrapposizione")
+            come = (
+                "allungato oltre il calo della qualita' quanto serve a fondere le coppie, "
+                "senza scartare letture" if allungati else
+                "dal profilo di qualita' di questa lettura; non scarta alcuna lettura")
+            metti("filter.truncLen", PROPOSTO, t_forward,
+                  f"troncamento della lettura forward, {come}", conto, vincolo,
+                  "comprende le basi di filter.trimLeft")
+            metti("pair.truncLen_reverse", PROPOSTO, t_reverse,
+                  f"troncamento della lettura reverse, {come}", conto, vincolo,
+                  "comprende le basi di pair.trimLeft_reverse")
+            for parametro, troncamento, massimo in (
+                ("filter.truncLen_shortfall_warn", t_forward, massimo_forward),
+                ("pair.truncLen_shortfall_warn_reverse", t_reverse, massimo_reverse),
+            ):
+                metti(parametro, SCELTA, min(max(massimo - troncamento, 0), troncamento - 1),
+                      "partenza: lo scarto fra la lettura piu' corta e il troncamento "
+                      "proposto; con un valore minore il profilo segnalerebbe il troncamento "
+                      "proposto (E-S1-01)")
+        else:
+            note.append(
+                f"Nessuna coppia di troncamenti che non scarti letture permette la fusione: "
+                f"le due letture intere danno {massimo_forward} + {massimo_reverse} = "
+                f"{massimo_forward + massimo_reverse} basi, e ne servono {necessarie} "
+                f"(l'inserto piu' lungo misurato, {inserto.massima}, piu' {sovrapposizione} di "
+                "sovrapposizione). I due troncamenti restano da scegliere; come alternativa, "
+                "la modalita' single-end con le sole letture forward (io.layout: "
+                "\"single-end\", senza il gruppo pair, e i soli file forward nella cartella).")
+    if proposti is None:
+        perche = (
+            "la lunghezza dell'inserto non e' stimata" if inserto is None else
+            "il profilo di qualita' non e' stato calcolato" if not (forward and della_reverse)
+            else "nessuna coppia di troncamenti che non scarti letture rispetta il vincolo")
+        for parametro in ("filter.truncLen", "pair.truncLen_reverse"):
+            metti(parametro, SCELTA, SENZA_VALORE,
+                  f"da scegliere insieme all'altro troncamento: {perche}", vincolo)
+        for parametro in ("filter.truncLen_shortfall_warn",
+                          "pair.truncLen_shortfall_warn_reverse"):
+            metti(parametro, SCELTA, SENZA_VALORE, "si sceglie insieme al suo troncamento")
+        metti("qc.max_frac_short_reads", SCELTA, SENZA_VALORE,
+              "si sceglie insieme ai troncamenti")
+
+    # ---- Soglie della modalita' appaiata -------------------------------------------
+    for parametro, misura in (
+        ("pair.max_primer_hit_frac_reverse",
+         "frazione di letture reverse con il primer reverse in testa, in "
+         "01_input_validation/letture_ispezionate_reverse.tsv"),
+        ("pair.min_merged_frac_warn", "quota di coppie fuse, in 05_pair_merge/fusione.json"),
+        ("pair.min_merged_frac_stop", "quota di coppie fuse, in 05_pair_merge/fusione.json"),
+    ):
+        metti(parametro, SCELTA, SENZA_VALORE,
+              f"soglia di qualita' da fissare sui propri dati; misura da guardare: {misura}")
+    mancanti = [c for c in defaults.PARAMETRI_DELLE_COPPIE if c not in voci]
+    assert not mancanti, mancanti
 
 
 # --------------------------------------------------------------------------- #
@@ -284,13 +647,27 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
             f"{cartella} non contiene file di letture ({', '.join(v.ESTENSIONI_FASTQ)})")
     file = [p for lista in per_estensione.values() for p in lista]
     nomi = [p.name for p in file]
-    inverse = r.secondi_di_coppia(nomi)
-    if inverse:
-        raise Rifiuto(_letture_appaiate(
-            f"{len(inverse)} file hanno il nome della seconda lettura di una coppia "
-            f"({', '.join(inverse[:3])}{'...' if len(inverse) > 3 else ''})"))
+    # Se ogni file ha il suo compagno il dataset e' appaiato: da qui in poi
+    # ``file`` e ``nomi`` sono i soli file forward, e i reverse li seguono.
+    appaiamento = r.coppie_di_file(nomi)
+    reverse_di: dict[str, Path] = {}
+    if appaiamento is not None:
+        marcatori, coppie_di_file = appaiamento
+        per_nome = {p.name: p for p in file}
+        reverse_di = {f: per_nome[x] for f, x in coppie_di_file.items()}
+        file = [per_nome[f] for f in sorted(coppie_di_file)]
+        nomi = [p.name for p in file]
+        for estensione in list(per_estensione):
+            per_estensione[estensione] = [
+                p for p in per_estensione[estensione] if p.name in coppie_di_file]
+    else:
+        inverse = r.secondi_di_coppia(nomi)
+        if inverse:
+            raise Rifiuto(_senza_compagno(nomi, inverse))
 
-    avanzamento(f"letture: {len(file)} file in {cartella}")
+    avanzamento(f"letture: {len(file)} file in {cartella}"
+                + (f", ciascuno con il suo file reverse ({marcatori[0]} e {marcatori[1]})"
+                   if reverse_di else ""))
     # Il primer indicato da chi lancia il comando si cerca nelle letture come
     # quelli dell'elenco, e viene per primo.
     cercati = v.PRIMER_16S
@@ -302,13 +679,55 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
     with ProcessPoolExecutor(max_workers=processi) as gruppo:
         ispezioni = dict(zip(nomi, gruppo.map(
             r.ispeziona, [(str(p), args.head_reads, primer) for p in file])))
-    intercalati = sorted(
-        f"{n} ({i.statistiche.coppie_nello_stesso_file})" for n, i in ispezioni.items()
-        if i.statistiche.valido and i.statistiche.coppie_nello_stesso_file)
+        # In modalita' appaiata: le letture reverse, con i primer reverse, e la
+        # lunghezza dell'inserto su un campione di coppie di ogni campione.
+        cercati_reverse = v.PRIMER_16S_REVERSE
+        if args.primer_reverse is not None:
+            cercati_reverse = (
+                v.Primer("indicato", args.primer_reverse, "--primer-reverse"),
+                *(p for p in v.PRIMER_16S_REVERSE if p.sequenza != args.primer_reverse))
+        ispezioni_reverse: dict[str, r.Ispezione] = {}
+        inserti: list[list[int | None]] = []
+        if reverse_di:
+            primer_reverse = tuple(espandi_iupac(p.sequenza) for p in cercati_reverse)
+            ispezioni_reverse = dict(zip(nomi, gruppo.map(
+                r.ispeziona,
+                [(str(reverse_di[n]), args.head_reads, primer_reverse) for n in nomi])))
+            inserti = list(gruppo.map(
+                r.inserti_di_una_coppia_di_file,
+                [(str(p), str(reverse_di[p.name])) for p in file]))
+    if reverse_di:
+        # Un file con i segni di entrambe le letture contiene le coppie intere;
+        # il marcatore dell'altra lettura dice una corsa con i file scambiati,
+        # che init segnala e la validazione ferma.
+        intercalati, invertite = [], []
+        for n in nomi:
+            for ispezione, attesa in ((ispezioni[n], "1"), (ispezioni_reverse[n], "2")):
+                esito = (ispezione.statistiche.segni_di_coppia_inattesi(attesa)
+                         if ispezione.statistiche.valido else None)
+                if esito is not None:
+                    (intercalati if esito[0] == "intercalato" else invertite).append(
+                        f"{ispezione.statistiche.nome} ({esito[1]})")
+        intercalati.sort()
+        if invertite:
+            note.append(
+                f"{len(invertite)} file portano nelle intestazioni il marcatore dell'altra "
+                f"lettura ({'; '.join(sorted(invertite)[:3])}"
+                f"{'...' if len(invertite) > 3 else ''}): i due file di quelle corse sono "
+                "scambiati, e validate si fermera' (E-S0-26) finche' non se ne scambiano i nomi.")
+    else:
+        intercalati = sorted(
+            f"{n} ({i.statistiche.coppie_nello_stesso_file})" for n, i in ispezioni.items()
+            if i.statistiche.valido and i.statistiche.coppie_nello_stesso_file)
     if intercalati:
         raise Rifiuto(_letture_appaiate(
             f"{len(intercalati)} file non contengono le sole prime letture delle coppie: "
-            + "; ".join(intercalati[:3]) + ("..." if len(intercalati) > 3 else "")))
+            + "; ".join(intercalati[:3]) + ("..." if len(intercalati) > 3 else "")
+        ) if not reverse_di else (
+            f"{len(intercalati)} file contengono le due letture di ogni coppia nello stesso "
+            "file: " + "; ".join(intercalati[:3]) + ("..." if len(intercalati) > 3 else "")
+            + ". In modalita' appaiata ogni file riporta una sola lettura di ogni coppia: "
+            "separa le due letture in due file per campione"))
     guasti = sorted(n for n, i in ispezioni.items()
                     if not i.statistiche.valido and not i.statistiche.vuoto)
     vuoti = sorted(n for n, i in ispezioni.items() if i.statistiche.vuoto)
@@ -323,6 +742,21 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
     quante = "tutte le letture" if args.head_reads is None else f"le prime {args.head_reads} letture"
 
     metti("io.fastq_dir", INDICATO, str(cartella), "--reads")
+    if reverse_di:
+        metti("io.layout", RILEVATO, defaults.LAYOUT_APPAIATO,
+              f"ognuno dei {2 * len(file)} file della cartella ha il suo compagno: "
+              f"{len(file)} coppie di file che si distinguono per {marcatori[0]} e {marcatori[1]}",
+              "per usare le sole letture forward: \"single-end\", togliendo il gruppo pair e "
+              "lasciando nella cartella (o in io.fastq_glob) i soli file forward")
+        metti("pair.file_markers", RILEVATO, list(marcatori),
+              "i due marcatori con cui i nomi dei file di ogni coppia si distinguono, prima "
+              "quello del file forward",
+              "abbinamento, per esempio: " + "; ".join(
+                  f"{n} e {reverse_di[n].name}" for n in nomi[:2]))
+    else:
+        metti("io.layout", RILEVATO, defaults.LAYOUT_SINGOLO,
+              "nessun file della cartella ha un compagno che se ne distingua per un "
+              "marcatore di coppia (R1 e R2, 1 e 2): un file per campione")
     if len(per_estensione) == 1:
         (estensione,) = per_estensione
         metti("io.fastq_glob", RILEVATO, f"*{estensione}",
@@ -758,6 +1192,18 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
               f"distinti ({', '.join(map(str, profilo['valori_di_qualita']))}): qualita' "
               "raggruppate; il predefinito e' loess (dada2::learnErrors)")
 
+    # ---- Modalita' appaiata: la lettura reverse e la fusione ----------------------
+    if reverse_di:
+        _voci_delle_coppie(
+            args, metti, voci, note, non_indovinati, avanzamento,
+            file=file, nomi=nomi, reverse_di=reverse_di, chiave=chiave,
+            negativi=negativi_proposti, ispezioni=ispezioni_reverse, cercati=cercati_reverse,
+            inserti=inserti, quante=quante, processi=processi,
+            tabelle=[righe_assay] + ([righe_studio] if righe_studio is not None else []),
+            taglio_forward=taglio, primer_forward=osservato.primer if osservato else None,
+            profilo_forward=profilo,
+        )
+
     # ---- Riferimento ---------------------------------------------------------------
     riferimento: Path | None = args.reference
     if riferimento is not None:
@@ -928,7 +1374,9 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
                 "questo file non e' richiesto e si puo' lasciare in commento")
 
     intestazione = [
-        f"Letture: {len(file)} file in {cartella}, ispezionate {quante} di ogni file.",
+        (f"Letture appaiate: {len(file)} coppie di file in {cartella}, ispezionate {quante} "
+         "di ogni file." if reverse_di else
+         f"Letture: {len(file)} file in {cartella}, ispezionate {quante} di ogni file."),
         f"Metadati: {assay.name}" + (f" e {studio.name}" if studio else "")
         + (f"; file del lotto {lotto.name}" if lotto else "; nessun file del lotto") + ".",
     ]
@@ -1001,6 +1449,30 @@ def _letture_appaiate(dettaglio: str) -> str:
         "init non propone una configurazione. Usa le sole letture forward: un file per "
         "campione con la prima lettura di ogni coppia, in una cartella a parte, e indica "
         "quella con --reads (GUIDA.md, «Letture appaiate»)"
+    )
+
+
+def _senza_compagno(nomi: list[str], inverse: list[str]) -> str:
+    """Il messaggio con cui ``init`` rifiuta una cartella in cui alcuni file
+    hanno il nome di una seconda lettura ma non ogni file ha il suo compagno:
+    nomina i file rimasti soli e le due strade possibili.
+    """
+    soli: list[str] = []
+    for marcatori in MARCATORI_DI_FILE:
+        abbinamento = abbina_file(nomi, marcatori)
+        if abbinamento.coppie:
+            soli = [*abbinamento.senza_compagno, *abbinamento.ambigui]
+            break
+    elenco = soli or inverse
+    return (
+        f"{len(inverse)} file hanno il nome della seconda lettura di una coppia, ma non ogni "
+        f"file della cartella ha il suo compagno: {', '.join(elenco[:5])}"
+        f"{'...' if len(elenco) > 5 else ''}"
+        + (" (senza compagno)" if soli else "")
+        + ". Per la modalita' appaiata aggiungi i file che mancano o togli dalla cartella "
+        "quelli che non appartengono a una coppia; per usare le sole letture forward tieni "
+        "nella cartella indicata con --reads un file per campione, con la prima lettura di "
+        "ogni coppia (GUIDA.md, «Letture appaiate»)"
     )
 
 

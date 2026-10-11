@@ -144,6 +144,17 @@ piano_appaiato <- function(d, parametri) {
     piani[[v$nome]] <- list(nome = v$nome, soggetto = d$soggetto$nome, alfa = alfa,
                             permanova = multivariata)
   }
+  # Gli strati restringono le permutazioni della PERMANOVA fra gruppi; entro
+  # soggetto le permutazioni sono gia' ristrette al soggetto, e gli strati non
+  # entrano: chi li ha dichiarati deve saperlo.
+  strati <- parametri$stat$permanova_strata
+  if (!is.null(strati) &&
+      any(vapply(piani, function(p) isTRUE(p$permanova$eseguibile), logical(1)))) {
+    avviso("E-ECO-35", sprintf(paste0(
+      "Soggetto '%s': stat.permanova_strata ('%s') non si applica alla PERMANOVA entro ",
+      "soggetto, le cui permutazioni sono ristrette entro il soggetto."),
+      d$soggetto$nome, strati))
+  }
   list(piani = piani, avvisi = avvisi)
 }
 
@@ -250,13 +261,13 @@ permanova_appaiata <- function(matrice, distanza, piano, permutazioni, livello, 
   # insieme piu' della variabilita' totale: la somma dei quadrati residua non
   # e' positiva, F e' un rapporto senza significato, e lo si dichiara.
   residua <- tabella$somma_quadrati[tabella$analisi == "permanova" & tabella$ruolo == "residuo"]
-  if (length(residua) && !is.na(residua) && residua <= 0) {
+  totale <- tabella$somma_quadrati[tabella$analisi == "permanova" & tabella$ruolo == "totale"]
+  if (length(residua) && !residuo_positivo(residua, totale)) {
     della_variabile <- tabella$analisi == "permanova" & tabella$ruolo %in% c("analizzata", "soggetto")
     tabella$f[della_variabile] <- NA
     tabella$p[della_variabile] <- NA
-    tabella$nota[tabella$analisi == "permanova" & tabella$ruolo == "analizzata"] <- paste0(
-      "non valutabile: somma dei quadrati residua non positiva; con questa distanza, non ",
-      "euclidea, il soggetto e la variabile spiegano piu' della variabilita' totale")
+    tabella$nota[tabella$analisi == "permanova" & tabella$ruolo == "analizzata"] <-
+      nota_residuo_non_positivo(distanza, "il soggetto e la variabile")
   }
   tabella$soggetti <- nrow(s$campioni)
   names(tabella)[names(tabella) == "gruppi"] <- "livelli"
@@ -342,6 +353,9 @@ scrivi_appaiati <- function(alfa, multivariati, piani, parametri, profondita, ca
       "con una distanza non euclidea (Bray-Curtis, Jaccard, UniFrac) la somma dei quadrati residua puo' non essere positiva: F e p non sono allora valutabili, e la nota lo dice",
       sprintf("permutazioni richieste: %d; la colonna permutazioni riporta quelle usate (tutte le disposizioni, se sono poche)",
               as.integer(parametri$stat$permanova_permutations)),
+      if (!is.null(parametri$stat$permanova_strata)) sprintf(
+        "stat.permanova_strata (%s) non si applica: le permutazioni sono ristrette entro il soggetto",
+        parametri$stat$permanova_strata),
       sprintf("livello di significativita' per la nota sulle dispersioni: %s",
               format(parametri$stat$significance_level)),
       "ruolo: soggetto, analizzata, residuo, totale; gl: gradi di liberta'; r2 e f solo per la PERMANOVA"

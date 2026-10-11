@@ -287,6 +287,15 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "manca a ciascuno, e' in test/soggetti.tsv.",
     ),
     VoceEco(
+        "E-ECO-35", _A,
+        "Gli strati della PERMANOVA non si applicano all'analisi entro soggetto.",
+        "stat.permanova_strata restringe le permutazioni della PERMANOVA fra gruppi "
+        "(test/permanova.tsv) e di quella delle variabili continue. In "
+        "test/permanova_appaiata.tsv le permutazioni sono ristrette entro il soggetto, "
+        "e gli strati non entrano: uno strato costante entro soggetto lo assorbe il "
+        "termine del soggetto, uno che varia entro soggetto non e' considerato.",
+    ),
+    VoceEco(
         "E-ECO-90", _R,
         "Il calcolo in R non si e' concluso.",
         "Leggi il messaggio di R riportato nel dettaglio. Le analisi vanno "

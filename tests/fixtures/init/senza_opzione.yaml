@@ -21,7 +21,7 @@
 # dello strumento) sono in commento con quello: si possono lasciare cosi'.
 # Le spiegazioni cominciano con ##, le righe dei parametri in commento con #.
 #
-# Rilevati: 7; indicati: 6; proposti: 8; da scegliere: 37; non richiesti: 12.
+# Rilevati: 8; indicati: 6; proposti: 8; da scegliere: 37; non richiesti: 12.
 #
 # Finche' una riga [PROPOSTO] o [DA SCEGLIERE] resta in commento il parametro
 # non e' dichiarato: validate elenca quelli che mancano (E-G15-10).
@@ -91,6 +91,12 @@ io:
   ## ^(LIB[0-9]+_[A-Z]+[0-9]+), (LIB[0-9]+_[A-Z]+[0-9]+)\.fq\.gz$,
   ## ^([A-Za-z0-9]+)
   accession_regex: "LIB[0-9]+"
+  ## Modalita' di lettura: single-end (un file per campione, le letture
+  ## forward) oppure paired-end (due file per campione, fusi dopo
+  ## l'inferenza). Omesso: single-end.
+  ## [RILEVATO] nessun file della cartella ha un compagno che se ne distingua
+  ## per un marcatore di coppia (R1 e R2, 1 e 2): un file per campione
+  layout: "single-end"
 
 # Lettura della tabella dei metadati e derivazione dei campi.
 meta:

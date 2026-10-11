@@ -50,12 +50,11 @@ from typing import Any, ClassVar, Final
 from amplicon16s.config.schema import Qc, thread_effettivi
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
-from amplicon16s.io_layer.conteggi import leggi_conteggi
+from amplicon16s.io_layer.conteggi import letture_in_ingresso_alla_tabella
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s02_filter import NOME_FILTRATE
 from amplicon16s.steps.s05_seqtab import NOME_TABELLA
 
 __all__ = [
@@ -153,7 +152,7 @@ class RimozioneChimere(PipelineStep):
             raise RuntimeError("S6 richiede l'inventario prodotto da S0")
         config = contesto.config
         chimera = config.chimera
-        letture = leggi_conteggi(contesto.albero.cartella(Fase.FILTERED) / NOME_FILTRATE)
+        letture = letture_in_ingresso_alla_tabella(contesto.albero, config.appaiata)
         senza_letture = sorted(
             c.accession for c in contesto.inventario if letture.get(c.accession, 0) == 0
         )

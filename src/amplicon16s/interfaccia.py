@@ -80,7 +80,8 @@ INTERVALLO_BATTITO_S: Final = 20.0
 #: I parametri che lo schema ammette in una sola forma pur non essendo un
 #: insieme chiuso di un solo valore: due valori logici con un solo valore
 #: realizzato.
-_UNICA_FORMA_LOGICA: Final = ("tax.assign_species", "out.taxa_are_rows")
+_UNICA_FORMA_LOGICA: Final = (
+    "tax.assign_species", "out.taxa_are_rows", "pair.trim_overhang")
 
 
 class StatoInCorso:
@@ -242,7 +243,7 @@ def _specie(chiave: str, obbligatorio: bool, predefinito: Any, ammessi: list[Any
     """Di che specie e' un parametro, con le stesse parole del modello."""
     if chiave in defaults.OBBLIGATORI:
         return "obbligatorio"
-    if chiave in defaults.CONDIZIONALI:
+    if chiave in defaults.CONDIZIONALI or chiave in defaults.CONDIZIONALI_DELLE_COPPIE:
         return "condizionale"
     if obbligatorio:
         return "percorso"
@@ -322,15 +323,20 @@ def schema() -> dict[str, Any]:
             voce["nome"], voce["obbligatorio"], voce.get("predefinito"), voce["valori_ammessi"])
         if voce["nome"] in defaults.STANDARD_DEL_METODO:
             voce["fonte"] = defaults.STANDARD_DEL_METODO[voce["nome"]]
-        if voce["nome"] in defaults.CONDIZIONALI:
+        condizioni = {**defaults.CONDIZIONALI, **defaults.CONDIZIONALI_DELLE_COPPIE}
+        if voce["nome"] in condizioni:
             # Obbligatorio se la condizione e' vera, omissibile altrimenti (e,
             # dichiarato comunque, validato come ogni valore ma senza effetto
             # sui risultati). La condizione puo' avere piu' alternative, di cui
             # ne basta una: la prima e' richiesto_da, le altre il suo "oppure".
+            # I parametri della modalita' appaiata (condizione "appaiata") con
+            # la condizione falsa non si dichiarano: sono respinti.
             prima, *altre = [
                 {"parametro": parametro, "condizione": forma,
-                 **({"valori": [True]} if forma == defaults.VERO else {})}
-                for parametro, forma in defaults.CONDIZIONALI[voce["nome"]]
+                 **({"valori": [True]} if forma == defaults.VERO else {}),
+                 **({"valori": [defaults.LAYOUT_APPAIATO]}
+                    if forma == defaults.APPAIATA else {})}
+                for parametro, forma in condizioni[voce["nome"]]
             ]
             voce["richiesto_da"] = {**prima, **({"oppure": altre} if altre else {})}
     return documento_schema("amplicon16s", __version__, Config, parametri)
@@ -503,6 +509,10 @@ def stato(cartella: Path | str, adesso: float | None = None) -> dict[str, Any]:
     # Le fasi che l'esecuzione in corso (o interrotta) deve ancora calcolare.
     da_rifare = set(attiva["da_rifare"]) if attiva is not None else set()
 
+    # La fase che esiste solo in modalita' appaiata si elenca se la
+    # configurazione registrata dichiara quella modalita'.
+    appaiata = (parametri.get("io") or {}).get("layout") == "paired-end"
+
     fasi = []
     for passo in GRAFO.ordine():
         nodo = GRAFO.nodo(passo)
@@ -510,8 +520,13 @@ def stato(cartella: Path | str, adesso: float | None = None) -> dict[str, Any]:
             "passo": str(passo), "descrizione": nodo.descrizione,
             "cartella": nodo.cartella.value,
         }
+        if not nodo.elencata_se_inattiva and not appaiata:
+            continue
         manifesto = _json(radice / nodo.cartella.value / nome_manifesto_passo(str(passo)))
-        if nodo.facoltativa and filogenesi is False:
+        # La sola fase che una configurazione puo' disattivare e' la filogenesi:
+        # quella della modalita' appaiata, se elencata, e' attiva.
+        facoltativa = nodo.facoltativa and nodo.elencata_se_inattiva
+        if facoltativa and filogenesi is False:
             voce["stato"] = "disattivata"
         elif attiva is not None and attiva["battito_recente"] and attiva["passo"] == str(passo):
             voce["stato"] = "in_corso"
@@ -527,7 +542,7 @@ def stato(cartella: Path | str, adesso: float | None = None) -> dict[str, Any]:
             # quello che il manifesto dice, e il campo lo distingue.
             if str(passo) in da_rifare:
                 voce["da_rifare"] = True
-        elif nodo.facoltativa and filogenesi is None:
+        elif facoltativa and filogenesi is None:
             voce["stato"] = "sconosciuta"
         else:
             voce["stato"] = "da_eseguire"

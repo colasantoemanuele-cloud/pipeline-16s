@@ -327,6 +327,31 @@ grafico_alfa <- function(indici, piano, profondita, minimo, percorso) {
 
 # --- PERMANOVA e dispersioni ----------------------------------------------- #
 
+# Se la somma dei quadrati residua di una PERMANOVA e' positiva. Un residuo
+# nullo esce dal calcolo come un numero piccolissimo, di segno qualunque: si
+# confronta con la variabilita' totale, non con lo zero esatto.
+RESIDUO_TRASCURABILE <- 1e-10
+residuo_positivo <- function(residuo, totale) {
+  if (!length(residuo) || is.na(residuo)) return(FALSE)
+  if (!length(totale) || is.na(totale) || totale <= 0) return(residuo > 0)
+  residuo > RESIDUO_TRASCURABILE * totale
+}
+
+# La nota di una PERMANOVA la cui somma dei quadrati residua non e' positiva.
+# Con una distanza non euclidea i termini possono spiegare insieme piu' della
+# variabilita' totale; la distanza di Aitchison e' euclidea sui dati
+# trasformati, e li' un residuo nullo vuol dire che i termini descrivono i
+# campioni per intero.
+nota_residuo_non_positivo <- function(distanza, termini) {
+  if (identical(distanza, "aitchison")) {
+    return(paste0(
+      "non valutabile: somma dei quadrati residua non positiva; ", termini,
+      " non lasciano variabilita' residua fra i campioni"))
+  }
+  paste0("non valutabile: somma dei quadrati residua non positiva; con questa distanza, non ",
+         "euclidea, ", termini, " spiegano piu' della variabilita' totale")
+}
+
 permanova <- function(matrice, distanza, piano, tecnici, valori_strati, permutazioni,
                       livello, seme) {
   p <- piano$permanova

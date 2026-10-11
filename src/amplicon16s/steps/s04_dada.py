@@ -64,10 +64,17 @@ from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.retry import RITENTARE_INUTILE, Aggiustamento, dimezza
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s02_filter import NOME_FILTRATE, SUFFISSO_FILTRATI
+from amplicon16s.steps.s02_filter import (
+    NOME_FILTRATE,
+    SUFFISSO_FILTRATI,
+    SUFFISSO_FILTRATI_REVERSE,
+)
 from amplicon16s.steps.s03_learn_errors import NOME_CORRISPONDENZA
 
-__all__ = ["InferenzaVarianti", "NOME_VARIANTI", "leggi_corrispondenza"]
+__all__ = [
+    "InferenzaVarianti", "MODELLO_DEL_NOME_PER_LA_FUSIONE", "NOME_VARIANTI",
+    "leggi_corrispondenza",
+]
 
 NOME_SCRIPT: Final = "04_dada.R"
 #: Le varianti di ogni campione, ingresso di S5.
@@ -75,10 +82,19 @@ NOME_VARIANTI: Final = "varianti_per_campione.rds"
 NOME_RIEPILOGO: Final = "inferenza.json"
 
 
-def leggi_corrispondenza(percorso: Path) -> dict[str, str]:
-    """``corrispondenza.tsv`` di S3: campione -> file del modello d'errore."""
+#: Il nome del file in cui S4, in modalita' appaiata, conserva di un campione
+#: cio' che la fusione legge per una lettura (``forward`` o ``reverse``): lo
+#: stesso modello dello script R.
+MODELLO_DEL_NOME_PER_LA_FUSIONE: Final = "fusione_{lettura}_{accession}.rds"
+
+
+def leggi_corrispondenza(percorso: Path, colonna: str = "modello") -> dict[str, str]:
+    """``corrispondenza.tsv`` di S3: campione -> file del modello d'errore. In
+    modalita' appaiata la colonna ``modello_reverse`` da' quello della lettura
+    reverse.
+    """
     with open(percorso, encoding="utf-8", newline="") as file:
-        return {r["campione"]: r["modello"] for r in csv.DictReader(file, delimiter="\t")}
+        return {r["campione"]: r[colonna] for r in csv.DictReader(file, delimiter="\t")}
 
 
 class InferenzaVarianti(PipelineStep):
@@ -97,6 +113,10 @@ class InferenzaVarianti(PipelineStep):
     #: in quella di S4; run.batch_size non vi entra, perche' non cambia il
     #: risultato (vedi sopra).
     parametri: ClassVar[tuple[str, ...]] = ("dada", "err.error_function")
+    #: In modalita' appaiata la fase non usa parametri del gruppo pair: inferisce
+    #: anche le letture reverse, che S2 ha filtrato e S3 modellato, e dipende
+    #: dalla sola modalita', che ogni fase dichiara.
+    passi_tracciamento_appaiata: ClassVar[tuple[str, ...]] = ("denoised_reverse",)
     aggiustamenti: ClassVar[dict[str, Aggiustamento]] = {
         "E-S4-02": dimezza("run.batch_size"),
     }
@@ -129,6 +149,7 @@ class InferenzaVarianti(PipelineStep):
                     "campioni": {a: str(filtrati / f"{a}{SUFFISSO_FILTRATI}") for a in con_letture},
                     "modelli": {a: str(modelli_dir / corrispondenza[a]) for a in con_letture},
                     "senza_letture": [a for a in accession if a not in con_letture],
+                    **self._della_reverse(config, filtrati, modelli_dir, con_letture),
                     "pool": config.dada.pool,
                     "omega_a": config.dada.omega_a,
                     "funzione_errore": config.err.error_function,
@@ -163,4 +184,28 @@ class InferenzaVarianti(PipelineStep):
         }
         if "priori" in riepilogo:
             metriche["priori"] = riepilogo["priori"]["priori"]
+        if config.appaiata:
+            reverse = json.loads(
+                (cartella / "inferenza_reverse.json").read_text(encoding="utf-8"))
+            metriche["reverse"] = {
+                "varianti_distinte": reverse["varianti_distinte"],
+                "letture_denoised": sum(
+                    leggi_conteggi(cartella / "letture_denoised_reverse.tsv").values()),
+            }
         return Produzione(esito.artefatti, metriche)
+
+    @staticmethod
+    def _della_reverse(
+        config: object, filtrati: Path, modelli_dir: Path, con_letture: list[str]
+    ) -> dict[str, dict[str, str]]:
+        """In modalita' appaiata, le letture reverse filtrate di ogni campione e
+        il modello d'errore della sua corsa per quella lettura; vuoto altrimenti.
+        """
+        if not config.appaiata:  # type: ignore[attr-defined]
+            return {}
+        del_reverse = leggi_corrispondenza(modelli_dir / NOME_CORRISPONDENZA, "modello_reverse")
+        return {
+            "reverse": {
+                a: str(filtrati / f"{a}{SUFFISSO_FILTRATI_REVERSE}") for a in con_letture},
+            "modelli_reverse": {a: str(modelli_dir / del_reverse[a]) for a in con_letture},
+        }

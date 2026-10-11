@@ -108,13 +108,25 @@ NOME_BLOCCO: Final = "esecuzione.blocco"
 
 
 def togli_scritture_interrotte(radice: Path) -> list[Path]:
-    """Toglie dalla cartella di uscita cio' che un'esecuzione interrotta ha
+    """Toglie dalle cartelle delle fasi cio' che un'esecuzione interrotta ha
     lasciato a meta' (:data:`PREFISSO_SCRITTURA`), e restituisce cio' che ha
     tolto. Va chiamata solo quando nessun'altra esecuzione scrive nella
     cartella (:class:`BloccoEsecuzione`).
+
+    Si guardano le sole cartelle di :class:`Fase`, quelle in cui scrivono le
+    esecuzioni che tengono il blocco. Il resto della cartella di uscita puo'
+    ospitare le scritture di comandi che il blocco non lo prendono (il report,
+    un file di configurazione scritto li' da ``soglie``): un loro file
+    temporaneo non e' il resto di un'interruzione, e toglierlo farebbe fallire
+    la loro sostituzione atomica.
     """
+    trovati: set[Path] = set()
+    for fase in Fase:
+        cartella = radice / fase.value
+        if cartella.is_dir():
+            trovati.update(cartella.rglob(PREFISSO_SCRITTURA + "*"))
     tolti = []
-    for percorso in sorted(radice.rglob(PREFISSO_SCRITTURA + "*")):
+    for percorso in sorted(trovati):
         if not percorso.exists():   # dentro una cartella gia' tolta
             continue
         if percorso.is_dir():
@@ -210,6 +222,9 @@ class Fase(StrEnum):
     FILTERED = "03_filtered"
     ERROR_MODELS = "04_error_models"
     ASV_INFERENCE = "05_asv_inference"
+    #: La fusione delle coppie, solo in modalita' appaiata: fra l'inferenza e la
+    #: tabella delle sequenze, senza rinumerare le cartelle che seguono.
+    PAIR_MERGE = "05_pair_merge"
     SEQTAB = "06_seqtab"
     CHIMERA = "07_chimera"
     TAXONOMY = "08_taxonomy"

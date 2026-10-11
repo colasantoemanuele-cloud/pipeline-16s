@@ -42,20 +42,30 @@ from pathlib import Path
 from typing import IO, Final
 
 __all__ = [
+    "Abbinamento",
     "LETTURE_MINIME_PER_LA_QUOTA",
+    "LETTURE_MINIME_PER_UN_NOME_SOSPETTO",
+    "MARCATORI_DI_FILE",
     "QUOTA_MINIMA_DEL_SEGNALE",
     "RAPPORTO_MASSIMO_FRA_LE_PARTI",
     "SEGNALE_MINIMO_DI_UNA_PARTE",
     "TRATTI",
     "SegnaleDiOrientamento",
+    "Sincronia",
     "StatisticheFile",
+    "abbina_file",
     "apri_fastq",
+    "compagni_per_nome",
+    "corsa_invertita",
     "conta_coppie",
     "espandi_iupac",
+    "nome_da_seconda_lettura",
     "scansiona",
     "scansiona_file",
     "segnale_di_orientamento",
     "senza_righe_vuote_finali",
+    "verifica_sincronia",
+    "versi_mescolati",
 ]
 
 #: Corrispondenza fra codici IUPAC e classi di caratteri.
@@ -133,6 +143,13 @@ LETTURE_MINIME_PER_LA_QUOTA: Final = 500
 #: anche dominato da sequenze fuori bersaglio, conserva una quota di ordini di
 #: grandezza superiore.
 QUOTA_MINIMA_DEL_SEGNALE: Final = Fraction(1, 1000)
+
+#: Le letture con cui la quota si giudica in un file che il nome rende sospetto
+#: (finisce come il secondo file di una coppia): con 50 letture e nessuna con il
+#: segnale si esclude una quota vera del dieci per cento (0,9 alla 50 e' sotto
+#: l'uno per cento). A un file gia' sospetto non serve la prova piu' forte
+#: chiesta a un file qualunque.
+LETTURE_MINIME_PER_UN_NOME_SOSPETTO: Final = 50
 
 #: Il contrasto fra le parti di un file che ne rivela la struttura a blocchi
 #: (tutte le prime letture, poi tutte le seconde, anche in piu' blocchi o di
@@ -217,8 +234,57 @@ class StatisticheFile:
     segnale_per_tratto: tuple[tuple[int, int], ...] | None = None
     #: Lo stesso per le letture di posto dispari e per quelle di posto pari.
     segnale_alterno: tuple[tuple[int, int], tuple[int, int]] | None = None
+    #: Le letture con il segnale dell'altro orientamento, quando la scansione lo
+    #: ha cercato (modalita' appaiata); ``None`` altrimenti.
+    con_altro_segnale: int | None = None
 
-    def orientamento_inatteso(self, giudica_la_quota: bool = True) -> str | None:
+    @property
+    def con_segnale(self) -> int | None:
+        """Le letture con il segnale dell'orientamento atteso, o ``None`` se
+        non e' stato cercato."""
+        if self.segnale_per_tratto is None:
+            return None
+        return sum(k for k, _ in self.segnale_per_tratto)
+
+    def segni_di_coppia_inattesi(self, attesa: str) -> tuple[str, str] | None:
+        """In modalita' appaiata, che cosa dicono le intestazioni di un file che
+        deve contenere le sole letture ``attesa`` (``"1"`` o ``"2"``) di ogni
+        coppia: ``None`` se nulla di inatteso, altrimenti la specie del difetto
+        e la sua descrizione.
+
+        ``"intercalato"``: il file porta i segni di entrambe le letture (i due
+        marcatori, o lo stesso nome due volte): contiene le coppie intere.
+        ``"invertito"``: il file porta quasi solo il marcatore dell'altra
+        lettura. Le soglie sono quelle di
+        :attr:`coppie_nello_stesso_file`: un record isolato non decide.
+        """
+        if not self.letture_esaminate:
+            return None
+        tollerate = FRAZIONE_DI_COPPIA * self.letture_esaminate
+        minimo = max(2.0, tollerate)
+        proprie, altre = (
+            (self.prime_di_coppia, self.seconde_di_coppia) if attesa == "1"
+            else (self.seconde_di_coppia, self.prime_di_coppia))
+        if proprie >= minimo and altre >= minimo:
+            return "intercalato", (
+                f"{self.prime_di_coppia} intestazioni su {self.letture_esaminate} marcano "
+                f"la prima lettura di una coppia e {self.seconde_di_coppia} la seconda")
+        if self.nomi_ripetuti >= minimo and self.nomi_oltre_due < minimo:
+            return "intercalato", (
+                f"{self.nomi_ripetuti} nomi di lettura su {self.letture_esaminate} letture "
+                "compaiono due volte")
+        if (altre >= minimo and proprie < minimo
+                and altre >= self.letture_esaminate - max(1.0, tollerate)):
+            quale = "seconda" if attesa == "1" else "prima"
+            return "invertito", (
+                f"{altre} intestazioni su {self.letture_esaminate} marcano la {quale} "
+                "lettura di una coppia")
+        return None
+
+    def orientamento_inatteso(
+        self, giudica_la_quota: bool = True,
+        letture_minime: int = LETTURE_MINIME_PER_LA_QUOTA,
+    ) -> str | None:
         """Perche' il file non contiene le sole letture dell'orientamento
         atteso, o ``None``.
 
@@ -233,13 +299,15 @@ class StatisticheFile:
         letture dei due orientamenti a blocchi o intercalate: una parte del
         file ha il segnale e un'altra quasi nulla
         (:data:`SEGNALE_MINIMO_DI_UNA_PARTE`,
-        :data:`RAPPORTO_MASSIMO_FRA_LE_PARTI`).
+        :data:`RAPPORTO_MASSIMO_FRA_LE_PARTI`). ``letture_minime`` abbassa il
+        minimo del primo giudizio per un file che il nome rende sospetto
+        (:data:`LETTURE_MINIME_PER_UN_NOME_SOSPETTO`).
         """
         if self.segnale_per_tratto is None:
             return None
         letture = sum(n for _, n in self.segnale_per_tratto)
         con_segnale = sum(k for k, _ in self.segnale_per_tratto)
-        if (giudica_la_quota and letture >= LETTURE_MINIME_PER_LA_QUOTA
+        if (giudica_la_quota and letture >= letture_minime
                 and con_segnale < QUOTA_MINIMA_DEL_SEGNALE * letture):
             return (
                 f"{con_segnale} letture su {letture} portano il segnale dell'orientamento "
@@ -492,6 +560,7 @@ def scansiona_file(
     inizio_motivo: int = 0,
     lunghezza_richiesta: int = 0,
     orientamento: SegnaleDiOrientamento | None = None,
+    altro_orientamento: SegnaleDiOrientamento | None = None,
 ) -> StatisticheFile:
     """Legge le prime ``head_reads`` letture e ne ricava tutte le statistiche.
 
@@ -511,7 +580,10 @@ def scansiona_file(
     tratto del file e per posto dispari o pari
     (:attr:`StatisticheFile.segnale_per_tratto`,
     :attr:`StatisticheFile.segnale_alterno`): un byte per lettura, per la
-    durata della scansione.
+    durata della scansione. Con ``altro_orientamento`` si contano anche le
+    letture che portano il segnale dell'altro verso
+    (:attr:`StatisticheFile.con_altro_segnale`): serve, in modalita' appaiata,
+    a riconoscere una corsa invertita e una libreria con i due versi mescolati.
     """
     percorso = Path(percorso)
     espressione_primer = re.compile(primer) if primer is not None else None
@@ -522,6 +594,15 @@ def scansiona_file(
         dopo_il_taglio = (
             re.compile(orientamento.motivo) if orientamento.motivo is not None else None)
     con_segnale = bytearray()
+    altro_in_testa = altro_dopo_il_taglio = None
+    if altro_orientamento is not None:
+        altro_in_testa = (
+            re.compile(altro_orientamento.primer) if altro_orientamento.primer is not None
+            else None)
+        altro_dopo_il_taglio = (
+            re.compile(altro_orientamento.motivo) if altro_orientamento.motivo is not None
+            else None)
+    con_altro = 0
 
     letture = con_primer = con_motivo = corte = 0
     prime = seconde = 0
@@ -613,6 +694,12 @@ def scansiona_file(
                         (dopo_il_taglio is not None
                          and dopo_il_taglio.match(sequenza[orientamento.taglio:]))
                         or (in_testa is not None and in_testa.match(sequenza))))
+                if altro_orientamento is not None and (
+                    (altro_dopo_il_taglio is not None
+                     and altro_dopo_il_taglio.match(sequenza[altro_orientamento.taglio:]))
+                    or (altro_in_testa is not None and altro_in_testa.match(sequenza))
+                ):
+                    con_altro += 1
             else:
                 esaurito = False
     except (OSError, EOFError, zlib.error) as guasto:
@@ -648,6 +735,7 @@ def scansiona_file(
             ((sum(con_segnale[0::2]), len(con_segnale[0::2])),
              (sum(con_segnale[1::2]), len(con_segnale[1::2])))
             if orientamento is not None else None),
+        con_altro_segnale=con_altro if altro_orientamento is not None else None,
     )
 
 
@@ -667,7 +755,8 @@ CARTELLA_DELLE_COPIE: Final = ".scrittura-letture"
 
 @contextmanager
 def senza_righe_vuote_finali(
-    percorsi: dict[str, str], con_righe_vuote: Iterable[str], in_cartella: Path | str | None = None
+    percorsi: dict[str, str], con_righe_vuote: Iterable[str], in_cartella: Path | str | None = None,
+    nome_cartella: str = CARTELLA_DELLE_COPIE,
 ) -> Iterator[dict[str, str]]:
     """I percorsi da dare ai lettori di R, con una copia ripulita dei file indicati.
 
@@ -682,7 +771,9 @@ def senza_righe_vuote_finali(
     cartella della fase): occupano fino a una volta i file ripuliti, e lo
     spazio e' quello della cartella di uscita, che la validazione ha
     verificato, non quello della cartella temporanea del sistema. Senza
-    ``in_cartella`` si usa quest'ultima.
+    ``in_cartella`` si usa quest'ultima. ``nome_cartella`` distingue due insiemi
+    di copie aperti insieme nella stessa cartella (le due letture di una
+    coppia): deve cominciare con il prefisso delle scritture in corso.
     """
     chiavi = sorted(con_righe_vuote)
     if not chiavi:
@@ -691,7 +782,7 @@ def senza_righe_vuote_finali(
     if in_cartella is None:
         cartella = Path(tempfile.mkdtemp(prefix="amplicon16s-letture-"))
     else:
-        cartella = Path(in_cartella) / CARTELLA_DELLE_COPIE
+        cartella = Path(in_cartella) / nome_cartella
         shutil.rmtree(cartella, ignore_errors=True)
         cartella.mkdir(parents=True)
     try:
@@ -721,7 +812,8 @@ def _copia_senza_righe_vuote_finali(origine: Path | str, destinazione: Path) -> 
 
 
 def conta_coppie(
-    percorso: Path | str, orientamento: SegnaleDiOrientamento | None = None
+    percorso: Path | str, orientamento: SegnaleDiOrientamento | None = None,
+    altro_orientamento: SegnaleDiOrientamento | None = None,
 ) -> StatisticheFile:
     """I segni di coppia su **tutte** le letture del file, con le regole di G07.
 
@@ -734,7 +826,8 @@ def conta_coppie(
     ``orientamento``, quante letture portano il segnale dell'orientamento
     atteso in ogni tratto del file (``segnale_per_tratto``).
     """
-    return scansiona_file(percorso, sys.maxsize, None, None, orientamento=orientamento)
+    return scansiona_file(percorso, sys.maxsize, None, None, orientamento=orientamento,
+                          altro_orientamento=altro_orientamento)
 
 
 def scansiona(
@@ -751,3 +844,322 @@ def scansiona(
                                lunghezza_richiesta)
         for chiave, percorso in percorsi.items()
     }
+
+
+# --------------------------------------------------------------------------- #
+# Modalita' appaiata: i due file di ogni campione                              #
+# --------------------------------------------------------------------------- #
+
+#: Le coppie di marcatori con cui i depositi e i sequenziatori distinguono nel
+#: nome i due file di una corsa, dalla piu' specifica: ``R1`` e ``R2``, oppure
+#: il solo numero, dopo un trattino basso o un punto. Sono convenzioni diffuse,
+#: non una proprieta' di un dataset.
+MARCATORI_DI_FILE: Final[tuple[tuple[str, str], ...]] = (
+    ("_R1", "_R2"), (".R1", ".R2"), ("_1", "_2"), (".1", ".2"),
+)
+
+
+#: Il secondo file di una coppia, riconosciuto dal marcatore che precede
+#: l'estensione: ``_R2``, ``.R2``, ``_2`` o ``.2``, con un eventuale numero di
+#: blocco (``_001``). Ancorato alla fine del nome: un campione che si chiama
+#: ``LAB_R2D2`` non e' una lettura inversa. Sono convenzioni diffuse, non una
+#: proprieta' di un dataset.
+NOME_DI_LETTURA_INVERSA: Final = re.compile(
+    r"(?P<prima>.*)(?P<segno>[._]R2|[._]2)(?P<dopo>(?:_[0-9]+)?\.(?:fastq|fq)(?:\.gz)?)$",
+    re.IGNORECASE,
+)
+
+
+def nome_da_seconda_lettura(nome: str, nomi: Iterable[str]) -> bool:
+    """Vero se il nome del file indica la seconda lettura di una coppia.
+
+    ``R2`` basta da solo. Il solo numero (``_2``, ``.2``) e' anche il modo in
+    cui si numerano campioni e repliche di un dataset single-end: conta come
+    seconda lettura solo se fra ``nomi`` (i nomi dei file della cartella, senza
+    distinzione fra maiuscole e minuscole) c'e' il compagno con ``1`` allo
+    stesso posto.
+
+    E' la sola definizione di nome sospetto: la usano la validazione, per
+    respingere il file dove il contenuto non si puo' giudicare, e il controllo
+    di orientamento, per giudicarlo da meno letture
+    (:data:`LETTURE_MINIME_PER_UN_NOME_SOSPETTO`).
+    """
+    trovato = NOME_DI_LETTURA_INVERSA.match(nome)
+    if trovato is None:
+        return False
+    segno = trovato.group("segno")
+    if segno[1:].upper() == "R2":
+        return True
+    compagno = f"{trovato.group('prima')}{segno[0]}1{trovato.group('dopo')}"
+    return compagno.casefold() in {n.casefold() for n in nomi}
+
+
+#: Cio' che puo' seguire il marcatore di coppia nel nome di un file: un numero
+#: di blocco di tre cifre (``_001``, la forma dei file Illumina) e
+#: l'estensione. Un numero piu' corto e' parte del nome: ``X_1_2`` e' il
+#: reverse del campione ``X_1``, non il forward ``X`` del blocco 2.
+_DOPO_IL_MARCATORE: Final = r"(?P<dopo>(?:_[0-9]{3})?\.(?:fastq|fq)(?:\.gz)?)$"
+
+
+def _con_l_altro_marcatore(nome: str, da: str, a: str) -> str | None:
+    """Il nome con il marcatore ``da`` sostituito da ``a``, o ``None`` se il
+    nome non finisce con ``da`` (seguito al piu' da numeri di blocco e
+    dall'estensione).
+
+    Il marcatore conta solo in fondo al nome: un campione che lo contiene nel
+    proprio nome (``X_1`` con i marcatori ``_1`` e ``_2``) non e' per questo
+    il forward di un altro file.
+    """
+    trovato = re.match(rf"(?P<prima>.*){re.escape(da)}{_DOPO_IL_MARCATORE}", nome, re.IGNORECASE)
+    if trovato is None:
+        return None
+    return f"{trovato.group('prima')}{a}{trovato.group('dopo')}"
+
+
+@dataclass(frozen=True)
+class Abbinamento:
+    """I file di una cartella abbinati per coppia di marcatori."""
+
+    #: File forward -> il suo file reverse.
+    coppie: dict[str, str]
+    #: I file che non sono ne' il forward ne' il reverse di un altro file.
+    senza_compagno: tuple[str, ...]
+    #: I file che risultano insieme forward e reverse: il nome porta i due
+    #: marcatori in modo che la regola non li distingua.
+    ambigui: tuple[str, ...]
+
+    @property
+    def completo(self) -> bool:
+        """Vero se ogni file ha il suo compagno, senza ambiguita'."""
+        return bool(self.coppie) and not self.senza_compagno and not self.ambigui
+
+
+def abbina_file(nomi: Iterable[str], marcatori: tuple[str, str] | list[str]) -> Abbinamento:
+    """Abbina i file per nome: un file e' forward se il suo nome finisce con
+    il primo marcatore (prima dell'estensione o del numero di blocco) e lo
+    stesso nome con il secondo marcatore al suo posto e' un altro file
+    dell'insieme; reverse nel caso simmetrico.
+
+    Il marcatore conta solo in fondo al nome: e' la sua ultima occorrenza, e
+    un campione che lo contiene nel proprio nome non si confonde.
+    """
+    del_forward, del_reverse = marcatori
+    presenti = set(nomi)
+    coppie: dict[str, str] = {}
+    reverse: set[str] = set()
+    for nome in sorted(presenti):
+        compagno = _con_l_altro_marcatore(nome, del_forward, del_reverse)
+        if compagno is not None and compagno != nome and compagno in presenti:
+            coppie[nome] = compagno
+            reverse.add(compagno)
+    ambigui = sorted(set(coppie) & reverse)
+    for nome in ambigui:
+        del coppie[nome]
+    abbinati = set(coppie) | reverse
+    return Abbinamento(
+        coppie={f: r for f, r in coppie.items() if r not in ambigui},
+        senza_compagno=tuple(sorted(presenti - abbinati)),
+        ambigui=tuple(ambigui),
+    )
+
+
+def compagni_per_nome(nomi: Iterable[str]) -> tuple[str, str] | None:
+    """I marcatori di :data:`MARCATORI_DI_FILE` per cui i nomi dati (i file di
+    uno stesso campione) sono esattamente una coppia forward e reverse, o
+    ``None``.
+    """
+    nomi = sorted(nomi)
+    if len(nomi) != 2:
+        return None
+    for marcatori in MARCATORI_DI_FILE:
+        abbinamento = abbina_file(nomi, marcatori)
+        if abbinamento.completo and len(abbinamento.coppie) == 1:
+            return marcatori
+    return None
+
+
+def _identificativo(intestazione: str) -> tuple[str, str | None]:
+    """L'identificativo di una lettura (il primo campo dell'intestazione) senza
+    il marcatore di coppia, e il marcatore: ``/1`` e ``/2`` in fondo, oppure 1
+    e 2, R1 e R2 dopo un separatore.
+
+    Solo l'identificativo: il commento che lo segue puo' differire fra le due
+    letture di una coppia (la lunghezza, il numero della lettura).
+    """
+    campi = intestazione[1:].split(None, 1)
+    nome = campi[0] if campi else ""
+    trovato = _SUFFISSO_COPPIA.search(nome)
+    if trovato:
+        return nome[:trovato.start()], trovato.group(1)
+    trovato = _MARCATORE_IN_FONDO.match(nome)
+    if trovato:
+        return trovato.group(1), trovato.group(2)
+    return nome, None
+
+
+#: L'identificativo che un archivio assegna numerando le letture: un prefisso,
+#: un punto e il numero progressivo della lettura.
+_NUMERATA: Final = re.compile(r"^(.+)\.([0-9]+)$")
+
+
+def _relazione(prima: str, seconda: str) -> str | int | None:
+    """In che modo due intestazioni sono le due letture della stessa coppia, o
+    ``None`` se non lo sono.
+
+    * ``"uguali"``: lo stesso identificativo;
+    * ``"marcatori"``: lo stesso identificativo a meno del marcatore di coppia
+      (``/1`` e ``/2``, oppure 1 e 2, R1 e R2 dopo un separatore);
+    * un intero: gli identificativi sono numeri progressivi dello stesso
+      archivio (``prefisso.numero``) e questo e' il loro scarto. Un archivio
+      che deposita le due letture in un solo file le numera di seguito: la
+      seconda lettura della coppia k e' la lettura N + k, e lo scarto N e' lo
+      stesso per ogni coppia finche' i due file sono in sincronia. Che lo
+      scarto non sia minore delle letture del file lo verifica chi arriva in
+      fondo (:func:`verifica_sincronia`).
+    """
+    campi_1, campi_2 = prima[1:].split(None, 1), seconda[1:].split(None, 1)
+    nome_1 = campi_1[0] if campi_1 else ""
+    nome_2 = campi_2[0] if campi_2 else ""
+    if nome_1 == nome_2:
+        return "uguali"
+    (senza_1, marcatore_1), (senza_2, marcatore_2) = _identificativo(prima), _identificativo(seconda)
+    if (senza_1 == senza_2 and marcatore_1 is not None and marcatore_2 is not None
+            and ((marcatore_1, marcatore_2) in _PRIMA_E_SECONDA
+                 # Un file gia' scambiato porta i marcatori nell'altro ordine: la
+                 # sincronia c'e', e l'inversione la giudica chi guarda i marcatori.
+                 or (marcatore_2, marcatore_1) in _PRIMA_E_SECONDA)):
+        return "marcatori"
+    numerata_1, numerata_2 = _NUMERATA.match(nome_1), _NUMERATA.match(nome_2)
+    if numerata_1 and numerata_2 and numerata_1.group(1) == numerata_2.group(1):
+        return int(numerata_2.group(2)) - int(numerata_1.group(2))
+    return None
+
+
+@dataclass(frozen=True)
+class Sincronia:
+    """L'esito del confronto, lettura per lettura, dei due file di un campione."""
+
+    #: Le coppie lette prima della fine o del primo difetto.
+    coppie: int
+    #: Perche' i due file non sono in sincronia, o ``None``.
+    difetto: str | None = None
+
+
+def verifica_sincronia(forward: Path | str, reverse: Path | str) -> Sincronia:
+    """Confronta i nomi delle letture dei due file di un campione, una coppia
+    per volta: la lettura n dell'uno e la lettura n dell'altro devono essere la
+    stessa coppia, e i due file devono finire insieme.
+
+    Che cosa vuol dire "la stessa coppia" lo dice la prima (:func:`_relazione`):
+    nomi uguali, nomi che differiscono per il solo marcatore di coppia, oppure
+    numeri progressivi di un archivio a distanza costante. Ogni coppia
+    successiva deve stare nella stessa relazione: una lettura in piu' o in meno
+    in uno dei due file la rompe dal punto in cui manca.
+
+    Si leggono le sole intestazioni, in flusso: la memoria non cresce con i
+    file. Il confronto si ferma al primo difetto e ne dice il posto. Un guasto
+    di lettura non e' un difetto di sincronia: lo dichiara la scansione di
+    ciascun file, e qui il confronto si ferma dove arriva.
+    """
+    coppie = 0
+    attesa: str | int | None = None
+    try:
+        with apri_fastq(forward) as primo, apri_fastq(reverse) as secondo:
+            while True:
+                intestazione_1, intestazione_2 = primo.readline(), secondo.readline()
+                # Le righe vuote in fondo a un file sono tollerate.
+                fine_1 = not intestazione_1.strip()
+                fine_2 = not intestazione_2.strip()
+                if fine_1 or fine_2:
+                    if fine_1 and fine_2:
+                        # Numeri progressivi: le seconde letture sono numerate
+                        # dopo tutte le prime, quindi lo scarto non puo' essere
+                        # minore delle letture del file. Uno scarto minore e'
+                        # quello di due file sfasati di altrettante letture.
+                        if isinstance(attesa, int) and abs(attesa) < coppie:
+                            return Sincronia(coppie, (
+                                f"i nomi delle due letture sono numeri progressivi a distanza "
+                                f"{attesa}, minore delle {coppie} letture di ciascun file: in "
+                                "un archivio che numera le seconde letture dopo le prime la "
+                                "distanza e' almeno il numero delle letture, e una distanza "
+                                "minore dice che i due file sono sfasati di altrettante letture"))
+                        return Sincronia(coppie)
+                    corto = "forward" if fine_1 else "reverse"
+                    return Sincronia(coppie, (
+                        f"il file {corto} finisce dopo {coppie} letture e l'altro ne ha "
+                        "ancora: i due file non hanno lo stesso numero di letture"))
+                relazione = _relazione(intestazione_1, intestazione_2)
+                if coppie == 0:
+                    # La prima coppia dice come i due file nominano le letture;
+                    # le successive devono farlo allo stesso modo.
+                    attesa = relazione
+                if relazione is None or relazione != attesa:
+                    return Sincronia(coppie, (
+                        f"alla lettura {coppie + 1} i nomi non corrispondono: "
+                        f"{intestazione_1.strip()[:60]!r} nel file forward e "
+                        f"{intestazione_2.strip()[:60]!r} nel file reverse"
+                        + ("" if relazione is None or coppie == 0 else
+                           " (fino a qui i nomi delle due letture "
+                           + ("coincidevano" if attesa == "uguali" else
+                              "si distinguevano per il solo marcatore di coppia"
+                              if attesa == "marcatori" else
+                              f"erano numeri progressivi a distanza {attesa}") + ")")))
+                for _ in range(3):
+                    primo.readline()
+                    secondo.readline()
+                coppie += 1
+    except (OSError, EOFError, zlib.error):
+        return Sincronia(coppie)
+
+
+def corsa_invertita(forward: StatisticheFile, reverse: StatisticheFile) -> str | None:
+    """Perche' i due file di una corsa risultano scambiati, dal contenuto, o
+    ``None``.
+
+    Per ogni segnale cercato, il file che dovrebbe portarlo ne e' privo (almeno
+    :data:`LETTURE_MINIME_PER_LA_QUOTA` letture, quota sotto
+    :data:`QUOTA_MINIMA_DEL_SEGNALE`) e il compagno lo porta (almeno
+    :data:`SEGNALE_MINIMO_DI_UNA_PARTE` letture con quel segnale). La prova e'
+    positiva, quindi vale per ogni classe di campione. Serve almeno un segnale
+    cercato in entrambi i file.
+    """
+    prove = []
+    # Il segnale forward: atteso nel file forward, cercato come "altro" nel reverse.
+    for nome, atteso_in, cercato_in in (
+        ("forward", forward, reverse), ("reverse", reverse, forward),
+    ):
+        propri, altrui = atteso_in.con_segnale, cercato_in.con_altro_segnale
+        if propri is None or altrui is None:
+            continue
+        letture = atteso_in.letture_esaminate
+        privo = (letture >= LETTURE_MINIME_PER_LA_QUOTA
+                 and propri < QUOTA_MINIMA_DEL_SEGNALE * letture)
+        if not (privo and altrui >= SEGNALE_MINIMO_DI_UNA_PARTE):
+            return None
+        dove_manca = "forward" if nome == "forward" else "reverse"
+        dove_sta = "reverse" if nome == "forward" else "forward"
+        prove.append(
+            f"il segnale delle letture {nome} e' in {propri} letture su {letture} del file "
+            f"{dove_manca} e in {altrui} su {cercato_in.letture_esaminate} del file {dove_sta}")
+    return "; ".join(prove) if prove else None
+
+
+def versi_mescolati(statistiche: StatisticheFile) -> str | None:
+    """Perche' un file riporta letture dei due versi mescolate, o ``None``.
+
+    Almeno :data:`SEGNALE_MINIMO_DI_UNA_PARTE` letture portano il segnale
+    atteso e almeno altrettante quello dell'altro verso, e la quota minore non
+    e' sotto :data:`RAPPORTO_MASSIMO_FRA_LE_PARTI` della maggiore. Servono
+    entrambi i segnali.
+    """
+    propri, altrui = statistiche.con_segnale, statistiche.con_altro_segnale
+    if propri is None or altrui is None:
+        return None
+    minore, maggiore = sorted((propri, altrui))
+    if (minore >= SEGNALE_MINIMO_DI_UNA_PARTE
+            and minore >= RAPPORTO_MASSIMO_FRA_LE_PARTI * maggiore):
+        letture = statistiche.letture_esaminate
+        return (
+            f"{propri} letture su {letture} portano il segnale del verso atteso (quota "
+            f"{propri / letture:.4f}) e {altrui} quello dell'altro (quota {altrui / letture:.4f})")
+    return None

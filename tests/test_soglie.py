@@ -51,7 +51,11 @@ from amplicon16s.runner.graph import GRAFO
 from amplicon16s.runner.project import passi_realizzati
 from amplicon16s.steps.base import impronta_parametri
 from amplicon16s.soglie import comando, misure, tabella
-from amplicon16s.soglie.tabella import SOGLIE, Direzione, Unita
+from amplicon16s.soglie.tabella import Direzione, Unita
+
+#: Le soglie della modalita' single-end, che e' quella dei dataset di questo
+#: modulo: quelle della modalita' appaiata si provano con i suoi test.
+SOGLIE = tabella.soglie_di({})
 from amplicon16s.steps.s01_profile import classi_oltre_soglia
 from amplicon16s.steps.s02_filter import controlla_filtro
 from amplicon16s.steps.s06_chimera import controlla_chimere

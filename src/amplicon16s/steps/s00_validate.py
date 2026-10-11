@@ -56,6 +56,8 @@ __all__ = [
 NOME_ESITI: Final = "gates.json"
 NOME_INVENTARIO: Final = "inventario.json"
 NOME_LETTURE: Final = "letture_ispezionate.tsv"
+#: In modalita' appaiata, le stesse statistiche per i file reverse.
+NOME_LETTURE_REVERSE: Final = "letture_ispezionate_reverse.tsv"
 
 
 @dataclass(frozen=True)
@@ -83,13 +85,16 @@ class RisultatoS0:
         return tuple(a for e in self.esiti for a in e.avvisi)
 
 
-def _crosswalk_tsv(inventario: Inventario) -> str:
-    """Il crosswalk in forma tabellare: una riga per campione."""
+def _crosswalk_tsv(inventario: Inventario, appaiata: bool = False) -> str:
+    """Il crosswalk in forma tabellare: una riga per campione. In modalita'
+    appaiata ha in fondo la colonna del file reverse.
+    """
     buffer = StringIO()
     scrittore = csv.writer(buffer, delimiter="\t", lineterminator="\n")
     scrittore.writerow(
         ["accession", "sample_name", "classe", "materiale", "file",
          "posizione", "modulo", "piastra", "corsa"]
+        + (["file_reverse"] if appaiata else [])
     )
     for campione in inventario:
         scrittore.writerow(
@@ -97,6 +102,8 @@ def _crosswalk_tsv(inventario: Inventario) -> str:
              campione.materiale, campione.file.name if campione.file else "",
              campione.posizione or "", campione.modulo or "",
              campione.piastra or "", campione.corsa or ""]
+            + ([campione.file_reverse.name if campione.file_reverse else ""]
+               if appaiata else [])
         )
     return buffer.getvalue()
 
@@ -235,7 +242,10 @@ class ValidazioneIngressi(PipelineStep):
     #: motivo conservato nullo la colonna frazione_motivo e' vuota. 16: il
     #: primer puo' essere nullo (non si cerca, E-S0-21); una riga finale di
     #: soli spazi in un file di letture e' un difetto di formato (E-S0-13).
-    versione: ClassVar[int] = 16
+    #: 17: due file dello stesso campione che sono le due letture di una coppia
+    #: hanno un codice proprio (E-S0-24); un file con il nome di una seconda
+    #: lettura non e' respinto per il nome se S1 ne puo' giudicare il contenuto.
+    versione: ClassVar[int] = 17
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre
@@ -269,6 +279,15 @@ class ValidazioneIngressi(PipelineStep):
         "decontam.batch_column", "decontam.min_blanks", "err.batch_column",
         "filter.truncLen", "filter.trimLeft",
         "out.study_columns", "out.batch_columns", "katharoseq.cell_count_column",
+    )
+    #: In modalita' appaiata: i marcatori con cui G07 abbina i file; il
+    #: troncamento, il taglio, il primer e il motivo della lettura reverse, da
+    #: cui dipendono la scansione dei file reverse, G09 e G10; la soglia del
+    #: primer reverse in testa.
+    parametri_appaiata: ClassVar[tuple[str, ...]] = (
+        "pair.file_markers", "pair.truncLen_reverse", "pair.trimLeft_reverse",
+        "pair.primer_sequence_reverse", "pair.conserved_motif_reverse",
+        "pair.max_primer_hit_frac_reverse",
     )
 
     def __init__(self, *, solleva: bool = True) -> None:
@@ -325,7 +344,8 @@ class ValidazioneIngressi(PipelineStep):
         if inventario is not None:
             artefatti.append(
                 albero.scrivi_testo(
-                    Fase.INPUT_VALIDATION, NOME_CROSSWALK, _crosswalk_tsv(inventario)
+                    Fase.INPUT_VALIDATION, NOME_CROSSWALK,
+                    _crosswalk_tsv(inventario, config.appaiata),
                 )
             )
             artefatti.append(
@@ -343,6 +363,17 @@ class ValidazioneIngressi(PipelineStep):
                                  con_primer=config.qc.primer_sequence is not None),
                 )
             )
+            if config.appaiata:
+                artefatti.append(
+                    albero.scrivi_testo(
+                        Fase.INPUT_VALIDATION,
+                        NOME_LETTURE_REVERSE,
+                        _letture_tsv(
+                            gate.scansione_reverse, config.qc.head_reads,
+                            con_motivo=config.pair.conserved_motif_reverse is not None,
+                            con_primer=config.pair.primer_sequence_reverse is not None),
+                    )
+                )
 
         # Gli avvisi di degradazione (E-S0-15 ed E-S0-19 da G08, E-S0-17 da G11,
         # E-S0-18 ed E-S0-21 da G10, E-S0-20 da G13) non fermano la

@@ -16,6 +16,13 @@
 # (accession dei file senza letture, che non si filtrano: zero in ingresso e
 # in uscita) e ordine (tutti gli accession, nell'ordine delle tabelle).
 #
+# In modalita' appaiata arrivano anche reverse (accession -> file della lettura
+# reverse), truncLen_reverse, trimLeft_reverse e maxEE_reverse: il filtro e'
+# quello appaiato di filterAndTrim, che tiene o scarta le due letture di una
+# coppia insieme e scrive anche <accession>_filt_reverse.fastq.gz. I conteggi
+# sono coppie. La corrispondenza delle coppie fra i due file e' verificata
+# prima, lettura per lettura, dalla fase del profilo: matchIDs resta FALSE.
+#
 # I file si filtrano a lotti. Un errore di lettura o di decompressione su un
 # lotto si dichiara E-S2-03, ammesso al retry: se l'errore era transitorio il
 # lotto si rilegge; se il file e' corrotto, fallira' di nuovo.
@@ -39,12 +46,40 @@ esegui_fase(function(parametri, cartella) {
   lotto <- as.integer(parametri$lotto)
   uscite <- file.path(cartella, paste0(names(campioni), "_filt.fastq.gz"))
   names(uscite) <- names(campioni)
+  appaiata <- !is.null(facoltativo(parametri, "reverse"))
+  if (appaiata) {
+    reverse <- unlist(parametri$reverse)[names(campioni)]
+    if (anyNA(reverse)) {
+      stop("campioni senza il file reverse: ",
+           paste(names(campioni)[is.na(reverse)], collapse = ", "))
+    }
+    uscite_reverse <- file.path(cartella, paste0(names(campioni), "_filt_reverse.fastq.gz"))
+    names(uscite_reverse) <- names(campioni)
+  }
   indici <- split(seq_along(campioni), ceiling(seq_along(campioni) / lotto))
 
   conteggi <- NULL
   for (numero in seq_along(indici)) {
     i <- indici[[numero]]
     esito <- tryCatch(
+      if (appaiata) {
+        dada2::filterAndTrim(
+          fwd = unname(campioni[i]),
+          filt = unname(uscite[i]),
+          rev = unname(reverse[i]),
+          filt.rev = unname(uscite_reverse[i]),
+          truncLen = c(parametri$truncLen, parametri$truncLen_reverse),
+          trimLeft = c(parametri$trimLeft, parametri$trimLeft_reverse),
+          maxEE = c(parametri$maxEE, parametri$maxEE_reverse),
+          truncQ = parametri$truncQ,
+          maxN = parametri$maxN,
+          rm.phix = isTRUE(parametri$rm_phix),
+          matchIDs = FALSE,
+          compress = TRUE,
+          multithread = as.integer(parametri$processi),
+          verbose = FALSE
+        )
+      } else {
       dada2::filterAndTrim(
         fwd = unname(campioni[i]),
         filt = unname(uscite[i]),
@@ -57,7 +92,8 @@ esegui_fase(function(parametri, cartella) {
         compress = TRUE,
         multithread = as.integer(parametri$processi),
         verbose = FALSE
-      ),
+      )
+      },
       error = function(e) {
         if (grepl(ERRORE_DI_LETTURA, conditionMessage(e), ignore.case = TRUE)) {
           errore_catalogo(
@@ -91,5 +127,12 @@ esegui_fase(function(parametri, cartella) {
   )
   # filterAndTrim non scrive il file di un campione azzerato.
   scritti <- names(uscite)[uscita[names(uscite)] > 0 & file.exists(uscite)]
+  if (appaiata) {
+    senza_compagno <- scritti[!file.exists(uscite_reverse[scritti])]
+    if (length(senza_compagno)) {
+      stop("letture forward filtrate senza le reverse: ", paste(senza_compagno, collapse = ", "))
+    }
+    return(c(artefatti, basename(uscite[scritti]), basename(uscite_reverse[scritti])))
+  }
   c(artefatti, basename(uscite[scritti]))
 })

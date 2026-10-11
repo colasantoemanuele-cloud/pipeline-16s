@@ -1054,7 +1054,9 @@ def test_il_report_non_ha_predefiniti_di_un_dataset_da_segnalare(tmp_path, capsy
         origine = {r["parametro"]: r["origine"] for r in csv.DictReader(file, delimiter="\t")}
     assert {c for c, o in origine.items() if o == "dichiarato"} >= set(defaults.OBBLIGATORI)
     predefiniti = {c for c, o in origine.items() if o == "predefinito"}
-    assert set(defaults.STANDARD_DEL_METODO) <= predefiniti
+    # Gli standard del gruppo pair non compaiono: la configurazione e' single-end.
+    assert {c for c in defaults.STANDARD_DEL_METODO if not c.startswith("pair.")} <= predefiniti
+    assert not any(c.startswith("pair.") for c in origine)
     assert not predefiniti & set(defaults.OBBLIGATORI)
 
 
@@ -1456,3 +1458,75 @@ def test_le_forward_si_ricavano_solo_da_un_deposito_con_le_coppie_complete(tmp_p
     uscita = capsys.readouterr().out
     assert "CORSA1_campione_R1.fastq.gz: illeggibile" in uscita
     assert "file forward conformi 0, mancanti o non conformi 3" in uscita
+
+
+@pytest.mark.skipif(not (RADICE / "dati" / "osd276").is_dir(),
+                    reason="la cartella dati/ non e' presente (nell'immagine non viene copiata)")
+def test_le_due_letture_si_ricavano_in_una_cartella_separata_senza_scambi(
+    tmp_path, monkeypatch, capsys
+):
+    """
+    **Obiettivo**: Verificare che con ``--coppie`` lo script ricavi da ogni
+    corsa i record ``/1`` in ``fastq_coppie/<corsa>_R1`` e i ``/2`` in
+    ``fastq_coppie/<corsa>_R2``, nello stesso numero e nello stesso ordine,
+    senza creare ne' toccare ``fastq/``; che un secondo lancio li trovi
+    conformi; che un file reverse con un'impronta diversa dall'attesa faccia
+    fallire la corsa senza lasciare nessuno dei suoi due file; e che l'elenco
+    delle impronte delle reverse pubblicato abbia una voce per ogni corsa.
+
+    **Razionale scientifico e sistemistico**: La modalita' appaiata richiede i
+    due file allineati lettura per lettura. Lo script non decide quale dei due
+    sia il forward: li nomina dall'etichetta del deposito, e una corsa
+    invertita deve arrivare alla pipeline cosi' com'e', perche' sia la
+    pipeline a riconoscerla.
+    """
+    import hashlib
+
+    script = _modulo_delle_letture_del_secondo_dataset()
+    coppie = [f"c.{i} {i}/1" for i in range(1, 4)] + [f"c.{i} {i}/2" for i in range(1, 4)]
+    contenuto = {lato: "".join(f"@{i}\nACGT\n+\nIIII\n" for i in coppie if i.endswith(lato)).encode()
+                 for lato in ("/1", "/2")}
+    cartella = tmp_path / "dati"
+    righe, forward, reverse = [], [], []
+    for corsa, md5_reverse in (("CORSA1", hashlib.md5(contenuto["/2"]).hexdigest()),
+                               ("CORSA2", "0" * 32)):
+        deposito = cartella / "ena" / f"{corsa}.fastq.gz"
+        _deposito(deposito, coppie)
+        nome = f"{corsa}_campione_R1.fastq.gz"
+        righe.append([nome, corsa, "ESP1", "campione", "https://esempio.invalid/" + corsa,
+                      hashlib.md5(deposito.read_bytes()).hexdigest(),
+                      str(deposito.stat().st_size), "6", "3"])
+        forward.append(f"{hashlib.md5(contenuto['/1']).hexdigest()}  {nome}\n")
+        reverse.append(f"{md5_reverse}  {script.nome_reverse(nome)}\n")
+    elenco = tmp_path / "letture_ena.tsv"
+    elenco.write_text("\t".join(
+        ["file", "run_accession", "experiment_accession", "sample_name", "fastq_url",
+         "fastq_md5", "fastq_bytes", "letture_deposito", "letture_forward"]) + "\n"
+        + "".join("\t".join(r) + "\n" for r in righe), encoding="utf-8")
+    (tmp_path / "letture_forward.md5").write_text("".join(forward), encoding="utf-8")
+    (tmp_path / "letture_reverse.md5").write_text("".join(reverse), encoding="utf-8")
+    monkeypatch.setattr(script, "ELENCO", elenco)
+    monkeypatch.setattr(script, "IMPRONTE", tmp_path / "letture_forward.md5")
+    monkeypatch.setattr(script, "IMPRONTE_REVERSE", tmp_path / "letture_reverse.md5")
+
+    assert script.main(["--cartella", str(cartella), "--pausa", "0", "--coppie"]) == 1
+    uscita = capsys.readouterr().out
+    assert "coppie di file conformi 1, mancanti o non conformi 1" in uscita
+    assert "CORSA1_campione_R1.fastq.gz e CORSA1_campione_R2.fastq.gz: 3 coppie" in uscita
+    assert "CORSA2_campione_R2.fastq.gz: le letture ricavate non sono quelle attese" in uscita
+    assert not (cartella / "fastq").exists()
+    presenti = sorted(p.name for p in (cartella / script.CARTELLA_COPPIE).iterdir()
+                      if p.name.endswith(".fastq.gz"))
+    assert presenti == ["CORSA1_campione_R1.fastq.gz", "CORSA1_campione_R2.fastq.gz"]
+    for nome, lato in zip(presenti, ("/1", "/2")):
+        with gzip.open(cartella / script.CARTELLA_COPPIE / nome, "rb") as file:
+            assert file.read() == contenuto[lato], nome
+    assert script.main(["--cartella", str(cartella), "--coppie", "--solo-verifica"]) == 1
+    assert "coppie di file conformi 1" in capsys.readouterr().out
+
+    monkeypatch.undo()
+    script = _modulo_delle_letture_del_secondo_dataset()
+    pubblicate = script.leggi_impronte(script.IMPRONTE_REVERSE)
+    assert sorted(pubblicate) == sorted(
+        script.nome_reverse(r["file"]) for r in script.leggi_elenco())
+    assert not set(pubblicate) & set(script.leggi_impronte())

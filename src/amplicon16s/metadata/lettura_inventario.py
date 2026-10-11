@@ -47,6 +47,10 @@ def leggi_inventario(config: Config) -> Inventario:
                     modulo=riga["modulo"] or None,
                     piastra=riga["piastra"] or None,
                     corsa=riga["corsa"] or None,
+                    # La colonna c'e' solo in modalita' appaiata.
+                    file_reverse=(
+                        Path(config.io.fastq_dir) / riga["file_reverse"]
+                        if riga.get("file_reverse") else None),
                 )
             )
     return Inventario(tuple(campioni))

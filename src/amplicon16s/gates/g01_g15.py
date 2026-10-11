@@ -47,6 +47,7 @@ from typing import Any, Final
 
 from amplicon16s.config.resolve import ConfigRisolta, risolvi
 from amplicon16s.config.schema import (
+    INTESTAZIONE_COPPIE,
     INTESTAZIONE_MANCANTI,
     Config,
     ErroreConfigurazione,
@@ -55,7 +56,16 @@ from amplicon16s.config.schema import (
 )
 from amplicon16s.errors.catalog import CATALOGO, Categoria, VoceCatalogo, voce
 from amplicon16s.errors.exceptions import ErrorePipeline
-from amplicon16s.io_layer.reads import StatisticheFile, apri_fastq, espandi_iupac, scansiona
+from amplicon16s.io_layer.reads import (
+    LETTURE_MINIME_PER_UN_NOME_SOSPETTO,
+    NOME_DI_LETTURA_INVERSA,
+    nome_da_seconda_lettura,
+    StatisticheFile,
+    apri_fastq,
+    espandi_iupac,
+    scansiona,
+    segnale_di_orientamento,
+)
 from amplicon16s.metadata.crosswalk import Analisi, analizza
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione, Inventario
 from amplicon16s.metadata.tabelle import intestazione as _intestazione
@@ -178,6 +188,14 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
         "gate",
     ),
     Controllo(
+        "E-G15-15",
+        ("io.layout", "pair.file_markers", "pair.truncLen_reverse", "pair.trimLeft_reverse",
+         "pair.truncLen_shortfall_warn_reverse", "pair.min_merged_frac_warn",
+         "pair.min_merged_frac_stop", "pair.len_min", "pair.len_max", "pair.trim_overhang",
+         "filter.truncLen", "filter.trimLeft"),
+        "schema",
+    ),
+    Controllo(
         "E-G15-99",
         (),
         "schema",
@@ -294,6 +312,11 @@ def _codice_per_problema(problema: str) -> str:
         return "E-G15-10"
     if "parametro derivato" in problema:
         return "E-G15-08"
+    # La modalita' appaiata: un parametro di pair senza la modalita', o una
+    # combinazione dei suoi parametri che non puo' valere. Un valore fuori dal
+    # suo intervallo (pair.<chiave>: ...) resta un problema di schema.
+    if INTESTAZIONE_COPPIE in problema or problema.startswith("pair:"):
+        return "E-G15-15"
     # La regola di riclassificazione senza la sua colonna: lo schema la respinge
     # da se', e il rifiuto e' quello del controllo sulle dipendenze fra parametri.
     if problema.startswith("ctrl:") and "blank_override_column e' nullo" in problema:
@@ -319,7 +342,7 @@ def _violazione_da_schema(problema: str) -> Violazione:
     codice = _codice_per_problema(problema)
     controllo = _PER_CODICE[codice]
 
-    if not controllo.parametri or codice == "E-G15-14":
+    if not controllo.parametri or codice in ("E-G15-14", "E-G15-15"):
         return Violazione(codice, problema)
 
     return Violazione(
@@ -602,10 +625,49 @@ def _g04_accession_estraibile(analisi: Analisi) -> list[Violazione]:
     return violazioni
 
 
+def _file_senza_compagno(analisi: Analisi) -> list[Violazione]:
+    """In modalita' appaiata: i file che non formano una coppia.
+
+    Sta con l'univocita' delle chiavi, prima del confronto fra file e
+    metadati: un campione il cui file reverse manca risulterebbe altrimenti
+    assente dalla cartella, e il messaggio nasconderebbe la causa.
+    """
+    if not (analisi.file_senza_compagno or analisi.file_ambigui):
+        return []
+    marcatori = analisi.marcatori_di_file
+    parti = []
+    if analisi.file_senza_compagno:
+        parti.append("{} file senza compagno: {}".format(
+            len(analisi.file_senza_compagno), _elenca(analisi.file_senza_compagno)))
+    if analisi.file_ambigui:
+        parti.append("{} file con un nome che porta i due marcatori in modo ambiguo: "
+                     "{}".format(len(analisi.file_ambigui), _elenca(analisi.file_ambigui)))
+    return [Violazione(
+        "E-S0-23",
+        "{} (pair.file_markers: {!r} per il file forward, {!r} per il reverse)".format(
+            "; ".join(parti), marcatori[0], marcatori[1]),
+    )]
+
+
 def _g05_accession_univoci(analisi: Analisi) -> list[Violazione]:
     """Lo stesso accession non puo' appartenere a due file o a due campioni."""
-    violazioni = []
+    violazioni = _file_senza_compagno(analisi)
     for accession, file in sorted(analisi.accession_ripetuti_nei_file.items()):
+        if accession in analisi.coppie_in_single_end:
+            # I due file sono le due letture di una coppia: non e' una chiave
+            # scritta male, e' un dataset appaiato in modalita' single-end.
+            marcatori, nomi = analisi.coppie_in_single_end[accession]
+            violazioni.append(
+                Violazione(
+                    "E-S0-24",
+                    f"l'accession {accession} ha due file che si distinguono per il "
+                    f"marcatore di coppia ({marcatori[0]} e {marcatori[1]}): {_elenca(nomi)}. "
+                    f"Sono le due letture di ogni coppia: dichiara io.layout: \"paired-end\" "
+                    f"con pair.file_markers: [\"{marcatori[0]}\", \"{marcatori[1]}\"], "
+                    f"oppure tieni nella cartella i soli file forward",
+                )
+            )
+            continue
         violazioni.append(
             Violazione(
                 "E-S0-05",
@@ -729,6 +791,7 @@ class Contesto:
         self.config = config
         self._analisi: Analisi | None = None
         self._scansione: dict[str, Any] | None = None
+        self._scansione_reverse: dict[str, Any] | None = None
 
     @property
     def analisi(self) -> Analisi:
@@ -767,6 +830,30 @@ class Contesto:
                 lunghezza_richiesta=self.config.filter.truncLen,
             )
         return self._scansione
+
+    @property
+    def scansione_reverse(self) -> dict[str, StatisticheFile]:
+        """In modalita' appaiata, le statistiche delle prime letture di ogni
+        file reverse: il primer reverse in testa (se il taglio non lo toglie),
+        il motivo della reverse dopo il taglio, le letture piu' corte del
+        troncamento della reverse. Vuoto in modalita' single-end.
+        """
+        if self._scansione_reverse is None:
+            if not self.config.appaiata:
+                self._scansione_reverse = {}
+            else:
+                coppie = self.config.pair
+                primer = coppie.primer_sequence_reverse
+                self._scansione_reverse = scansiona(
+                    self.analisi.reverse_per_accession,
+                    head_reads=self.config.qc.head_reads,
+                    primer=(espandi_iupac(primer)
+                            if coppie.trimLeft_reverse == 0 and primer is not None else None),
+                    motivo=coppie.conserved_motif_reverse,
+                    inizio_motivo=coppie.trimLeft_reverse,
+                    lunghezza_richiesta=coppie.truncLen_reverse,
+                )
+        return self._scansione_reverse
 
 
 # =========================================================================== #
@@ -1051,15 +1138,8 @@ COLONNE_DEI_TAXA_DIFETTOSI: Final = ("name", "rank")
 #: lo toglie. E' una soglia di riconoscimento, non un valore di un dataset.
 PRIMER_IN_TESTA: Final = 0.5
 
-#: Il secondo file di una coppia, riconosciuto dal marcatore che precede
-#: l'estensione: ``_R2``, ``.R2``, ``_2`` o ``.2``, con un eventuale numero di
-#: blocco (``_001``). Ancorato alla fine del nome: un campione che si chiama
-#: ``LAB_R2D2`` non e' una lettura inversa. Sono convenzioni diffuse, non una
-#: proprieta' di un dataset.
-_LETTURA_INVERSA: Final = re.compile(
-    r"(?P<prima>.*)(?P<segno>[._]R2|[._]2)(?P<dopo>(?:_[0-9]+)?\.(?:fastq|fq)(?:\.gz)?)$",
-    re.IGNORECASE,
-)
+#: Il nome del secondo file di una coppia: la regola sta con le letture.
+_LETTURA_INVERSA: Final = NOME_DI_LETTURA_INVERSA
 
 
 def _e_lettura_inversa(nome: str, nomi: frozenset[str]) -> bool:
@@ -1070,14 +1150,7 @@ def _e_lettura_inversa(nome: str, nomi: frozenset[str]) -> bool:
     lettura inversa solo se nella cartella c'e' il compagno con ``1`` allo
     stesso posto.
     """
-    trovato = _LETTURA_INVERSA.match(nome)
-    if trovato is None:
-        return False
-    segno = trovato.group("segno")
-    if segno[1:].upper() == "R2":
-        return True
-    compagno = f"{trovato.group('prima')}{segno[0]}1{trovato.group('dopo')}"
-    return compagno.casefold() in nomi
+    return nome_da_seconda_lettura(nome, nomi)
 
 
 def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
@@ -1092,6 +1165,8 @@ def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[A
     """
     config = contesto.config
     violazioni: list[Violazione] = []
+    if config.appaiata:
+        return _g07_layout_appaiato(contesto)
 
     for accession, nomi in sorted(
         contesto.analisi.accession_ripetuti_nei_file.items()
@@ -1106,7 +1181,13 @@ def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[A
 
     nomi = [p.name for p in Path(config.io.fastq_dir).glob(config.io.fastq_glob)]
     presenti = frozenset(n.casefold() for n in nomi)
-    inverse = sorted(n for n in nomi if _e_lettura_inversa(n, presenti))
+    # Un nome da seconda lettura non basta a respingere un file se il suo
+    # contenuto si puo' giudicare: lo fara' S1, su tutte le letture, con il
+    # controllo di orientamento. Resta respinto per il nome il file che quel
+    # controllo non copre.
+    inverse = sorted(
+        n for n in nomi
+        if _e_lettura_inversa(n, presenti) and not _giudicabile_dal_contenuto(contesto, n))
     if inverse:
         violazioni.append(
             Violazione(
@@ -1131,6 +1212,72 @@ def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[A
                     len(intercalati), _elenca(intercalati)),
             )
         )
+    return violazioni, []
+
+
+def _giudicabile_dal_contenuto(contesto: Contesto, nome: str) -> bool:
+    """Se il controllo di orientamento di S1 copre un file che il nome indica
+    come seconda lettura: c'e' un segnale da cercare, il campione e' di una
+    classe da cui ci si attende il bersaglio, e fra le letture ispezionate ce
+    ne sono abbastanza (:data:`LETTURE_MINIME_PER_UN_NOME_SOSPETTO`).
+    """
+    config = contesto.config
+    if segnale_di_orientamento(
+        config.qc.primer_sequence, config.qc.conserved_motif, config.filter.trimLeft
+    ) is None:
+        return False
+    accession = next(
+        (a for a, p in contesto.analisi.file_per_accession.items() if p.name == nome), None)
+    if accession is None:
+        return False
+    classi = {c.accession: c.classe for c in contesto.inventario}
+    if classi.get(accession) not in CLASSI_CONTROLLATE:
+        return False
+    statistiche = contesto.scansione.get(accession)
+    return (statistiche is not None and statistiche.valido
+            and statistiche.letture_esaminate >= LETTURE_MINIME_PER_UN_NOME_SOSPETTO)
+
+
+def _g07_layout_appaiato(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
+    """In modalita' appaiata: il file forward porta le prime letture delle
+    coppie e il reverse le seconde.
+
+    Dalle intestazioni delle letture ispezionate: un file che porta i segni di
+    entrambe le letture contiene le coppie intere e va respinto come in
+    single-end; un file che porta il marcatore dell'altra lettura indica una
+    corsa con i due file scambiati.
+    """
+    analisi = contesto.analisi
+    violazioni: list[Violazione] = []
+    intercalati, invertite = [], []
+    for accession in sorted(contesto.scansione):
+        for statistiche, attesa, quale in (
+            (contesto.scansione[accession], "1", "forward"),
+            (contesto.scansione_reverse.get(accession), "2", "reverse"),
+        ):
+            if statistiche is None or not statistiche.valido:
+                continue
+            esito = statistiche.segni_di_coppia_inattesi(attesa)
+            if esito is None:
+                continue
+            specie, descrizione = esito
+            voce_file = f"{statistiche.nome} ({accession}, file {quale}): {descrizione}"
+            (intercalati if specie == "intercalato" else invertite).append(voce_file)
+    if intercalati:
+        violazioni.append(Violazione(
+            "E-S0-27",
+            "{} file contengono le due letture di ogni coppia nello stesso file: {}. In "
+            "modalita' appaiata ogni file riporta una sola lettura di ogni coppia: separa "
+            "le due letture in due file per campione".format(
+                len(intercalati), _elenca(intercalati)),
+        ))
+    if invertite:
+        violazioni.append(Violazione(
+            "E-S0-26",
+            "{} file portano nelle intestazioni il marcatore dell'altra lettura: {}. I due "
+            "file di queste corse sono scambiati: scambiane i nomi".format(
+                len(invertite), _elenca(invertite)),
+        ))
     return violazioni, []
 
 
@@ -1277,6 +1424,20 @@ def _g13_archivi_validi(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
                 f"{statistiche.nome} ({accession}): {statistiche.errore}",
             )
         )
+    # In modalita' appaiata anche i file reverse; il file reverse senza letture
+    # di un controllo negativo segue il suo forward, gia' dichiarato.
+    for accession in sorted(contesto.scansione_reverse):
+        statistiche = contesto.scansione_reverse[accession]
+        if statistiche.valido or (
+            statistiche.vuoto and classi.get(accession) is ClasseCampione.CONTROLLO_NEGATIVO
+        ):
+            continue
+        violazioni.append(
+            Violazione(
+                "E-S0-13",
+                f"{statistiche.nome} ({accession}, file reverse): {statistiche.errore}",
+            )
+        )
     return violazioni, avvisi
 
 
@@ -1300,15 +1461,40 @@ def _g09_troncamento_compatibile(contesto: Contesto) -> tuple[list[Violazione], 
     stessa verifica (E-S1-02).
     """
     config = contesto.config
-    troncamento = config.filter.truncLen
     massima = config.qc.max_frac_short_reads
     classi = {c.accession: c.classe for c in contesto.inventario}
 
     violazioni: list[Violazione] = []
+    if config.appaiata:
+        # La stessa verifica sulle letture reverse, con il loro troncamento: una
+        # lettura reverse piu' corta fa scartare la coppia.
+        violazioni += _letture_corte_per_classe(
+            contesto.scansione_reverse, classi, config.pair.truncLen_reverse, massima,
+            "pair.truncLen_reverse", " reverse")
+    violazioni += _letture_corte_per_classe(
+        contesto.scansione, classi, config.filter.truncLen, massima, "filter.truncLen", "")
+    if violazioni:
+        return violazioni, []
+
+    # Lo scarto opposto (troncare molto sotto la lettura piu' corta) e'
+    # E-S1-01, e non si valuta qui: su una stima del minimo sarebbe sbagliato
+    # nei due versi. Lo valuta S1, che legge tutte le letture.
+    return [], []
+
+
+def _letture_corte_per_classe(
+    scansione: Mapping[str, StatisticheFile], classi: Mapping[str, ClasseCampione],
+    troncamento: int, massima: float, parametro: str, quali: str,
+) -> list[Violazione]:
+    """Le violazioni di G09 per le letture di una scansione: una per classe
+    controllata in cui la frazione di letture piu' corte del troncamento supera
+    la soglia. ``quali`` distingue nel testo le letture reverse.
+    """
+    violazioni: list[Violazione] = []
     for classe in CLASSI_CONTROLLATE:
         esaminate = corte = 0
         con_corte: list[StatisticheFile] = []
-        for accession, s in contesto.scansione.items():
+        for accession, s in scansione.items():
             if not s.valido or classi.get(accession) is not classe:
                 continue
             esaminate += s.letture_esaminate
@@ -1326,20 +1512,14 @@ def _g09_troncamento_compatibile(contesto: Contesto) -> tuple[list[Violazione], 
         violazioni.append(
             Violazione(
                 "E-S0-09",
-                f"filter.truncLen vale {troncamento} e il {frazione:.1%} delle prime "
-                f"letture della classe {classe.value} e' piu' corto ({corte} su "
+                f"{parametro} vale {troncamento} e il {frazione:.1%} delle prime "
+                f"letture{quali} della classe {classe.value} e' piu' corto ({corte} su "
                 f"{esaminate}), oltre il {massima:.1%} di qc.max_frac_short_reads; "
                 f"{len(con_corte)} file ne hanno: {dettaglio}. Le letture piu' corte "
                 f"del troncamento vengono scartate, non accorciate",
             )
         )
-    if violazioni:
-        return violazioni, []
-
-    # Lo scarto opposto (troncare molto sotto la lettura piu' corta) e'
-    # E-S1-01, e non si valuta qui: su una stima del minimo sarebbe sbagliato
-    # nei due versi. Lo valuta S1, che legge tutte le letture.
-    return [], []
+    return violazioni
 
 
 def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
@@ -1423,6 +1603,9 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
         # della lettura: giudicarlo adesso darebbe una seconda violazione che e'
         # solo la conseguenza della prima. Si giudichera' alla posizione
         # filter.trimLeft, una volta corretto.
+        return violazioni + _primer_reverse_in_testa(contesto, controllati), avvisi
+    violazioni += _primer_reverse_in_testa(contesto, controllati)
+    if violazioni:
         return violazioni, avvisi
 
     if config.qc.primer_sequence is None:
@@ -1481,6 +1664,43 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
             )
         )
     return violazioni, avvisi
+
+
+def _primer_reverse_in_testa(contesto: Contesto, controllati: set[str]) -> list[Violazione]:
+    """In modalita' appaiata, la violazione per il primer reverse in testa alle
+    letture reverse quando il taglio non lo toglie; vuoto altrimenti.
+
+    Come per il forward: file per file, sulle classi controllate. La scansione
+    conta il primer solo con ``pair.trimLeft_reverse`` zero e il primer noto.
+    """
+    config = contesto.config
+    if not config.appaiata or config.pair.trimLeft_reverse != 0:
+        return []
+    if config.pair.primer_sequence_reverse is None:
+        return []
+    massima = config.pair.max_primer_hit_frac_reverse
+    col_primer = {
+        accession: s for accession, s in contesto.scansione_reverse.items()
+        if accession in controllati and s.valido and s.frazione_primer > massima
+    }
+    if not col_primer:
+        return []
+    peggiori = sorted(col_primer.items(), key=lambda voce: -voce[1].frazione_primer)
+    dettaglio = ", ".join(f"{s.nome} ({s.frazione_primer:.1%})" for _, s in peggiori[:5])
+    primer = config.pair.primer_sequence_reverse
+    return [Violazione(
+        "E-S0-25",
+        f"{len(col_primer)} file reverse di campioni biologici o di controlli positivi hanno "
+        f"piu' di {massima:.0%} di letture che iniziano con il primer reverse {primer}: "
+        f"{dettaglio}. " + (
+            f"Imposta pair.trimLeft_reverse a {len(primer)}, la lunghezza del primer"
+            if peggiori[-1][1].frazione_primer >= PRIMER_IN_TESTA else
+            "Il primer e' in testa solo in una parte delle letture: e' probabilmente "
+            "preceduto da basi di lunghezza variabile, e un taglio fisso "
+            "(pair.trimLeft_reverse) non lo toglierebbe. Va rimosso per sequenza prima "
+            "della pipeline"
+        ),
+    )]
 
 
 # =========================================================================== #

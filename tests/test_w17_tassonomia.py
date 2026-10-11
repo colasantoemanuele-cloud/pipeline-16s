@@ -135,7 +135,7 @@ from amplicon16s.metadata.models import ClasseCampione
 from amplicon16s.rbridge.payload import PREFISSO
 from amplicon16s.rbridge.runner import VARIABILE_CARTELLA_R, trova_rscript
 from amplicon16s.runner.executor import Conclusione, Esecutore
-from amplicon16s.runner.graph import Passo
+from amplicon16s.runner.graph import GRAFO, Passo
 from amplicon16s.runner.project import ProjectRun, StatoPasso, passi_realizzati
 from amplicon16s.runner.provenienza import (
     RegistroNonAggiornabile,
@@ -508,7 +508,7 @@ def test_i_manifesti_della_catena_registrano_il_sorgente_del_registro(dada2, fin
     assert esito.conclusione is Conclusione.COMPLETATA
     registro = leggi_registro()
     for passo, fase in passi_realizzati().items():
-        if passo is Passo.S9:
+        if not GRAFO.nodo(passo).attiva(run.config):
             continue
         manifesto = run.albero.manifesto_passo(passo, fase.cartella)
         assert manifesto.provenienza["sorgente"] == registro[str(passo)]["sorgente"], passo

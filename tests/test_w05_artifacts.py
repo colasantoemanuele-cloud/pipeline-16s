@@ -95,7 +95,7 @@ from amplicon16s.io_layer.checksums import (
 
 CARTELLE_ATTESE = (
     "00_config", "01_input_validation", "02_qc_profiles", "03_filtered",
-    "04_error_models", "05_asv_inference", "06_seqtab", "07_chimera",
+    "04_error_models", "05_asv_inference", "05_pair_merge", "06_seqtab", "07_chimera",
     "08_taxonomy", "09_phylogeny", "10_phyloseq", "11_controls", "12_final",
     "12_final/intermedi", "99_logs",
 )
@@ -216,8 +216,11 @@ def test_le_fasi_sono_quattordici():
     suoi intermedi in `12_final/intermedi` perché in `12_final` restino i soli
     file consegnati da S14, e si aggiungono `00_config` e `99_logs`.
     """
-    assert len(list(Fase)) == 15
-    assert len([f for f in Fase if "/" not in f.value]) == 14
+    # Piu' la cartella della fusione delle coppie, che esiste solo in
+    # modalita' appaiata.
+    assert len(list(Fase)) == 16
+    assert len([f for f in Fase if "/" not in f.value]) == 15
+    assert Fase.PAIR_MERGE.value == "05_pair_merge"
 
 
 def test_i_nomi_delle_cartelle_sono_quelli_previsti():

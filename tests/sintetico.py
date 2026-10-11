@@ -256,3 +256,160 @@ def configurazione(dataset: DatasetSintetico, uscita: Path, **sovrascrivi: dict[
     for gruppo, valori in sovrascrivi.items():
         dati.setdefault(gruppo, {}).update(valori)
     return dati
+
+
+# --------------------------------------------------------------------------- #
+# Dataset appaiato                                                             #
+# --------------------------------------------------------------------------- #
+
+#: Il primer reverse messo in testa alle letture reverse quando richiesto: l'805R
+#: di Herlemann et al. 2011.
+PRIMER_805R = "GACTACHVGGGTATCTAATCC"
+
+_COMPLEMENTO = str.maketrans("ACGT", "TGCA")
+
+
+def complemento_inverso(sequenza: str) -> str:
+    """Il complemento inverso di una sequenza di sole basi."""
+    return sequenza.translate(_COMPLEMENTO)[::-1]
+
+
+#: La lunghezza dell'inserto dei dataset appaiati sintetici, senza i primer: la
+#: regione del riferimento e la coda comune.
+INSERTO = 137 + len(CODA)
+
+#: Con che cosa iniziano le letture reverse dopo l'eventuale primer: il
+#: complemento inverso della coda comune, uguale in ogni frammento.
+MOTIVO_REVERSE = complemento_inverso(CODA)[:16]
+
+
+@dataclass(frozen=True)
+class DatasetAppaiato(DatasetSintetico):
+    """Un dataset sintetico con le due letture di ogni frammento."""
+
+    primer_reverse: str | None = None
+    marcatori: tuple[str, str] = ("_R1", "_R2")
+    #: Il file forward e il file reverse di ogni campione.
+    coppie: dict[str, tuple[Path, Path]] = field(default_factory=dict)
+
+    @property
+    def inserto(self) -> int:
+        """La lunghezza del frammento sequenziato, primer compresi."""
+        return len(self.primer or "") + INSERTO + len(self.primer_reverse or "")
+
+
+def genera_coppie(
+    cartella: Path,
+    *,
+    biologici: int = 4,
+    negativi: int = 0,
+    coppie: int = 600,
+    coppie_negativi: int = 40,
+    lunghezza: int = 100,
+    primer: str | None = None,
+    primer_reverse: str | None = None,
+    marcatori: tuple[str, str] = ("_R1", "_R2"),
+    intestazioni: str = "illumina",
+    seme: int = 20,
+) -> DatasetAppaiato:
+    """Genera un dataset appaiato: per ogni campione due file, con le due
+    letture di ``lunghezza`` basi di ogni frammento, nello stesso ordine.
+
+    Ogni frammento e' una sequenza del riferimento sintetico seguita dalla coda
+    comune, lungo :data:`INSERTO` basi; con ``primer`` e ``primer_reverse`` li
+    porta alle due estremita'. La lettura forward ne legge l'inizio, la reverse
+    il complemento inverso della fine: con letture di 100 basi le due si
+    sovrappongono per una quarantina. ``intestazioni`` dice come le due letture
+    di una coppia si nominano: ``illumina`` (stesso identificativo, ``1:N:0:1``
+    e ``2:N:0:1`` nel commento), ``barra`` (``/1`` e ``/2``), ``uguali`` (lo
+    stesso nome) o ``numerate`` (numeri progressivi di un archivio: la reverse
+    della coppia k e' la lettura N + k).
+    """
+    caso = random.Random(seme)
+    riferimento = [sequenza for _, sequenza in sequenze_di_riferimento()]
+    cartella.mkdir(parents=True, exist_ok=True)
+    cartella_letture = cartella / "letture"
+    cartella_letture.mkdir()
+    iupac = {"N": "ACGT", "W": "AT", "R": "AG", "Y": "CT", "M": "AC", "K": "GT", "S": "CG",
+             "H": "ACT", "V": "ACG", "B": "CGT", "D": "AGT"}
+
+    def risolvi(sequenza: str | None) -> str:
+        return "".join(caso.choice(iupac.get(b, b)) for b in (sequenza or ""))
+
+    tipi = [ETICHETTA_BIOLOGICO] * biologici + [ETICHETTA_NEGATIVO] * negativi
+    campioni: dict[str, str] = {}
+    nomi: dict[str, str] = {}
+    file_di: dict[str, tuple[Path, Path]] = {}
+    righe = []
+    for indice, tipo in enumerate(tipi, start=1):
+        chiave = f"LIB{indice:03d}"
+        nome = f"{'T' if tipo == ETICHETTA_BIOLOGICO else 'B'}{indice:02d}"
+        campioni[chiave], nomi[chiave] = tipo, nome
+        scelte = [riferimento[(indice * 3 + k * 5) % len(riferimento)] for k in range(6)]
+        pesi = [caso.uniform(1, 6) for _ in scelte]
+        quante = coppie if tipo == ETICHETTA_BIOLOGICO else coppie_negativi
+        forward, reverse = [], []
+        for numero in range(1, quante + 1):
+            frammento = (risolvi(primer) + caso.choices(scelte, pesi)[0] + CODA
+                         + complemento_inverso(risolvi(primer_reverse)))
+            prima, qualita_1 = _lettura(frammento[:lunghezza], caso)
+            seconda, qualita_2 = _lettura(complemento_inverso(frammento)[:lunghezza], caso)
+            if intestazioni == "illumina":
+                nome_1, nome_2 = f"{chiave}:{numero} 1:N:0:1", f"{chiave}:{numero} 2:N:0:1"
+            elif intestazioni == "barra":
+                nome_1, nome_2 = f"{chiave}:{numero}/1", f"{chiave}:{numero}/2"
+            elif intestazioni == "numerate":
+                nome_1, nome_2 = f"{chiave}.{numero}", f"{chiave}.{quante + numero}"
+            else:
+                nome_1 = nome_2 = f"{chiave}:{numero}"
+            forward.append((nome_1, prima, qualita_1))
+            reverse.append((nome_2, seconda, qualita_2))
+        del_forward = cartella_letture / f"{chiave}_{nome}{marcatori[0]}.fq.gz"
+        del_reverse = cartella_letture / f"{chiave}_{nome}{marcatori[1]}.fq.gz"
+        _scrivi_fastq(del_forward, forward)
+        _scrivi_fastq(del_reverse, reverse)
+        file_di[chiave] = (del_forward, del_reverse)
+        righe.append({
+            COLONNA_CAMPIONE: nome, COLONNA_FILE: del_forward.name,
+            COLONNA_SITO: f"sito {1 + indice % 3}",
+            COLONNA_GRUPPO: "trattato" if indice % 2 else "non trattato",
+            COLONNA_TIPO: tipo,
+        })
+    colonne = list(righe[0])
+    tabella = cartella / "campioni.tsv"
+    tabella.write_text(
+        "\t".join(colonne) + "\n"
+        + "".join("\t".join(r[c] for c in colonne) + "\n" for r in righe), encoding="utf-8")
+    return DatasetAppaiato(
+        cartella, cartella_letture, tabella, None, campioni, (), primer, lunghezza, True, nomi,
+        primer_reverse=primer_reverse, marcatori=marcatori, coppie=file_di,
+    )
+
+
+def configurazione_appaiata(
+    dataset: DatasetAppaiato, uscita: Path, **sovrascrivi: dict[str, Any]
+) -> dict[str, Any]:
+    """Una configurazione completa, in modalita' appaiata, per il dataset
+    generato da :func:`genera_coppie`: le letture intere, i tagli dei due
+    primer, il motivo delle letture reverse e l'intervallo intorno all'inserto.
+    """
+    dati = configurazione(dataset, uscita)
+    taglio, taglio_reverse = len(dataset.primer or ""), len(dataset.primer_reverse or "")
+    dati["io"]["layout"] = "paired-end"
+    dati["filter"].update(truncLen=dataset.lunghezza, truncLen_shortfall_warn=0, trimLeft=taglio)
+    dati["qc"].update(primer_sequence=dataset.primer, max_frac_lost_filter=0.9,
+                      min_frac_phylum=0.0, min_frac_reads_retained=0.0)
+    dati["filt"]["remove_na_phylum"] = False
+    dati["pair"] = {
+        "file_markers": list(dataset.marcatori),
+        "truncLen_reverse": dataset.lunghezza, "trimLeft_reverse": taglio_reverse,
+        "truncLen_shortfall_warn_reverse": 0,
+        "primer_sequence_reverse": dataset.primer_reverse,
+        "conserved_motif_reverse": MOTIVO_REVERSE,
+        "max_primer_hit_frac_reverse": 0.1,
+        "min_merged_frac_warn": 0.5, "min_merged_frac_stop": 0.1,
+        "len_min": INSERTO - 3, "len_max": INSERTO + 3, "expected_merged_len": INSERTO,
+    }
+    for gruppo, valori in sovrascrivi.items():
+        dati.setdefault(gruppo, {}).update(valori)
+    return dati

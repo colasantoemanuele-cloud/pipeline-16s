@@ -491,7 +491,13 @@ def test_lo_schema_esportato_riporta_la_specie_e_la_condizione():
         "parametro": "ctrl.blank_values", "condizione": "non_vuoto",
         "oppure": [{"parametro": "ctrl.blank_override_values", "condizione": "non_vuoto"}]}
     assert "oppure" not in per_nome["phylo.max_seqs"]["richiesto_da"]
-    assert {n for n, p in per_nome.items() if "richiesto_da" in p} == set(defaults.CONDIZIONALI)
+    # I parametri della modalita' appaiata sono condizionali della modalita'.
+    for chiave in defaults.CONDIZIONALI_DELLE_COPPIE:
+        assert per_nome[chiave]["specie"] == "condizionale"
+        assert per_nome[chiave]["richiesto_da"] == {
+            "parametro": "io.layout", "condizione": "appaiata", "valori": ["paired-end"]}
+    assert {n for n, p in per_nome.items() if "richiesto_da" in p} == (
+        set(defaults.CONDIZIONALI) | set(defaults.CONDIZIONALI_DELLE_COPPIE))
     assert {p["specie"] for p in documento["parametri"]} == {
         "obbligatorio", "condizionale", "percorso", "standard", "unica_forma", "facoltativo",
         "strumento"}

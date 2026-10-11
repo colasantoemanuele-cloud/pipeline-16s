@@ -32,7 +32,7 @@ from amplicon16s.logging.logger import chiudi
 from amplicon16s.metadata.models import ClasseCampione
 from amplicon16s.report.builder import genera
 from amplicon16s.runner.executor import Conclusione, Esecutore
-from amplicon16s.runner.graph import Passo
+from amplicon16s.runner.graph import GRAFO, Passo
 from amplicon16s.runner.project import ProjectRun
 from amplicon16s.steps.s00_validate import esegui_s0
 from amplicon16s.steps.s14_finale import NOME_CONTROLLI
@@ -74,7 +74,7 @@ def _degradazioni(run: ProjectRun) -> dict[str, list[str]]:
     return {
         str(passo): [d["codice"] for d in
                      run.albero.manifesto_passo(passo, run.fase(passo).cartella).degradazioni]
-        for passo in Passo if passo is not Passo.S9
+        for passo in GRAFO.attive(run.config)
     }
 
 

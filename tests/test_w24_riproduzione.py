@@ -291,7 +291,10 @@ def test_l_ordine_delle_fasi_e_quello_del_grafo():
     prima nell'ordine di esecuzione: con S9 dopo S13 l'ordine dei numeri
     indicherebbe la fase sbagliata.
     """
-    assert confronto.ORDINE == tuple(str(p) for p in GRAFO.ordine())
+    # Il riferimento pubblicato e' single-end: le fasi sono quelle di quella
+    # modalita', senza la fusione delle coppie.
+    assert confronto.ORDINE == tuple(
+        str(p) for p in GRAFO.ordine() if GRAFO.nodo(p).elencata_se_inattiva)
 
 
 @richiede_dati
@@ -414,7 +417,10 @@ def test_i_manifesti_si_cercano_nelle_sole_cartelle_delle_fasi(attesi, capsys):
     sottocartelle prendeva per ogni fase l'ultimo manifesto trovato: quello di
     una copia dimenticata poteva sostituire in silenzio quello dell'esecuzione.
     """
-    assert set(confronto.CARTELLE) == {f.value for f in Fase} - {Fase.CONFIG.value, Fase.LOGS.value}
+    # La cartella della fusione esiste solo in modalita' appaiata, e il
+    # riferimento pubblicato e' single-end.
+    assert set(confronto.CARTELLE) == {f.value for f in Fase} - {
+        Fase.CONFIG.value, Fase.LOGS.value, Fase.PAIR_MERGE.value}
     uscita = _esecuzione(attesi / "nuova")
     vecchio = json.dumps({"passo": "S5", "cartella": "06_seqtab",
                           "artefatti": [{"nome": "di_un_altra_esecuzione.rds", "byte": 1}]})

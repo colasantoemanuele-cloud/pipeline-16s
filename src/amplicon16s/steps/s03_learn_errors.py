@@ -47,7 +47,11 @@ from amplicon16s.metadata.models import Inventario
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s02_filter import NOME_FILTRATE, SUFFISSO_FILTRATI
+from amplicon16s.steps.s02_filter import (
+    NOME_FILTRATE,
+    SUFFISSO_FILTRATI,
+    SUFFISSO_FILTRATI_REVERSE,
+)
 
 __all__ = [
     "MODELLO_UNICO",
@@ -64,6 +68,9 @@ NOME_CONVERGENZA: Final = "convergenza.json"
 
 #: Il nome del modello quando se ne stima uno solo.
 MODELLO_UNICO: Final = "tutti"
+#: In modalita' appaiata, il prefisso del nome dei modelli della lettura
+#: reverse: modello_reverse_<nome>.rds accanto a modello_<nome>.rds.
+PREFISSO_REVERSE: Final = "reverse_"
 
 _NON_SICURO: Final = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -184,6 +191,10 @@ class ModelloErrore(PipelineStep):
     parametri: ClassVar[tuple[str, ...]] = (
         "err", "run.seed", "filter.truncLen", "filter.trimLeft", "io.batch_table",
     )
+    #: Troncamento e taglio della reverse, per le basi di ciascuna lettura reverse.
+    parametri_appaiata: ClassVar[tuple[str, ...]] = (
+        "pair.truncLen_reverse", "pair.trimLeft_reverse",
+    )
 
     def calcola(self, contesto: StepContext) -> Produzione:
         """Pianifica e stima un modello d'errore per corsa con ``R/03_learn_errors.R`` e
@@ -197,6 +208,20 @@ class ModelloErrore(PipelineStep):
         # Le letture filtrate hanno tutte questa lunghezza: S2 le tronca.
         lunghezza = config.filter.truncLen - config.filter.trimLeft
         modelli = pianifica(contesto.inventario, letture, lunghezza, config)
+        # In modalita' appaiata ogni corsa ha un secondo modello, stimato sulle
+        # letture reverse degli stessi campioni: le due letture hanno profili
+        # d'errore diversi, e un modello solo li medierebbe.
+        del_reverse: list[Modello] = []
+        lunghezza_reverse = 0
+        if config.appaiata:
+            lunghezza_reverse = config.pair.truncLen_reverse - config.pair.trimLeft_reverse
+            del_reverse = pianifica(contesto.inventario, letture, lunghezza_reverse, config)
+            collisioni = {m.nome for m in modelli} & {
+                f"{PREFISSO_REVERSE}{m.nome}" for m in del_reverse}
+            if collisioni:
+                raise RuntimeError(
+                    "il nome di una corsa coincide con quello di un modello della lettura "
+                    f"reverse: {', '.join(sorted(collisioni))}")
         vuoti = [m.nome for m in modelli if not m.ordine]
         if vuoti:
             # Una corsa i cui campioni non hanno letture dopo il filtro non ha
@@ -213,8 +238,11 @@ class ModelloErrore(PipelineStep):
             cartella_r() / NOME_SCRIPT,
             {
                 "modelli": {
-                    m.nome: [str(filtrati / f"{c}{SUFFISSO_FILTRATI}") for c in m.ordine]
-                    for m in modelli
+                    **{m.nome: [str(filtrati / f"{c}{SUFFISSO_FILTRATI}") for c in m.ordine]
+                       for m in modelli},
+                    **{f"{PREFISSO_REVERSE}{m.nome}": [
+                        str(filtrati / f"{c}{SUFFISSO_FILTRATI_REVERSE}") for c in m.ordine]
+                       for m in del_reverse},
                 },
                 "nbases": config.err.nbases,
                 "max_consist": config.err.max_consist,
@@ -236,14 +264,17 @@ class ModelloErrore(PipelineStep):
         # rendendo ispezionabile la composizione del pool di apprendimento.
         classi = {c.accession: c.classe.value for c in contesto.inventario}
         riepilogo: dict[str, Any] = {}
-        for m in modelli:
+        # Ogni modello con il nome con cui e' scritto e le basi di una sua lettura.
+        tutti = [(m.nome, m, lunghezza) for m in modelli] + [
+            (f"{PREFISSO_REVERSE}{m.nome}", m, lunghezza_reverse) for m in del_reverse]
+        for nome, m, basi_per_lettura in tutti:
             per_classe: dict[str, int] = defaultdict(int)
             for campione in m.usati:
-                per_classe[classi[campione]] += letture[campione] * lunghezza
-            riepilogo[m.nome] = {
+                per_classe[classi[campione]] += letture[campione] * basi_per_lettura
+            riepilogo[nome] = {
                 "corsa": m.corsa,
-                "modello": f"modello_{m.nome}.rds",
-                "grafico": f"modello_{m.nome}.png",
+                "modello": f"modello_{nome}.rds",
+                "grafico": f"modello_{nome}.png",
                 "campioni": len(m.campioni),
                 "campioni_usati": list(m.usati),
                 "basi_usate": m.basi_usate,
@@ -251,13 +282,24 @@ class ModelloErrore(PipelineStep):
                 "tutte_le_basi_usate": m.tutte_usate,
                 "basi_usate_per_classe": dict(sorted(per_classe.items())),
                 "nbases": config.err.nbases,
-                "convergenza": convergenza[m.nome]["convergenza"],
-                "iterazioni": convergenza[m.nome]["iterazioni"],
+                "convergenza": convergenza[nome]["convergenza"],
+                "iterazioni": convergenza[nome]["iterazioni"],
             }
+            if config.appaiata:
+                riepilogo[nome]["lettura"] = (
+                    "reverse" if basi_per_lettura == lunghezza_reverse and any(
+                        m is r for r in del_reverse) else "forward")
 
-        righe = ["campione\tcorsa\tmodello"] + [
-            f"{c}\t{m.corsa or ''}\tmodello_{m.nome}.rds" for m in modelli for c in m.campioni
-        ]
+        if config.appaiata:
+            righe = ["campione\tcorsa\tmodello\tmodello_reverse"] + [
+                f"{c}\t{m.corsa or ''}\tmodello_{m.nome}.rds\t"
+                f"modello_{PREFISSO_REVERSE}{m.nome}.rds"
+                for m in modelli for c in m.campioni
+            ]
+        else:
+            righe = ["campione\tcorsa\tmodello"] + [
+                f"{c}\t{m.corsa or ''}\tmodello_{m.nome}.rds" for m in modelli for c in m.campioni
+            ]
         artefatti = esito.artefatti + (
             contesto.albero.scrivi_testo(self.cartella, NOME_CORRISPONDENZA, "\n".join(righe) + "\n"),
             contesto.albero.scrivi_testo(
@@ -270,25 +312,25 @@ class ModelloErrore(PipelineStep):
         # l'esecuzione. Il dettaglio dice se la stima usava gia' tutte le basi
         # della corsa: in quel caso aumentare err.nbases darebbe a learnErrors
         # gli stessi dati, e la strada e' un'altra.
-        falliti = [m for m in modelli if not riepilogo[m.nome]["convergenza"]]
+        falliti = [(nome, m) for nome, m, _ in tutti if not riepilogo[nome]["convergenza"]]
         if falliti:
             basi = "; ".join(
-                f"{m.nome}: {m.basi_usate} basi usate su {m.basi_disponibili} disponibili"
+                f"{nome}: {m.basi_usate} basi usate su {m.basi_disponibili} disponibili"
                 + (" (tutte: aumentare err.nbases non cambierebbe la stima)"
                    if m.tutte_usate else "")
-                for m in falliti
+                for nome, m in falliti
             )
             raise errore(
                 "E-S3-01",
-                f"i modelli {', '.join(m.nome for m in falliti)} non convergono entro "
+                f"i modelli {', '.join(nome for nome, _ in falliti)} non convergono entro "
                 f"err.max_consist {config.err.max_consist} iterazioni ({basi}; err.nbases "
                 f"{config.err.nbases:g})",
-                modelli=[m.nome for m in falliti],
+                modelli=[nome for nome, _ in falliti],
             )
 
         metriche = {
-            "modelli": len(modelli),
-            "basi_usate": {m.nome: m.basi_usate for m in modelli},
-            "iterazioni": {m.nome: riepilogo[m.nome]["iterazioni"] for m in modelli},
+            "modelli": len(tutti),
+            "basi_usate": {nome: m.basi_usate for nome, m, _ in tutti},
+            "iterazioni": {nome: riepilogo[nome]["iterazioni"] for nome, _, _ in tutti},
         }
         return Produzione(artefatti, metriche)

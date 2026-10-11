@@ -251,7 +251,9 @@ def test_status_legge_un_esecuzione_conclusa_in_corso_o_ferma(tmp_path, capsys):
     fasi = {f["passo"]: f for f in documento["fasi"]}
     assert fasi["S0"]["stato"] == "conclusa" and fasi["S0"]["artefatti"] >= 3
     assert fasi["S9"]["stato"] == "disattivata" and fasi["S1"]["stato"] == "da_eseguire"
-    assert [f["passo"] for f in documento["fasi"]] == [str(p) for p in GRAFO.ordine()]
+    # Le fasi della modalita' single-end: la fusione delle coppie non e' elencata.
+    assert [f["passo"] for f in documento["fasi"]] == [
+        str(p) for p in GRAFO.ordine() if GRAFO.nodo(p).elencata_se_inattiva]
     assert documento["esecuzione"] is None and documento["arresto"] is None
     assert _istantanea(radice) == prima
 
@@ -283,7 +285,8 @@ def test_status_legge_un_esecuzione_conclusa_in_corso_o_ferma(tmp_path, capsys):
         (radice / nodo.cartella.value / nome_manifesto_passo(str(passo))).write_text(manifesto)
     documento = interfaccia.stato(radice)
     assert documento["stato"] == "conclusa"
-    assert documento["fasi_concluse"] == [str(p) for p in GRAFO.ordine() if p is not Passo.S9]
+    assert documento["fasi_concluse"] == [
+        str(p) for p in GRAFO.ordine() if p not in (Passo.S9, Passo.SM)]
 
     # Ferma: un gate respinge, e l'arresto porta codice e punto di ripresa.
     chiudi()

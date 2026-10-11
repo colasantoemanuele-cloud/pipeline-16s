@@ -538,7 +538,12 @@ def test_il_report_dice_l_origine_di_ogni_parametro(tmp_path, fasi, capsys):
     for chiave in defaults.OBBLIGATORI:
         assert parametri[chiave]["origine"] == "dichiarato", chiave
     for chiave in defaults.STANDARD_DEL_METODO:
+        if chiave.startswith("pair."):
+            # La configurazione e' single-end: il gruppo pair non vi esiste.
+            assert chiave not in parametri
+            continue
         assert parametri[chiave]["origine"] == "predefinito", chiave
+    assert not any(c.startswith("pair.") or c == "io.layout" for c in parametri)
     assert parametri["asv.len_min"]["origine"] == "derivato"
     assert parametri["asv.len_min"]["valore"] == str(
         120 - scenario.config.filter.trimLeft - defaults.ASV_LEN_TOL)
@@ -640,7 +645,8 @@ def test_gli_avvisi_di_provenienza_sono_in_evidenza(scenario, file_config, fasi,
     monkeypatch.setattr(builder, "impronta_sorgente", lambda file: ("sha256:" + "0" * 64, {}))
     report = costruisci(radice, fasi)
     avvisi = next(t for t in report.tabelle if t.nome == "avvisi_provenienza")
-    assert [r[0] for r in avvisi.righe] == [str(p) for p in Passo if p is not Passo.S9]
+    assert [r[0] for r in avvisi.righe] == [
+        str(p) for p in Passo if p not in (Passo.S9, Passo.SM)]
     assert all("sorgente diverso" in r[1] for r in avvisi.righe)
     assert any(s.startswith("avvisi di provenienza su S0, S1, ") for s in report.segnalazioni)
     assert report.html.index('<caption>Avvisi di provenienza</caption>') < report.html.index('id="stato"')

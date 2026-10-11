@@ -51,6 +51,9 @@ __all__ = [
     "MARGINE_FRAZIONE",
     "SOGLIA_SENZA_LIMITE_AMMESSO",
     "SOGLIE",
+    "SOGLIE_DELLE_COPPIE",
+    "SOGLIE_SENZA_LIMITE_AMMESSO",
+    "TRONCAMENTO_DELLO_SCARTO",
     "ControlloSpento",
     "Direzione",
     "Soglia",
@@ -61,6 +64,7 @@ __all__ = [
     "oltre_il_limite",
     "righe_di_avviso",
     "soglia",
+    "soglie_di",
     "valore_esplorativo",
     "valori_piatti",
 ]
@@ -147,13 +151,23 @@ GIUDIZIO_SUI_POSITIVI: Final = (
 SOGLIE: Final[tuple[Soglia, ...]] = (
     Soglia("qc.max_primer_hit_frac", _MASSIMA, _FRAZIONE, ("E-S0-10",), True, MARGINE_FRAZIONE),
     Soglia("qc.min_motif_frac", _MINIMA, _FRAZIONE, ("E-S0-16",), True, MARGINE_FRAZIONE),
+    Soglia("pair.max_primer_hit_frac_reverse", _MASSIMA, _FRAZIONE, ("E-S0-25",), True,
+           MARGINE_FRAZIONE),
     Soglia("qc.max_frac_short_reads", _MASSIMA, _FRAZIONE, ("E-S0-09", "E-S1-02"), True,
            MARGINE_FRAZIONE),
     Soglia("filter.truncLen_shortfall_warn", _MASSIMA, Unita.BASI, ("E-S1-01",), False,
            MARGINE_BASI),
+    Soglia("pair.truncLen_shortfall_warn_reverse", _MASSIMA, Unita.BASI, ("E-S1-01",), False,
+           MARGINE_BASI),
     Soglia("qc.max_zeroed_samples", _MASSIMA, Unita.CONTEGGIO, ("E-S2-01",), True,
            MARGINE_AZZERATI),
     Soglia("qc.max_frac_lost_filter", _MASSIMA, _FRAZIONE, ("E-S2-02",), True, MARGINE_FRAZIONE),
+    # La quota di coppie fuse: come per le chimere, l'arresto ha il margine
+    # doppio dell'avviso, cosi' che fra i due resti una fascia.
+    Soglia("pair.min_merged_frac_warn", _MINIMA, _FRAZIONE, ("E-SM-02",), False,
+           MARGINE_FRAZIONE),
+    Soglia("pair.min_merged_frac_stop", _MINIMA, _FRAZIONE, ("E-SM-01",), True,
+           MARGINE_ARRESTO_CHIMERE),
     Soglia("qc.max_asv_count", _MASSIMA, Unita.CONTEGGIO, ("E-S5-01",), True, 0,
            non_proposta=PROTEGGE_LA_MEMORIA),
     Soglia("qc.warn_frac_chimeric", _MASSIMA, _FRAZIONE, ("E-S6-02",), False, MARGINE_FRAZIONE),
@@ -175,6 +189,28 @@ _PER_CHIAVE: Final = {s.chiave: s for s in SOGLIE}
 #: controllo: lo scarto non ha un massimo, e lo schema respinge un valore pari o
 #: superiore a ``filter.truncLen``. Il massimo ammesso vale come limite.
 SOGLIA_SENZA_LIMITE_AMMESSO: Final = "filter.truncLen_shortfall_warn"
+
+#: Le soglie sullo scarto del troncamento, ciascuna con il troncamento a cui
+#: si riferisce: quella della lettura forward e, in modalita' appaiata, quella
+#: della reverse. Per entrambe il massimo ammesso vale come limite.
+TRONCAMENTO_DELLO_SCARTO: Final[Mapping[str, str]] = {
+    SOGLIA_SENZA_LIMITE_AMMESSO: "filter.truncLen",
+    "pair.truncLen_shortfall_warn_reverse": "pair.truncLen_reverse",
+}
+SOGLIE_SENZA_LIMITE_AMMESSO: Final = frozenset(TRONCAMENTO_DELLO_SCARTO)
+
+#: Le soglie che esistono solo in modalita' appaiata.
+SOGLIE_DELLE_COPPIE: Final = frozenset(
+    s.chiave for s in SOGLIE if s.chiave.startswith("pair."))
+
+
+def soglie_di(valori: Mapping[str, Any]) -> tuple[Soglia, ...]:
+    """Le soglie di cui si parla con questa configurazione, nell'ordine della
+    tabella: quelle della modalita' appaiata solo se la configurazione la
+    dichiara.
+    """
+    appaiata = valori.get("io.layout") == defaults.LAYOUT_APPAIATO
+    return tuple(s for s in SOGLIE if appaiata or s.chiave not in SOGLIE_DELLE_COPPIE)
 
 
 def soglia(chiave: str) -> Soglia:
@@ -210,6 +246,13 @@ def non_eseguito(voce: Soglia, valori: Mapping[str, Any]) -> str | None:
     if voce.chiave == "qc.min_motif_frac" and valori.get("qc.conserved_motif") is None:
         return ("qc.conserved_motif e' nullo: la validazione non cerca il motivo, e la soglia "
                 "non ha effetto")
+    if voce.chiave == "pair.max_primer_hit_frac_reverse":
+        if (valori.get("pair.trimLeft_reverse") or 0) > 0:
+            return ("con pair.trimLeft_reverse maggiore di zero la validazione non cerca il "
+                    "primer reverse in testa alle letture: la soglia non ha effetto")
+        if valori.get("pair.primer_sequence_reverse") is None:
+            return ("pair.primer_sequence_reverse e' nullo: la validazione non cerca il primer "
+                    "reverse, e la soglia non ha effetto")
     return None
 
 
@@ -227,8 +270,8 @@ def limite(
         return 1 if voce.direzione is Direzione.MASSIMA else 0
     if voce.chiave == "qc.max_zeroed_samples":
         return campioni_controllati
-    if voce.chiave == "filter.truncLen_shortfall_warn":
-        troncamento = valori.get("filter.truncLen")
+    if voce.chiave in TRONCAMENTO_DELLO_SCARTO:
+        troncamento = valori.get(TRONCAMENTO_DELLO_SCARTO[voce.chiave])
         return None if troncamento is None else int(troncamento) - 1
     return None
 
@@ -272,11 +315,12 @@ class ControlloSpento:
         verso = "pari o superiore a" if soglia(self.chiave).direzione is Direzione.MASSIMA else (
             "pari o inferiore a")
         che_cosa = "l'arresto" if self.ferma else "l'avviso"
-        if self.chiave == SOGLIA_SENZA_LIMITE_AMMESSO:
+        if self.chiave in TRONCAMENTO_DELLO_SCARTO:
             # Lo schema non ammette un valore piu' largo: il controllo e' al
             # suo minimo, non impossibile.
             return (f"{self.chiave}: {self.valore} (il massimo che lo schema ammette, "
-                    f"filter.truncLen meno 1: {che_cosa} {', '.join(self.codici)} scatta solo "
+                    f"{TRONCAMENTO_DELLO_SCARTO[self.chiave]} meno 1: {che_cosa} "
+                    f"{', '.join(self.codici)} scatta solo "
                     f"se la lettura piu' corta supera il troncamento di oltre {self.limite} basi)")
         return (f"{self.chiave}: {self.valore} ({verso} {self.limite}: {che_cosa} "
                 f"{', '.join(self.codici)} non puo' scattare)")

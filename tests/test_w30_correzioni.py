@@ -1050,6 +1050,43 @@ def test_all_avvio_si_tolgono_i_resti_di_un_interruzione_solo_se_nessuno_sta_scr
         altra.rilascia()
 
 
+def test_la_pulizia_all_avvio_guarda_le_sole_cartelle_delle_fasi(tmp_path):
+    """
+    **Obiettivo**: Verificare che la pulizia dei file ``.scrittura-*`` tolga
+    quelli lasciati nelle cartelle delle fasi (anche in una sottocartella) e
+    non tocchi quelli che stanno altrove nella cartella di uscita: nella
+    cartella del report e nella radice, dove scrivono comandi che non tengono
+    il blocco dell'esecuzione.
+
+    **Razionale scientifico e sistemistico**: ``report`` e ``soglie`` scrivono
+    con la stessa sostituzione atomica delle fasi ma non prendono il blocco: un
+    loro file temporaneo, visto da un'esecuzione che parte nello stesso
+    momento, non e' il resto di un'interruzione, e toglierlo farebbe fallire
+    la loro scrittura.
+    """
+    from amplicon16s.io_layer.artifacts import Fase, togli_scritture_interrotte
+
+    radice = tmp_path / "out"
+    delle_fasi = [radice / Fase.FILTERED.value / ".scrittura-abc",
+                  radice / Fase.FINAL_INTERMEDI.value / ".scrittura-def",
+                  radice / Fase.QC_PROFILES.value / ".scrittura-letture" / "0" / "a.fastq.gz",
+                  radice / Fase.LOGS.value / ".scrittura-stato"]
+    di_altri = [radice / "report" / ".scrittura-report",
+                radice / "report" / "tabelle" / ".scrittura-tabella",
+                radice / ".scrittura-configurazione"]
+    for percorso in delle_fasi + di_altri:
+        percorso.parent.mkdir(parents=True, exist_ok=True)
+        percorso.write_text("a meta'")
+    tolti = togli_scritture_interrotte(radice)
+    assert not any(p.exists() for p in delle_fasi)
+    assert all(p.exists() for p in di_altri)
+    assert not (radice / Fase.QC_PROFILES.value / ".scrittura-letture").exists()
+    assert {p.relative_to(radice).parts[0] for p in tolti} == {
+        "03_filtered", "12_final", "02_qc_profiles", "99_logs"}
+    # Una cartella di uscita che non esiste ancora non ha nulla da togliere.
+    assert togli_scritture_interrotte(tmp_path / "assente") == []
+
+
 def test_il_punto_di_ripresa_sparisce_con_la_ripresa_riuscita_e_non_con_una_parziale(tmp_path):
     """
     **Obiettivo**: Verificare che il punto di ripresa di un arresto sia tolto

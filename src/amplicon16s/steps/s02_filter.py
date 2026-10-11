@@ -32,6 +32,7 @@ pesa quanto uno profondo.
 
 from __future__ import annotations
 
+import csv
 import gzip
 import zlib
 from concurrent.futures import ThreadPoolExecutor
@@ -40,7 +41,7 @@ from typing import Any, ClassVar, Final
 
 from amplicon16s.config.schema import Config, Qc, thread_effettivi
 from amplicon16s.errors.exceptions import errore
-from amplicon16s.io_layer.artifacts import ManifestoPasso
+from amplicon16s.io_layer.artifacts import Fase, ManifestoPasso
 from amplicon16s.io_layer.conteggi import leggi_conteggi
 from amplicon16s.io_layer.reads import senza_righe_vuote_finali
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione
@@ -48,6 +49,7 @@ from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.retry import Aggiustamento, senza_modifiche
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
+from amplicon16s.steps.s01_profile import NOME_COPPIE, SUFFISSO_REVERSE
 
 __all__ = [
     "FiltroLetture",
@@ -61,6 +63,8 @@ NOME_PREFILTRO: Final = "letture_prefiltro.tsv"
 NOME_FILTRATE: Final = "letture_filtrate.tsv"
 #: Le letture filtrate di un campione: ``<accession>_filt.fastq.gz``.
 SUFFISSO_FILTRATI: Final = "_filt.fastq.gz"
+#: In modalita' appaiata, le letture reverse filtrate dello stesso campione.
+SUFFISSO_FILTRATI_REVERSE: Final = "_filt_reverse.fastq.gz"
 
 
 def esamina_archivio(percorso: Path) -> tuple[str | None, bool, bool]:
@@ -145,6 +149,19 @@ def controlla_filtro(
     return metriche
 
 
+def _letture_verificate(profili: Path) -> dict[str, tuple[int, int]]:
+    """Per campione, le letture che S1 ha contato nel file forward e nel
+    reverse dopo averne verificato la sincronia.
+    """
+    conteggi: list[dict[str, int]] = []
+    for nome in (NOME_COPPIE, NOME_COPPIE.replace(".tsv", f"{SUFFISSO_REVERSE}.tsv")):
+        with open(profili / nome, encoding="utf-8", newline="") as file:
+            conteggi.append(
+                {r["campione"]: int(r["letture"]) for r in csv.DictReader(file, delimiter="\t")})
+    forward, reverse = conteggi
+    return {a: (forward[a], reverse[a]) for a in forward if a in reverse}
+
+
 class FiltroLetture(PipelineStep):
     """S2: filtro e troncamento."""
 
@@ -165,6 +182,10 @@ class FiltroLetture(PipelineStep):
     parametri: ClassVar[tuple[str, ...]] = (
         "filter", "qc.max_zeroed_samples", "qc.max_frac_lost_filter",
     )
+    #: Troncamento, taglio ed errori attesi della lettura reverse.
+    parametri_appaiata: ClassVar[tuple[str, ...]] = (
+        "pair.truncLen_reverse", "pair.trimLeft_reverse", "pair.maxEE_reverse",
+    )
     aggiustamenti: ClassVar[dict[str, Aggiustamento]] = {
         "E-S2-03": senza_modifiche(
             "un errore di lettura transitorio si corregge rileggendo lo stesso file"
@@ -175,7 +196,9 @@ class FiltroLetture(PipelineStep):
         """Le letture filtrate, se ``run.keep_filtered_fastq`` e' falso."""
         if config.run.keep_filtered_fastq:
             return ()
-        return tuple(n for n in manifesto.nomi if n.endswith(SUFFISSO_FILTRATI))
+        return tuple(
+            n for n in manifesto.nomi
+            if n.endswith(SUFFISSO_FILTRATI) or n.endswith(SUFFISSO_FILTRATI_REVERSE))
 
     def calcola(self, contesto: StepContext) -> Produzione:
         """Verifica che gli archivi si decomprimano per intero, esegue ``R/02_filter.R``
@@ -188,17 +211,28 @@ class FiltroLetture(PipelineStep):
         campioni = {
             c.accession: str(c.file) for c in contesto.inventario if c.file is not None
         }
+        reverse = {
+            c.accession: str(c.file_reverse) for c in contesto.inventario
+            if c.file is not None and c.file_reverse is not None
+        } if config.appaiata else {}
         with ThreadPoolExecutor(max_workers=thread_effettivi(config)) as esecutore:
             esami = dict(zip(campioni, esecutore.map(esamina_archivio, map(Path, campioni.values()))))
+            esami_reverse = dict(zip(
+                reverse, esecutore.map(esamina_archivio, map(Path, reverse.values()))))
         incompleti = {a: m for a, (m, _, _) in esami.items() if m is not None}
-        if incompleti:
+        incompleti_reverse = {a: m for a, (m, _, _) in esami_reverse.items() if m is not None}
+        if incompleti or incompleti_reverse:
             raise errore(
                 "E-S2-03",
                 "archivi che non si decomprimono per intero: " + "; ".join(
-                    f"{a} ({Path(campioni[a]).name}: {m})" for a, m in sorted(incompleti.items())
+                    [f"{a} ({Path(campioni[a]).name}: {m})" for a, m in sorted(incompleti.items())]
+                    + [f"{a} ({Path(reverse[a]).name}: {m})"
+                       for a, m in sorted(incompleti_reverse.items())]
                 ),
-                campioni=sorted(incompleti),
+                campioni=sorted({*incompleti, *incompleti_reverse}),
             )
+        if config.appaiata:
+            return self._appaiata(contesto, campioni, reverse, esami, esami_reverse)
         vuote = [a for a, (_, righe_vuote, _) in esami.items() if righe_vuote]
         # Un file senza letture non ha nulla da filtrare: e' il bianco che S0 ha
         # ammesso, e risulta azzerato come ogni bianco pulito.
@@ -238,6 +272,83 @@ class FiltroLetture(PipelineStep):
         if negativi:
             contesto.logger.info(
                 f"{len(negativi)} controlli negativi senza letture dopo il filtro: bianchi puliti",
+                extra={"passo": "S2", "campioni": negativi},
+            )
+        return Produzione(esito.artefatti, metriche)
+
+    def _appaiata(
+        self,
+        contesto: StepContext,
+        campioni: dict[str, str],
+        reverse: dict[str, str],
+        esami: dict[str, tuple[str | None, bool, bool]],
+        esami_reverse: dict[str, tuple[str | None, bool, bool]],
+    ) -> Produzione:
+        """Il filtro in modalita' appaiata: le due letture di ogni coppia si
+        tengono o si scartano insieme, ciascuna con il suo troncamento, il suo
+        taglio e i suoi errori attesi. I conteggi sono coppie.
+        """
+        config = contesto.config
+        filtro, coppie = config.filter, config.pair
+        # Il filtro appaiato non confronta gli identificativi delle letture: le
+        # prende a coppie per posizione. Che i due file di ogni campione siano
+        # in sincronia lo ha verificato S1 su tutte le letture, e qui si legge
+        # il suo esito: senza, il filtro non parte.
+        verificate = _letture_verificate(contesto.albero.cartella(Fase.QC_PROFILES))
+        non_verificati = sorted(a for a in reverse if a not in verificate)
+        if non_verificati:
+            raise RuntimeError(
+                "S2 in modalita' appaiata richiede la verifica della sincronia delle coppie "
+                f"fatta da S1, che manca per: {', '.join(non_verificati[:5])}")
+        # Un campione senza letture in uno dei due file non ha coppie da filtrare.
+        senza_letture = sorted(
+            {a for a, (_, _, vuoto) in esami.items() if vuoto}
+            | {a for a, (_, _, vuoto) in esami_reverse.items() if vuoto})
+        vuote = [a for a, (_, righe_vuote, _) in esami.items() if righe_vuote]
+        vuote_reverse = [a for a, (_, righe_vuote, _) in esami_reverse.items() if righe_vuote]
+        cartella = contesto.albero.cartella(self.cartella)
+        # Le copie ripulite dei due versi stanno in due cartelle: la seconda
+        # chiamata non deve togliere quelle della prima.
+        with senza_righe_vuote_finali(campioni, vuote, cartella) as leggibili, \
+                senza_righe_vuote_finali(
+                    reverse, vuote_reverse, cartella, ".scrittura-letture-reverse",
+                ) as leggibili_reverse:
+            esito = esegui_script(
+                cartella_r() / NOME_SCRIPT,
+                {
+                    "campioni": {a: p for a, p in leggibili.items() if a not in senza_letture},
+                    "reverse": {
+                        a: p for a, p in leggibili_reverse.items() if a not in senza_letture},
+                    "vuoti": senza_letture,
+                    "ordine": list(campioni),
+                    "truncLen": filtro.truncLen,
+                    "trimLeft": filtro.trimLeft,
+                    "maxEE": filtro.maxEE,
+                    "truncLen_reverse": coppie.truncLen_reverse,
+                    "trimLeft_reverse": coppie.trimLeft_reverse,
+                    "maxEE_reverse": coppie.maxEE_reverse,
+                    "truncQ": filtro.truncQ,
+                    "maxN": filtro.maxN,
+                    "rm_phix": filtro.rm_phix,
+                    "processi": thread_effettivi(config),
+                    "lotto": config.run.batch_size,
+                },
+                contesto.albero,
+                self.cartella,
+                passo=self.passo,
+                tempo_massimo_s=contesto.config.run.r_timeout_s,
+                logger=contesto.logger,
+            )
+        metriche = controlla_filtro(
+            leggi_conteggi(cartella / NOME_PREFILTRO),
+            leggi_conteggi(cartella / NOME_FILTRATE),
+            {c.accession: c.classe for c in contesto.inventario},
+            config.qc,
+        )
+        negativi = metriche["azzerati"][ClasseCampione.CONTROLLO_NEGATIVO.value]
+        if negativi:
+            contesto.logger.info(
+                f"{len(negativi)} controlli negativi senza coppie dopo il filtro: bianchi puliti",
                 extra={"passo": "S2", "campioni": negativi},
             )
         return Produzione(esito.artefatti, metriche)

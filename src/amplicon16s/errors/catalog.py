@@ -258,6 +258,18 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "ne dipende.",
         _UMANA,
     ),
+    _v(
+        "E-G15-15", "G15",
+        "I parametri della modalita' appaiata non sono coerenti con la modalita' "
+        "dichiarata, o fra loro.",
+        "I parametri del gruppo pair valgono solo con io.layout: \"paired-end\": in "
+        "modalita' single-end vanno tolti, perche' non avrebbero effetto. In modalita' "
+        "appaiata il dettaglio dice quale combinazione non puo' valere: i due "
+        "marcatori dei file devono essere diversi, ogni troncamento deve superare le "
+        "basi tolte in testa, la soglia d'avviso della quota di coppie fuse non puo' "
+        "stare sotto quella d'arresto, pair.len_min non puo' superare pair.len_max.",
+        _UMANA,
+    ),
     # ----------------------------------------------------------------- S0 ---
     _v(
         "E-S0-01", "S0",
@@ -493,6 +505,62 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "ingresso.",
         _UMANA,
     ),
+    _v(
+        "E-S0-23", "S0",
+        "Un file di letture non ha il suo compagno.",
+        "In modalita' appaiata ogni campione ha due file, che si distinguono per i "
+        "due marcatori di pair.file_markers: il file reverse ha il nome del file "
+        "forward con l'ultima occorrenza del primo marcatore sostituita dal secondo. "
+        "Il dettaglio elenca i file senza compagno, o con un nome che porta entrambi "
+        "i marcatori in modo ambiguo. Aggiungi il file che manca, togli dalla cartella "
+        "(o da io.fastq_glob) i file che non appartengono a una coppia, oppure "
+        "correggi pair.file_markers.",
+        _UMANA,
+    ),
+    _v(
+        "E-S0-24", "S0",
+        "La cartella contiene le due letture di ogni coppia, ma la modalita' e' "
+        "single-end.",
+        "Due file dello stesso campione si distinguono per un marcatore di coppia "
+        "nel nome (R1 e R2, oppure 1 e 2). Per usare entrambe le letture dichiara "
+        "io.layout: \"paired-end\" con i parametri del gruppo pair (init li propone "
+        "dai dati); per usare le sole letture forward, lascia nella cartella, o "
+        "seleziona con io.fastq_glob, i soli file forward.",
+        _UMANA,
+    ),
+    _v(
+        "E-S0-25", "S0",
+        "Le letture reverse contengono ancora il primer reverse.",
+        "Se il primer e' in testa a tutte le letture reverse, imposta "
+        "pair.trimLeft_reverse alla sua lunghezza; se e' in testa solo a una parte "
+        "(il dettaglio lo dice), e' preceduto da basi di lunghezza variabile e va "
+        "rimosso per sequenza prima della pipeline: lasciato, entrerebbe nelle "
+        "sequenze fuse. Con pair.trimLeft_reverse maggiore di zero il primer reverse "
+        "in testa non si cerca piu'.",
+        _UMANA,
+    ),
+    _v(
+        "E-S0-26", "S0",
+        "I due file di una corsa sono scambiati, secondo le intestazioni delle letture.",
+        "Nelle prime letture il file dichiarato forward porta il marcatore della "
+        "seconda lettura di ogni coppia (/2, oppure 2: nel commento) e il suo "
+        "compagno quello della prima: la corsa e' invertita. Scambia i nomi dei due "
+        "file delle corse elencate, poi riprendi. Con i file scambiati la lettura "
+        "forward verrebbe filtrata, troncata e modellata con i parametri della "
+        "reverse, e viceversa.",
+        _UMANA,
+    ),
+    _v(
+        "E-S0-27", "S0",
+        "In modalita' appaiata un file contiene le due letture di ogni coppia.",
+        "Nelle prime letture di un file compaiono sia le prime sia le seconde "
+        "letture delle coppie (lo dicono le intestazioni: /1 e /2, lo stesso nome "
+        "due volte, oppure letture consecutive che si distinguono per il solo "
+        "marcatore di coppia). In modalita' appaiata ogni campione ha due file, "
+        "ciascuno con una sola lettura di ogni coppia, nello stesso ordine: separa "
+        "le due letture del file elencato in due file, poi riprendi.",
+        _UMANA,
+    ),
     # ----------------------------------------------------------------- S1 ---
     _v(
         "E-S1-01", "S1",
@@ -588,6 +656,55 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "applica).",
         _UMANA,
     ),
+    _v(
+        "E-S1-08", "S1",
+        "Le due letture di una coppia non sono allo stesso posto nei due file.",
+        "I due file di un campione devono riportare le coppie nello stesso ordine: "
+        "la lettura n del file forward e la lettura n del file reverse sono la stessa "
+        "coppia. Il dettaglio dice a quale lettura i nomi smettono di coincidere, o "
+        "che i due file hanno un numero diverso di letture. Di solito uno dei due "
+        "file e' stato filtrato, riordinato o troncato senza l'altro: riscarica i "
+        "due file dalla sorgente, o rimettili in sincronia prima di riprendere. La "
+        "fusione di coppie non corrispondenti darebbe sequenze inesistenti.",
+        _UMANA,
+    ),
+    _v(
+        "E-S1-09", "S1",
+        "I file di una corsa non hanno l'orientamento dichiarato.",
+        "Il dettaglio dice quale dei casi. Corsa invertita: il file forward porta il "
+        "segnale delle letture reverse e il suo compagno quello delle forward (o, "
+        "nelle intestazioni, il marcatore dell'altra lettura): scambia i nomi dei due "
+        "file della corsa. File reverse senza il suo segnale (il motivo di "
+        "pair.conserved_motif_reverse dopo le basi di pair.trimLeft_reverse, oppure, "
+        "con il taglio, il primer di pair.primer_sequence_reverse in testa), o con il "
+        "segnale in una parte del file e non in un'altra: il file non contiene le sole "
+        "letture reverse, e va sostituito; se il motivo dichiarato non descrive "
+        "l'inizio delle letture reverse, correggilo (con il motivo e il primer nulli "
+        "il controllo non si applica).",
+        _UMANA,
+    ),
+    _v(
+        "E-S1-10", "S1",
+        "Un file riporta letture dei due versi mescolate.",
+        "Nello stesso file una parte rilevante delle letture porta il segnale delle "
+        "letture forward e un'altra quello delle reverse (il dettaglio riporta le due "
+        "quote): la libreria e' stata costruita con gli adattatori nei due versi. In "
+        "modalita' appaiata ogni variante uscirebbe due volte, una come complemento "
+        "inverso dell'altra. Le letture vanno riorientate per sequenza prima della "
+        "pipeline, con uno strumento che riconosca i primer nei due versi.",
+        _UMANA,
+    ),
+    _v(
+        "E-S1-11", "S1",
+        "In modalita' appaiata un file, su tutte le sue letture, contiene le due "
+        "letture di ogni coppia.",
+        "La validazione guarda le sole prime qc.head_reads letture di ogni file; qui "
+        "i segni di coppia sono contati su tutte (02_qc_profiles/coppie.tsv e "
+        "coppie_reverse.tsv). In modalita' appaiata ogni file riporta una sola lettura "
+        "di ogni coppia: separa le due letture del file elencato in due file per "
+        "campione, nello stesso ordine, poi riprendi.",
+        _UMANA,
+    ),
     # ----------------------------------------------------------------- S2 ---
     _v(
         "E-S2-01", "S2",
@@ -679,6 +796,38 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "run.threads: ogni thread ne consuma una quota.",
         _RETRY,
     ),
+    # ----------------------------------------------------------------- SM ---
+    _v(
+        "E-SM-01", "SM",
+        "La quota di coppie fuse e' sotto pair.min_merged_frac_stop.",
+        "Troppe coppie non si fondono: le due letture non si sovrappongono abbastanza, "
+        "o discordano nella sovrapposizione. Guarda fusione.tsv e lunghezze_fuse.tsv in "
+        "05_pair_merge. Se i troncamenti sono troppo corti per la regione amplificata "
+        "(la somma delle due letture troncate, tolte le basi iniziali, deve superare "
+        "la lunghezza della regione di almeno pair.min_overlap), alza filter.truncLen "
+        "o pair.truncLen_reverse; se la qualita' in coda e' bassa, accorciali fin dove "
+        "la sovrapposizione resta; se i file di una corsa sono scambiati o non "
+        "corrispondono, correggi gli ingressi. Abbassare la soglia e' una scelta da "
+        "fare solo dopo aver capito la causa.",
+        _UMANA,
+    ),
+    _v(
+        "E-SM-02", "SM",
+        "La quota di coppie fuse e' sotto pair.min_merged_frac_warn.",
+        "L'esecuzione prosegue e l'avviso e' registrato nel manifesto della fusione. "
+        "La quota per campione e' in 05_pair_merge/fusione.tsv: valuta se i "
+        "troncamenti lasciano una sovrapposizione sufficiente.",
+        _DEGRADA,
+    ),
+    _v(
+        "E-SM-03", "SM",
+        "La lunghezza mediana delle sequenze fuse e' lontana da quella attesa.",
+        "L'esecuzione prosegue e l'avviso e' registrato nel manifesto della fusione. "
+        "La distribuzione e' in 05_pair_merge/lunghezze_fuse.tsv: una mediana lontana "
+        "da pair.expected_merged_len indica un amplicone diverso da quello dichiarato, "
+        "fusioni spurie, o un valore atteso da correggere.",
+        _DEGRADA,
+    ),
     # ----------------------------------------------------------------- S5 ---
     _v(
         "E-S5-01", "S5",
@@ -717,6 +866,18 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "asv.len_tol; se la tabella senza chimere di S6 era gia' vuota, la causa "
         "e' a monte, nel filtro, nell'inferenza o nella rimozione delle chimere. "
         "Un nuovo tentativo darebbe la stessa tabella vuota.",
+        _UMANA,
+    ),
+    _v(
+        "E-S7-02", "S7",
+        "In modalita' appaiata nessuna sequenza fusa ha una lunghezza ammessa.",
+        "Guarda lunghezze.tsv in 07_chimera e lunghezze_fuse.tsv in 05_pair_merge: "
+        "se le sequenze fuse hanno lunghezze fuori da pair.len_min-pair.len_max, "
+        "l'intervallo dichiarato non e' quello della regione amplificata tolte le "
+        "basi iniziali delle due letture (filter.trimLeft, pair.trimLeft_reverse): "
+        "correggilo; se la tabella senza chimere di S6 era gia' vuota, la causa e' a "
+        "monte, nel filtro, nell'inferenza, nella fusione o nella rimozione delle "
+        "chimere. Un nuovo tentativo darebbe la stessa tabella vuota.",
         _UMANA,
     ),
     # ----------------------------------------------------------------- S8 ---

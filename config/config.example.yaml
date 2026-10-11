@@ -40,6 +40,9 @@
 # [UNICA FORMA]   La pipeline realizza un solo valore: si puo' omettere.
 # [STRUMENTO]     Governa come si esegue o in che forma si scrive, non che cosa
 #                 si conclude dai dati: si puo' omettere.
+# [MODALITA']     La modalita' di lettura: omessa vale single-end. I parametri
+#                 del gruppo pair valgono solo in modalita' appaiata, e in
+#                 single-end non si dichiarano (sono respinti, E-G15-15).
 #
 # Il report di ogni esecuzione dice, per ciascun parametro, se il valore e'
 # stato dichiarato o preso dal predefinito, e quali condizionali non sono
@@ -76,6 +79,12 @@ io:
   # campione (un accession, un codice): una che si ripete fra repliche
   # aggancerebbe la replica sbagliata.
   # accession_regex:                                  # [OBBLIGATORIO]
+  # Modalita' di lettura. single-end: un file per campione, le letture forward.
+  # paired-end: due file per campione, distinti da pair.file_markers; servono
+  # allora i parametri del gruppo pair. Conviene la modalita' appaiata quando
+  # la regione amplificata e' piu' lunga della lettura forward troncata e le
+  # due letture, insieme, la coprono con una sovrapposizione.
+  # layout: single-end                                # [MODALITA']
 
 # --------------------------------------------------------------------------- #
 # meta: lettura della tabella dei metadati e campi derivati dai nomi          #
@@ -386,6 +395,75 @@ qc:
   # esce) e frazione minima di letture trattenute dall'insieme (E-S14-01).
   # min_reads_final:                                  # [OBBLIGATORIO]
   # min_frac_reads_retained:                          # [OBBLIGATORIO]
+
+# --------------------------------------------------------------------------- #
+# pair: modalita' appaiata, la lettura reverse e la fusione delle coppie      #
+# --------------------------------------------------------------------------- #
+# Il gruppo vale solo con io.layout: paired-end. In modalita' single-end resta
+# com'e', tutto in commento. In modalita' appaiata ogni campione ha due file;
+# le due letture si filtrano, si modellano e si inferiscono separatamente, poi
+# le coppie si fondono (dada2::mergePairs) e la catena prosegue sulle sequenze
+# fuse. init rileva la modalita' dai nomi dei file e propone questi parametri
+# dai dati.
+pair:
+  # I due marcatori che distinguono nel nome i file di una coppia, prima quello
+  # del file forward: il file reverse ha il nome del file forward con l'ultima
+  # occorrenza del primo marcatore sostituita dal secondo. Si scelgono
+  # guardando la cartella. La chiave del campione (io.accession_regex) si
+  # estrae dal nome del file forward.
+  # file_markers:                                     # [CONDIZIONALE] se io.layout e' paired-end
+  # Troncamento della lettura reverse, come filter.truncLen per la forward. I
+  # due troncamenti si scelgono insieme: tolte le basi iniziali, la somma delle
+  # due letture troncate deve superare la lunghezza della regione amplificata
+  # di almeno min_overlap, con un margine per la variabilita' della regione;
+  # altrimenti le coppie non si fondono.
+  # truncLen_reverse:                                 # [CONDIZIONALE] se io.layout e' paired-end
+  # Basi tolte in testa a ogni lettura reverse: la lunghezza del primer reverse
+  # se le letture lo portano ancora, zero se e' gia' stato rimosso.
+  # trimLeft_reverse:                                 # [CONDIZIONALE] se io.layout e' paired-end
+  # Errori attesi massimi per lettura reverse (filter.maxEE vale per la
+  # forward). Le letture reverse hanno di norma una qualita' peggiore in coda.
+  # maxEE_reverse: 2.0                                # [STANDARD] tutorial di dada2, maxEE = c(2,2)
+  # Di quante basi truncLen_reverse puo' stare sotto la lettura reverse piu'
+  # corta prima che il profilo lo segnali (E-S1-01).
+  # truncLen_shortfall_warn_reverse:                  # [CONDIZIONALE] se io.layout e' paired-end
+  # Primer reverse, in codici IUPAC, scritto da 5' a 3' come compare in testa
+  # alle letture reverse (non il suo complemento inverso). Con null non si
+  # cerca.
+  # primer_sequence_reverse:                          # [CONDIZIONALE] se io.layout e' paired-end
+  # Motivo conservato con cui iniziano le letture reverse dopo le basi tolte in
+  # testa, come espressione regolare. Con il primer reverse definisce il
+  # segnale delle letture reverse, che serve a riconoscere una corsa con i due
+  # file scambiati e una libreria con i due versi mescolati. Con null, e senza
+  # un primer reverse nelle basi tagliate, quel controllo non si applica.
+  # conserved_motif_reverse:                          # [CONDIZIONALE] se io.layout e' paired-end
+  # Frazione di letture reverse che iniziano con il primer reverse oltre la
+  # quale lo si considera presente (E-S0-25). Si giudica solo con
+  # trimLeft_reverse zero; al valore 1 il controllo e' spento.
+  # max_primer_hit_frac_reverse:                      # [CONDIZIONALE] se io.layout e' paired-end
+  # Sovrapposizione minima fra le due letture perche' una coppia si fonda, e
+  # discordanze ammesse nella sovrapposizione.
+  # min_overlap: 12                                   # [STANDARD] dada2::mergePairs, minOverlap = 12
+  # max_mismatch: 0                                   # [STANDARD] dada2::mergePairs, maxMismatch = 0
+  # Le code di una lettura oltre l'inizio dell'altra si tolgono dalla sequenza
+  # fusa: con letture piu' lunghe della regione amplificata sono il complemento
+  # del primer opposto e dell'adattatore.
+  # trim_overhang: true                               # [UNICA FORMA]
+  # Quota di coppie fuse, sui campioni biologici e sui controlli positivi,
+  # sotto la quale la fusione avvisa (E-SM-02) o si ferma (E-SM-01). L'avviso
+  # non puo' stare sotto l'arresto; al valore 0 il controllo e' spento.
+  # min_merged_frac_warn:                             # [CONDIZIONALE] se io.layout e' paired-end
+  # min_merged_frac_stop:                             # [CONDIZIONALE] se io.layout e' paired-end
+  # Intervallo ammesso della lunghezza delle sequenze fuse: e' quello della
+  # regione amplificata, tolte le basi iniziali delle due letture, con la sua
+  # variabilita' fra i taxa. Sostituisce asv.len_tol, che vale per le letture
+  # troncate della modalita' single-end.
+  # len_min:                                          # [CONDIZIONALE] se io.layout e' paired-end
+  # len_max:                                          # [CONDIZIONALE] se io.layout e' paired-end
+  # Lunghezza attesa delle sequenze fuse: se la mediana osservata se ne scosta
+  # di piu' del 5% la fusione lo segnala (E-SM-03). Con null il confronto non
+  # si fa.
+  # expected_merged_len:                              # [CONDIZIONALE] se io.layout e' paired-end
 
 # --------------------------------------------------------------------------- #
 # retry: nuovi tentativi sulle fasi fallite                                   #

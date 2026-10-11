@@ -470,6 +470,20 @@ COPERTURA: dict[str, str] = {
     "E-S14-01": "test_w21_finale.py::test_una_frazione_trattenuta_sotto_la_soglia_ferma_con_e_s14_01",
     "E-S9-01": "test_w23_filogenesi.py::test_e_s9_01_ferma_prima_di_avviare_il_calcolo",
     "E-S9-02": "test_w23_filogenesi.py::test_e_s9_02_ferma_con_troppo_poche_varianti",
+    "E-G15-15": "test_modalita_appaiata.py::test_il_gruppo_pair_vale_solo_in_modalita_appaiata",
+    "E-S0-23": "test_modalita_appaiata.py::test_un_file_senza_compagno_ferma_la_validazione",
+    "E-S0-24": "test_modalita_appaiata.py::test_le_due_letture_in_modalita_single_end_propongono_la_modalita_appaiata",
+    "E-S0-25": "test_modalita_appaiata.py::test_il_primer_reverse_in_testa_senza_taglio_ferma_la_validazione",
+    "E-S0-26": "test_modalita_appaiata.py::test_una_corsa_invertita_si_riconosce_dalle_intestazioni",
+    "E-S1-08": "test_modalita_appaiata.py::test_una_coppia_fuori_posto_e_un_numero_diverso_di_letture_fermano_s1",
+    "E-S1-09": "test_modalita_appaiata.py::test_una_corsa_invertita_si_riconosce_dal_contenuto",
+    "E-S1-10": "test_modalita_appaiata.py::test_un_file_con_i_due_versi_mescolati_ferma_s1",
+    "E-S0-27": "test_modalita_appaiata.py::test_una_corsa_invertita_si_riconosce_dalle_intestazioni",
+    "E-S1-11": "test_modalita_appaiata.py::test_un_file_con_le_coppie_intere_oltre_le_prime_letture_ferma_s1",
+    "E-S7-02": "test_catena_appaiata.py::test_un_intervallo_di_lunghezze_senza_sequenze_fuse_ferma_il_filtro_di_lunghezza",
+    "E-SM-01": "test_catena_appaiata.py::test_una_quota_di_coppie_fuse_sotto_la_soglia_ferma_la_fusione",
+    "E-SM-02": "test_catena_appaiata.py::test_gli_avvisi_della_fusione_restano_nel_manifesto",
+    "E-SM-03": "test_catena_appaiata.py::test_gli_avvisi_della_fusione_restano_nel_manifesto",
 }
 
 _RADICE = Path(__file__).resolve().parents[1]

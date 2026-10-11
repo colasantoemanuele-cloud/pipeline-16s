@@ -58,14 +58,15 @@ from amplicon16s.runner.graph import GRAFO
 from amplicon16s.soglie.misure import ArtefattoNonLeggibile, Misura, campioni_controllati, leggi
 from amplicon16s.steps.base import impronta_parametri
 from amplicon16s.soglie.tabella import (
-    SOGLIA_SENZA_LIMITE_AMMESSO,
-    SOGLIE,
+    SOGLIE_SENZA_LIMITE_AMMESSO,
+    TRONCAMENTO_DELLO_SCARTO,
     Direzione,
     Soglia,
     Unita,
     controlli_spenti,
     limite,
     oltre_il_limite,
+    soglie_di,
     valori_piatti,
 )
 
@@ -231,11 +232,11 @@ def proponi(voce: Soglia, misura: Misura, configurazione: Any, al_limite: int | 
                     + ("" if voce.ferma else ": il controllo ha avvisato"))
     valore = _numero(suggerito, voce)
     spento = oltre_il_limite(voce, valore, al_limite)
-    if spento and voce.chiave == SOGLIA_SENZA_LIMITE_AMMESSO:
+    if spento and voce.chiave in SOGLIE_SENZA_LIMITE_AMMESSO:
         ancora = (suggerito < peggiore) if massima else (suggerito > peggiore)
         note.append(
             "CONTROLLO SPENTO: il valore proposto e' il massimo che lo schema ammette "
-            "(filter.truncLen meno 1)" + (
+            f"({TRONCAMENTO_DELLO_SCARTO[voce.chiave]} meno 1)" + (
                 f"; la misura ({_numero(misura.valore, voce)}) lo supera: l'avviso "
                 f"{', '.join(voce.codici)} continuera' a scattare, perche' lo schema non "
                 "ammette un valore piu' largo" if ancora else ""))
@@ -259,8 +260,19 @@ def suggerisci(
     esiti = {
         voce.chiave: proponi(voce, misure[voce.chiave], valori.get(voce.chiave),
                              limite(voce, valori, controllati))
-        for voce in SOGLIE
+        for voce in soglie_di(valori)
     }
+    # La quota di coppie fuse, in modalita' appaiata: soglie minime, quindi
+    # l'avviso non scende mai sotto l'arresto.
+    if "pair.min_merged_frac_warn" in esiti:
+        avviso, arresto = esiti["pair.min_merged_frac_warn"], esiti["pair.min_merged_frac_stop"]
+        if (avviso.valore is not None and arresto.valore is not None
+                and avviso.valore < arresto.valore):
+            esiti[avviso.chiave] = replace(
+                avviso, esito=PROPOSTA, valore=arresto.valore, spento=arresto.spento,
+                note=(*avviso.note,
+                      f"riportato al valore dell'arresto ({arresto.valore}): l'avviso non "
+                      "puo' stare sotto pair.min_merged_frac_stop"))
     avviso, arresto = esiti["qc.warn_frac_chimeric"], esiti["qc.stop_frac_chimeric"]
     if avviso.valore is not None and arresto.valore is not None and avviso.valore > arresto.valore:
         esiti[avviso.chiave] = replace(
@@ -272,7 +284,8 @@ def suggerisci(
     # puo' far scattare il suo controllo: anche una rimasta com'era.
     finali = {**valori, **{c: e.valore for c, e in esiti.items() if e.esito != OMESSA}}
     spente = {s.chiave for s in controlli_spenti(finali, controllati)}
-    return [replace(esiti[voce.chiave], spento=voce.chiave in spente) for voce in SOGLIE]
+    return [replace(esiti[voce.chiave], spento=voce.chiave in spente)
+            for voce in soglie_di(valori)]
 
 
 # --------------------------------------------------------------------------- #

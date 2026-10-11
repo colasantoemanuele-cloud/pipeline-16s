@@ -30,11 +30,10 @@ from typing import ClassVar, Final
 
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
-from amplicon16s.io_layer.conteggi import leggi_conteggi
+from amplicon16s.io_layer.conteggi import letture_in_ingresso_alla_tabella
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s02_filter import NOME_FILTRATE
 from amplicon16s.steps.s06_chimera import NOME_SENZA_CHIMERE
 
 __all__ = ["FiltroLunghezza", "NOME_TABELLA_ASV"]
@@ -53,6 +52,9 @@ class FiltroLunghezza(PipelineStep):
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("lunghezza",)
     #: I tre parametri da cui discendono asv.len_min e asv.len_max.
     parametri: ClassVar[tuple[str, ...]] = ("asv", "filter.truncLen", "filter.trimLeft")
+    #: In modalita' appaiata l'intervallo e' dichiarato: le sequenze fuse hanno
+    #: la lunghezza della regione amplificata, che varia fra i taxa.
+    parametri_appaiata: ClassVar[tuple[str, ...]] = ("pair.len_min", "pair.len_max")
 
     def calcola(self, contesto: StepContext) -> Produzione:
         """Esegue ``R/07_asv_length.R``, che toglie dalla tabella senza chimere le
@@ -61,7 +63,7 @@ class FiltroLunghezza(PipelineStep):
         if contesto.inventario is None:
             raise RuntimeError("S7 richiede l'inventario prodotto da S0")
         derivati = contesto.risolta.derivati
-        letture = leggi_conteggi(contesto.albero.cartella(Fase.FILTERED) / NOME_FILTRATE)
+        letture = letture_in_ingresso_alla_tabella(contesto.albero, contesto.config.appaiata)
         esito = esegui_script(
             cartella_r() / NOME_SCRIPT,
             {
@@ -98,5 +100,8 @@ class FiltroLunghezza(PipelineStep):
                     f"tutte le {metriche['varianti_escluse']} varianti hanno lunghezza fuori "
                     f"da {derivati.asv_len_min}-{derivati.asv_len_max} (lunghezze.tsv)"
                 )
-            raise errore("E-S7-01", dettaglio, **metriche)
+            # In modalita' appaiata l'intervallo e' quello dichiarato delle
+            # sequenze fuse, e il codice rimanda a quei parametri.
+            raise errore(
+                "E-S7-02" if contesto.config.appaiata else "E-S7-01", dettaglio, **metriche)
         return Produzione(esito.artefatti, metriche)

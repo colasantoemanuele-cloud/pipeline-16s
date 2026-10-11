@@ -115,6 +115,13 @@ def impronta_parametri(
         if nome in PARAMETRI_SENZA_EFFETTO:
             raise ValueError(f"{nome} non incide sui risultati ed e' escluso dall'impronta")
         gruppo, _, chiave = nome.partition(".")
+        if not risolta.config.appaiata and (gruppo == "pair" or nome == "io.layout"):
+            # In modalita' single-end la modalita' appaiata non esiste nella
+            # configurazione: una fase che dichiara quei parametri non ne
+            # dipende, e la sua impronta e' quella che avrebbe senza dichiararli.
+            if gruppo == "pair" and chiave and chiave not in type(risolta.config.pair).model_fields:
+                raise KeyError(f"parametro inesistente: {nome}")
+            continue
         if gruppo not in mappa or (chiave and chiave not in mappa[gruppo]):
             raise KeyError(f"parametro inesistente: {nome}")
         scelti[nome] = mappa[gruppo][chiave] if chiave else mappa[gruppo]
@@ -251,6 +258,11 @@ class PipelineStep(ABC):
     #: che cambiare quel parametro non invaliderebbe. Nel dubbio un parametro si
     #: include: la dichiarazione puo' essere larga, deve essere completa.
     parametri: ClassVar[tuple[str, ...] | None] = None
+    #: I parametri che la fase dichiara in piu' in modalita' appaiata
+    #: (``io.layout: paired-end``): quelli del gruppo ``pair`` che usa. In
+    #: modalita' single-end non esistono, e l'elenco dichiarato resta
+    #: ``parametri``: l'impronta e il manifesto della fase non cambiano.
+    parametri_appaiata: ClassVar[tuple[str, ...]] = ()
     #: Il grafo di riferimento.
     grafo: ClassVar[Grafo] = GRAFO
     #: L'azione correttiva per ciascun codice ripetibile che la fase puo'
@@ -261,6 +273,8 @@ class PipelineStep(ABC):
     #: I passi del tracciamento delle letture che la fase registra, nel loro
     #: ordine: ciascuno in un file ``letture_<passo>.tsv`` della sua cartella.
     passi_tracciamento: ClassVar[tuple[str, ...]] = ()
+    #: I passi che la fase registra in piu' in modalita' appaiata, dopo i suoi.
+    passi_tracciamento_appaiata: ClassVar[tuple[str, ...]] = ()
     #: La versione del calcolo, che entra nell'impronta: si incrementa quando
     #: cambia cio' che la fase calcola (metodo, script R, forma di un
     #: artefatto), e la ripresa rifa' allora la fase e le successive. Ogni fase
@@ -326,14 +340,24 @@ class PipelineStep(ABC):
     # Lo scheletro comune                                                #
     # ----------------------------------------------------------------- #
 
+    def parametri_per(self, config: Config) -> tuple[str, ...] | None:
+        """I parametri da cui la fase dipende con questa configurazione: quelli
+        dichiarati, e in modalita' appaiata la modalita' stessa (per ogni fase:
+        i suoi ingressi sono altri) e i parametri di :attr:`parametri_appaiata`.
+        """
+        if self.parametri is None or not config.appaiata:
+            return self.parametri
+        return (*self.parametri, "io.layout", *self.parametri_appaiata)
+
     def calcolata_su(
         self, risolta: ConfigRisolta, a_monte: Mapping[Passo, str | None]
     ) -> dict[str, Any]:
         """Su che cosa la fase viene calcolata, nella forma del manifesto."""
+        parametri = self.parametri_per(risolta.config)
         calcolata = {
             "configurazione": {
-                "parametri": list(self.parametri) if self.parametri is not None else None,
-                "impronta": impronta_parametri(risolta, self.parametri),
+                "parametri": list(parametri) if parametri is not None else None,
+                "impronta": impronta_parametri(risolta, parametri),
             },
             "a_monte": {str(p): a_monte[p] for p in sorted(a_monte, key=_ordine)},
             "dati_esterni": self.impronta_dati_esterni(risolta.config),
@@ -417,7 +441,7 @@ class PipelineStep(ABC):
         # Il calcolo vede solo i parametri dichiarati.
         if self.parametri is None:
             raise TypeError(f"{type(self).__name__} non dichiara i parametri da cui dipende")
-        ristretto = contesto.ristretto(self.parametri)
+        ristretto = contesto.ristretto(self.parametri_per(contesto.config))
         inizio = time.perf_counter()
         try:
             produzione = self.calcola(ristretto)

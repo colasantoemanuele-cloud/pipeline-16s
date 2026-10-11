@@ -528,6 +528,14 @@ def chiavi_schema() -> frozenset[str]:
     )
 
 
+def chiavi_della_modalita_appaiata() -> frozenset[str]:
+    """Le chiavi dello schema che esistono solo in modalita' appaiata: la
+    modalita' e il gruppo ``pair``. In modalita' single-end non compaiono nella
+    configurazione risolta ne' in alcun artefatto.
+    """
+    return frozenset(c for c in chiavi_schema() if c.startswith("pair.")) | {"io.layout"}
+
+
 def codici_con_retry() -> frozenset[str]:
     """I codici che il catalogo ammette al retry automatico."""
     from amplicon16s.errors.catalog import CATALOGO

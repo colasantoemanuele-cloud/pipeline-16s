@@ -75,6 +75,8 @@ class Passo(StrEnum):
     S2 = "S2"
     S3 = "S3"
     S4 = "S4"
+    #: La fusione delle coppie, solo in modalita' appaiata: fra S4 e S5.
+    SM = "SM"
     S5 = "S5"
     S6 = "S6"
     S7 = "S7"
@@ -98,10 +100,16 @@ class Nodo:
     cartella: Fase
     #: Fasi di cui la fase consuma gli artefatti.
     dipendenze: tuple[Passo, ...] = ()
+    #: Fasi di cui la fase consuma gli artefatti nella sola modalita' appaiata.
+    dipendenze_in_appaiata: tuple[Passo, ...] = ()
     #: Condizione di attivazione; ``None`` per le fasi sempre attive.
     attiva_se: Callable[[Config], bool] | None = None
     #: Il parametro che governa la condizione, per i messaggi.
     parametro_attivazione: str | None = None
+    #: Se la fase si elenca anche quando e' inattiva (come disattivata). Una
+    #: fase che esiste solo in una modalita' non si elenca nell'altra: non e'
+    #: una fase disattivata di quella, non ne fa parte.
+    elencata_se_inattiva: bool = True
 
     @property
     def facoltativa(self) -> bool:
@@ -138,7 +146,7 @@ class Grafo:
             # Ogni dipendenza deve precedere la fase che la usa: l'ordine di
             # dichiarazione e' quindi un ordine di esecuzione valido, e un
             # ciclo e' impossibile per costruzione.
-            for dipendenza in nodo.dipendenze:
+            for dipendenza in (*nodo.dipendenze, *nodo.dipendenze_in_appaiata):
                 if dipendenza not in self._nodi:
                     raise ValueError(
                         f"{nodo.passo} dipende da {dipendenza}, che non la precede"
@@ -178,11 +186,24 @@ class Grafo:
         """Le fasi che questa configurazione esegue, in ordine."""
         return tuple(p for p, n in self._nodi.items() if n.attiva(config))
 
-    def dipendenze_attive(self, passo: Passo, config: Config) -> tuple[Passo, ...]:
-        """Le dipendenze della fase, meno quelle disattivate dalla configurazione."""
+    def elencate(self, config: Config) -> tuple[Passo, ...]:
+        """Le fasi di cui si parla con questa configurazione, nell'ordine di
+        esecuzione: le attive, e le inattive che si elencano come disattivate.
+        """
         return tuple(
-            d for d in self._nodi[passo].dipendenze if self._nodi[d].attiva(config)
-        )
+            p for p, n in self._nodi.items() if n.attiva(config) or n.elencata_se_inattiva)
+
+    def dipendenze_attive(self, passo: Passo, config: Config) -> tuple[Passo, ...]:
+        """Le dipendenze della fase con questa configurazione: quelle
+        dichiarate meno le disattivate, nell'ordine in cui sono dichiarate, e
+        in coda quelle della sola modalita' appaiata se la configurazione la
+        dichiara.
+        """
+        nodo = self._nodi[passo]
+        dichiarate = nodo.dipendenze
+        if nodo.dipendenze_in_appaiata and config.appaiata:
+            dichiarate = (*dichiarate, *nodo.dipendenze_in_appaiata)
+        return tuple(d for d in dichiarate if self._nodi[d].attiva(config))
 
     def antenati(self, passo: Passo, config: Config) -> tuple[Passo, ...]:
         """Le fasi attive da cui la fase dipende, anche indirettamente, in ordine.
@@ -206,6 +227,11 @@ def _filogenesi_attiva(config: Config) -> bool:
     return config.phylo.enabled
 
 
+def _modalita_appaiata(config: Config) -> bool:
+    """Condizione di attivazione di SM: la modalita' appaiata."""
+    return config.appaiata
+
+
 # S7 non ha una cartella propria: filtra per lunghezza la tabella senza
 # chimere di S6 e scrive accanto a S6 in 07_chimera.
 GRAFO: Final = Grafo(
@@ -214,22 +240,40 @@ GRAFO: Final = Grafo(
         # S0 e' fra le dipendenze di ogni fase che legge l'inventario dei
         # campioni (01_input_validation/inventario.json).
         Nodo(Passo.S1, "profilo di qualita'", Fase.QC_PROFILES, (Passo.S0,)),
-        Nodo(Passo.S2, "filtro e troncamento", Fase.FILTERED, (Passo.S0,)),
+        # In modalita' appaiata il filtro scrive i due file di ogni campione
+        # senza confrontare gli identificativi delle letture: legge da S1 la
+        # verifica, fatta su tutte le letture, che le coppie siano in sincronia.
+        Nodo(
+            Passo.S2, "filtro e troncamento", Fase.FILTERED, (Passo.S0,),
+            dipendenze_in_appaiata=(Passo.S1,),
+        ),
         Nodo(Passo.S3, "modello d'errore", Fase.ERROR_MODELS, (Passo.S0, Passo.S2)),
         Nodo(
             Passo.S4, "inferenza delle varianti", Fase.ASV_INFERENCE,
             (Passo.S0, Passo.S2, Passo.S3),
         ),
+        # Solo in modalita' appaiata: fonde le due letture di ogni coppia dalle
+        # varianti e dalle mappe che S4 conserva per ciascuna lettura.
+        Nodo(
+            Passo.SM, "fusione delle coppie", Fase.PAIR_MERGE, (Passo.S0, Passo.S2, Passo.S4),
+            attiva_se=_modalita_appaiata,
+            parametro_attivazione="io.layout",
+            elencata_se_inattiva=False,
+        ),
         # S5, S6 e S7 leggono da S2 le letture filtrate di ogni campione, per
-        # riconoscere i campioni rimasti senza letture.
+        # riconoscere i campioni rimasti senza letture. In modalita' appaiata S5
+        # legge le varianti fuse di SM (inattiva, e ignorata, in single-end).
         Nodo(
-            Passo.S5, "tabella delle sequenze", Fase.SEQTAB, (Passo.S0, Passo.S2, Passo.S4),
+            Passo.S5, "tabella delle sequenze", Fase.SEQTAB,
+            (Passo.S0, Passo.S2, Passo.S4, Passo.SM),
         ),
         Nodo(
-            Passo.S6, "rimozione delle chimere", Fase.CHIMERA, (Passo.S0, Passo.S2, Passo.S5),
+            Passo.S6, "rimozione delle chimere", Fase.CHIMERA,
+            (Passo.S0, Passo.S2, Passo.SM, Passo.S5),
         ),
         Nodo(
-            Passo.S7, "filtro di lunghezza", Fase.CHIMERA, (Passo.S0, Passo.S2, Passo.S6),
+            Passo.S7, "filtro di lunghezza", Fase.CHIMERA,
+            (Passo.S0, Passo.S2, Passo.SM, Passo.S6),
         ),
         Nodo(
             Passo.S8, "assegnazione tassonomica", Fase.TAXONOMY, (Passo.S0, Passo.S7),

@@ -20,6 +20,7 @@ import csv
 import hashlib
 import re
 import sys
+import zlib
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -28,7 +29,14 @@ from typing import Any
 
 from amplicon16s.gates.g01_g15 import PRIMER_IN_TESTA, _e_lettura_inversa
 from amplicon16s.init import vocabolario as v
-from amplicon16s.io_layer.reads import StatisticheFile, apri_fastq, espandi_iupac, scansiona_file
+from amplicon16s.io_layer.reads import (
+    MARCATORI_DI_FILE,
+    StatisticheFile,
+    abbina_file,
+    apri_fastq,
+    espandi_iupac,
+    scansiona_file,
+)
 from amplicon16s.metadata.crosswalk import (
     AccessionNonEstraibile,
     chiave_dalla_tabella,
@@ -95,6 +103,136 @@ def file_di_letture(cartella: Path) -> dict[str, list[Path]]:
         if estensione is not None:
             per_estensione[estensione].append(percorso)
     return dict(per_estensione)
+
+
+def coppie_di_file(nomi: Sequence[str]) -> tuple[tuple[str, str], dict[str, str]] | None:
+    """I marcatori con cui ogni file della cartella ha il suo compagno, e le
+    coppie (file forward -> file reverse); ``None`` se con nessuna coppia di
+    marcatori i file si abbinano tutti.
+
+    Si provano le convenzioni di :data:`MARCATORI_DI_FILE`, dalla piu'
+    specifica. Basta un file senza compagno perche' la cartella non sia quella
+    di un dataset appaiato: sara' chi lancia il comando a dire che cosa sono i
+    file rimasti.
+    """
+    for marcatori in MARCATORI_DI_FILE:
+        abbinamento = abbina_file(nomi, marcatori)
+        if abbinamento.completo:
+            return marcatori, dict(abbinamento.coppie)
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Lunghezza dell'inserto, dalle coppie                                         #
+# --------------------------------------------------------------------------- #
+
+#: Quante coppie per file entrano nella stima della lunghezza dell'inserto. E'
+#: la dimensione del campione di un'euristica: la stima si verifica poi sulla
+#: quota di coppie fuse della prima esecuzione.
+COPPIE_PER_L_INSERTO = 500
+
+#: I semi con cui si cerca dove le due letture si sovrappongono: tratti di
+#: questa lunghezza della lettura forward, uno ogni ``_PASSO_DEI_SEMI`` basi.
+_SEME = 12
+_PASSO_DEI_SEMI = 4
+
+#: Una sovrapposizione conta se e' lunga almeno queste basi e se non piu' di
+#: questa quota discorda: le code delle letture hanno errori, e un
+#: allineamento esatto ne perderebbe la maggior parte.
+SOVRAPPOSIZIONE_MINIMA_STIMATA = 20
+DISCORDANZE_NELLA_SOVRAPPOSIZIONE = 0.1
+
+_COMPLEMENTO = str.maketrans("ACGTNacgtn", "TGCANtgcan")
+
+
+def complemento_inverso(sequenza: str) -> str:
+    """Il complemento inverso di una sequenza di basi."""
+    return sequenza.translate(_COMPLEMENTO)[::-1]
+
+
+def lunghezza_dell_inserto(forward: str, reverse: str) -> int | None:
+    """La lunghezza del frammento di cui ``forward`` e ``reverse`` sono le due
+    estremita', o ``None`` se le due letture non si sovrappongono.
+
+    La lettura reverse si porta sullo stesso filamento della forward
+    (complemento inverso): se le due letture coprono lo stesso frammento, un
+    tratto della forward compare nella reverse, a una distanza che dice la
+    lunghezza del frammento. I semi propongono la distanza, la sovrapposizione
+    intera la conferma. Comprende i primer, se le letture li portano; vale
+    anche quando il frammento e' piu' corto delle letture.
+    """
+    altra = complemento_inverso(reverse)
+    voti: Counter[int] = Counter()
+    for inizio in range(0, len(forward) - _SEME + 1, _PASSO_DEI_SEMI):
+        seme = forward[inizio:inizio + _SEME]
+        posto = altra.find(seme)
+        while posto >= 0:
+            voti[inizio - posto] += 1
+            posto = altra.find(seme, posto + 1)
+    for scarto, _ in voti.most_common(3):
+        da, a = max(0, scarto), min(len(forward), scarto + len(altra))
+        if a - da < SOVRAPPOSIZIONE_MINIMA_STIMATA:
+            continue
+        diverse = sum(x != y for x, y in zip(forward[da:a], altra[da - scarto:a - scarto]))
+        if diverse <= DISCORDANZE_NELLA_SOVRAPPOSIZIONE * (a - da):
+            return scarto + len(altra)
+    return None
+
+
+def inserti_di_una_coppia_di_file(argomenti: tuple[str, str]) -> list[int | None]:
+    """La lunghezza dell'inserto di ciascuna delle prime
+    :data:`COPPIE_PER_L_INSERTO` coppie dei due file (``None`` dove le letture
+    non si sovrappongono). Una sola tupla di argomenti: la funzione gira in un
+    processo per campione.
+    """
+    forward, reverse = argomenti
+    lunghezze: list[int | None] = []
+    try:
+        with apri_fastq(forward) as primo, apri_fastq(reverse) as secondo:
+            for numero, (riga_1, riga_2) in enumerate(zip(primo, secondo)):
+                if numero % 4 != 1:
+                    continue
+                if len(lunghezze) >= COPPIE_PER_L_INSERTO:
+                    break
+                lunghezze.append(lunghezza_dell_inserto(
+                    riga_1.strip().upper(), riga_2.strip().upper()))
+    except (OSError, EOFError, zlib.error):
+        pass
+    return lunghezze
+
+
+@dataclass(frozen=True)
+class Inserto:
+    """La lunghezza dell'inserto stimata dalle coppie campionate."""
+
+    #: Coppie campionate e coppie le cui letture si sovrappongono.
+    coppie: int
+    sovrapposte: int
+    #: Mediana e percentili 0,5 e 99,5 delle lunghezze misurate.
+    mediana: int
+    minima: int
+    massima: int
+
+
+def stima_dell_inserto(per_file: Iterable[Sequence[int | None]]) -> Inserto | None:
+    """La distribuzione della lunghezza dell'inserto, o ``None`` se non si
+    stima: nessuna coppia campionata, o meno di meta' con le letture
+    sovrapposte (le letture non coprono il frammento, e la lunghezza non si
+    ricava da loro).
+
+    I percentili 0,5 e 99,5, e non il minimo e il massimo: fra migliaia di
+    coppie ce n'e' sempre qualcuna fuori bersaglio o chimerica.
+    """
+    tutte = [x for lunghezze in per_file for x in lunghezze]
+    misurate = sorted(x for x in tutte if x is not None)
+    if not tutte or 2 * len(misurate) < len(tutte):
+        return None
+
+    def percentile(quota: float) -> int:
+        return misurate[min(len(misurate) - 1, max(0, round(quota * (len(misurate) - 1))))]
+
+    return Inserto(len(tutte), len(misurate), percentile(0.5), percentile(0.005),
+                   percentile(0.995))
 
 
 def secondi_di_coppia(nomi: Sequence[str]) -> list[str]:
@@ -641,6 +779,7 @@ _ETICHETTA_REVERSE = re.compile(
 
 def primer_dai_metadati(
     tabelle: Iterable[Sequence[dict[str, str]]],
+    primer_reverse: list[str] | None = None,
 ) -> tuple[str | None, list[str], bool]:
     """Il primer forward che i metadati riportano, tutte le sequenze trovate, e
     se il forward e' dichiarato tale.
@@ -651,7 +790,9 @@ def primer_dai_metadati(
     primer e' proposto se una sola sequenza ha un'etichetta di forward; oppure,
     senza alcuna etichetta, se la sequenza e' una sola, e allora il terzo
     valore e' falso: nessuno dice che sia il forward. Una sequenza con
-    un'etichetta di reverse non si propone.
+    un'etichetta di reverse non si propone. Se ``primer_reverse`` e' un elenco
+    vi si aggiungono le sequenze con un'etichetta di reverse: servono alla
+    modalita' appaiata.
     """
     sequenze: list[str] = []
     forward: list[str] = []
@@ -679,6 +820,8 @@ def primer_dai_metadati(
                             forward.append(sequenza)
                     elif _ETICHETTA_REVERSE.search(dove) and sequenza not in reverse:
                         reverse.append(sequenza)
+    if primer_reverse is not None:
+        primer_reverse.extend(reverse)
     if len(forward) == 1:
         return forward[0], sequenze, True
     if not forward and len(sequenze) == 1 and not reverse:
@@ -686,14 +829,17 @@ def primer_dai_metadati(
     return None, sequenze, False
 
 
-def primer_nominati(tabelle: Iterable[Sequence[dict[str, str]]]) -> list[v.Primer]:
+def primer_nominati(
+    tabelle: Iterable[Sequence[dict[str, str]]],
+    elenco: Sequence[v.Primer] = v.PRIMER_16S,
+) -> list[v.Primer]:
     """I primer dell'elenco il cui nome compare nei metadati (``515F``,
     ``341F``...): un nome non dice la sequenza, perche' lo stesso nome ha piu'
     forme, ma dice fra quali cercarla.
     """
     testi = {x for tabella in tabelle for riga in tabella for x in riga.values() if x}
     trovati = []
-    for primer in v.PRIMER_16S:
+    for primer in elenco:
         nome = primer.nome.split()[0]
         cerca = re.compile(rf"(?<![A-Za-z0-9]){re.escape(nome)}(?![A-Za-z0-9])", re.IGNORECASE)
         if any(cerca.search(testo) for testo in testi):

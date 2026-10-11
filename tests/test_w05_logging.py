@@ -416,7 +416,7 @@ def test_esecuzione_fittizia_produce_albero_configurazione_e_log(tmp_path):
     # L'albero completo
     cartelle = sorted(p.name for p in radice.iterdir() if p.is_dir())
     assert cartelle == sorted(f.value for f in Fase if "/" not in f.value)
-    assert len(cartelle) == 14
+    assert len(cartelle) == 15
     assert (radice / Fase.FINAL_INTERMEDI.value).is_dir()
 
     # La configurazione risolta, registrata come artefatto

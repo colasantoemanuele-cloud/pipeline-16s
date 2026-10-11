@@ -18,6 +18,12 @@
 # (accession dei file senza letture, che non si leggono: zero letture e nessun
 # profilo) e ordine (tutti gli accession, nell'ordine delle tabelle).
 #
+# In modalita' appaiata lo script si esegue una seconda volta sulle letture
+# reverse, con il parametro suffisso ("_reverse"): i file prendono quel
+# suffisso prima dell'estensione (lunghezze_reverse.tsv, ...), e il conteggio
+# del tracciamento non si scrive, perche' le coppie si contano una volta sola,
+# sulle letture forward.
+#
 # Le tabelle sono in formato lungo, una riga per campione e per valore: si
 # leggono con qualunque programma, e un dataset di molti campioni resta in
 # pochi file invece di alcuni per campione.
@@ -97,6 +103,8 @@ esegui_fase(function(parametri, cartella) {
   campioni <- unlist(parametri$campioni)
   processi <- as.integer(parametri$processi)
   blocco <- as.integer(facoltativo(parametri, "blocco", 100000L))
+  suffisso <- as.character(facoltativo(parametri, "suffisso", ""))
+  nome_file <- function(base, estensione) paste0(base, suffisso, ".", estensione)
   mancanti <- campioni[!file.exists(campioni)]
   if (length(mancanti)) {
     stop("file di letture non trovati: ", paste(mancanti, collapse = ", "))
@@ -132,18 +140,20 @@ esegui_fase(function(parametri, cartella) {
     presenti <- which(l > 0)
     righe <- c(righe, sprintf("%s\t%d\t%.0f", campione, presenti, l[presenti]))
   }
-  scrivi_atomico(righe, file.path(cartella, "lunghezze.tsv"))
+  scrivi_atomico(righe, file.path(cartella, nome_file("lunghezze", "tsv")))
 
   # Profilo di qualita' per posizione.
   righe <- "campione\tposizione\tletture\tmedia\tp10\tp25\tmediana\tp75\tp90"
   for (campione in names(profili)) {
     righe <- c(righe, righe_qualita(campione, profili[[campione]]$qualita))
   }
-  scrivi_atomico(righe, file.path(cartella, "qualita.tsv"))
+  scrivi_atomico(righe, file.path(cartella, nome_file("qualita", "tsv")))
 
   # Conteggio delle letture, nel formato del tracciamento.
   conteggi <- vapply(profili, function(p) p$letture, numeric(1))
-  tracciamento <- traccia_letture(conteggi, "grezze", cartella)
+  tracciamento <- if (nzchar(suffisso)) character() else {
+    traccia_letture(conteggi, "grezze", cartella)
+  }
 
   # Riepilogo sull'insieme.
   massimo <- max(vapply(profili, function(p) length(p$lunghezze), integer(1)))
@@ -173,7 +183,7 @@ esegui_fase(function(parametri, cartella) {
   usati <- which(basi_per_valore > 0)
   scrivi_atomico(
     c("qualita\tbasi", sprintf("%d\t%.0f", usati - 1L, basi_per_valore[usati])),
-    file.path(cartella, "valori_qualita.tsv")
+    file.path(cartella, nome_file("valori_qualita", "tsv"))
   )
 
   scrivi_json(
@@ -187,8 +197,9 @@ esegui_fase(function(parametri, cartella) {
       qualita_mediana_per_posizione = as.list(mediane),
       per_campione = per_campione
     ),
-    file.path(cartella, "riepilogo.json")
+    file.path(cartella, nome_file("riepilogo", "json"))
   )
 
-  c("lunghezze.tsv", "qualita.tsv", "valori_qualita.tsv", tracciamento, "riepilogo.json")
+  c(nome_file("lunghezze", "tsv"), nome_file("qualita", "tsv"),
+    nome_file("valori_qualita", "tsv"), tracciamento, nome_file("riepilogo", "json"))
 })

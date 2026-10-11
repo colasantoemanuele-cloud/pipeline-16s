@@ -173,3 +173,58 @@ def test_un_md5_non_dichiarato_dalla_fonte_si_registra_al_primo_scarico(lf, tmp_
                    ["--cartella", str(tmp_path / "altro"), "--pausa", "0", "--tentativi", "1",
                     "--registra"]) == 1
     assert not (tmp_path / "altro" / "fastq" / "corto.fastq.gz").exists()
+
+
+def test_con_coppie_i_due_file_arrivano_nell_ordine_del_deposito(lf, tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che con ``--coppie`` i due file di ogni corsa
+    arrivino in ``fastq_coppie/`` con i marcatori ``_R1`` (primo file del
+    deposito) e ``_R2`` (secondo), identici byte per byte agli originali anche
+    nella corsa che il deposito ha con i due file scambiati; che ``fastq/`` non
+    venga creata; che un MD5 non dichiarato dalla fonte si registri con
+    ``--registra`` e sia richiesto senza; e che un secondo lancio e la sola
+    verifica riconoscano i file presenti e quello alterato.
+
+    **Razionale scientifico e sistemistico**: Per la modalita' appaiata lo
+    scarico non sceglie il lato: una corsa invertita deve arrivare alla
+    pipeline cosi' com'e' nel deposito, perche' sia la pipeline a riconoscerla
+    dal contenuto e a dirlo.
+    """
+    deposito = tmp_path / "deposito"
+    deposito.mkdir()
+    corse = {
+        "regolare.fastq.gz": (_fastq(deposito / "a_1.fq.gz", CON_PRIMER),
+                              _fastq(deposito / "a_2.fq.gz", INVERSA)),
+        "scambiata.fastq.gz": (_fastq(deposito / "b_1.fq.gz", INVERSA),
+                               _fastq(deposito / "b_2.fq.gz", CON_PRIMER)),
+    }
+    elenco = tmp_path / "letture.tsv"
+    _elenco(elenco, corse, con_md5=False)
+    lavoro = tmp_path / "lavoro"
+    argomenti = ["--cartella", str(lavoro), "--pausa", "0", "--tentativi", "1", "--coppie"]
+    assert lf.main(elenco, PRIMER, lavoro, "prova", argomenti) == 1
+    assert "registralo con --registra" in capsys.readouterr().out
+    assert lf.main(elenco, PRIMER, lavoro, "prova", [*argomenti, "--registra"]) == 0
+    stampato = capsys.readouterr().out
+    assert "coppie di file conformi 2, mancanti o non conformi 0" in stampato
+    assert "nell'ordine del deposito, senza scambi" in stampato
+    attesi = {"regolare_R1.fastq.gz": "a_1.fq.gz", "regolare_R2.fastq.gz": "a_2.fq.gz",
+              "scambiata_R1.fastq.gz": "b_1.fq.gz", "scambiata_R2.fastq.gz": "b_2.fq.gz"}
+    cartella = lavoro / lf.CARTELLA_COPPIE
+    assert sorted(p.name for p in cartella.iterdir()) == sorted(attesi)
+    for nome, origine in attesi.items():
+        assert (cartella / nome).read_bytes() == (deposito / origine).read_bytes(), nome
+    assert not (lavoro / "fastq").exists()
+    # L'MD5 dei due file e' registrato; il lato forward no: qui non si decide.
+    for riga in lf.leggi_elenco(elenco):
+        uno, due = corse[riga["file"]]
+        assert (riga["md5_1"], riga["md5_2"], riga["lato"]) == (uno["md5"], due["md5"], "")
+
+    assert lf.main(elenco, PRIMER, lavoro, "prova", argomenti) == 0
+    assert "coppie di file conformi 2" in capsys.readouterr().out
+    (cartella / "scambiata_R2.fastq.gz").write_bytes(b"alterato")
+    assert lf.main(elenco, PRIMER, lavoro, "prova", [*argomenti, "--solo-verifica"]) == 1
+    assert "scambiata.fastq.gz: i due file assenti o non conformi" in capsys.readouterr().out
+    assert lf.nome_di_coppia("x.fq", "2") == "x_R2.fq"
+    with pytest.raises(ValueError, match="estensione non riconosciuta"):
+        lf.nome_di_coppia("x.txt", "1")

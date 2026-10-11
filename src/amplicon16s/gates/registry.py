@@ -111,6 +111,21 @@ REGISTRO: Final[tuple[_Voce, ...]] = (
 )
 
 
+#: I gate che in modalita' appaiata verificano altro: la descrizione registrata
+#: in gates.json lo dice. In modalita' single-end vale quella del registro.
+DESCRIZIONI_IN_MODALITA_APPAIATA: Final[Mapping[str, str]] = {
+    "G05": "gli accession sono univoci e ogni file ha il suo compagno",
+    "G07": "il layout e' appaiato: prime letture nel file forward, seconde nel reverse",
+}
+
+
+def _descrizione(voce: _Voce, contesto: Contesto) -> str:
+    """La descrizione di un gate nella modalita' della configurazione."""
+    if contesto.config.appaiata:
+        return DESCRIZIONI_IN_MODALITA_APPAIATA.get(voce.nome, voce.descrizione)
+    return voce.descrizione
+
+
 def esegui_tutti(
     contesto: Contesto,
     gia_eseguiti: Mapping[str, EsitoGate] | None = None,
@@ -128,7 +143,8 @@ def esegui_tutti(
     for voce in REGISTRO:
         if fermato:
             esiti.append(
-                EsitoGate(voce.nome, voce.descrizione, eseguito=False, superato=False)
+                EsitoGate(voce.nome, _descrizione(voce, contesto), eseguito=False,
+                          superato=False)
             )
             continue
 
@@ -150,7 +166,7 @@ def esegui_gate(nome: str, contesto: Contesto) -> EsitoGate:
     violazioni, avvisi = voce.controllo(contesto)
     return EsitoGate(
         gate=voce.nome,
-        descrizione=voce.descrizione,
+        descrizione=_descrizione(voce, contesto),
         eseguito=True,
         superato=not violazioni,
         violazioni=tuple(violazioni),

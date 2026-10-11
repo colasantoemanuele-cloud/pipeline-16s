@@ -1,6 +1,6 @@
 # amplicon16s
 
-Pipeline per l'analisi di dati 16S rRNA da sequenziamento Illumina single-end.
+Pipeline per l'analisi di dati 16S rRNA da sequenziamento Illumina, single-end o appaiato.
 
 ## Che cosa fa
 
@@ -16,7 +16,7 @@ Le fasi, nell'ordine:
 | S0 | valida configurazione, metadati e file delle letture, prima di ogni calcolo |
 | S1 | profilo di qualità e di lunghezza di tutte le letture |
 | S2 | filtro e troncamento delle letture (`dada2::filterAndTrim`) |
-| S3-S7 | modello d'errore per corsa, inferenza delle varianti, tabella delle sequenze, rimozione delle chimere, selezione per lunghezza |
+| S3-S7 | modello d'errore per corsa, inferenza delle varianti, in modalità appaiata fusione delle coppie (SM, `dada2::mergePairs`), tabella delle sequenze, rimozione delle chimere, selezione per lunghezza |
 | S8 | assegnazione tassonomica (`dada2::assignTaxonomy`) |
 | S10 | oggetto integrato con tutti i campioni |
 | S11 | curva di calibrazione dai controlli positivi in diluizione (KatharoSeq) e soglia di profondità |
@@ -37,9 +37,9 @@ parametro.
 
 ## Dati supportati
 
-- Letture Illumina **single-end** dell'amplicone 16S, un file FASTQ per campione,
-  compresso con gzip o no. Di una corsa appaiata si usano le sole letture forward; un
-  file con le due letture di ogni coppia, o con le sole letture inverse, viene respinto.
+- Letture Illumina dell'amplicone 16S, in FASTQ compresso con gzip o no: **single-end**, un
+  file per campione, o **appaiate** (`io.layout: paired-end`), due file per campione, fuse dopo
+  l'inferenza. Un file con le due letture di ogni coppia insieme viene respinto (GUIDA.md, 1.2).
 - Letture **senza primer in testa**, oppure con il primer a posizione fissa, che si
   toglie con `filter.trimLeft`.
 - Metadati in tabelle di testo UTF-8 separate da tabulazioni: una tabella dei campioni,
@@ -266,10 +266,10 @@ misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in
   conservato o con il primer nelle basi tagliate: non con il motivo nullo e senza taglio, non in un
   file con meno di 500 letture o di un controllo negativo, non se il motivo è stato ricavato da
   file in maggioranza inversi, non se la libreria mescola i due versi (GUIDA.md, 1.2).
-- Un file il cui nome finisce con `R2`, o con `_2` quando c'è lo stesso nome con `_1`,
-  è preso per il secondo di una coppia e respinto; così un dataset single-end le cui
-  letture portano tutte il marcatore `/2`. Due file `_R1` e `_R2` con la stessa chiave
-  sono respinti come chiave ripetuta (`E-S0-05`).
+- In modalità single-end un file con il nome di una seconda lettura (`R2`, `_2`) è respinto per il
+  nome solo dove il contenuto non si può giudicare (GUIDA.md, 1.2); lo è un dataset le cui letture
+  portano tutte il marcatore `/2`. In modalità appaiata i taxa con la regione più lunga di quanto
+  le letture troncate coprono non si fondono, senza alcun errore (GUIDA.md, 6.7).
 - `init` riconosce il primer solo se è in un elenco di primer 16S comuni e sta in testa
   alle letture; la chiave del campione solo se una colonna corrisponde uno a uno ai
   file. Negli altri casi lascia la riga da scegliere, e lo dice.

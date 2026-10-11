@@ -23,6 +23,16 @@ che la fonte non dichiara e' vuoto e si registra al primo scarico con
 ``--registra``) e ``lato`` (``1`` o ``2``: il file tenuto, registrato allo
 stesso modo). Lo scarico e' ripetibile: un file gia' presente e conforme non si
 scarica di nuovo.
+
+**Entrambe le letture, per la modalita' appaiata** (``--coppie``). I due file
+di ogni corsa si scaricano in una cartella separata, ``fastq_coppie/``, con il
+nome del file forward piu' ``_R1`` per il primo file del deposito e ``_R2`` per
+il secondo: **nell'ordine del deposito, senza scambi**. Il riconoscimento del
+lato forward qui non si applica di proposito: se in una corsa il deposito ha i
+due file invertiti deve accorgersene la pipeline, che in modalita' appaiata lo
+verifica sul contenuto. Ogni file si verifica con la dimensione e, dove c'e',
+con l'MD5 dell'elenco; con ``--registra`` gli MD5 che la fonte non dichiara si
+registrano dal primo scarico. La cartella ``fastq/`` non viene toccata.
 """
 
 from __future__ import annotations
@@ -149,37 +159,100 @@ def prepara_corsa(riga: dict[str, str], cartella: Path, primer: str, *, registra
     if riga["lato"] and riga["lato"] != lato:
         raise ErroreScarico(
             f"{riga['file']}: il primer indica il file {lato}, l'elenco registra il {riga['lato']}")
-    destinazione = cartella / "fastq" / riga["file"]
+    _scarica_un_lato(riga, lato, cartella / "fastq" / riga["file"], registra=registra,
+                     tentativi=tentativi)
+    if registra:
+        riga["lato"] = lato
+    return esito
+
+
+def _scarica_un_lato(riga: dict[str, str], lato: str, destinazione: Path, *, registra: bool,
+                     tentativi: int) -> None:
+    """Scarica in ``destinazione`` il file ``lato`` (``"1"`` o ``"2"``) di una
+    corsa e lo verifica: con l'MD5 dell'elenco se c'e'; altrimenti, con
+    ``registra``, con la sola dimensione, e l'MD5 del file ottenuto entra nella
+    riga come riferimento per gli scarichi successivi.
+    """
     md5 = riga[f"md5_{lato}"]
     if md5:
         scarica(Atteso(riga[f"url_{lato}"], md5, int(riga[f"byte_{lato}"])), destinazione,
                 tentativi=tentativi)
-    elif not registra:
+        return
+    if not registra:
         raise ErroreScarico(
             f"{riga['file']}: l'elenco non ha l'MD5 del file {lato}; registralo con --registra")
+    # La fonte dichiara la sola dimensione: si verifica quella, e l'MD5 del
+    # file ottenuto diventa il riferimento per gli scarichi successivi.
+    parziale = destinazione.with_name(destinazione.name + ".parziale")
+    destinazione.parent.mkdir(parents=True, exist_ok=True)
+    ultimo = "nessun tentativo"
+    for tentativo in range(1, tentativi + 1):
+        try:
+            urllib.request.urlretrieve(riga[f"url_{lato}"], parziale)
+        except GUASTI_DI_RETE as guasto:
+            ultimo = f"{type(guasto).__name__}: {guasto}"
+            time.sleep(5.0 * tentativo)
+            continue
+        if parziale.stat().st_size == int(riga[f"byte_{lato}"]):
+            parziale.replace(destinazione)
+            break
+        ultimo = f"{parziale.stat().st_size} byte su {riga[f'byte_{lato}']}"
     else:
-        # La fonte dichiara la sola dimensione: si verifica quella, e l'MD5 del
-        # file ottenuto diventa il riferimento per gli scarichi successivi.
-        parziale = destinazione.with_name(destinazione.name + ".parziale")
-        destinazione.parent.mkdir(parents=True, exist_ok=True)
-        ultimo = "nessun tentativo"
-        for tentativo in range(1, tentativi + 1):
-            try:
-                urllib.request.urlretrieve(riga[f"url_{lato}"], parziale)
-            except GUASTI_DI_RETE as guasto:
-                ultimo = f"{type(guasto).__name__}: {guasto}"
-                time.sleep(5.0 * tentativo)
-                continue
-            if parziale.stat().st_size == int(riga[f"byte_{lato}"]):
-                parziale.replace(destinazione)
-                break
-            ultimo = f"{parziale.stat().st_size} byte su {riga[f'byte_{lato}']}"
-        else:
-            raise ErroreScarico(f"{riga['file']}: {ultimo}")
-        riga[f"md5_{lato}"] = md5_file(destinazione)
-    if registra:
-        riga["lato"] = lato
-    return esito
+        raise ErroreScarico(f"{riga['file']}: {ultimo}")
+    riga[f"md5_{lato}"] = md5_file(destinazione)
+
+
+#: La cartella delle due letture di ogni corsa (``--coppie``), separata da
+#: quella delle sole forward, e i marcatori che ne distinguono i due file.
+CARTELLA_COPPIE = "fastq_coppie"
+MARCATORI_DI_COPPIA = {"1": "_R1", "2": "_R2"}
+
+
+def nome_di_coppia(nome: str, lato: str) -> str:
+    """Il nome, in :data:`CARTELLA_COPPIE`, del file ``lato`` del deposito per
+    la corsa il cui file forward si chiama ``nome``: il marcatore di coppia
+    prima dell'estensione. Il primo file del deposito e' sempre ``_R1``.
+    """
+    for estensione in (".fastq.gz", ".fq.gz", ".fastq", ".fq"):
+        if nome.endswith(estensione):
+            return nome[:-len(estensione)] + MARCATORI_DI_COPPIA[lato] + estensione
+    raise ValueError(f"{nome}: estensione non riconosciuta")
+
+
+def coppie(elenco: Path, opzioni: argparse.Namespace) -> int:
+    """Scarica e verifica i due file di ogni corsa, nell'ordine del deposito."""
+    righe = leggi_elenco(elenco)
+    conformi, guasti = 0, []
+    for indice, riga in enumerate(righe, start=1):
+        percorsi = {lato: opzioni.cartella / CARTELLA_COPPIE / nome_di_coppia(riga["file"], lato)
+                    for lato in ("1", "2")}
+        presenti = all(
+            riga[f"md5_{lato}"] and valido(percorso, Atteso(
+                riga[f"url_{lato}"], riga[f"md5_{lato}"], int(riga[f"byte_{lato}"])))
+            for lato, percorso in percorsi.items())
+        if presenti:
+            conformi += 1
+            continue
+        if opzioni.solo_verifica:
+            guasti.append(f"{riga['file']}: i due file assenti o non conformi")
+            continue
+        try:
+            for lato, percorso in percorsi.items():
+                _scarica_un_lato(riga, lato, percorso, registra=opzioni.registra,
+                                 tentativi=opzioni.tentativi)
+        except (ErroreScarico, OSError) as guasto:
+            guasti.append(f"{riga['file']}: {type(guasto).__name__}: {guasto}")
+            continue
+        conformi += 1
+        print(f"[{indice}/{len(righe)}] {percorsi['1'].name} e {percorsi['2'].name}", flush=True)
+        time.sleep(opzioni.pausa)
+    if opzioni.registra and not opzioni.solo_verifica:
+        scrivi_elenco(elenco, righe)
+    print(f"corse {len(righe)}: coppie di file conformi {conformi}, mancanti o non conformi "
+          f"{len(guasti)}; i file sono nell'ordine del deposito, senza scambi")
+    for voce in guasti:
+        print(f"  {voce}")
+    return 0 if not guasti else 1
 
 
 def main(elenco: Path, primer: str, predefinita: Path, descrizione: str,
@@ -194,7 +267,12 @@ def main(elenco: Path, primer: str, predefinita: Path, descrizione: str,
                         help="registra nell'elenco il lato tenuto e gli MD5 che la fonte non dichiara")
     parser.add_argument("--pausa", type=float, default=0.5)
     parser.add_argument("--tentativi", type=int, default=3)
+    parser.add_argument("--coppie", action="store_true",
+                        help="scarica i due file di ogni corsa in fastq_coppie/, nell'ordine "
+                             "del deposito e senza scambi, per la modalita' appaiata")
     opzioni = parser.parse_args(argomenti)
+    if opzioni.coppie:
+        return coppie(elenco, opzioni)
 
     righe = leggi_elenco(elenco)
     esiti: dict[str, list[str]] = {"forward": [], "invertita": [], "senza primer": []}

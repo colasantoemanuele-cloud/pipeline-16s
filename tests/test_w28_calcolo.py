@@ -134,7 +134,7 @@ from amplicon16s.metadata.tabelle import righe_con_valori_in_piu
 from amplicon16s.rbridge.runner import cartella_r, trova_rscript
 from amplicon16s.report.builder import _pct, genera, troncamento_suggerito
 from amplicon16s.runner.executor import Conclusione, Esecutore
-from amplicon16s.runner.graph import Passo
+from amplicon16s.runner.graph import GRAFO, Passo
 from amplicon16s.runner.project import ProjectRun
 from amplicon16s.steps.s01_profile import classi_oltre_soglia, letture_corte
 from amplicon16s.steps.s10_phyloseq import NOME_OGGETTO, colonne_metadati
@@ -1043,11 +1043,12 @@ def test_la_catena_intera_non_da_mai_un_errore_generico_di_r(bioc, tmp_path, nom
     # Sul sottoinsieme ridotto le quattro catene arrivano in fondo: un arresto,
     # anche con un codice del catalogo, qui sarebbe una regressione.
     assert esito.conclusione is Conclusione.COMPLETATA, esito.punto
-    assert [r.passo for r in esito.eseguite] == [p for p in Passo if p is not Passo.S9]
-    for passo in Passo:
-        if passo is not Passo.S9:
-            codici = _degradazioni(run, passo, run.fase(passo).cartella)
-            assert not [c for c in codici if c not in CATALOGO or c.startswith("E-R-")], (passo, codici)
+    attive = GRAFO.attive(run.config)
+    assert Passo.S9 not in attive and len(attive) == 14
+    assert [r.passo for r in esito.eseguite] == list(attive)
+    for passo in attive:
+        codici = _degradazioni(run, passo, run.fase(passo).cartella)
+        assert not [c for c in codici if c not in CATALOGO or c.startswith("E-R-")], (passo, codici)
     for passo, codice in insieme["attese"].items():
         assert codice in _degradazioni(run, passo, run.fase(passo).cartella), (passo, codice)
     finale = run.albero.cartella(Fase.FINAL)

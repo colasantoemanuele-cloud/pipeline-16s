@@ -525,6 +525,17 @@ def _aggiustamenti(esecuzione: _Esecuzione) -> list[tuple[Passo, dict[str, Any]]
     return [(p, a) for p, m in esecuzione.manifesti.items() for a in m.aggiustamenti]
 
 
+def _fasi_elencate(esecuzione: _Esecuzione) -> list[Passo]:
+    """Le fasi di cui il report parla, nell'ordine del grafo: una fase che
+    esiste solo in una modalita' non si elenca nell'altra.
+    """
+    return [
+        passo for passo in GRAFO.ordine()
+        if GRAFO.nodo(passo).elencata_se_inattiva
+        or esecuzione.parametri.get(GRAFO.nodo(passo).parametro_attivazione)
+    ]
+
+
 def _sezione_stato(esecuzione: _Esecuzione) -> tuple[_Sezione, bool, list[str]]:
     """Lo stato di ogni fase secondo i manifesti; se la catena è completa; e le
     fasi calcolate su artefatti a monte che non sono più quelli su disco.
@@ -536,7 +547,7 @@ def _sezione_stato(esecuzione: _Esecuzione) -> tuple[_Sezione, bool, list[str]]:
         for passo, _ in avvio["fasi"]
     }
     righe, completa, superate = [], True, []
-    for passo in GRAFO.ordine():
+    for passo in _fasi_elencate(esecuzione):
         nodo = GRAFO.nodo(passo)
         manifesto = esecuzione.manifesti.get(passo)
         conclusa: Any = ""
@@ -1225,6 +1236,7 @@ def _sezione_tracciamento(esecuzione: _Esecuzione) -> tuple[_Sezione, Tracciamen
         ("passo", "fase", *(f"{c}: {m}" for c in _CLASSI for m in ("campioni", "letture", "mediana"))),
         righe,
     ))
+    _fusione_delle_coppie(esecuzione, sezione, classe)
     nome = {r["accession"]: r for r in inventario}
     sezione.tabella(_tabella(
         "tracciamento_per_campione", "Letture per campione, passo per passo",
@@ -1235,6 +1247,44 @@ def _sezione_tracciamento(esecuzione: _Esecuzione) -> tuple[_Sezione, Tracciamen
         ripiegata=True,
     ))
     return sezione, tracciamento, classe
+
+
+def _fusione_delle_coppie(
+    esecuzione: _Esecuzione, sezione: _Sezione, classe: Mapping[str, str]
+) -> None:
+    """In modalita' appaiata, se la fusione e' conclusa: la quota di coppie
+    fuse e la lunghezza delle sequenze fuse, con la tabella per campione.
+
+    E' la misura con cui si giudicano i due troncamenti: una quota bassa in
+    tutti i campioni dice letture che non si sovrappongono abbastanza, in uno
+    solo un problema di quel campione.
+    """
+    riepilogo = esecuzione.json(Passo.SM, "fusione.json")
+    per_campione = esecuzione.tsv(Passo.SM, "fusione.tsv")
+    if not isinstance(riepilogo, dict) or per_campione is None:
+        return
+    sezione.testo(
+        "Fusione delle coppie (modalità appaiata). Le coppie che entrano nella fusione sono "
+        "quelle in cui entrambe le letture sono state attribuite a una variante; si fondono "
+        "quelle che si sovrappongono per almeno pair.min_overlap basi con non più di "
+        "pair.max_mismatch discordanze. La quota si giudica sui campioni biologici e sui "
+        "controlli positivi; le lunghezze sono quelle delle sequenze fuse, pesate sulle coppie."
+    )
+    sezione.sintesi([
+        ("quota di coppie fuse", riepilogo.get("quota_controllata")),
+        ("coppie fuse", f"{riepilogo.get('fuse_controllate')} su {riepilogo.get('coppie_controllate')}"),
+        ("lunghezza mediana delle sequenze fuse", riepilogo.get("lunghezza_mediana")),
+        ("lunghezza minima e massima",
+         f"{riepilogo.get('lunghezza_minima')} e {riepilogo.get('lunghezza_massima')}"),
+        ("lunghezza attesa (pair.expected_merged_len)", riepilogo.get("lunghezza_attesa")),
+    ])
+    sezione.tabella(_tabella(
+        "fusione_per_campione", "Coppie fuse per campione",
+        ("accession", "classe", "coppie", "fuse", "quota", "sequenze fuse distinte"),
+        ((r["campione"], classe.get(r["campione"], ""), r["coppie"], r["fuse"], r["quota"],
+          r["sequenze"]) for r in per_campione),
+        ripiegata=True,
+    ))
 
 
 def _sezione_risultato(
@@ -1431,7 +1481,7 @@ def costruisci(
     intestazione = _Sezione("", "")
     intestazione.sintesi((
         ("catena", "completa" if completa else "non completa: vedi lo stato delle fasi"),
-        ("fasi concluse", f"{len(esecuzione.manifesti)} su {len(GRAFO)}"),
+        ("fasi concluse", f"{len(esecuzione.manifesti)} su {len(_fasi_elencate(esecuzione))}"),
         ("ultima fase conclusa", max(concluse) if concluse else "nessuna"),
         ("campioni", ", ".join(f"{_n(n)} {c}" for c, n in inventario.get("conteggi", {}).items())
          or "inventario non disponibile"),

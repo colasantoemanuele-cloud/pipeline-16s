@@ -26,6 +26,20 @@
 # file del modello di S3), senza_letture (accession senza letture filtrate),
 # pool, omega_a, lotto, processi.
 #
+# In modalita' appaiata arrivano anche reverse (accession -> file filtrato
+# della lettura reverse) e modelli_reverse (accession -> modello della lettura
+# reverse). L'inferenza si fa allora due volte, una per lettura, e gli
+# artefatti della reverse portano il suffisso _reverse. In piu', per ogni
+# campione e per ogni lettura:
+#
+#   fusione_<lettura>_<accession>.rds
+#                              cio' che la fusione delle coppie legge: la mappa
+#                              dalle sequenze uniche alle varianti e la tabella
+#                              delle varianti (dall'oggetto dada), e la mappa
+#                              dalle letture alle sequenze uniche (dalla
+#                              dereplicazione). Con questi file la fusione non
+#                              rilegge le letture filtrate.
+#
 # I campioni si elaborano a lotti di `lotto`, e di ogni lotto si conserva solo
 # cio' che serve dopo: la memoria dipende dal lotto, non dal numero dei
 # campioni. Con pool = TRUE non e' possibile: dada2 riunisce in un'unica
@@ -79,11 +93,16 @@ somma_per_nome <- function(totale, valori) {
   stats::setNames(somme[, 1L], rownames(somme))
 }
 
-esegui_fase(function(parametri, cartella) {
-  richiedi_pacchetti("dada2")
-
-  campioni <- unlist(parametri$campioni)
-  modelli <- unlist(parametri$modelli)[names(campioni)]
+# L'inferenza di una lettura: tutto cio' che la fase calcola e scrive per i
+# file dati. In modalita' single-end si chiama una volta, con il suffisso
+# vuoto; in modalita' appaiata due volte, per le letture forward e per le
+# reverse (suffisso "_reverse"), ciascuna con i propri modelli d'errore, le
+# proprie informazioni a priori e il proprio modello della seconda passata.
+# Con conserva = TRUE scrive anche, per ogni campione, cio' che serve alla
+# fusione delle coppie (fusione_<lettura>_<accession>.rds).
+inferenza <- function(parametri, cartella, campioni, modelli, suffisso = "", conserva = FALSE,
+                      lettura = "forward") {
+  con_suffisso <- function(base, estensione) paste0(base, suffisso, ".", estensione)
   senza_letture <- as.character(unlist(parametri$senza_letture))
   pool <- parametri$pool
   omega_a <- as.numeric(parametri$omega_a)
@@ -100,12 +119,25 @@ esegui_fase(function(parametri, cartella) {
 
   # dada su un gruppo di campioni, un modello alla volta. Restituisce la
   # lista degli oggetti dada, con il nome dei campioni, nell'ordine dato.
+  mappe <- list()
   inferisci <- function(accession, err_per_modello, priori = character(0)) {
     risultati <- list()
     for (file_modello in unique(modelli[accession])) {
       gruppo <- accession[modelli[accession] == file_modello]
+      ingresso <- stats::setNames(campioni[gruppo], gruppo)
+      if (conserva) {
+        # Per la fusione serve la mappa dalle letture alle sequenze uniche, che
+        # dada non restituisce: si dereplica qui, come dada farebbe da se' con
+        # i nomi dei file, e gli si passano le dereplicazioni.
+        ingresso <- lapply(ingresso, dada2::derepFastq)
+        mappe[gruppo] <<- lapply(ingresso, function(d) {
+          d$uniques <- NULL
+          d$quals <- NULL
+          d
+        })
+      }
       esito <- dada2::dada(
-        stats::setNames(campioni[gruppo], gruppo),
+        ingresso,
         err = err_per_modello[[file_modello]],
         pool = riunito,
         priors = priori,
@@ -123,6 +155,27 @@ esegui_fase(function(parametri, cartella) {
     list(names(campioni))
   } else {
     split(names(campioni), ceiling(seq_along(campioni) / lotto))
+  }
+
+  # Cio' che la fusione legge di ogni campione, scritto alla fine dell'ultima
+  # passata di ogni lotto: dell'oggetto dada la mappa dalle sequenze uniche
+  # alle varianti e la tabella delle varianti, della dereplicazione la mappa
+  # dalle letture alle sequenze uniche. Sono le sole parti che mergePairs usa.
+  artefatti_fusione <- character()
+  COLONNE_PER_LA_FUSIONE <- c("sequence", "abundance", "n0")
+  conserva_lotto <- function(esito) {
+    vapply(names(esito), function(a) {
+      ridotto <- esito[[a]]
+      for (n in setdiff(names(ridotto), c("map", "clustering"))) ridotto[[n]] <- NULL
+      # Della tabella delle varianti le sole colonne che mergePairs legge. Le
+      # altre sono diagnostiche in virgola mobile, che con piu' processi non
+      # si ripetono identiche da un'esecuzione all'altra.
+      ridotto$clustering <- ridotto$clustering[, COLONNE_PER_LA_FUSIONE, drop = FALSE]
+      nome <- sprintf("fusione_%s_%s.rds", lettura, a)
+      salva_rds(list(dada = ridotto, derep = mappe[[a]]), file.path(cartella, nome))
+      mappe[[a]] <<- NULL
+      nome
+    }, character(1), USE.NAMES = FALSE)
   }
 
   # --- prima passata, o unica ------------------------------------------------
@@ -147,6 +200,9 @@ esegui_fase(function(parametri, cartella) {
       }
       varianti[[a]] <- unici
     }
+    if (conserva && !pseudo) artefatti_fusione <- c(artefatti_fusione, conserva_lotto(esito))
+    # Con il pseudo-pooling conta la seconda passata: le mappe della prima si lasciano.
+    if (conserva && pseudo) mappe <- list()
     rm(esito)
   }
   varianti_prima <- vapply(varianti, length, integer(1))
@@ -172,9 +228,9 @@ esegui_fase(function(parametri, cartella) {
     scrivi_atomico(
       c("sequenza\tprevalenza\tabbondanza",
         sprintf("%s\t%.0f\t%.0f", priori, prevalenza[priori], abbondanza[priori])),
-      file.path(cartella, "priori.tsv")
+      file.path(cartella, con_suffisso("priori", "tsv"))
     )
-    artefatti <- c(artefatti, "priori.tsv")
+    artefatti <- c(artefatti, con_suffisso("priori", "tsv"))
 
     # Il modello della seconda passata, come in dada: errorEstimationFunction
     # (la stessa di S3, err.error_function) sulle transizioni accumulate della
@@ -212,6 +268,7 @@ esegui_fase(function(parametri, cartella) {
       message(sprintf("seconda passata: lotto %d di %d", numero, length(lotti)))
       esito <- inferisci(lotti[[numero]], seconda, priori)
       for (a in names(esito)) varianti[[a]] <- dada2::getUniques(esito[[a]]$clustering)
+      if (conserva) artefatti_fusione <- c(artefatti_fusione, conserva_lotto(esito))
       rm(esito)
     }
 
@@ -225,13 +282,13 @@ esegui_fase(function(parametri, cartella) {
   }
 
   varianti <- varianti[sort(names(varianti), method = "radix")]
-  salva_rds(varianti, file.path(cartella, "varianti_per_campione.rds"))
+  salva_rds(varianti, file.path(cartella, con_suffisso("varianti_per_campione", "rds")))
 
   letture <- vapply(varianti, function(v) sum(as.numeric(v)), numeric(1))
   zeri <- stats::setNames(numeric(length(senza_letture)), senza_letture)
   tutte <- c(letture, zeri)
   tutte <- tutte[sort(names(tutte), method = "radix")]
-  artefatti <- c(artefatti, traccia_letture(tutte, "denoised", cartella))
+  artefatti <- c(artefatti, traccia_letture(tutte, paste0("denoised", suffisso), cartella))
 
   a <- names(varianti)
   scrivi_atomico(
@@ -239,7 +296,7 @@ esegui_fase(function(parametri, cartella) {
       sprintf("%s\t%s\t%.0f\t%s\t%d", a, basename(modelli[a]), letture[a],
               if (pseudo) as.character(varianti_prima[a]) else "",
               vapply(varianti, length, integer(1)))),
-    file.path(cartella, "varianti.tsv")
+    file.path(cartella, con_suffisso("varianti", "tsv"))
   )
 
   # I livelli espliciti: split() ordinerebbe i modelli secondo la lingua.
@@ -253,9 +310,32 @@ esegui_fase(function(parametri, cartella) {
   })
   riepilogo$modelli <- per_modello
   riepilogo$varianti_distinte <- length(unique(unlist(lapply(varianti, names))))
-  scrivi_json(riepilogo, file.path(cartella, "inferenza.json"))
+  if (conserva) riepilogo$lettura <- lettura
+  scrivi_json(riepilogo, file.path(cartella, con_suffisso("inferenza", "json")))
   message(sprintf("memoria di picco (lotti di %d campioni): %s", lotto, memoria_di_picco()))
 
   # letture_denoised.tsv e' gia' in artefatti, restituito da traccia_letture.
-  c(artefatti, "varianti_per_campione.rds", "varianti.tsv", "inferenza.json")
+  c(artefatti, con_suffisso("varianti_per_campione", "rds"), con_suffisso("varianti", "tsv"),
+    con_suffisso("inferenza", "json"), artefatti_fusione)
+}
+
+esegui_fase(function(parametri, cartella) {
+  richiedi_pacchetti("dada2")
+
+  campioni <- unlist(parametri$campioni)
+  modelli <- unlist(parametri$modelli)[names(campioni)]
+  if (is.null(facoltativo(parametri, "reverse"))) {
+    return(inferenza(parametri, cartella, campioni, modelli))
+  }
+  # Modalita' appaiata: le due letture si inferiscono separatamente, e di
+  # ciascuna si conserva cio' che serve a fondere le coppie.
+  reverse <- unlist(parametri$reverse)[names(campioni)]
+  modelli_reverse <- unlist(parametri$modelli_reverse)[names(campioni)]
+  if (anyNA(reverse)) {
+    stop("campioni senza le letture reverse filtrate: ",
+         paste(names(campioni)[is.na(reverse)], collapse = ", "))
+  }
+  c(inferenza(parametri, cartella, campioni, modelli, conserva = TRUE),
+    inferenza(parametri, cartella, reverse, modelli_reverse, suffisso = "_reverse",
+              conserva = TRUE, lettura = "reverse"))
 })

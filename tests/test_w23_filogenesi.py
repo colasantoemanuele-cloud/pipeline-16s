@@ -131,6 +131,9 @@ ORDINE = (
     Passo.S0, Passo.S1, Passo.S2, Passo.S3, Passo.S4, Passo.S5, Passo.S6, Passo.S7,
     Passo.S8, Passo.S10, Passo.S11, Passo.S12, Passo.S13, Passo.S9, Passo.S14,
 )
+#: La fusione delle coppie esiste solo in modalita' appaiata: nel grafo sta fra
+#: S4 e S5, e in modalita' single-end non e' elencata.
+CON_LA_FUSIONE = (ORDINE[:5] + (Passo.SM,) + ORDINE[5:])
 
 
 @pytest.fixture(autouse=True)
@@ -214,11 +217,12 @@ def test_s9_sta_fra_s13_e_s14_e_s10_non_ne_dipende():
     varianti che restano dopo i filtri, quelle consegnate; l'oggetto integrato
     di S10, con tutte le varianti, non lo porta.
     """
-    assert GRAFO.ordine() == ORDINE
+    assert GRAFO.ordine() == CON_LA_FUSIONE
+    assert tuple(n.passo for n in GRAFO if n.elencata_se_inattiva) == ORDINE
     assert GRAFO.nodo(Passo.S9).dipendenze == (Passo.S13,)
     assert GRAFO.nodo(Passo.S10).dipendenze == (Passo.S0, Passo.S7, Passo.S8)
     assert GRAFO.nodo(Passo.S14).dipendenze == (Passo.S10, Passo.S13, Passo.S9)
-    assert [n.passo for n in GRAFO if n.facoltativa] == [Passo.S9]
+    assert [n.passo for n in GRAFO if n.facoltativa and n.elencata_se_inattiva] == [Passo.S9]
     assert GRAFO.nodo(Passo.S9).parametro_attivazione == "phylo.enabled"
     assert GRAFO.nodo(Passo.S9).cartella is Fase.PHYLOGENY
     assert discendenti(Passo.S9) == (Passo.S14,)

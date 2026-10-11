@@ -36,6 +36,8 @@ from pydantic import (
     Field,
     StrictBool,
     ValidationError,
+    field_validator,
+    model_serializer,
     model_validator,
 )
 
@@ -44,6 +46,7 @@ from amplicon16s.config import defaults as d
 __all__ = [
     "Config",
     "ErroreConfigurazione",
+    "INTESTAZIONE_COPPIE",
     "INTESTAZIONE_MANCANTI",
     "PARAMETRI_DERIVATI",
     "obbligatori_mancanti",
@@ -169,7 +172,27 @@ RiferimentoImmagine = Annotated[
     ),
 ]
 
-Md5 = Annotated[str, Field(pattern=r"^[0-9a-fA-F]{32}$")]
+def _md5_non_numerico(valore: Any) -> Any:
+    """Rifiuta un MD5 che YAML ha letto come numero.
+
+    Un MD5 di sole cifre scritto senza virgolette e' per YAML un numero intero:
+    convertirlo in testo ne perderebbe gli zeri iniziali (e, se comincia per
+    zero con sole cifre fino a 7, ne cambierebbe la base), dando un checksum
+    diverso da quello scritto. Va scritto fra virgolette.
+    """
+    if isinstance(valore, (int, float)) and not isinstance(valore, bool):
+        raise ValueError(
+            "e' stato letto come numero: un MD5 di sole cifre va scritto fra virgolette "
+            "(per esempio \"01234567890123456789012345678901\"), altrimenti YAML lo legge "
+            "come numero e ne perde gli zeri iniziali"
+        )
+    return valore
+
+
+# Il rifiuto del numero viene dopo il vincolo nell'annotazione: cosi' lo schema
+# JSON del parametro resta quello di una stringa con il suo formato.
+Md5 = Annotated[
+    str, Field(pattern=r"^[0-9a-fA-F]{32}$"), BeforeValidator(_md5_non_numerico)]
 
 #: Sequenza nucleotidica in codici IUPAC, normalizzata in maiuscolo.
 SequenzaIupac = Annotated[str, Field(min_length=1), AfterValidator(_iupac_valido)]
@@ -269,6 +292,21 @@ class Io(_Gruppo):
         "la corrispondenza intera oppure il primo gruppo di cattura. La stessa chiave "
         "deve ricavarsi dal valore di meta.accession_column, ed essere unica per "
         "campione."))
+    # La modalita' di lettura. L'assenza e' la modalita' single-end: dichiararla
+    # single-end vale come ometterla, e il valore si normalizza a nullo perche'
+    # le due forme siano la stessa configurazione, con lo stesso digest. In
+    # modalita' single-end la chiave non compare nella configurazione risolta
+    # (Config._senza_la_modalita_appaiata).
+    layout: Literal["single-end", "paired-end"] | None = Field(None, description=(
+        "Modalita' di lettura: single-end (un file per campione, le letture forward) "
+        "oppure paired-end (due file per campione, fusi dopo l'inferenza). Omesso: "
+        "single-end."))
+
+    @field_validator("layout", mode="after")
+    @classmethod
+    def _single_end_e_l_assenza(cls, valore: str | None) -> str | None:
+        """Porta ``single-end`` al valore nullo: e' la modalita' di chi non dichiara nulla."""
+        return None if valore == d.LAYOUT_SINGOLO else valore
 
 
 class Meta(_Gruppo):
@@ -821,6 +859,104 @@ class Qc(_Gruppo):
         return self
 
 
+class Pair(_Gruppo):
+    """Modalita' appaiata: la lettura reverse e la fusione delle coppie.
+
+    Il gruppo esiste solo con ``io.layout: paired-end``: in modalita' single-end
+    ogni sua chiave e' respinta e il gruppo non compare nella configurazione
+    risolta. I parametri senza predefinito sono condizionali della modalita'
+    (defaults.PARAMETRI_DELLE_COPPIE): senza valore sono nulli, e che siano
+    dichiarati con la modalita' appaiata lo verifica la radice.
+    """
+
+    file_markers: Annotated[list[StringaNonVuota], Field(min_length=2, max_length=2)] | None = (
+        Field(None, description=(
+            "I due marcatori che distinguono nel nome i file di una coppia, prima quello "
+            "del file forward e poi quello del reverse: il file reverse ha il nome del "
+            "file forward con l'ultima occorrenza del primo marcatore sostituita dal "
+            "secondo.")))
+    truncLen_reverse: InteroPositivo | None = Field(None, description=(
+        "Lunghezza a cui si troncano le letture reverse; quelle piu' corte sono "
+        "scartate, con la loro compagna."))
+    trimLeft_reverse: InteroNonNegativo | None = Field(None, description=(
+        "Basi tolte in testa a ogni lettura reverse: la lunghezza del primer reverse "
+        "se le letture lo contengono ancora, zero se e' gia' stato rimosso."))
+    maxEE_reverse: RealePositivo = Field(d.PAIR_MAXEE_REVERSE, description=(
+        "Errori attesi massimi per lettura reverse (dada2::filterAndTrim, maxEE)."))
+    truncLen_shortfall_warn_reverse: InteroNonNegativo | None = Field(None, description=(
+        "Di quante basi pair.truncLen_reverse puo' stare sotto la lettura reverse piu' "
+        "corta osservata prima che il profilo lo segnali (E-S1-01)."))
+    primer_sequence_reverse: SequenzaIupac | None = Field(None, description=(
+        "Primer di amplificazione reverse, in codici IUPAC, scritto da 5' a 3' come "
+        "compare in testa alle letture reverse. Nullo: non si cerca."))
+    conserved_motif_reverse: Annotated[Regex, AfterValidator(_motivo_in_maiuscolo)] | None = (
+        Field(None, description=(
+            "Motivo conservato con cui iniziano le letture reverse dopo le basi tolte in "
+            "testa, come espressione regolare sulle basi in maiuscolo. Nullo: non si "
+            "cerca.")))
+    max_primer_hit_frac_reverse: Frazione | None = Field(None, description=(
+        "Frazione di letture reverse che iniziano con il primer reverse oltre la quale "
+        "lo si considera presente (E-S0-25)."))
+    min_overlap: InteroPositivo = Field(d.PAIR_MIN_OVERLAP, description=(
+        "Sovrapposizione minima fra le due letture perche' una coppia si fonda "
+        "(dada2::mergePairs, minOverlap)."))
+    max_mismatch: InteroNonNegativo = Field(d.PAIR_MAX_MISMATCH, description=(
+        "Discordanze ammesse nella sovrapposizione (dada2::mergePairs, maxMismatch)."))
+    trim_overhang: StrictBool = Field(d.PAIR_TRIM_OVERHANG, description=(
+        "Le code di una lettura oltre l'inizio dell'altra si tolgono dalla sequenza "
+        "fusa (dada2::mergePairs, trimOverhang): il solo valore ammesso e' true."))
+    min_merged_frac_warn: Frazione | None = Field(None, description=(
+        "Quota di coppie fuse, sui campioni biologici e sui controlli positivi, sotto "
+        "la quale la fusione da' un avviso (E-SM-02); non puo' stare sotto "
+        "pair.min_merged_frac_stop."))
+    min_merged_frac_stop: Frazione | None = Field(None, description=(
+        "Quota di coppie fuse sotto la quale la fusione si ferma (E-SM-01)."))
+    len_min: InteroPositivo | None = Field(None, description=(
+        "Lunghezza minima ammessa delle sequenze fuse."))
+    len_max: InteroPositivo | None = Field(None, description=(
+        "Lunghezza massima ammessa delle sequenze fuse."))
+    expected_merged_len: InteroPositivo | None = Field(None, description=(
+        "Lunghezza attesa delle sequenze fuse: la mediana osservata si confronta con "
+        "questa (E-SM-03). Nullo: non e' nota, e il confronto non si fa."))
+
+    @model_validator(mode="after")
+    def _coerenza(self) -> Pair:
+        """Respinge le combinazioni che non possono valere insieme."""
+        if not self.trim_overhang:
+            raise ValueError(
+                "trim_overhang: false non e' realizzato: le code oltre l'inizio dell'altra "
+                "lettura si tolgono sempre. Imposta true")
+        if self.file_markers is not None and self.file_markers[0] == self.file_markers[1]:
+            raise ValueError(
+                f"file_markers: i due marcatori sono uguali ({self.file_markers[0]!r}): "
+                "non distinguono il file forward dal reverse")
+        if (self.truncLen_reverse is not None and self.trimLeft_reverse is not None
+                and self.trimLeft_reverse >= self.truncLen_reverse):
+            raise ValueError(
+                f"trimLeft_reverse ({self.trimLeft_reverse}) deve essere minore di "
+                f"truncLen_reverse ({self.truncLen_reverse}): il troncamento si misura "
+                "sulla lettura intera, e non resterebbe alcuna base")
+        if (self.truncLen_reverse is not None
+                and self.truncLen_shortfall_warn_reverse is not None
+                and self.truncLen_shortfall_warn_reverse >= self.truncLen_reverse):
+            raise ValueError(
+                f"truncLen_shortfall_warn_reverse ({self.truncLen_shortfall_warn_reverse}) "
+                f"deve essere minore di truncLen_reverse ({self.truncLen_reverse}): una "
+                "tolleranza grande quanto il troncamento non potrebbe mai essere superata")
+        if (self.min_merged_frac_warn is not None and self.min_merged_frac_stop is not None
+                and self.min_merged_frac_warn < self.min_merged_frac_stop):
+            raise ValueError(
+                f"min_merged_frac_warn ({self.min_merged_frac_warn}) non puo' stare sotto "
+                f"min_merged_frac_stop ({self.min_merged_frac_stop}): l'esecuzione si "
+                "fermerebbe prima di dare l'avviso")
+        if (self.len_min is not None and self.len_max is not None
+                and self.len_min > self.len_max):
+            raise ValueError(
+                f"len_min ({self.len_min}) supera len_max ({self.len_max}): l'intervallo "
+                "delle lunghezze ammesse sarebbe vuoto")
+        return self
+
+
 class Retry(_Gruppo):
     """Nuovi tentativi sulle fasi fallite."""
 
@@ -984,6 +1120,7 @@ class Config(_Gruppo):
     decontam: Decontam
     prev: Prev
     qc: Qc
+    pair: Pair = Field(default_factory=Pair)
     retry: Retry = Field(default_factory=Retry)
     out: Out
     run: Run = Field(default_factory=Run)
@@ -1012,6 +1149,54 @@ class Config(_Gruppo):
         if mancanti:
             raise ValueError(_voce_mancanti(mancanti))
         return self
+
+    @property
+    def appaiata(self) -> bool:
+        """Vero in modalita' appaiata (``io.layout: paired-end``)."""
+        return self.io.layout == d.LAYOUT_APPAIATO
+
+    @model_validator(mode="after")
+    def _coppie_solo_in_modalita_appaiata(self) -> Config:
+        """Respinge un parametro di ``pair`` dichiarato in modalita' single-end.
+
+        Non avrebbe effetto, e non puo' essere accettato in silenzio: in
+        modalita' single-end il gruppo non esiste nella configurazione risolta.
+        """
+        if not self.appaiata and self.pair.model_fields_set:
+            raise ValueError(
+                "{}: {} {} ma io.layout non e' {}: i parametri del gruppo pair valgono "
+                "solo in modalita' appaiata. Dichiara io.layout: \"{}\", oppure togli il "
+                "gruppo pair".format(
+                    INTESTAZIONE_COPPIE,
+                    ", ".join(f"pair.{nome}" for nome in sorted(self.pair.model_fields_set)),
+                    "e' dichiarato" if len(self.pair.model_fields_set) == 1 else "sono dichiarati",
+                    d.LAYOUT_APPAIATO, d.LAYOUT_APPAIATO))
+        if self.appaiata and self.pair.trimLeft_reverse is not None:
+            # Con la modalita' appaiata il troncamento forward deve lasciare basi
+            # dopo il taglio, come il reverse (Pair._coerenza).
+            if self.filter.trimLeft >= self.filter.truncLen:
+                raise ValueError(
+                    f"{INTESTAZIONE_COPPIE}: filter.trimLeft ({self.filter.trimLeft}) deve "
+                    f"essere minore di filter.truncLen ({self.filter.truncLen}): non "
+                    "resterebbe alcuna base da fondere")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _senza_la_modalita_appaiata(self, serializza: Any) -> dict[str, Any]:
+        """La configurazione come mappa: in modalita' single-end senza la chiave
+        della modalita' e senza il gruppo ``pair``.
+
+        E' la forma su cui si calcolano il digest e le impronte delle fasi e
+        che finisce nella configurazione registrata: una configurazione
+        single-end ha esattamente le chiavi che aveva senza la modalita'
+        appaiata.
+        """
+        mappa = serializza(self)
+        if not self.appaiata:
+            mappa.pop("pair", None)
+            if isinstance(mappa.get("io"), dict):
+                mappa["io"].pop("layout", None)
+        return mappa
 
 
 # --------------------------------------------------------------------------- #
@@ -1132,6 +1317,10 @@ def _descrivi(errore: dict[str, Any]) -> str:
     return f"{chiave}: {spiegazione} (ricevuto: {ricevuto})"
 
 
+#: Come inizia un problema di coerenza della modalita' appaiata sollevato dalla
+#: radice: G15 lo riconosce da qui per attribuirgli il proprio codice (E-G15-15).
+INTESTAZIONE_COPPIE: Final = "modalita' appaiata"
+
 #: Come inizia il problema che elenca i parametri obbligatori non dichiarati:
 #: G15 lo riconosce da qui per attribuirgli il proprio codice (E-G15-10).
 INTESTAZIONE_MANCANTI: Final = "parametri obbligatori non dichiarati"
@@ -1154,11 +1343,12 @@ def condizionali_mancanti(valori: dict[str, Any]) -> list[str]:
     condizione si valuta sui parametri dichiarati: uno assente vale come la
     sua assenza, e cio' che ne dipende non e' richiesto.
     """
+    nulli_se_omessi = d.CONDIZIONALI_NULLI_SE_OMESSI | d.COPPIE_NULLE_SE_OMESSE
     return [
-        chiave for chiave in d.CONDIZIONALI
+        chiave for chiave in (*d.CONDIZIONALI, *d.CONDIZIONALI_DELLE_COPPIE)
         if d.condizione_vera(chiave, valori) and (
             chiave not in valori
-            or (chiave in d.CONDIZIONALI_NULLI_SE_OMESSI and valori[chiave] is None)
+            or (chiave in nulli_se_omessi and valori[chiave] is None)
         )
     ]
 
@@ -1184,7 +1374,8 @@ def _voce_mancanti(mancanti: list[str]) -> str:
         "ciascuno e come si sceglie e' in GUIDA.md, sezione 6, e in "
         "config/config.example.yaml"
     )
-    condizionali = [c for c in mancanti if c in d.CONDIZIONALI]
+    condizionali = [
+        c for c in mancanti if c in d.CONDIZIONALI or c in d.CONDIZIONALI_DELLE_COPPIE]
     if condizionali:
         voce += ". Richiesti da una condizione: " + "; ".join(
             f"{c} perche' {d.testo_condizione(c)}" for c in condizionali
