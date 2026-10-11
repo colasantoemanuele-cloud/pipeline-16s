@@ -71,7 +71,12 @@ from amplicon16s.gates.g01_g15 import (
     _g14_risorse_disponibili,
 )
 from amplicon16s.interfaccia import StatoInCorso
-from amplicon16s.io_layer.artifacts import Fase, scrivi_atomico
+from amplicon16s.io_layer.artifacts import (
+    BloccoEsecuzione,
+    Fase,
+    scrivi_atomico,
+    togli_scritture_interrotte,
+)
 from amplicon16s.logging.logger import registra_errore
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import ProjectRun, StatoPasso, Valutazione
@@ -425,8 +430,12 @@ class Esecutore:
         """Esegue le fasi da fare, fino alla fine, a un arresto o a ``fino_a``.
 
         Per la durata dell'esecuzione tiene in ``99_logs`` il file di stato che
-        ``status`` legge (:class:`StatoInCorso`).
+        ``status`` legge (:class:`StatoInCorso`) e il blocco con cui le
+        esecuzioni della stessa cartella si coordinano: se nessun'altra sta
+        scrivendo, toglie prima cio' che un'interruzione ha lasciato a meta'.
         """
+        blocco = BloccoEsecuzione(self.run.albero.cartella(Fase.LOGS))
+        blocco.prendi(self._togli_scritture_interrotte)
         self._stato = StatoInCorso(self.run.albero.cartella(Fase.LOGS), self.comando_ripresa)
         try:
             self._stato.avvia()
@@ -437,6 +446,19 @@ class Esecutore:
         finally:
             self._stato.chiudi()
             self._stato = None
+            blocco.rilascia()
+
+    def _togli_scritture_interrotte(self) -> None:
+        """Toglie i file temporanei e le copie di lavoro lasciati da
+        un'esecuzione interrotta, e lo registra nel log.
+        """
+        tolti = togli_scritture_interrotte(self.run.albero.radice)
+        if tolti:
+            self.log.info(
+                f"tolti {len(tolti)} file o cartelle lasciati a meta' da un'esecuzione "
+                "interrotta",
+                extra={"tolti": [str(p.relative_to(self.run.albero.radice)) for p in tolti]},
+            )
 
     def _esegui(self) -> EsitoEsecuzione:
         """Il corpo di :meth:`esegui`."""
@@ -476,9 +498,18 @@ class Esecutore:
             ultima: Passo | None = None
             while True:
                 valutazione = self.run.valuta()
+                if self._stato is not None:
+                    # Le sole fasi che questa esecuzione calcolera': con fino_a,
+                    # quella indicata e i suoi antenati.
+                    richieste = None if self.fino_a is None else {
+                        self.fino_a, *self.run.grafo.antenati(self.fino_a, self.config)}
+                    self._stato.da_rifare(
+                        p for p, s in valutazione.situazioni.items()
+                        if s.stato is StatoPasso.DA_ESEGUIRE
+                        and (richieste is None or p in richieste))
                 passo = self._prossima(valutazione)
                 if passo is None:
-                    self._rimuovi_punto()
+                    self._rimuovi_punto(valutazione)
                     if self.fino_a is None:
                         self._rimuovi_temporanei(valutazione)
                         valutazione = self.run.valuta()
@@ -728,7 +759,25 @@ class Esecutore:
             },
         )
 
-    def _rimuovi_punto(self) -> None:
-        """Rimuove il punto di ripresa di un'esecuzione precedente, se presente."""
+    def _rimuovi_punto(self, valutazione: Valutazione | None = None) -> None:
+        """Rimuove il punto di ripresa di un'esecuzione precedente, se presente.
+
+        Con ``valutazione`` lo lascia se la fase su cui l'esecuzione precedente
+        si era fermata non e' conclusa: un comando che esegue solo una parte
+        del grafo (``validate``) non ha rimediato a quell'arresto, e chi guarda
+        lo stato deve continuare a vederlo.
+        """
+        documento, _ = self._percorsi_punto()
+        if valutazione is not None and documento.is_file():
+            try:
+                fermo = json.loads(documento.read_text(encoding="utf-8")).get("passo")
+            except (OSError, ValueError):
+                fermo = None
+            ancora_da_fare = {
+                str(p) for p, s in valutazione.situazioni.items()
+                if s.stato is StatoPasso.DA_ESEGUIRE
+            }
+            if fermo in ancora_da_fare:
+                return
         for percorso in self._percorsi_punto():
             percorso.unlink(missing_ok=True)

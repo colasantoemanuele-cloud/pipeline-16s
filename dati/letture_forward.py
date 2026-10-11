@@ -37,7 +37,14 @@ import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from scaricamento import Atteso, ErroreScarico, md5_file, scarica, valido  # noqa: E402
+from scaricamento import (  # noqa: E402
+    GUASTI_DI_RETE,
+    Atteso,
+    ErroreScarico,
+    md5_file,
+    scarica,
+    valido,
+)
 
 #: Quanti byte di ogni file si leggono per riconoscere il primer, e quante
 #: letture al massimo.
@@ -105,9 +112,12 @@ def _testa(url: str, tentativi: int = 3) -> bytes:
         try:
             with urllib.request.urlopen(richiesta, timeout=120) as risposta:
                 return risposta.read(BYTE_DI_TESTA)
-        except OSError:
+        except GUASTI_DI_RETE as guasto:
             if tentativo == tentativi:
-                raise
+                raise ErroreScarico(
+                    f"{url}: prime letture non ottenute dopo {tentativi} tentativi "
+                    f"({type(guasto).__name__}: {guasto}). Controlla la connessione e "
+                    "rilancia lo script: riprende dai file mancanti") from guasto
             time.sleep(5.0 * tentativo)
     raise AssertionError("non raggiungibile")
 
@@ -156,8 +166,8 @@ def prepara_corsa(riga: dict[str, str], cartella: Path, primer: str, *, registra
         for tentativo in range(1, tentativi + 1):
             try:
                 urllib.request.urlretrieve(riga[f"url_{lato}"], parziale)
-            except OSError as guasto:
-                ultimo = str(guasto)
+            except GUASTI_DI_RETE as guasto:
+                ultimo = f"{type(guasto).__name__}: {guasto}"
                 time.sleep(5.0 * tentativo)
                 continue
             if parziale.stat().st_size == int(riga[f"byte_{lato}"]):

@@ -18,7 +18,10 @@ schema della configurazione stabiliscono:
   si cerca con ``filter.trimLeft`` maggiore di zero, il motivo con
   ``qc.conserved_motif`` nullo, la frazione di contaminanti senza controlli
   negativi dichiarati, omessa o dichiarata che sia);
-* il **margine** con cui ``soglie`` propone un valore dalla misura osservata.
+* il **margine** con cui ``soglie`` propone un valore dalla misura osservata,
+  oppure il motivo per cui ``soglie`` non la propone e la lascia al valore della
+  configurazione (una soglia che protegge una risorsa, o che esprime un
+  giudizio, non si ricava da una misura).
 
 Una soglia uguale al limite, o oltre nella sua direzione, e' un **controllo
 spento**: la configurazione e' valida, ma quel controllo non protegge. Chi
@@ -46,7 +49,6 @@ __all__ = [
     "MARGINE_AZZERATI",
     "MARGINE_BASI",
     "MARGINE_FRAZIONE",
-    "MARGINE_VARIANTI",
     "SOGLIA_SENZA_LIMITE_AMMESSO",
     "SOGLIE",
     "ControlloSpento",
@@ -73,12 +75,6 @@ MARGINE_FRAZIONE: Final = Decimal("0.05")
 #: che fra avviso e arresto resti una fascia in cui l'esecuzione prosegue e
 #: segnala.
 MARGINE_ARRESTO_CHIMERE: Final = Decimal("0.10")
-
-#: Margine sulle varianti distinte, in proporzione alla misura: un conteggio
-#: senza scala propria, che cresce con campioni e profondita'. La meta' in piu'
-#: regge l'aggiunta di campioni; un primer non tolto o letture di bassa qualita'
-#: moltiplicano le varianti di piu' volte.
-MARGINE_VARIANTI: Final = Decimal("0.5")
 
 #: Margine sui campioni azzerati: nessuno. Ogni campione azzerato in piu' e' un
 #: campione perso, un evento discreto e non una fluttuazione.
@@ -116,15 +112,17 @@ class Soglia:
     codici: tuple[str, ...]
     #: Vero se il controllo ferma l'esecuzione, falso se da' un avviso.
     ferma: bool
-    #: Il margine del suggerimento: assoluto, oppure una quota della misura.
+    #: Il margine del suggerimento, nell'unita' della soglia.
     margine: Decimal | int
-    margine_proporzionale: bool = False
+    #: Perche' ``soglie`` non la propone e la lascia al valore della
+    #: configurazione; ``None`` se la propone dalla misura.
+    non_proposta: str | None = None
 
     @property
     def testo_margine(self) -> str:
         """Il margine a parole, per chi legge la regola applicata."""
-        if self.margine_proporzionale:
-            return f"{self.margine} della misura"
+        if self.non_proposta is not None:
+            return "nessuno: la soglia non si propone dalla misura"
         if self.unita is Unita.FRAZIONE:
             return str(self.margine)
         return f"{self.margine} {'basi' if self.unita is Unita.BASI else 'campioni'}"
@@ -133,7 +131,19 @@ class Soglia:
 _MASSIMA, _MINIMA = Direzione.MASSIMA, Direzione.MINIMA
 _FRAZIONE = Unita.FRAZIONE
 
-#: Le dodici soglie, nell'ordine delle fasi che le applicano.
+#: Le varianti distinte crescono con i campioni e con la profondita': una
+#: soglia ricavata dalla misura fermerebbe un'analisi con piu' campioni senza
+#: un peggioramento, e non direbbe nulla della memoria.
+PROTEGGE_LA_MEMORIA: Final = "protegge la memoria; resta il valore della configurazione"
+
+#: Quanti controlli positivi devono essere conformi lo decide chi conduce
+#: l'analisi: non e' una misura da proteggere da un peggioramento.
+GIUDIZIO_SUI_POSITIVI: Final = (
+    "e' un giudizio sui controlli positivi, non una misura da proteggere; resta il valore "
+    "della configurazione"
+)
+
+#: Le soglie, nell'ordine delle fasi che le applicano.
 SOGLIE: Final[tuple[Soglia, ...]] = (
     Soglia("qc.max_primer_hit_frac", _MASSIMA, _FRAZIONE, ("E-S0-10",), True, MARGINE_FRAZIONE),
     Soglia("qc.min_motif_frac", _MINIMA, _FRAZIONE, ("E-S0-16",), True, MARGINE_FRAZIONE),
@@ -144,12 +154,16 @@ SOGLIE: Final[tuple[Soglia, ...]] = (
     Soglia("qc.max_zeroed_samples", _MASSIMA, Unita.CONTEGGIO, ("E-S2-01",), True,
            MARGINE_AZZERATI),
     Soglia("qc.max_frac_lost_filter", _MASSIMA, _FRAZIONE, ("E-S2-02",), True, MARGINE_FRAZIONE),
-    Soglia("qc.max_asv_count", _MASSIMA, Unita.CONTEGGIO, ("E-S5-01",), True, MARGINE_VARIANTI,
-           margine_proporzionale=True),
+    Soglia("qc.max_asv_count", _MASSIMA, Unita.CONTEGGIO, ("E-S5-01",), True, 0,
+           non_proposta=PROTEGGE_LA_MEMORIA),
     Soglia("qc.warn_frac_chimeric", _MASSIMA, _FRAZIONE, ("E-S6-02",), False, MARGINE_FRAZIONE),
     Soglia("qc.stop_frac_chimeric", _MASSIMA, _FRAZIONE, ("E-S6-01",), True,
            MARGINE_ARRESTO_CHIMERE),
     Soglia("qc.min_frac_phylum", _MINIMA, _FRAZIONE, ("E-S8-02",), True, MARGINE_FRAZIONE),
+    # Con ctrl.positive_gate vero ferma (E-S11-03), altrimenti avvisa (E-S11-04):
+    # controlli_spenti riporta il solo codice che la configurazione rende possibile.
+    Soglia("ctrl.min_positive_pass_frac", _MINIMA, _FRAZIONE, ("E-S11-03", "E-S11-04"), True, 0,
+           non_proposta=GIUDIZIO_SUI_POSITIVI),
     Soglia("qc.max_frac_contaminant", _MASSIMA, _FRAZIONE, ("E-S12-02",), True, MARGINE_FRAZIONE),
     Soglia("qc.min_frac_reads_retained", _MINIMA, _FRAZIONE, ("E-S14-01",), True,
            MARGINE_FRAZIONE),
@@ -190,6 +204,9 @@ def non_eseguito(voce: Soglia, valori: Mapping[str, Any]) -> str | None:
     if voce.chiave == "qc.max_primer_hit_frac" and (valori.get("filter.trimLeft") or 0) > 0:
         return ("con filter.trimLeft maggiore di zero la validazione non cerca il primer in "
                 "testa alle letture: la soglia non ha effetto")
+    if voce.chiave == "qc.max_primer_hit_frac" and valori.get("qc.primer_sequence") is None:
+        return ("qc.primer_sequence e' nullo: la validazione non cerca alcun primer, e la "
+                "soglia non ha effetto")
     if voce.chiave == "qc.min_motif_frac" and valori.get("qc.conserved_motif") is None:
         return ("qc.conserved_motif e' nullo: la validazione non cerca il motivo, e la soglia "
                 "non ha effetto")
@@ -228,11 +245,13 @@ def oltre_il_limite(voce: Soglia, valore: Any, al_limite: int | None) -> bool:
 def valore_esplorativo(voce: Soglia) -> float | None:
     """Il valore che non ferma, per una prima esecuzione esplorativa.
 
-    Lo hanno le sole soglie in frazione, il cui limite e' un estremo fisso
-    dell'intervallo ammesso; le altre hanno un valore di partenza che ``init``
-    ricava dai dati o dalla macchina, o restano da scegliere.
+    Lo hanno le sole soglie in frazione che ``soglie`` propone poi dalla
+    misura, il cui limite e' un estremo fisso dell'intervallo ammesso; le altre
+    hanno un valore di partenza che ``init`` ricava dai dati o dalla macchina,
+    o restano da scegliere: una soglia che ``soglie`` non propone resterebbe
+    spenta per sempre.
     """
-    if voce.unita is not Unita.FRAZIONE:
+    if voce.unita is not Unita.FRAZIONE or voce.non_proposta is not None:
         return None
     return 1.0 if voce.direzione is Direzione.MASSIMA else 0.0
 
@@ -280,8 +299,12 @@ def controlli_spenti(
         al_limite = limite(voce, valori, campioni_controllati)
         if oltre_il_limite(voce, valori[voce.chiave], al_limite):
             assert al_limite is not None
+            codici, ferma = voce.codici, voce.ferma
+            if voce.chiave == "ctrl.min_positive_pass_frac":
+                ferma = valori.get("ctrl.positive_gate") is True
+                codici = (voce.codici[0],) if ferma else (voce.codici[1],)
             spenti.append(ControlloSpento(
-                voce.chiave, valori[voce.chiave], al_limite, voce.codici, voce.ferma))
+                voce.chiave, valori[voce.chiave], al_limite, codici, ferma))
     return spenti
 
 

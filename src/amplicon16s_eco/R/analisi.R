@@ -7,7 +7,7 @@
 
 for (f in c("io_json.R", "errors.R")) source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
 for (f in c("uscite.R", "campioni.R", "alfa.R", "composizione.R", "beta.R",
-            "ordinazione.R", "test.R")) {
+            "ordinazione.R", "test.R", "continua.R", "ripetute.R")) {
   source(file.path(Sys.getenv("AMPLICON16S_ECO_R_LIB"), f))
 }
 
@@ -24,7 +24,12 @@ esegui_fase(function(parametri, cartella) {
   }
   d <- esame$disegno
   piano <- disegno_dei_test(d, parametri)
-  avvisi <- c(esame$avvisi, piano$avvisi)
+  # Variabili continue e misure ripetute: piani vuoti se non dichiarate.
+  continue <- piano_continue(d, parametri)
+  appaiato <- piano_appaiato(d, parametri)
+  avvisi <- c(esame$avvisi, piano$avvisi, continue$avvisi, appaiato$avvisi)
+  esiti_continue <- list()
+  esiti_appaiati <- list()
   seme <- parametri$run$seed
   # Radice dell'albero per UniFrac: riguarda le sole distanze.
   radice <- parametri$beta$unifrac_root
@@ -140,6 +145,75 @@ esegui_fase(function(parametri, cartella) {
       if (length(tabelle_alfa)) do.call(rbind, tabelle_alfa),
       if (length(tabelle_multivariate)) do.call(rbind, tabelle_multivariate),
       parametri, d$profondita, file.path(uscita, "test")))
+
+    # Variabili continue: correlazione con l'alfa diversita' e PERMANOVA.
+    if (length(continue$piani)) {
+      correlazioni <- list()
+      con_termine <- list()
+      indice_variabile <- 0L
+      for (p in continue$piani) {
+        indice_variabile <- indice_variabile + 1L
+        correlazione <- correlazione_alfa(indici, p)
+        correlazioni[[length(correlazioni) + 1L]] <- correlazione
+        if (!is.null(correlazione)) {
+          nome <- paste0("alfa/continua_", nome_file(indice_variabile, p$nome), ".png")
+          grafico_continua(indici, p, d$profondita, file.path(uscita, nome))
+          file <- c(file, nome)
+        }
+        eseguite <- character()
+        for (metodo in metodi) {
+          esito <- permanova_continua(matrici[[metodo]], metodo, p, d$tecnici,
+                                      continue$valori_strati,
+                                      as.integer(parametri$stat$permanova_permutations), seme)
+          if (is.null(esito)) next
+          eseguite <- c(eseguite, metodo)
+          con_termine[[length(con_termine) + 1L]] <- esito
+        }
+        esiti_continue[[length(esiti_continue) + 1L]] <- list(
+          variabile = p$nome,
+          alfa = list(eseguita = !is.null(correlazione), campioni = length(p$alfa$campioni)),
+          permanova = list(eseguita = length(eseguite) > 0L,
+                           campioni = length(p$permanova$campioni),
+                           termini_tecnici = I(p$permanova$termini), distanze = I(eseguite)))
+      }
+      file <- c(file, scrivi_continue(
+        if (length(correlazioni)) do.call(rbind, correlazioni),
+        if (length(con_termine)) do.call(rbind, con_termine),
+        parametri, d$profondita, file.path(uscita, "test")))
+    }
+
+    # Misure ripetute: i test entro soggetto di ogni variabile categorica.
+    if (length(appaiato$piani)) {
+      entro_alfa <- list()
+      entro_multivariati <- list()
+      for (p in appaiato$piani) {
+        esito_alfa <- test_alfa_appaiato(indici, p)
+        entro_alfa[[length(entro_alfa) + 1L]] <- esito_alfa
+        eseguite <- character()
+        for (metodo in metodi) {
+          esito <- permanova_appaiata(matrici[[metodo]], metodo, p,
+                                      as.integer(parametri$stat$permanova_permutations),
+                                      parametri$stat$significance_level, seme)
+          if (is.null(esito)) next
+          eseguite <- c(eseguite, metodo)
+          entro_multivariati[[length(entro_multivariati) + 1L]] <- esito$tabella
+        }
+        esiti_appaiati[[length(esiti_appaiati) + 1L]] <- list(
+          variabile = p$nome,
+          alfa = list(eseguito = !is.null(esito_alfa), livelli = I(p$alfa$livelli),
+                      soggetti_completi = length(p$alfa$completi),
+                      soggetti_esclusi = length(p$alfa$soggetti) - length(p$alfa$completi)),
+          permanova = list(eseguita = length(eseguite) > 0L, livelli = I(p$permanova$livelli),
+                           soggetti_completi = length(p$permanova$completi),
+                           soggetti_esclusi = length(p$permanova$soggetti) -
+                             length(p$permanova$completi),
+                           distanze = I(eseguite)))
+      }
+      file <- c(file, scrivi_appaiati(
+        if (length(entro_alfa)) do.call(rbind, entro_alfa),
+        if (length(entro_multivariati)) do.call(rbind, entro_multivariati),
+        appaiato$piani, parametri, d$profondita, file.path(uscita, "test")))
+    }
     file
   }, warning = function(w) {
     imprevisti <<- c(imprevisti, conditionMessage(w))
@@ -161,6 +235,11 @@ esegui_fase(function(parametri, cartella) {
   }
   riepilogo$ordinazione <- ordinazioni
   riepilogo$test <- esiti_dei_test
+  # Presenti solo se le analisi corrispondenti sono dichiarate.
+  if (length(continue$piani)) riepilogo$test_continue <- esiti_continue
+  if (length(appaiato$piani)) {
+    riepilogo$misure_ripetute <- list(soggetto = d$soggetto$nome, test = esiti_appaiati)
+  }
   riepilogo$avvisi <- avvisi
   riepilogo$ambiente <- list(
     R = as.character(getRversion()),

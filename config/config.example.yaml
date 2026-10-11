@@ -207,8 +207,9 @@ tax:
   # (dipende dal protocollo); il predefinito di dada2::assignTaxonomy e' false.
   # try_rc:                                           # [OBBLIGATORIO]
   assign_species: false     # [UNICA FORMA] la tassonomia arriva al genere
-  # Elenco dei taxa con un difetto noto del riferimento (colonne name e rank):
-  # S8 marca le assegnazioni che vi ricadono. null se non ce n'e' uno.
+  # Elenco dei taxa con un difetto noto del riferimento: una tabella CSV (con
+  # le virgole) con le colonne name e rank, che la validazione verifica. S8
+  # marca le assegnazioni che vi ricadono. null se non ce n'e' uno.
   ref_bad_taxa: null
 
 # --------------------------------------------------------------------------- #
@@ -340,17 +341,23 @@ prev:
 # Sono soglie di qualita': vanno fissate per il proprio dataset, guardando le
 # misure che il report di una prima esecuzione riporta accanto a ciascuna.
 qc:
-  # Letture ispezionate per file dai gate di S0: abbastanza da rappresentare il
-  # file, poche abbastanza da validare in minuti.
+  # Letture ispezionate per file dai gate di S0: un compromesso fra la durata
+  # della validazione e la precisione delle frazioni misurate (init propone il
+  # numero con cui una frazione ha un intervallo di confidenza al 95% di un
+  # punto percentuale).
   # head_reads:                                       # [OBBLIGATORIO]
   # Primer di amplificazione, in codici IUPAC, e frazione di letture che
-  # iniziano con il primer oltre la quale G10 lo considera presente.
-  # primer_sequence:                                  # [OBBLIGATORIO]
+  # iniziano con il primer oltre la quale G10 lo considera presente. null se
+  # il primer non e' noto: la validazione non ne cerca alcuno, lo dichiara, e
+  # max_primer_hit_frac non ha effetto.
+  # primer_sequence:                                  # [OBBLIGATORIO] oppure null
   # max_primer_hit_frac:                              # [OBBLIGATORIO]
   # Motivo conservato atteso all'inizio della regione amplificata, come
-  # espressione regolare, e frazione minima di letture che devono portarlo
-  # (sulla mediana dei campioni biologici e dei controlli positivi). null: G10
-  # verifica la sola assenza del primer.
+  # espressione regolare sulle basi in maiuscolo (le minuscole si portano in
+  # maiuscolo), e frazione minima di letture che devono portarlo (sulla
+  # mediana dei campioni biologici e dei controlli positivi). Il motivo e'
+  # anche il segnale con cui S1 riconosce un file di letture inverse. null:
+  # G10 verifica la sola assenza del primer, e S1 non puo' riconoscerle.
   # conserved_motif:                                  # [OBBLIGATORIO] oppure null
   # min_motif_frac:                                   # [OBBLIGATORIO]
   # Frazione massima di letture piu' corte di filter.truncLen (G09, S1).

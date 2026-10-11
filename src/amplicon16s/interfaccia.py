@@ -153,6 +153,17 @@ class StatoInCorso:
         except OSError:
             pass
 
+    def da_rifare(self, passi: Iterable[Any]) -> None:
+        """Registra le fasi che l'esecuzione deve ancora calcolare: chi osserva
+        distingue cosi' una fase conclusa da una che ha solo gli artefatti di
+        un'esecuzione precedente.
+        """
+        self._documento["da_rifare"] = [str(p) for p in passi]
+        try:
+            self._scrivi()
+        except OSError:
+            pass
+
     def chiudi(self) -> None:
         """Ferma il battito e toglie il file."""
         self._fine.set()
@@ -459,6 +470,7 @@ def esecuzione_attiva(cartella: Path, adesso: float | None = None) -> dict[str, 
         "ultimo_battito": esecuzione.get("aggiornato"),
         "secondi_dall_ultimo_battito": round(max(eta, 0.0), 1),
         "battito_recente": eta <= 3 * intervallo,
+        "da_rifare": [str(p) for p in esecuzione.get("da_rifare") or []],
         "pid": esecuzione.get("pid"),
         "host": esecuzione.get("host"),
     }
@@ -488,6 +500,8 @@ def stato(cartella: Path | str, adesso: float | None = None) -> dict[str, Any]:
     filogenesi = (parametri.get("phylo") or {}).get("enabled")
 
     attiva = esecuzione_attiva(radice / Fase.LOGS.value, adesso)
+    # Le fasi che l'esecuzione in corso (o interrotta) deve ancora calcolare.
+    da_rifare = set(attiva["da_rifare"]) if attiva is not None else set()
 
     fasi = []
     for passo in GRAFO.ordine():
@@ -509,6 +523,10 @@ def stato(cartella: Path | str, adesso: float | None = None) -> dict[str, Any]:
             voce["degradazioni"] = [
                 d.get("codice") for d in manifesto.get("degradazioni") or []
             ]
+            # Il manifesto e' quello di un'esecuzione precedente: lo stato resta
+            # quello che il manifesto dice, e il campo lo distingue.
+            if str(passo) in da_rifare:
+                voce["da_rifare"] = True
         elif nodo.facoltativa and filogenesi is None:
             voce["stato"] = "sconosciuta"
         else:
@@ -542,6 +560,7 @@ def stato(cartella: Path | str, adesso: float | None = None) -> dict[str, Any]:
         ),
         "fasi": fasi,
         "fasi_concluse": concluse,
+        "fasi_da_rifare": [f["passo"] for f in fasi if f.get("da_rifare")],
         "fase_in_corso": attiva["passo"] if complessivo == "in_corso" and attiva else None,
         "esecuzione": attiva,
         # Il punto di ripresa di un arresto resta sul disco finche' un'esecuzione

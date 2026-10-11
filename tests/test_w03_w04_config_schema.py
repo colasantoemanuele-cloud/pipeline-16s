@@ -1367,3 +1367,105 @@ def test_la_cartella_di_destinazione_viene_creata(dati_esempio, tmp_path):
     out_root = tmp_path / "non" / "ancora" / "esistente"
     percorso = scrivi_risolta(esegui_g15(dati_esempio), out_root)
     assert percorso.is_file()
+
+
+@pytest.mark.parametrize(("gruppo", "campo"), [
+    ("qc", "max_frac_lost_filter"), ("qc", "min_frac_phylum"), ("filter", "maxEE"),
+    ("chimera", "min_fold_parent_over_abundance"), ("decontam", "threshold"),
+    ("katharoseq", "target_sensitivity"), ("err", "nbases"),
+])
+@pytest.mark.parametrize("valore", [True, False])
+def test_true_e_false_non_sono_numeri(gruppo, campo, valore, dati_esempio):
+    """
+    **Obiettivo**: Verificare che ``true`` e ``false`` scritti dove serve un
+    numero reale siano respinti, con il nome del parametro nel messaggio e il
+    codice dei problemi di schema, e che lo stesso parametro accetti 0, 1 e i
+    numeri interi come prima.
+
+    **Razionale scientifico e sistemistico**: YAML legge ``true`` come un
+    booleano, che per Python vale 1: una soglia scritta cosi' per errore
+    sarebbe un controllo spento, o una tolleranza piena, senza alcun messaggio.
+    """
+    dati_esempio[gruppo][campo] = valore
+    with pytest.raises(ErroreConfigurazione) as rifiuto:
+        valida(dati_esempio)
+    (problema,) = [p for p in rifiuto.value.problemi if p.startswith(f"{gruppo}.{campo}:")]
+    assert "deve essere un numero, non true o false" in problema
+    with pytest.raises(ErroreGate) as respinta:
+        esegui_g15(dati_esempio)
+    assert "E-G15-99" in {v.codice for v in respinta.value.violazioni}
+
+
+def test_gli_interi_restano_ammessi_dove_serve_un_numero_reale(dati_esempio):
+    """
+    **Obiettivo**: Verificare che un parametro reale accetti un intero (0 e 1
+    per una frazione, 2 per gli errori attesi) e lo porti nel valore risolto
+    come numero reale.
+
+    **Razionale scientifico e sistemistico**: Il rifiuto dei booleani non deve
+    togliere una forma di scrittura legittima: ``max_frac_lost_filter: 1`` e'
+    un numero, ``true`` no.
+    """
+    dati_esempio["qc"]["max_frac_lost_filter"] = 1
+    dati_esempio["qc"]["min_frac_phylum"] = 0
+    dati_esempio["filter"]["maxEE"] = 2
+    config = valida(dati_esempio)
+    assert (config.qc.max_frac_lost_filter, config.qc.min_frac_phylum, config.filter.maxEE) == (
+        1.0, 0.0, 2.0)
+    assert all(isinstance(v, float) for v in (
+        config.qc.max_frac_lost_filter, config.qc.min_frac_phylum, config.filter.maxEE))
+
+
+def test_primer_e_motivo_in_minuscolo_valgono_come_in_maiuscolo(dati_esempio):
+    """
+    **Obiettivo**: Verificare che ``qc.primer_sequence`` e ``qc.conserved_motif``
+    scritti in minuscolo siano accettati e portati in maiuscolo nel valore
+    risolto, con lo stesso digest della configurazione scritta in maiuscolo;
+    che nel motivo le lettere che seguono una barra rovesciata restino come
+    sono; e che un'espressione gia' in maiuscolo resti identica carattere per
+    carattere.
+
+    **Razionale scientifico e sistemistico**: Le letture sono in maiuscolo: un
+    motivo in minuscolo non corrisponderebbe mai e la validazione si fermerebbe
+    per un segnale assente che assente non e'. Portare in maiuscolo una
+    sequenza come ``\\d`` ne farebbe il suo opposto.
+    """
+    maiuscolo = copy.deepcopy(dati_esempio)
+    maiuscolo["qc"]["primer_sequence"] = "GTGYCAGCMGCC"
+    maiuscolo["qc"]["conserved_motif"] = r"^TAC[AG].AG\dG(?:C|T)\b"
+    minuscolo = copy.deepcopy(maiuscolo)
+    minuscolo["qc"]["primer_sequence"] = "gtgycagcmgcc"
+    minuscolo["qc"]["conserved_motif"] = r"^tac[ag].ag\dg(?:c|t)\b"
+    a, b = valida(maiuscolo), valida(minuscolo)
+    assert b.qc.primer_sequence == "GTGYCAGCMGCC"
+    assert b.qc.conserved_motif == maiuscolo["qc"]["conserved_motif"] == a.qc.conserved_motif
+    assert risolvi(a).digest == risolvi(b).digest
+
+
+@pytest.mark.parametrize("motivo", [
+    "(?i)tacg", "(?P<inizio>tac)g", r"tac\x41g", r"tacg\N{DIGIT ONE}", "(t)(?(1)ac|g)",
+])
+def test_un_motivo_in_minuscolo_con_costrutti_non_sicuri_e_respinto(motivo, dati_esempio):
+    """
+    **Obiettivo**: Verificare che un motivo con basi in minuscolo e un
+    costrutto in cui le lettere non sono tutte basi (un gruppo con nome o con
+    opzioni, un gruppo condizionale, una sequenza con argomento) sia respinto
+    con un messaggio che chiede di scrivere le basi in maiuscolo, e che lo
+    stesso costrutto con le basi gia' in maiuscolo sia accettato com'e'.
+
+    **Razionale scientifico e sistemistico**: Dove non si puo' sapere quali
+    lettere sono basi, indovinare cambierebbe il significato dell'espressione:
+    la correzione spetta a chi l'ha scritta.
+    """
+    dati_esempio["qc"]["conserved_motif"] = motivo
+    with pytest.raises(ErroreConfigurazione, match="scrivi le basi in maiuscolo"):
+        valida(dati_esempio)
+    gia_maiuscolo = motivo.replace("tac", "TAC").replace("g", "G") if "(?i)" not in motivo else "(?i)TACG"
+    if "N{" in motivo:
+        gia_maiuscolo = r"TACG\N{DIGIT ONE}"
+    if "x41" in motivo:
+        gia_maiuscolo = r"TAC\x41G"
+    if "(?(1)" in motivo:
+        gia_maiuscolo = "(T)(?(1)AC|G)"
+    dati_esempio["qc"]["conserved_motif"] = gia_maiuscolo
+    assert valida(dati_esempio).qc.conserved_motif == gia_maiuscolo

@@ -14,6 +14,7 @@ e i file che un'esecuzione conclusa, in corso o ferma lascia nella cartella.
 from __future__ import annotations
 
 import json
+import re
 import os
 import time
 from pathlib import Path
@@ -403,3 +404,67 @@ def test_validate_e_status_delle_analisi_ecologiche_in_json(tmp_path, capsys):
         "conclusa", 3, ["E-ECO-11"])
     assert documento["configurazione"]["digest"] == "abc" and documento["arresto"] is None
     assert _istantanea(uscita) == prima
+
+
+def test_status_distingue_le_fasi_che_l_esecuzione_in_corso_deve_rifare(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che l'esecutore dichiari nel file di stato le
+    fasi che deve ancora calcolare; che ``status --json`` lasci ``stato``
+    ``conclusa`` a una fase che ha il manifesto di un'esecuzione precedente ma
+    le aggiunga il campo ``da_rifare`` e la elenchi in ``fasi_da_rifare``; che
+    la forma per l'operatore la mostri come ``da_rifare`` con la spiegazione; e
+    che senza un'esecuzione attiva i due campi restino vuoti.
+
+    **Razionale scientifico e sistemistico**: Durante una ripresa che rifa' le
+    fasi, i manifesti dell'esecuzione precedente sono ancora sul disco: chi
+    guarda l'avanzamento li leggerebbe come fasi concluse. Il significato dei
+    campi esistenti non cambia: l'informazione sta in campi in piu'.
+    """
+    scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
+    radice = Path(scenario.config.io.out_root)
+    run = ProjectRun(scenario.config)
+    fase = run.fase(Passo.S0)
+    visti: list[dict] = []
+    originale = type(fase).calcola
+
+    def osserva(self, contesto):
+        visti.append(interfaccia.stato(radice))
+        return originale(self, contesto)
+
+    with pytest.MonkeyPatch.context() as sostituzione:
+        sostituzione.setattr(type(fase), "calcola", osserva)
+        assert Esecutore(run, fino_a=Passo.S0).esegui().conclusione is Conclusione.COMPLETATA
+    chiudi()
+    # L'esecutore ha dichiarato le fasi da calcolare, S0 compresa.
+    # Con fino_a le sole fasi richieste: le successive non si calcolano.
+    assert visti[0]["esecuzione"]["da_rifare"] == ["S0"]
+    assert visti[0]["fasi_da_rifare"] == []   # nessuna aveva ancora un manifesto
+    documento = interfaccia.stato(radice)
+    assert documento["fasi_da_rifare"] == [] and "da_rifare" not in documento["fasi"][0]
+
+    # Una ripresa in corso su S0, con S1 e S2 concluse da un'esecuzione
+    # precedente e da rifare.
+    manifesto = (radice / "01_input_validation" / nome_manifesto_passo("S0")).read_text()
+    for passo in (Passo.S1, Passo.S2, Passo.S3):
+        nodo = GRAFO.nodo(passo)
+        (radice / nodo.cartella.value).mkdir(parents=True, exist_ok=True)
+        (radice / nodo.cartella.value / nome_manifesto_passo(str(passo))).write_text(manifesto)
+    adesso = time.time()
+    (radice / "99_logs" / interfaccia.NOME_STATO).write_text(json.dumps({
+        "pid": 1, "host": "altro", "comando": "resume", "passo": "S1",
+        "avviata": "2000-01-01T00:00:00+00:00", "fase_avviata": "2000-01-01T00:10:00+00:00",
+        "intervallo_battito_s": 20.0, "aggiornato": "x", "aggiornato_epoch": adesso - 5,
+        "da_rifare": ["S1", "S2"],
+    }), encoding="utf-8")
+    documento = interfaccia.stato(radice, adesso)
+    fasi = {f["passo"]: f for f in documento["fasi"]}
+    assert fasi["S1"]["stato"] == "in_corso"
+    assert fasi["S2"]["stato"] == "conclusa" and fasi["S2"]["da_rifare"] is True
+    assert fasi["S3"]["stato"] == "conclusa" and "da_rifare" not in fasi["S3"]
+    assert documento["fasi_da_rifare"] == ["S2"]
+    # I campi di prima non cambiano significato: S2 resta fra le concluse.
+    assert "S2" in documento["fasi_concluse"]
+    assert main(["status", "--out", str(radice)]) == 0
+    testo = capsys.readouterr().out
+    assert re.search(r"S2\s+da_rifare", testo) and re.search(r"S3\s+conclusa", testo)
+    assert "artefatti di un'esecuzione precedente" in testo

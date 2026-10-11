@@ -203,7 +203,9 @@ class FiltroLetture(PipelineStep):
         # Un file senza letture non ha nulla da filtrare: e' il bianco che S0 ha
         # ammesso, e risulta azzerato come ogni bianco pulito.
         senza_letture = [a for a, (_, _, vuoto) in esami.items() if vuoto]
-        with senza_righe_vuote_finali(campioni, vuote) as leggibili:
+        with senza_righe_vuote_finali(
+            campioni, vuote, contesto.albero.cartella(self.cartella)
+        ) as leggibili:
             esito = esegui_script(
                 cartella_r() / NOME_SCRIPT,
                 {

@@ -24,6 +24,7 @@ import gzip
 import hashlib
 import json
 import os
+import random
 import re
 import shutil
 from fractions import Fraction
@@ -247,14 +248,16 @@ def _per_parametro(documento: dict) -> dict[str, dict]:
 # --------------------------------------------------------------------------- #
 
 
-def test_la_tabella_ha_le_dodici_soglie_e_i_valori_esplorativi_sono_ammessi(tmp_path):
+def test_la_tabella_elenca_le_soglie_e_i_valori_esplorativi_sono_ammessi(tmp_path):
     """
-    **Obiettivo**: Verificare che la tabella elenchi dodici parametri dello
-    schema, ciascuno con un codice del catalogo; che il valore esplorativo di
-    ogni soglia in frazione sia l'estremo che non ferma (1 per le massime, 0
-    per le minime) e che una configurazione con tutti i valori esplorativi sia
-    accettata dallo schema; che le soglie in conteggio e in basi non abbiano un
-    valore esplorativo.
+    **Obiettivo**: Verificare che la tabella elenchi parametri dello schema,
+    ciascuno con un codice del catalogo; che il valore esplorativo di ogni
+    soglia in frazione che ``soglie`` propone sia l'estremo che non ferma (1
+    per le massime, 0 per le minime) e che una configurazione con tutti i
+    valori esplorativi sia accettata dallo schema; che non abbiano un valore
+    esplorativo le soglie in conteggio e in basi, ne' quelle che ``soglie`` non
+    propone (le varianti distinte, che proteggono la memoria, e la frazione
+    minima di controlli positivi conformi, che e' un giudizio).
 
     **Razionale scientifico e sistemistico**: Il valore scritto da ``init``
     per una prima esecuzione deve essere accettato da ``validate``, altrimenti
@@ -265,12 +268,14 @@ def test_la_tabella_ha_le_dodici_soglie_e_i_valori_esplorativi_sono_ammessi(tmp_
     from amplicon16s.errors.catalog import CATALOGO
 
     chiavi = set(interfaccia.chiavi_dello_schema())
-    assert len(SOGLIE) == 12 and {s.chiave for s in SOGLIE} <= chiavi
+    assert {s.chiave for s in SOGLIE} <= chiavi
     assert all(c in CATALOGO for s in SOGLIE for c in s.codici)
+    assert {s.chiave for s in SOGLIE if s.non_proposta is not None} == {
+        "qc.max_asv_count", "ctrl.min_positive_pass_frac"}
     dati = _dati(tmp_path / "out")
     for voce in SOGLIE:
         valore = tabella.valore_esplorativo(voce)
-        if voce.unita is Unita.FRAZIONE:
+        if voce.unita is Unita.FRAZIONE and voce.non_proposta is None:
             assert valore == (1.0 if voce.direzione is Direzione.MASSIMA else 0.0)
             gruppo, nome = voce.chiave.split(".")
             dati[gruppo][nome] = valore
@@ -278,7 +283,8 @@ def test_la_tabella_ha_le_dodici_soglie_e_i_valori_esplorativi_sono_ammessi(tmp_
             assert valore is None
     config = valida(dati)
     spenti = {s.chiave for s in tabella.controlli_spenti(tabella.valori_piatti(config), 3)}
-    assert spenti == {s.chiave for s in SOGLIE if s.unita is Unita.FRAZIONE}
+    assert spenti == {s.chiave for s in SOGLIE
+                      if s.unita is Unita.FRAZIONE and s.non_proposta is None}
 
 
 @pytest.mark.parametrize(("chiave", "valore", "spento"), [
@@ -353,6 +359,81 @@ def test_un_controllo_che_non_si_esegue_non_e_elencato_fra_gli_spenti(tmp_path):
         s.chiave for s in tabella.controlli_spenti(valori, 0)}
 
 
+def test_la_frazione_minima_di_positivi_conformi_a_zero_e_un_controllo_spento(tmp_path):
+    """
+    **Obiettivo**: Verificare che ``ctrl.min_positive_pass_frac`` a 0, con
+    controlli positivi dichiarati, sia riconosciuta come controllo spento, con
+    il codice dell'arresto se ``ctrl.positive_gate`` e' vero e quello
+    dell'avviso altrimenti; che un valore maggiore di 0 non lo sia; che senza
+    controlli positivi il parametro non sia fra gli spenti, omesso o dichiarato
+    che sia, ma fra i controlli che non si eseguono; e che il confronto in S11
+    sia stretto, cosi' che a 0 il controllo non possa scattare nemmeno con
+    nessun controllo conforme.
+
+    **Razionale scientifico e sistemistico**: Con il minimo a zero nessuna
+    frazione di controlli conformi e' abbastanza bassa da fermare o avvisare:
+    chi esegue deve saperlo come per ogni altra soglia al limite. Senza
+    controlli positivi non c'e' un controllo da accendere.
+    """
+    import inspect
+
+    from amplicon16s.steps import s11_controls
+
+    positivi = {"positive_values": ["mock"], "min_positive_pass_frac": 0.0,
+                "min_positives": 3, "positive_gate": False}
+    dati = _dati(tmp_path / "out", ctrl=positivi,
+                 katharoseq={"target_taxon": "Genere", "cell_count_column": "cellule",
+                             "collapse_rank": "Genus", "target_sensitivity": 0.8,
+                             "min_r2": 0.5})
+    valori = tabella.valori_piatti(valida(dati))
+    spenti = {s.chiave: s for s in tabella.controlli_spenti(valori, 3)}
+    spento = spenti["ctrl.min_positive_pass_frac"]
+    assert (spento.codici, spento.ferma, spento.limite) == (("E-S11-04",), False, 0)
+    assert "l'avviso E-S11-04 non puo' scattare" in spento.testo
+    con_arresto = {s.chiave: s for s in tabella.controlli_spenti(
+        {**valori, "ctrl.positive_gate": True}, 3)}["ctrl.min_positive_pass_frac"]
+    assert (con_arresto.codici, con_arresto.ferma) == (("E-S11-03",), True)
+    assert "ctrl.min_positive_pass_frac" not in {s.chiave for s in tabella.controlli_spenti(
+        {**valori, "ctrl.min_positive_pass_frac": 0.0001}, 3)}
+
+    # Senza controlli positivi: non si esegue, e non e' "spento".
+    voce = tabella.soglia("ctrl.min_positive_pass_frac")
+    for senza in ({**valori, "ctrl.positive_values": []},
+                  {**valori, "ctrl.positive_values": [], "ctrl.min_positive_pass_frac": None}):
+        assert "ctrl.min_positive_pass_frac" not in {
+            s.chiave for s in tabella.controlli_spenti(senza, 3)}
+        assert tabella.non_eseguito(voce, senza) is not None
+    assert tabella.valore_esplorativo(voce) is None
+
+    # Il confronto della fase e' stretto: una frazione non scende sotto zero.
+    assert "frazione < minima" in inspect.getsource(s11_controls.ValidazioneControlli.calcola)
+
+
+def test_con_il_motivo_nullo_la_frazione_del_motivo_non_e_zero_ma_assente(tmp_path):
+    """
+    **Obiettivo**: Verificare che in ``letture_ispezionate.tsv`` la colonna
+    ``frazione_motivo`` sia vuota quando ``qc.conserved_motif`` e' nullo e
+    porti la frazione quando il motivo e' dichiarato, senza che cambino le
+    altre colonne.
+
+    **Razionale scientifico e sistemistico**: Uno zero dice che nessuna lettura
+    porta il motivo; con il motivo nullo la ricerca non e' stata fatta, e chi
+    legge la tabella non deve scambiare le due cose.
+    """
+    from amplicon16s.steps.s00_validate import _letture_tsv
+
+    scansione = {"LIB001": _file("a.fq.gz", 200, primer=2, motivo=150)}
+    con, senza = (_letture_tsv(scansione, 500, con_motivo=c).splitlines() for c in (True, False))
+    assert con[0] == senza[0]
+    colonne = con[0].split("\t")
+    riga_con, riga_senza = (dict(zip(colonne, r.split("\t"))) for r in (con[1], senza[1]))
+    assert riga_con["frazione_motivo"] == "0.750000" and riga_senza["frazione_motivo"] == ""
+    assert {c: v for c, v in riga_con.items() if c != "frazione_motivo"} == {
+        c: v for c, v in riga_senza.items() if c != "frazione_motivo"}
+    # Il predefinito e' la forma di sempre: la frazione, anche se zero.
+    assert _letture_tsv(scansione, 500) == "\n".join(con) + "\n"
+
+
 def test_validate_e_il_report_dichiarano_i_controlli_spenti(tmp_path, capsys):
     """
     **Obiettivo**: Verificare su un dataset sintetico che ``validate`` con le
@@ -380,7 +461,10 @@ def test_validate_e_il_report_dichiarano_i_controlli_spenti(tmp_path, capsys):
     documento = json.loads(catturato.out)
     spenti = {s["parametro"] for s in documento["controlli_spenti"]}
     # conserved_motif e' nullo nel dataset sintetico: il motivo non si giudica.
-    assert spenti == {s.chiave for s in SOGLIE if s.unita is Unita.FRAZIONE} - {"qc.min_motif_frac"}
+    assert spenti == {s.chiave for s in SOGLIE if s.unita is Unita.FRAZIONE
+                      and s.non_proposta is None} - {"qc.min_motif_frac"}
+    # L'elenco e' sulla console una volta sola: il log lo registra nel solo file.
+    assert catturato.err.count("qc.max_frac_lost_filter") == 1
     assert documento["valida"] and "controlli di qualita' sono spenti" in catturato.err
     assert all(p in catturato.err for p in spenti)
     assert "spent" not in (tmp_path / "out/01_input_validation/gates.json").read_text("utf-8")
@@ -434,12 +518,15 @@ def _misura(valore: Any, tolleranza: Fraction = Fraction(0)) -> misure.Misura:
     ("qc.warn_frac_chimeric", "0.3", 0.1, "proposta", 0.35, False),
     # Arresto delle chimere: margine doppio.
     ("qc.stop_frac_chimeric", "0.3", 1.0, "proposta", 0.4, False),
-    # Conteggi: nessun margine sugli azzerati, la meta' in piu' sulle varianti.
+    # Conteggi: nessun margine sugli azzerati.
     ("qc.max_zeroed_samples", "1", 0, "proposta", 1, False),
     ("qc.max_zeroed_samples", "0", 0, "tenuta", 0, False),
     ("qc.max_zeroed_samples", "3", 3, "proposta", 3, True),
-    ("qc.max_asv_count", "401", 100000, "proposta", 602, False),
-    ("qc.max_asv_count", "401", 500, "tenuta", 500, False),
+    # Le varianti distinte non si propongono dalla misura: resta il valore usato.
+    ("qc.max_asv_count", "401", 100000, "non_proposta", 100000, False),
+    ("qc.max_asv_count", "401", 500, "non_proposta", 500, False),
+    # La frazione minima di positivi conformi e' un giudizio: non si propone.
+    ("ctrl.min_positive_pass_frac", "0.9", 0.5, "non_proposta", 0.5, False),
     # Basi: lo scarto osservato, non oltre il massimo ammesso.
     ("filter.truncLen_shortfall_warn", "5", 0, "proposta", 5, False),
     ("filter.truncLen_shortfall_warn", "500", 0, "proposta", 136, True),
@@ -452,7 +539,8 @@ def test_la_regola_propone_tiene_e_riporta_al_limite(chiave, misura, usata, esit
     piu' larga del suggerimento; il suggerimento al posto di una soglia piu'
     larga o gia' superata; il riporto al limite, dichiarato come controllo
     spento, quando misura e margine escono dall'intervallo; l'arrotondamento
-    verso l'esterno; i margini dei conteggi e delle basi.
+    verso l'esterno; i margini dei conteggi e delle basi; le due soglie che non
+    si propongono dalla misura, lasciate al valore della configurazione.
 
     **Razionale scientifico e sistemistico**: Una sola regola per tipo di
     soglia, senza eccezioni nascoste: chi legge il valore proposto deve poterlo
@@ -465,7 +553,9 @@ def test_la_regola_propone_tiene_e_riporta_al_limite(chiave, misura, usata, esit
     assert (risultato.esito, risultato.valore) == (esito, valore)
     assert ("CONTROLLO SPENTO" in " ".join(risultato.note)) is spento
     # Mai piu' stretto della misura.
-    if voce.direzione is Direzione.MASSIMA:
+    if voce.non_proposta is not None:
+        assert risultato.suggerito is None and voce.non_proposta in risultato.regola
+    elif voce.direzione is Direzione.MASSIMA:
         assert Fraction(str(risultato.valore)) >= Fraction(misura) or al_limite is not None
     else:
         assert Fraction(str(risultato.valore)) <= Fraction(misura)
@@ -566,18 +656,31 @@ def test_soglie_legge_la_statistica_che_ogni_controllo_confronta(tmp_path, capsy
         "filter.truncLen_shortfall_warn": (160 - 137, 23),
         "qc.max_zeroed_samples": (0, 0),
         "qc.max_frac_lost_filter": (0.2, 0.2501),
-        "qc.max_asv_count": (400, 600),
+        "qc.max_asv_count": (400, 100000),
         "qc.warn_frac_chimeric": (0.12, 0.17),
         "qc.stop_frac_chimeric": (0.12, 0.22),
         "qc.min_frac_phylum": (0.9, 0.85),
+        "ctrl.min_positive_pass_frac": (None, 0.5),
         "qc.max_frac_contaminant": (0.03, 0.08),
         "qc.min_frac_reads_retained": (0.7, 0.65),
     }
     assert {c: (s["misura"], s["valore"]) for c, s in soglie.items()} == attese
     for voce in soglie.values():
         assert voce["origine_della_misura"] and voce["statistica"] and voce["regola"]
-        assert voce["valore_configurazione"] == ESPLORATIVE[voce["parametro"]]
+        assert voce["valore_configurazione"] == ESPLORATIVE.get(voce["parametro"], 0.5)
     assert soglie["qc.max_zeroed_samples"]["esito"] == "tenuta"
+    # Le varianti restano al valore della configurazione, con il motivo; senza
+    # controlli positivi la loro soglia e' omessa.
+    assert soglie["qc.max_asv_count"]["esito"] == "non_proposta"
+    assert soglie["qc.max_asv_count"]["valore_suggerito"] is None
+    assert "protegge la memoria; resta il valore della configurazione" in (
+        soglie["qc.max_asv_count"]["regola"])
+    assert "qc.max_asv_count: misura 400, resta 100000" in errore
+    assert "protegge la memoria; resta il valore della configurazione" in errore
+    conformi = soglie["ctrl.min_positive_pass_frac"]
+    assert conformi["esito"] == "non_proposta" and "giudizio sui controlli positivi" in (
+        conformi["regola"])
+    assert any("non ha effetto" in nota for nota in conformi["note"])
     assert documento["controlli_spenti"] == []
     # La console riporta la misura accanto al valore, e l'avvertenza.
     assert "misura 0.12" in errore and "proposta 0.17" in errore
@@ -673,8 +776,10 @@ def test_il_file_scritto_cambia_solo_le_soglie_e_porta_origine_e_misura(tmp_path
     # Le soglie ora attive stanno fra misura e suggerimento: tenute. Resta il
     # commento con l'origine del loro valore, e uno solo con l'esito di ora.
     assert testo.count("[PROPOSTO] da soglie") == primo.read_bytes().decode("utf-8").count(
-        "[PROPOSTO] da soglie") == 11
-    assert len(re.findall(r"## \[SOGLIE\]", testo)) == 12
+        "[PROPOSTO] da soglie") == 10
+    assert len(re.findall(r"## \[SOGLIE\]", testo)) == 13
+    assert "protegge la memoria; resta il valore della configurazione" in " ".join(
+        testo.replace("##", " ").split())
     capsys.readouterr()
 
 
@@ -902,7 +1007,7 @@ def test_nel_codice_delle_soglie_non_ci_sono_valori_dei_dataset():
                     trovate.append((nome, gruppo, testo))
     assert trovate == []
     assert {s.margine for s in SOGLIE} == {
-        tabella.MARGINE_FRAZIONE, tabella.MARGINE_ARRESTO_CHIMERE, tabella.MARGINE_VARIANTI,
+        tabella.MARGINE_FRAZIONE, tabella.MARGINE_ARRESTO_CHIMERE,
         tabella.MARGINE_AZZERATI, tabella.MARGINE_BASI}
 
 
@@ -1042,6 +1147,30 @@ def _codice_di_arresto(uscita: Path) -> str:
     return json.loads((uscita / "99_logs" / "punto_di_ripresa.json").read_text("utf-8"))["codice"]
 
 
+def _aggiungi_un_contaminante(dataset: sintetico.DatasetSintetico) -> None:
+    """Aggiunge una sequenza estranea a ogni controllo negativo e a un solo
+    campione biologico: presente in tutti i bianchi e quasi in nessun campione,
+    la decontaminazione per prevalenza la riconosce, e la frazione delle
+    letture dei biologici rimossa e' maggiore di zero.
+    """
+    caso = random.Random(7)
+    # Una sequenza del riferimento letta al contrario: lunga quanto le altre,
+    # diversa da tutte, e non una chimera di due di loro.
+    estranea = sintetico.sequenze_di_riferimento()[0][1][::-1] + sintetico.CODA
+    negativi = [c for c, tipo in dataset.campioni.items() if tipo == sintetico.ETICHETTA_NEGATIVO]
+    biologico = next(c for c, tipo in dataset.campioni.items()
+                     if tipo == sintetico.ETICHETTA_BIOLOGICO)
+    for chiave in (*negativi, biologico):
+        (percorso,) = dataset.letture.glob(f"{chiave}_*.fq.gz")
+        with gzip.open(percorso, "rt", encoding="ascii") as file:
+            righe = file.read().splitlines()
+        record = [(righe[i][1:], righe[i + 1], righe[i + 3]) for i in range(0, len(righe), 4)]
+        for numero in range(200):
+            sequenza, qualita = sintetico._lettura(estranea, caso)
+            record.append((f"{chiave}.x{numero + 1}", sequenza, qualita))
+        sintetico._scrivi_fastq(percorso, record)
+
+
 @pytest.fixture(scope="module")
 def esplorativa(bioc, tmp_path_factory):
     """Un'esecuzione esplorativa conclusa sul dataset sintetico, con le soglie
@@ -1049,6 +1178,7 @@ def esplorativa(bioc, tmp_path_factory):
     """
     base = tmp_path_factory.mktemp("soglie")
     dataset = sintetico.genera(base / "dati", biologici=8, negativi=3)
+    _aggiungi_un_contaminante(dataset)
     # Un taxon del riferimento sintetico escluso: i filtri finali tolgono
     # letture, e la frazione trattenuta non e' al suo massimo.
     dati = sintetico.configurazione(dataset, base / "out", filt={"exclude_taxa": ["Classe_0"]})
@@ -1131,6 +1261,11 @@ def test_una_soglia_appena_piu_stretta_della_misura_ferma_la_fase(
     documento_misure = misure.leggi(base / "out", tabella.valori_piatti(valida(
         copy.deepcopy(proposte))))
     misura = documento_misure[chiave]
+    if chiave == "qc.max_frac_contaminant":
+        # Il dataset porta un contaminante: la misura c'e', e' maggiore di zero
+        # e la soglia proposta la lascia passare (la catena si e' conclusa).
+        assert misura.valore is not None and misura.valore > 0, misura
+        assert Fraction(str(proposte["qc"]["max_frac_contaminant"])) >= misura.valore
     if misura.valore is None:
         pytest.skip(f"{chiave}: senza misura in questa esecuzione ({misura.assente})")
     voce = tabella.soglia(chiave)

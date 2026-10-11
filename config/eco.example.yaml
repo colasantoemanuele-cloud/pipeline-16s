@@ -37,6 +37,21 @@ design:
   # (fra virgolette). Si applica prima di tutto il resto.
   # subset: {}
 
+  # [FACOLTATIVO] Variabili continue: misure numeriche (una distanza, un tempo,
+  # una concentrazione), con il punto decimale. Per ciascuna l'analisi calcola
+  # la correlazione di Spearman con ogni indice di alfa diversita' e una
+  # PERMANOVA con la variabile come termine numerico. Una colonna dichiarata
+  # qui non si dichiara fra le variabili categoriche.
+  # continuous_variables: []
+
+  # [FACOLTATIVO] Colonna del soggetto in un disegno a misure ripetute (lo
+  # stesso individuo, o lo stesso sito, campionato in piu' condizioni). Con il
+  # soggetto ogni variabile categorica e' analizzata anche entro soggetto, sui
+  # soggetti che hanno un campione in ogni livello: Wilcoxon dei ranghi con
+  # segno (due livelli) o Friedman (piu' di due), e PERMANOVA con le
+  # permutazioni entro il soggetto.
+  # subject: null
+
 run:
   # [OBBLIGATORIO] Seme della rarefazione e di ogni altra operazione casuale.
   # seed:

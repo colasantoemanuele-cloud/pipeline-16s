@@ -174,3 +174,27 @@ def motivo_pacchetti_r_assenti(*pacchetti: str) -> str | None:
     if prova.returncode != 0:
         return f"pacchetti R non installati fra: {', '.join(pacchetti)}"
     return None
+
+
+def riferimento_con_linee(destinazione: Path, linea: Any) -> Path:
+    """Scrive in ``destinazione`` il riferimento sintetico con le linee
+    tassonomiche riscritte, e ne restituisce il percorso.
+
+    ``linea`` riceve l'indice della sequenza e i ranghi della sua linea nel
+    riferimento sintetico, e restituisce i ranghi da scrivere: serve a provare
+    la pipeline con un riferimento nel formato di un altro training set (altri
+    nomi dei taxa, prefissi di rango, un numero diverso di ranghi) sulle stesse
+    sequenze.
+    """
+    import gzip
+
+    righe = gzip.decompress(RIFERIMENTO.read_bytes()).decode("ascii").splitlines()
+    testo = "".join(
+        ">{};\n{}\n".format(";".join(linea(i // 2, righe[i][1:].rstrip(";").split(";"))),
+                             righe[i + 1])
+        for i in range(0, len(righe), 2)
+    )
+    with open(destinazione, "wb") as file:
+        with gzip.GzipFile(fileobj=file, mode="wb", mtime=0, filename="") as archivio:
+            archivio.write(testo.encode("ascii"))
+    return destinazione

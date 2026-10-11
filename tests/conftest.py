@@ -447,7 +447,7 @@ def crea_scenario(
     # Genera un file FASTA di riferimento minimale e ne calcola il vero digest MD5
     # affinché il Gate G12 passi salvo esplicita manomissione nei test.
     riferimento = radice / "riferimento.fa.gz"
-    riferimento.write_bytes(b">seq1\nACGT\n")
+    riferimento.write_bytes(b">Bacteria;Phylum_di_prova;\nACGT\n")
     md5_riferimento = hashlib.md5(riferimento.read_bytes()).hexdigest()
 
     dati = parametri_del_formato(formato, con_lotto=arricchimento is not None)

@@ -9,7 +9,9 @@ nel nome, quello che la pipeline estrae (``io.accession_regex``).
 Lo script e' **ripetibile**: a ogni avvio controlla tutti i file e scarica solo
 cio' che manca o non corrisponde all'MD5; uno scarico interrotto riprende dal
 punto a cui era arrivato (``dati/scaricamento.py``). Una cartella che contiene gia'
-tutti i file integri non provoca alcuno scarico.
+tutti i file integri non provoca alcuno scarico. I file si scaricano con poche
+connessioni insieme (``--connessioni``); un guasto di rete su un file finisce
+nel riepilogo, con che cosa fare, e non ferma gli altri.
 
     python3 dati/osd734/scarica_letture.py                  # in dati/osd734/fastq/
     python3 dati/osd734/scarica_letture.py --solo-verifica  # controlla e basta
@@ -23,11 +25,16 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scaricamento import Atteso, ErroreScarico, metti_da_parte, scarica, valido  # noqa: E402
+from scaricamento import (  # noqa: E402
+    CONNESSIONI,
+    Atteso,
+    metti_da_parte,
+    scarica_in_parallelo,
+    valido,
+)
 
 QUI = Path(__file__).resolve().parent
 ELENCO = QUI / "letture_ena.tsv"
@@ -59,7 +66,12 @@ def main(argomenti: list[str] | None = None) -> int:
     parser.add_argument("--pausa", type=float, default=0.5,
                         help="secondi fra una richiesta e la successiva")
     parser.add_argument("--tentativi", type=int, default=4)
+    parser.add_argument("--connessioni", type=int, default=CONNESSIONI,
+                        help=f"connessioni aperte insieme verso l'archivio (predefinite: "
+                             f"{CONNESSIONI})")
     opzioni = parser.parse_args(argomenti)
+    if opzioni.connessioni < 1:
+        parser.error("--connessioni deve essere almeno 1")
 
     righe = leggi_elenco()
     if opzioni.accession:
@@ -71,7 +83,8 @@ def main(argomenti: list[str] | None = None) -> int:
 
     presenti = scaricati = 0
     mancanti: list[str] = []
-    for indice, riga in enumerate(righe, start=1):
+    da_scaricare: list[tuple[Atteso, Path]] = []
+    for riga in righe:
         percorso = opzioni.cartella / riga["file"]
         voce = atteso(riga)
         if valido(percorso, voce):
@@ -84,18 +97,21 @@ def main(argomenti: list[str] | None = None) -> int:
         if percorso.exists():
             print(f"{riga['file']}: MD5 o dimensione diversi, messo da parte in "
                   f"{metti_da_parte(percorso).name}", flush=True)
-        try:
-            scarica(voce, percorso, tentativi=opzioni.tentativi)
-        except ErroreScarico as guasto:
+        da_scaricare.append((voce, percorso))
+
+    for posizione, guasto in scarica_in_parallelo(
+            da_scaricare, connessioni=opzioni.connessioni, tentativi=opzioni.tentativi,
+            pausa=opzioni.pausa):
+        if guasto is not None:
             mancanti.append(str(guasto))
         else:
             scaricati += 1
-            print(f"[{indice}/{len(righe)}] {riga['file']}: scaricato e verificato", flush=True)
-        time.sleep(opzioni.pausa)
+            print(f"[{scaricati}/{len(da_scaricare)}] {da_scaricare[posizione][1].name}: "
+                  "scaricato e verificato", flush=True)
 
     print(f"file richiesti {len(righe)}: gia' presenti e integri {presenti}, "
           f"scaricati {scaricati}, mancanti o non integri {len(mancanti)}")
-    for voce in mancanti:
+    for voce in sorted(mancanti):
         print(f"  {voce}")
     return 0 if not mancanti else 1
 

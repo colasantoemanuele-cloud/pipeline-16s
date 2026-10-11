@@ -58,9 +58,9 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
     VoceEco(
         "E-ECO-02", _R,
         "Manca un parametro obbligatorio.",
-        "Dichiara il parametro indicato nella configurazione dell'analisi: cio' "
-        "che dipende dallo studio non ha un valore predefinito, a cominciare "
-        "dalla variabile biologica (design.variable).",
+        "Dichiara il parametro indicato nella configurazione dell'analisi: dipende "
+        "dallo studio o e' una scelta di analisi, e non ha un valore predefinito. "
+        "Che cosa significa e' in config/eco.example.yaml.",
     ),
     VoceEco(
         "E-ECO-03", _R,
@@ -233,8 +233,58 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "Una variabile biologica sembra continua.",
         "I suoi valori sono tutti numerici e quasi tutti diversi: l'analisi la tratta "
         "comunque come categorica, come dichiarato, e i suoi gruppi sono in gran parte "
-        "campioni singoli, che escono dai test. Se e' una misura, raggruppala in "
-        "classi in una colonna nuova dei metadati, oppure scegli un'altra variabile.",
+        "campioni singoli, che escono dai test. Se e' una misura, dichiarala in "
+        "design.continuous_variables invece che fra le variabili categoriche: l'analisi "
+        "ne calcola la correlazione con l'alfa diversita' e una PERMANOVA con un termine "
+        "numerico.",
+    ),
+    VoceEco(
+        "E-ECO-30", _R,
+        "Una variabile dichiarata continua non e' numerica.",
+        "I valori di una colonna di design.continuous_variables devono essere numeri "
+        "(con il punto decimale): il messaggio elenca i campioni con un valore che non "
+        "lo e'. Correggi i metadati, oppure dichiara la colonna fra le variabili "
+        "categoriche (design.variable, design.other_variables).",
+    ),
+    VoceEco(
+        "E-ECO-31", _A,
+        "L'analisi di una variabile continua non e' stata eseguita.",
+        "I campioni con un valore sono meno di quanti ne servono perche' una "
+        "correlazione perfetta scenda sotto stat.significance_level, la variabile ha "
+        "meno di tre valori distinti, oppure ha un solo valore dentro ogni strato di "
+        "stat.permanova_strata: il messaggio dice quale analisi e che cosa manca. Con "
+        "due soli valori la variabile separa due gruppi, e va dichiarata categorica. "
+        "Le altre analisi sono eseguite.",
+    ),
+    VoceEco(
+        "E-ECO-32", _A,
+        "L'analisi entro soggetto di una variabile non e' stata eseguita.",
+        "Il messaggio dice che cosa manca: la variabile ha meno di due livelli fra i "
+        "campioni con un soggetto; un soggetto ha piu' di un campione nello stesso "
+        "livello (se sono repliche, tienine una con design.subset o in una colonna "
+        "nuova dei metadati); oppure i soggetti con un campione in ogni livello sono "
+        "meno del minimo perche' un test entro soggetto scenda sotto "
+        "stat.significance_level. Il confronto fra gruppi indipendenti della stessa "
+        "variabile e' eseguito comunque, e non tiene conto del soggetto.",
+    ),
+    VoceEco(
+        "E-ECO-34", _A,
+        "I confronti fra gruppi indipendenti contano come indipendenti i campioni di "
+        "uno stesso soggetto.",
+        "Con design.subject dichiarato le analisi entro soggetto tengono conto delle "
+        "misure ripetute; le altre (test/alfa_diversita.tsv, test/permanova.tsv, le "
+        "tabelle delle variabili continue) no: i loro valori p presumono campioni "
+        "indipendenti, e con piu' campioni per soggetto sono troppo piccoli. Per "
+        "una variabile che cambia entro soggetto si leggono le tabelle appaiate; per "
+        "una che distingue i soggetti si tiene un campione per soggetto "
+        "(design.subset) o si legge il risultato con questa cautela.",
+    ),
+    VoceEco(
+        "E-ECO-33", _A,
+        "Alcuni soggetti sono esclusi dall'analisi entro soggetto.",
+        "Non hanno un campione in ogni livello della variabile: i test entro soggetto "
+        "valgono solo sui soggetti completi. Quali sono esclusi, e quale livello "
+        "manca a ciascuno, e' in test/soggetti.tsv.",
     ),
     VoceEco(
         "E-ECO-90", _R,

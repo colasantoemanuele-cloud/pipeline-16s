@@ -39,7 +39,7 @@ parametro.
 
 - Letture Illumina **single-end** dell'amplicone 16S, un file FASTQ per campione,
   compresso con gzip o no. Di una corsa appaiata si usano le sole letture forward; un
-  file che contiene le due letture di ogni coppia viene respinto.
+  file con le due letture di ogni coppia, o con le sole letture inverse, viene respinto.
 - Letture **senza primer in testa**, oppure con il primer a posizione fissa, che si
   toglie con `filter.trimLeft`.
 - Metadati in tabelle di testo UTF-8 separate da tabulazioni: una tabella dei campioni,
@@ -48,8 +48,8 @@ parametro.
   campione), controlli negativi, controlli positivi in diluizione seriale. Senza di
   essi la pipeline procede e dichiara che cosa non ha potuto fare. Un controllo
   negativo senza alcuna lettura è ammesso e attraversa le fasi come tale.
-- Un riferimento tassonomico nel formato dei training set di dada2, con il suo MD5,
-  verificato a ogni avvio.
+- Un riferimento tassonomico nel formato dei training set di dada2 (SILVA, RDP, GTDB,
+  Greengenes: da due a sette ranghi per sequenza), con il suo MD5, verificato a ogni avvio.
 
 File e metadati si agganciano con una chiave estratta dal nome di ogni file, unica per
 campione (`io.accession_regex`). Come preparare letture e tabelle è in GUIDA.md,
@@ -61,8 +61,8 @@ controlli), `dati/osd170/` (30, soli controlli negativi), `dati/comunita_nota/` 
 
 ## Requisiti
 
-- **Docker**, e l'immagine pubblicata (1,86 GB da scaricare, 7,6 GB su disco). È
-  l'unica via supportata: l'immagine porta Python 3.11, R 4.5.2, Bioconductor 3.21 e i
+- **Docker** (o Apptainer, GUIDA.md 3.1) e l'immagine pubblicata (1,86 GB da scaricare, 7,6 GB su
+  disco). È l'unica via supportata: l'immagine porta Python 3.11, R 4.5.2, Bioconductor 3.21 e i
   pacchetti alle versioni di `renv.lock`, fra cui dada2 1.36.0.1, cioè dada2 1.36.0 con
   una correzione che rende ripetibile la tassonomia nei pareggi fra generi
   (`container/dada2/`).
@@ -210,7 +210,7 @@ Il pacchetto `amplicon16s_eco` lavora sull'oggetto finale, che non modifica, con
 configurazione propria (`config/eco.example.yaml`): alfa diversità su conteggi
 rarefatti, composizione a un rango, distanze (Bray-Curtis, Jaccard, Aitchison, UniFrac
 con un albero), PCoA e NMDS, confronto fra gruppi (Wilcoxon o Kruskal-Wallis, PERMANOVA
-con il test delle dispersioni).
+con il test delle dispersioni) e, se dichiarati, variabili continue (Spearman) e misure ripetute.
 
 ```bash
 docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
@@ -262,10 +262,10 @@ misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in
 
 ## Limiti noti
 
-- Un file con le due letture di ogni coppia è riconosciuto dai marcatori `/1` e `/2`, dal commento
-  `1:N:` e `2:N:`, dal nome ripetuto, e dal marcatore `1` e `2` o `R1` e `R2` in fondo
-  all'identificativo. Non lo è con una sola coppia, con un altro marcatore, o se con i marcatori in
-  fondo all'identificativo riporta prima tutte le prime letture e poi le seconde, o le sole seconde.
+- Le letture inverse prese per forward si riconoscono dal contenuto (`E-S1-07`), con il motivo
+  conservato o con il primer nelle basi tagliate: non con il motivo nullo e senza taglio, non in un
+  file con meno di 500 letture o di un controllo negativo, non se il motivo è stato ricavato da
+  file in maggioranza inversi, non se la libreria mescola i due versi (GUIDA.md, 1.2).
 - Un file il cui nome finisce con `R2`, o con `_2` quando c'è lo stesso nome con `_1`,
   è preso per il secondo di una coppia e respinto; così un dataset single-end le cui
   letture portano tutte il marcatore `/2`. Due file `_R1` e `_R2` con la stessa chiave
@@ -273,20 +273,20 @@ misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in
 - `init` riconosce il primer solo se è in un elenco di primer 16S comuni e sta in testa
   alle letture; la chiave del campione solo se una colonna corrisponde uno a uno ai
   file. Negli altri casi lascia la riga da scegliere, e lo dice.
-- Con `filter.trimLeft` maggiore di zero `qc.conserved_motif` si cerca dopo le basi
-  tagliate: un'espressione che guarda all'indietro non trova nulla. Il motivo va
-  scritto in maiuscolo; `qc.primer_sequence` non può essere nullo.
-- I parametri reali accettano `true` e `false`, letti come 1 e 0. Il file di
-  `tax.ref_bad_taxa` deve avere le colonne `name` e `rank`. Una riga finale di soli
-  spazi in un FASTQ ferma S2 (`E-S2-03`); byte estranei dopo l'archivio gzip, S0 o S1.
+- Con `filter.trimLeft` maggiore di zero `qc.conserved_motif` si cerca dopo le basi tagliate
+  (un'espressione che guarda all'indietro non trova nulla) e il primer non si cerca: in
+  `letture_ispezionate.tsv` la colonna `frazione_primer` vale 0.
+- Byte estranei dopo la fine dell'archivio gzip di un FASTQ fermano S0 o S1, anche se
+  altri strumenti leggono il file.
 - Il testo generale «che cosa fare» di alcuni codici descrive solo il caso più frequente (quelli
   sui controlli negativi citano `decontam.min_blanks` anche se omesso): fa fede il dettaglio.
-- S8 cerca il rango `Phylum`: un riferimento con ranghi nominati diversamente dà un
-  errore senza codice. La tassonomia arriva al genere; l'albero di S9 serve alle
+- Un riferimento senza cloroplasti, mitocondri ed eucarioti (GTDB) non permette di toglierli
+  per nome (GUIDA.md, 6.4). La tassonomia arriva al rango più fine del riferimento; l'albero di S9 serve alle
   distanze fra campioni, non come risultato filogenetico.
-- Le analisi ecologiche trattano ogni variabile come categorica: una variabile che sembra continua
-  dà un avviso (`E-ECO-29`), non un'analisi di regressione. Un'analisi respinta non lascia nulla
-  nella cartella di uscita: `eco status` non la riporta, il codice lo dà il comando.
+- Nelle analisi ecologiche una variabile è continua, e un disegno è a misure ripetute, solo se
+  dichiarati (`design.continuous_variables`, `design.subject`: GUIDA.md, 4.1 e 4.2). Con una
+  distanza non euclidea la PERMANOVA entro soggetto può non essere valutabile. Un'analisi respinta
+  non lascia nulla nella cartella di uscita: `eco status` non la riporta, il codice lo dà il comando.
 
 ## Test
 

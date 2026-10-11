@@ -67,7 +67,7 @@ from amplicon16s.errors.catalog import voce
 from amplicon16s.gates.g01_g15 import _PER_CODICE, ErroreGate, Violazione, rifiuto_di_g15
 from amplicon16s import interfaccia
 from amplicon16s.config import defaults
-from amplicon16s.logging.logger import chiudi, configura, ottieni
+from amplicon16s.logging.logger import SOLO_NEL_FILE, chiudi, configura, ottieni
 from amplicon16s.runner.executor import Conclusione, Esecutore, EsitoEsecuzione
 from amplicon16s.runner.graph import Passo
 from amplicon16s.report.builder import CARTELLA_TABELLE, costruisci, scrivi
@@ -267,9 +267,10 @@ def _uscita(esito: EsitoEsecuzione) -> int:
     registrazione = esito.configurazione
     if registrazione is not None and registrazione.nuova and registrazione.differenze:
         _stampa(
-            f"Configurazione diversa dall'ultima registrata: registrata in "
-            f"{registrazione.percorso.name}, accanto alle precedenti "
-            f"({'; '.join(registrazione.differenze)})."
+            "La configurazione differisce dall'ultima usata in questa cartella "
+            f"({'; '.join(registrazione.differenze)}): e' salvata in "
+            f"{registrazione.percorso.parent.name}/{registrazione.percorso.name}, e le "
+            "precedenti restano nella stessa cartella."
         )
     eseguite = ", ".join(str(r.passo) for r in esito.eseguite) or "nessuna"
     if esito.conclusione is Conclusione.COMPLETATA:
@@ -303,7 +304,7 @@ def _controlli_spenti(config: Config) -> list[soglie_tabella.ControlloSpento]:
     if spenti:
         ottieni("run").warning(
             "controlli di qualita' spenti: " + "; ".join(s.testo for s in spenti),
-            extra={"controlli_spenti": [s.chiave for s in spenti]})
+            extra={"controlli_spenti": [s.chiave for s in spenti], SOLO_NEL_FILE: True})
     return spenti
 
 
@@ -343,7 +344,8 @@ def _valida(config: Config, percorso: Path, args: argparse.Namespace) -> int:
         registrazione = esito.configurazione
         if registrazione is not None and registrazione.nuova and registrazione.differenze:
             _stampa(
-                f"Configurazione diversa dall'ultima registrata: registrata in "
+                "La configurazione differisce dall'ultima usata in questa cartella: e' "
+                f"salvata in {registrazione.percorso.parent.name}/"
                 f"{registrazione.percorso.name}."
             )
         if esito.eseguite:
@@ -452,7 +454,13 @@ def _cmd_status(args: argparse.Namespace) -> int:
         return USCITA_SUCCESSO
     _stampa(f"{radice}: {_STATI[documento['stato']]}")
     for fase in documento["fasi"]:
-        _stampa(f"  {fase['passo']:<4} {fase['stato']:<12} {fase['descrizione']}")
+        # Una fase con il manifesto di un'esecuzione precedente, che quella in
+        # corso deve rifare, non e' conclusa per chi guarda l'avanzamento.
+        mostrato = "da_rifare" if fase.get("da_rifare") else fase["stato"]
+        _stampa(f"  {fase['passo']:<4} {mostrato:<12} {fase['descrizione']}")
+    if documento["fasi_da_rifare"]:
+        _stampa("  da_rifare: la fase ha gli artefatti di un'esecuzione precedente, che "
+                "l'esecuzione in corso ricalcola")
     esecuzione = documento["esecuzione"]
     if esecuzione is not None:
         _stampa(

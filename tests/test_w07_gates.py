@@ -108,9 +108,10 @@ from conftest import (
     POSITIVO,
 )
 
+from amplicon16s.config.schema import valida
 from amplicon16s.errors.catalog import Categoria, voce
 from amplicon16s.gates.g01_g15 import Contesto, ErroreGate
-from amplicon16s.gates.registry import REGISTRO, esegui_tutti
+from amplicon16s.gates.registry import REGISTRO, esegui_gate, esegui_tutti
 from amplicon16s.metadata.models import ClasseCampione
 from amplicon16s.steps.s00_validate import esegui_s0
 
@@ -968,3 +969,93 @@ def test_s0_registra_gli_avvisi_senza_fallire(tmp_path):
     da_g08 = [a for a in risultato.avvisi if a.codice == "E-S0-15"]
     assert len(da_g08) == 1
     assert "controlli negativi" in str(da_g08[0])
+
+def test_g12_respinge_un_elenco_dei_taxa_difettosi_che_s8_non_saprebbe_leggere(tmp_path):
+    """
+    **Obiettivo**: Verificare che G12 respinga con ``E-S0-12``, nominando il
+    parametro, un file di ``tax.ref_bad_taxa`` senza la colonna ``name`` o
+    ``rank`` (per esempio separato da tabulazioni invece che da virgole) e uno
+    che non e' testo UTF-8, e che accetti un file con le due colonne, in
+    qualunque ordine e con altre colonne accanto.
+
+    **Razionale scientifico e sistemistico**: S8 legge quel file dopo
+    l'assegnazione tassonomica, la fase piu' lunga dopo l'inferenza: un file
+    con l'intestazione sbagliata fermerebbe l'esecuzione a quel punto, con un
+    errore senza codice. Il gate del riferimento lo scopre prima di ogni calcolo.
+    """
+    scenario = _scenario(tmp_path)
+    elenco = scenario.radice / "taxa_difettosi.csv"
+
+    def esito_con(contenuto: bytes):
+        elenco.write_bytes(contenuto)
+        dati = scenario.config.model_dump(mode="python")
+        dati["tax"]["ref_bad_taxa"] = str(elenco)
+        return esegui_gate("G12", Contesto(valida(dati)))
+
+    buono = esito_con(b"rank,name,path\nfamily,Famiglia_1,Bacteria;x;\n")
+    assert buono.superato
+    assert esito_con(b"path,name,altro,rank\nx,Famiglia_1,y,family\n").superato
+
+    con_tabulazioni = esito_con(b"rank\tname\nfamily\tFamiglia_1\n")
+    assert [v.codice for v in con_tabulazioni.violazioni] == ["E-S0-12"]
+    dettaglio = con_tabulazioni.violazioni[0].dettaglio
+    assert "tax.ref_bad_taxa" in dettaglio and "le colonne name e rank" in dettaglio
+    assert "con le virgole" in dettaglio
+
+    senza_rango = esito_con(b"name,percorso\nFamiglia_1,x\n")
+    assert "non ha la colonna rank" in senza_rango.violazioni[0].dettaglio
+    assert [v.codice for v in esito_con(b"\xff\xfe\x00name").violazioni] == ["E-S0-12"]
+    assert [v.codice for v in esito_con(b"").violazioni] == ["E-S0-12"]
+
+
+def test_g12_respinge_un_riferimento_in_cui_il_phylum_non_si_individua(tmp_path):
+    """
+    **Obiettivo**: Verificare che G12 respinga con ``E-S0-22`` un riferimento
+    in cui ogni sequenza ha un solo rango (il phylum, secondo per posizione,
+    manca) e uno in cui una sequenza ne ha piu' di sette, dicendo quale dei due
+    casi; che accetti un riferimento a due ranghi, uno a sei ranghi senza
+    prefissi con i nomi nella forma di GTDB, uno a sette ranghi con i prefissi
+    di rango e i ranghi mancanti scritti col solo prefisso, e uno in cui le
+    prime sequenze hanno un solo rango e le successive di piu'; e che un file
+    senza sequenze sia respinto.
+
+    **Razionale scientifico e sistemistico**: L'assegnazione tassonomica
+    nomina i ranghi per posizione: con un solo rango i controlli e i filtri sul
+    phylum non hanno su che cosa operare e la fase fallirebbe dopo ore di
+    calcolo, con un errore senza codice. Il gate lo dice prima.
+    """
+    import gzip
+    import hashlib
+
+    scenario = _scenario(tmp_path)
+    riferimento = scenario.radice / "riferimento.fa.gz"
+
+    def esito_con(linee: list[str], compresso: bool = True):
+        testo = "".join(f">{linea}\nACGTACGTAC\n" for linea in linee).encode()
+        riferimento.write_bytes(gzip.compress(testo) if compresso else testo)
+        dati = scenario.config.model_dump(mode="python")
+        dati["tax"]["ref_md5"] = hashlib.md5(riferimento.read_bytes()).hexdigest()
+        return esegui_gate("G12", Contesto(valida(dati)))
+
+    un_rango = esito_con(["Bacteria;", "Archaea;", "Bacteria"])
+    assert [v.codice for v in un_rango.violazioni] == ["E-S0-22"]
+    assert "tax.ref_fasta" in un_rango.violazioni[0].dettaglio
+    assert "un solo rango" in un_rango.violazioni[0].dettaglio
+    assert voce("E-S0-22").categoria is Categoria.REVISIONE_UMANA
+
+    otto = esito_con(["Bacteria;P;C;O;F;G;S;", "Bacteria;P;C;O;F;G;S;ceppo;"])
+    assert [v.codice for v in otto.violazioni] == ["E-S0-22"]
+    assert "la sequenza 2 ha 8 ranghi" in otto.violazioni[0].dettaglio
+
+    assert esito_con(["Bacteria;Phylum_A;"]).superato
+    assert esito_con(["Archaea;Thermoproteota;Nitrososphaeria;Nitrososphaerales;"
+                      "Nitrosopumilaceae;Cenarchaeum;",
+                      "Bacteria;Firmicutes_A;Clostridia;Lachnospirales;Lachnospiraceae;"
+                      "Blautia_A;"]).superato
+    assert esito_con(["k__Bacteria;p__Gemmatimonadetes;c__Gemm-1;o__;f__;g__;s__;"]).superato
+    # Le prime sequenze con il solo regno non bastano a respingere, e un file
+    # non compresso si legge allo stesso modo.
+    assert esito_con(["Eukaryota;"] * 5 + ["Bacteria;Proteobacteria;"], compresso=False).superato
+    vuoto = esito_con([])
+    assert [v.codice for v in vuoto.violazioni] == ["E-S0-22"]
+    assert "non contiene sequenze" in vuoto.violazioni[0].dettaglio

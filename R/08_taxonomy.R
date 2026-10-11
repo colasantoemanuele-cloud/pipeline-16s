@@ -53,6 +53,16 @@ esegui_fase(function(parametri, cartella) {
   boot <- esito$boot
   ranghi <- colnames(tax)
   stopifnot(identical(rownames(tax), varianti), identical(colnames(boot), ranghi))
+  # assignTaxonomy nomina i ranghi per posizione: il secondo e' il phylum, e
+  # oltre il settimo non c'e' un nome. La validazione respinge un riferimento
+  # che non li rispetta guardandone le prime intestazioni: qui si verifica il
+  # risultato.
+  if (anyNA(ranghi) || !("Phylum" %in% ranghi)) {
+    stop(sprintf(paste0(
+      "la tassonomia assegnata ha i ranghi %s: il riferimento deve avere da due a ",
+      "sette ranghi per sequenza (regno, phylum, ... specie), separati da punto e virgola"),
+      paste(ifelse(is.na(ranghi), "(senza nome)", ranghi), collapse = ", ")))
+  }
   salva_rds(list(tax = tax, boot = boot), file.path(cartella, "tassonomia.rds"))
 
   letture <- colSums(tabella)
@@ -71,7 +81,9 @@ esegui_fase(function(parametri, cartella) {
 
   # La copertura per gruppo: le varianti presenti nei campioni del gruppo, e
   # le letture del gruppo, con e senza il phylum assegnato.
-  con_phylum <- !is.na(tax[, "Phylum"])
+  # Un phylum scritto col solo prefisso di rango ("p__") e' un phylum che la
+  # sequenza del riferimento non ha: non conta come assegnato.
+  con_phylum <- !is.na(tax[, "Phylum"]) & !grepl("^[A-Za-z]__$", tax[, "Phylum"])
   gruppi <- unlist(parametri$gruppi)[rownames(tabella)]
   righe <- vapply(sort(unique(gruppi), method = "radix"), function(g) {
     parziale <- colSums(tabella[gruppi == g, , drop = FALSE])

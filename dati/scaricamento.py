@@ -17,28 +17,50 @@ viene scaricato di nuovo.
 capo. Il nome definitivo si assegna solo dopo la verifica dell'MD5: un
 trasferimento interrotto non lascia mai un file incompleto con il nome giusto.
 
-**Una richiesta alla volta, con una pausa fra l'una e l'altra**: ENA e Zenodo
-sono archivi pubblici, e aprire molte connessioni in parallelo e' un modo di
-abusarne. Un rifiuto temporaneo (per esempio un 403 o un 429 di limitazione
-della frequenza) si ritenta dopo una pausa crescente.
+**Poche connessioni alla volta, con una pausa fra una richiesta e l'altra**:
+ENA e Zenodo sono archivi pubblici, e aprire molte connessioni in parallelo e'
+un modo di abusarne. :func:`scarica_in_parallelo` ne tiene aperte al piu'
+:data:`CONNESSIONI` (modificabile da chi lancia lo script). Un rifiuto
+temporaneo (per esempio un 403 o un 429 di limitazione della frequenza) si
+ritenta dopo una pausa crescente.
+
+**Un guasto di rete e' un esito, non un'eccezione**: connessione caduta,
+risposta interrotta a meta', nome non risolto finiscono in
+:class:`ErroreScarico`, con il file e che cosa fare.
 """
 
 from __future__ import annotations
 
 import hashlib
+import http.client
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-__all__ = ["Atteso", "ErroreScarico", "md5_file", "metti_da_parte", "scarica", "valido"]
+__all__ = [
+    "CONNESSIONI", "GUASTI_DI_RETE", "Atteso", "ErroreScarico", "md5_file", "metti_da_parte",
+    "scarica", "scarica_in_parallelo", "valido",
+]
 
 #: Dimensione dei blocchi letti e scritti: memoria costante anche sui file grandi.
 BLOCCO: Final = 1024 * 1024
 #: Il tempo massimo di attesa di una risposta, in secondi.
 TEMPO_MASSIMO: Final = 60
+#: Le connessioni tenute aperte insieme verso un archivio. Con centinaia di
+#: file di pochi megabyte il tempo e' quello di apertura di ogni connessione,
+#: non la banda: poche connessioni lo dividono per altrettanto. Di piu' non
+#: aiuta, e verso un archivio pubblico e' il modo di farsi limitare (429).
+CONNESSIONI: Final = 4
+#: I guasti di rete che si ritentano e che, esauriti i tentativi, diventano un
+#: :class:`ErroreScarico`: errori di urllib e del sistema (connessione
+#: rifiutata o caduta, tempo scaduto, nome non risolto) e risposte HTTP
+#: interrotte o malformate, che non sono errori del sistema.
+GUASTI_DI_RETE: Final = (urllib.error.URLError, OSError, http.client.HTTPException)
 
 
 class ErroreScarico(RuntimeError):
@@ -129,8 +151,8 @@ def scarica(
     for tentativo in range(1, tentativi + 1):
         try:
             _trasferisci(atteso.url, parziale)
-        except (urllib.error.URLError, OSError) as guasto:
-            ultimo = f"trasferimento interrotto: {guasto}"
+        except GUASTI_DI_RETE as guasto:
+            ultimo = f"trasferimento interrotto ({type(guasto).__name__}: {guasto})"
             time.sleep(pausa * tentativo)
             continue
         if parziale.stat().st_size < atteso.byte:
@@ -141,4 +163,40 @@ def scarica(
             return
         ultimo = f"MD5 diverso da {atteso.md5}"
         metti_da_parte(parziale)
-    raise ErroreScarico(f"{destinazione.name}: {ultimo}")
+    raise ErroreScarico(
+        f"{destinazione.name}: non ottenuto dopo {tentativi} tentativi, {ultimo}. Controlla "
+        "la connessione e rilancia lo script: riprende dai file mancanti")
+
+
+def scarica_in_parallelo(
+    voci: Sequence[tuple[Atteso, Path]],
+    *,
+    connessioni: int = CONNESSIONI,
+    tentativi: int = 4,
+    pausa: float = 0.5,
+) -> Iterator[tuple[int, ErroreScarico | None]]:
+    """Scarica piu' file tenendo aperte al piu' ``connessioni`` connessioni.
+
+    Restituisce, man mano che i file si concludono, la posizione di ciascuno
+    in ``voci`` e l'errore, o ``None`` se il file e' stato ottenuto integro.
+    ``pausa`` separa una richiesta dalla successiva sulla stessa connessione.
+    Un guasto su un file non ferma gli altri.
+    """
+    def uno(posizione: int) -> tuple[int, ErroreScarico | None]:
+        atteso, destinazione = voci[posizione]
+        try:
+            scarica(atteso, destinazione, tentativi=tentativi)
+        except ErroreScarico as guasto:
+            return posizione, guasto
+        finally:
+            time.sleep(pausa)
+        return posizione, None
+
+    gruppo = ThreadPoolExecutor(max_workers=max(1, connessioni))
+    try:
+        for concluso in as_completed([gruppo.submit(uno, i) for i in range(len(voci))]):
+            yield concluso.result()
+    finally:
+        # Un'interruzione (Ctrl-C) non deve aspettare i file ancora in coda: si
+        # annullano, e si attendono solo i trasferimenti gia' cominciati.
+        gruppo.shutdown(wait=True, cancel_futures=True)

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal
 
@@ -32,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from amplicon16s_eco.catalogo import ErroreEco
 
 __all__ = [
+    "ASSENTI_SE_NON_DICHIARATI",
     "CONDIZIONALI",
     "CORREZIONI_PCOA",
     "DISTANZE",
@@ -102,7 +104,19 @@ FACOLTATIVI: Final[tuple[str, ...]] = (
     "design.other_variables",
     "design.technical_variables",
     "design.subset",
+    "design.continuous_variables",
+    "design.subject",
     "stat.permanova_strata",
+)
+
+#: I facoltativi che, non dichiarati, non compaiono nella configurazione
+#: risolta: ne' nel digest, ne' in ``configurazione.json``, ne' fra i parametri
+#: che arrivano a R. Una configurazione che non li dichiara resta cosi' la
+#: stessa configurazione, con lo stesso digest e gli stessi file, qualunque
+#: analisi facoltativa il pacchetto realizzi.
+ASSENTI_SE_NON_DICHIARATI: Final[tuple[str, ...]] = (
+    "design.continuous_variables",
+    "design.subject",
 )
 
 _Nome = Annotated[str, Field(min_length=1, strict=True)]
@@ -136,6 +150,18 @@ class Design(_Gruppo):
     subset: dict[_Nome, tuple[_Nome, ...]] = Field(default_factory=dict, description=(
         "Sottoinsieme dei campioni: per ogni colonna i valori ammessi. Si applica "
         "prima di tutto il resto."))
+    #: Variabili continue: correlazione con l'alfa diversita' e PERMANOVA con
+    #: un termine numerico.
+    continuous_variables: tuple[_Nome, ...] = Field((), description=(
+        "Variabili continue (misure numeriche): per ciascuna la correlazione di "
+        "Spearman con l'alfa diversita' e una PERMANOVA con la variabile come termine "
+        "numerico. I valori devono essere numeri."))
+    #: Colonna del soggetto in un disegno a misure ripetute.
+    subject: _Nome | None = Field(None, description=(
+        "Colonna del soggetto in un disegno a misure ripetute: con il soggetto ogni "
+        "variabile biologica categorica e' analizzata anche entro soggetto (Wilcoxon "
+        "dei ranghi con segno o Friedman, PERMANOVA con le permutazioni entro il "
+        "soggetto)."))
 
     @model_validator(mode="after")
     def _senza_ripetizioni(self) -> "Design":
@@ -151,6 +177,22 @@ class Design(_Gruppo):
         if comuni:
             raise ValueError(
                 f"una colonna non puo' essere insieme biologica e tecnica: {comuni}"
+            )
+        continue_ = self.continuous_variables
+        ripetute = sorted({n for n in continue_ if continue_.count(n) > 1})
+        if ripetute:
+            raise ValueError(f"variabili continue ripetute: {ripetute}")
+        comuni = sorted(set(continue_) & (set(biologiche) | set(tecniche)))
+        if comuni:
+            raise ValueError(
+                "una colonna non puo' essere insieme continua e categorica o tecnica: "
+                f"{comuni}; una variabile continua si dichiara solo in "
+                "design.continuous_variables"
+            )
+        if self.subject is not None and self.subject in (*biologiche, *tecniche, *continue_):
+            raise ValueError(
+                f"design.subject ({self.subject!r}) e' anche una variabile dell'analisi: il "
+                "soggetto identifica chi e' stato campionato piu' volte, non si confronta"
             )
         vuoti = sorted(c for c, valori in self.subset.items() if not valori)
         if vuoti:
@@ -338,16 +380,25 @@ def _rifiuto(problema: dict[str, Any]) -> tuple[str, str]:
     return "E-ECO-01", f"{dove}{testo}."
 
 
-def _condizionali(config: ConfigEco) -> list[tuple[str, str]]:
+def _condizionali(
+    valore_di: Callable[[str], Any], esclusi: frozenset[str] = frozenset()
+) -> list[tuple[str, str]]:
     """I rifiuti dei parametri condizionali: mancanti con il metodo richiesto,
     oppure dichiarati senza il metodo che li usa.
+
+    ``valore_di`` da' il valore di un parametro ``gruppo.nome``. Un elenco di
+    metodi non dichiarato, o non leggibile come elenco, non richiede nulla: il
+    suo rifiuto viene dallo schema. Un condizionale non si giudica se lui o il
+    suo elenco di metodi sono fra gli ``esclusi``.
     """
     rifiuti: list[tuple[str, str]] = []
     for chiave, (elenco, metodi) in CONDIZIONALI.items():
-        gruppo, nome = chiave.split(".")
-        gruppo_elenco, nome_elenco = elenco.split(".")
-        valore = getattr(getattr(config, gruppo), nome)
-        dichiarati = getattr(getattr(config, gruppo_elenco), nome_elenco)
+        if chiave in esclusi or elenco in esclusi:
+            continue
+        valore = valore_di(chiave)
+        dichiarati = valore_di(elenco)
+        if not isinstance(dichiarati, (list, tuple)):
+            continue
         richiesti = [m for m in metodi if m in dichiarati]
         if richiesti and valore is None:
             rifiuti.append((
@@ -383,11 +434,31 @@ def valida(dati: Any) -> ConfigEco:
         # Un elenco i cui elementi sono tutti respinti risulta anche vuoto: il
         # secondo problema e' una conseguenza del primo e non si riporta.
         respinti = {_chiave(p["loc"]) for p in problemi if p["type"] != "too_short"}
+        # I condizionali che mancano ai metodi gia' dichiarati si chiedono nello
+        # stesso giro degli altri parametri mancanti, sui dati letti; quelli di
+        # un elenco di metodi non ancora dichiarato, o respinto dallo schema,
+        # non si possono conoscere. Un condizionale dichiarato senza il suo
+        # metodo si giudica solo sulla configurazione valida: qui sarebbe la
+        # conseguenza di un elenco respinto.
+        # Gia' respinti dallo schema: il condizionale stesso, o il suo elenco.
+        gia_detti = {_chiave(p["loc"]) for p in problemi}
+
+        def dai_dati(chiave: str) -> Any:
+            gruppo, nome = chiave.split(".")
+            valori = dati.get(gruppo)
+            return valori.get(nome) if isinstance(valori, dict) else None
+
         raise ErroreEco([
             _rifiuto(p) for p in problemi
             if not (p["type"] == "too_short" and _chiave(p["loc"]) in respinti)
-        ]) from None
-    rifiuti = _condizionali(config)
+        ] + [r for r in _condizionali(dai_dati, frozenset(gia_detti))
+             if r[0] == "E-ECO-02"]) from None
+
+    def dal_modello(chiave: str) -> Any:
+        gruppo, nome = chiave.split(".")
+        return getattr(getattr(config, gruppo), nome)
+
+    rifiuti = _condizionali(dal_modello)
     if rifiuti:
         raise ErroreEco(rifiuti)
     return config
@@ -424,9 +495,15 @@ def carica(percorso: Path | str) -> ConfigEco:
 
 def risolta(config: ConfigEco) -> dict[str, Any]:
     """La configurazione risolta: ogni parametro con il valore che vale,
-    predefiniti compresi, in tipi JSON.
+    predefiniti compresi, in tipi JSON. I facoltativi di
+    :data:`ASSENTI_SE_NON_DICHIARATI` vi compaiono solo se dichiarati.
     """
-    return config.model_dump(mode="json")
+    dati = config.model_dump(mode="json")
+    for chiave in ASSENTI_SE_NON_DICHIARATI:
+        gruppo, nome = chiave.split(".")
+        if not dati[gruppo][nome]:
+            del dati[gruppo][nome]
+    return dati
 
 
 def digest(config: ConfigEco) -> str:

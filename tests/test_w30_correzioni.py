@@ -90,6 +90,7 @@ I conteggi li da' pytest (``pytest --collect-only -q``).
 from __future__ import annotations
 
 import gzip
+import json
 import importlib.util
 import logging
 import os
@@ -245,11 +246,12 @@ def test_un_errore_di_zlib_e_un_esito_dichiarato_non_un_eccezione(tmp_path, monk
 def test_le_righe_vuote_in_fondo_sono_tollerate_e_quelle_in_mezzo_no(tmp_path):
     """
     **Obiettivo**: Verificare che un file che si chiude con righe vuote (una,
-    piu' d'una, con spazi, con ritorno carrello) sia valido, con tutte le sue
-    letture contate e ``righe_vuote_finali`` vero; che una riga vuota seguita
-    da altri record dia l'errore «riga vuota in mezzo al file»; che un record
-    incompleto dia «record troncato»; e che un file senza righe vuote non le
-    dichiari.
+    piu' d'una, con ritorno carrello) sia valido, con tutte le sue letture
+    contate e ``righe_vuote_finali`` vero; che una riga di soli spazi o
+    tabulazioni in fondo al file, con o senza a capo e anche dopo righe vuote,
+    sia un errore che la nomina; che una riga vuota seguita da altri record dia
+    l'errore «riga vuota in mezzo al file»; che un record incompleto dia
+    «record troncato»; e che un file senza righe vuote non le dichiari.
 
     **Razionale scientifico e sistemistico**: Una riga vuota in coda non
     tocca alcuna lettura; una in mezzo sfasa i record di chi legge a blocchi
@@ -257,9 +259,15 @@ def test_le_righe_vuote_in_fondo_sono_tollerate_e_quelle_in_mezzo_no(tmp_path):
     messaggio deve dire quale.
     """
     base = _record(30, 20)
-    for coda in ("\n", "\n\n\n", "  \n", "\r\n\r\n"):
+    for coda in ("\n", "\n\n\n", "\r\n\r\n"):
         esito = scansiona_file(_scrivi(tmp_path / "v.fastq.gz", base + coda), 10**9, None, None)
         assert esito.valido and esito.letture_esaminate == 30 and esito.righe_vuote_finali, repr(coda)
+    # Una riga di soli spazi non e' una riga vuota: i lettori di R la prendono
+    # per un record.
+    for coda in ("  \n", "   ", "\t\n", "\n \n", "\n\n  ", " \r\n"):
+        esito = scansiona_file(_scrivi(tmp_path / "s.fastq.gz", base + coda), 10**9, None, None)
+        assert not esito.valido and not esito.righe_vuote_finali, repr(coda)
+        assert esito.errore.startswith("riga di soli spazi dopo 30 letture"), repr(coda)
     pulito = scansiona_file(_scrivi(tmp_path / "p.fastq.gz", base), 10**9, None, None)
     assert pulito.valido and not pulito.righe_vuote_finali
 
@@ -298,6 +306,16 @@ def test_la_copia_senza_righe_vuote_non_tocca_il_file_di_ingresso(tmp_path):
         assert copia.name == con.name
         assert gzip.decompress(copia.read_bytes()).decode() == testo
     assert not copia.exists() and con.read_bytes() == prima
+
+    # Con la cartella della fase le copie stanno li', non nella cartella
+    # temporanea del sistema, e alla fine non ne resta nulla.
+    fase = tmp_path / "uscita" / "02_qc_profiles"
+    with senza_righe_vuote_finali(percorsi, ["a"], fase) as ripuliti:
+        copia = Path(ripuliti["a"])
+        assert fase in copia.parents and copia.parents[1].name == reads.CARTELLA_DELLE_COPIE
+        assert reads.CARTELLA_DELLE_COPIE.startswith(".scrittura-")
+        assert gzip.decompress(copia.read_bytes()).decode() == testo
+    assert not (fase / reads.CARTELLA_DELLE_COPIE).exists() and con.read_bytes() == prima
 
     assert esamina_archivio(con) == (None, True, False)
     assert esamina_archivio(senza) == (None, False, False)
@@ -893,21 +911,242 @@ def test_senza_gli_script_r_l_esecuzione_si_ferma_con_e_r_01(tmp_path, monkeypat
     assert (ripresa.punto.codice, ripresa.punto.origine) == ("E-R-01", "controlli di avvio")
 
 
-def test_il_messaggio_di_s4_riporta_la_causa_della_stima_fallita():
+def test_una_riga_finale_di_soli_spazi_ferma_s0_o_s1_e_non_arriva_a_s2(tmp_path):
     """
-    **Obiettivo**: Verificare che lo script di S4, quando il modello d'errore
-    della seconda passata non si stima, componga il messaggio con la causa
-    raccolta dalla stima e con le transizioni accumulate nella prima passata.
+    **Obiettivo**: Verificare su un dataset sintetico che un file chiuso da una
+    riga di soli spazi fermi S0 con ``E-S0-13`` quando ha meno letture di
+    ``qc.head_reads`` (la validazione lo legge per intero), e fermi S1 con
+    ``E-S1-05`` quando la riga sta oltre le letture ispezionate; che in
+    entrambi i casi il messaggio nomini il file e la riga di soli spazi; e che
+    lo stesso file chiuso da righe davvero vuote superi S0.
 
-    **Razionale scientifico e sistemistico**: La stima fallisce per cio' che la
-    prima passata ha accumulato: riportare solo che si e' fermata obbliga a
-    cercare la causa nel log. La verifica e' sul testo dello script, perche'
-    provocare il fallimento richiede transizioni degeneri che S3 respinge prima.
+    **Razionale scientifico e sistemistico**: Il lettore di R prende una riga
+    di spazi per un record e si ferma nel filtro, dopo il profilo di tutte le
+    letture: il difetto e' del file, e va detto dalla prima fase che lo vede,
+    con il codice dei difetti di formato.
     """
-    from amplicon16s.rbridge.runner import cartella_r
+    import sintetico
 
-    script = (cartella_r() / "04_dada.R").read_text(encoding="utf-8")
-    blocco = script[script.index("causa <- NULL"):script.index("seconda[[file_modello]] <- stimato")]
-    assert "causa <<- conditionMessage(e)" in blocco
-    assert "transizioni della prima passata" in blocco and "transizioni osservate" in blocco
-    assert 'if (is.null(causa))' in blocco
+    from amplicon16s.runner.executor import Conclusione, Esecutore
+    from amplicon16s.runner.graph import Passo
+    from amplicon16s.runner.project import ProjectRun
+
+    def con_coda(cartella: Path, coda: str):
+        dataset = sintetico.genera(cartella, biologici=3, negativi=0, letture=60)
+        (percorso,) = dataset.letture.glob("LIB002_*.fq.gz")
+        testo = gzip.decompress(percorso.read_bytes()).decode()
+        with gzip.GzipFile(percorso, "wb", mtime=0) as archivio:
+            archivio.write((testo + coda).encode())
+        return dataset, percorso
+
+    def arresto(config):
+        esito = Esecutore(ProjectRun(config), fino_a=Passo.S1).esegui()
+        chiudi()
+        return esito.conclusione, esito.punto.passo if esito.punto else None, (
+            esito.punto.codice if esito.punto else None), (
+            esito.punto.dettaglio if esito.punto else "")
+
+    # Il file ha 60 letture: con qc.head_reads 500 S0 arriva in fondo.
+    dataset, percorso = con_coda(tmp_path / "a", "   \n")
+    conclusione, passo, codice, dettaglio = arresto(
+        valida(sintetico.configurazione(dataset, tmp_path / "a/out")))
+    assert (conclusione, str(passo), codice) == (Conclusione.ARRESTATA, "S0", "E-S0-13")
+    assert percorso.name in dettaglio and "riga di soli spazi dopo 60 letture" in dettaglio
+
+    # Con qc.head_reads 20 S0 non la vede: la trova S1, prima del profilo.
+    dataset, percorso = con_coda(tmp_path / "b", "   \n")
+    conclusione, passo, codice, dettaglio = arresto(valida(sintetico.configurazione(
+        dataset, tmp_path / "b/out", qc={"head_reads": 20})))
+    assert (conclusione, str(passo), codice) == (Conclusione.ARRESTATA, "S1", "E-S1-05")
+    assert percorso.name in dettaglio and "riga di soli spazi dopo 60 letture" in dettaglio
+
+    # Le righe vuote in fondo restano tollerate dalla validazione.
+    dataset, _ = con_coda(tmp_path / "c", "\n\n")
+    esito = Esecutore(ProjectRun(valida(sintetico.configurazione(dataset, tmp_path / "c/out"))),
+                      fino_a=Passo.S0).esegui()
+    chiudi()
+    assert esito.conclusione is Conclusione.COMPLETATA
+
+
+def test_all_avvio_si_tolgono_i_resti_di_un_interruzione_solo_se_nessuno_sta_scrivendo(tmp_path):
+    """
+    **Obiettivo**: Verificare che all'avvio di un'esecuzione i file
+    ``.scrittura-*`` e la cartella delle copie di lavoro lasciati in qualunque
+    cartella di fase da un'esecuzione interrotta siano tolti, e gli altri file
+    no; che il blocco dell'esecuzione sia tenuto in forma condivisa finche'
+    l'esecuzione dura e sciolto alla fine; e che, mentre un'altra esecuzione
+    tiene il blocco, un nuovo avvio non tocchi i file con quel prefisso.
+
+    **Razionale scientifico e sistemistico**: Un file temporaneo e' il resto di
+    un'interruzione solo se nessuno lo sta scrivendo: toglierlo a
+    un'esecuzione viva le farebbe fallire la sostituzione atomica. Il blocco
+    e' del sistema operativo e si scioglie da solo se il processo muore.
+    """
+    import fcntl
+
+    import sintetico
+
+    from amplicon16s.io_layer.artifacts import NOME_BLOCCO, BloccoEsecuzione
+    from amplicon16s.runner.executor import Conclusione, Esecutore
+    from amplicon16s.runner.graph import Passo
+    from amplicon16s.runner.project import ProjectRun
+
+    dataset = sintetico.genera(tmp_path / "dati", biologici=3, negativi=0, letture=40)
+    config = valida(sintetico.configurazione(dataset, tmp_path / "out"))
+    radice = tmp_path / "out"
+
+    def lascia_resti() -> list[Path]:
+        resti = [radice / "01_input_validation" / ".scrittura-abc123",
+                 radice / "02_qc_profiles" / ".scrittura-letture" / "0" / "a.fastq.gz",
+                 radice / "99_logs" / ".scrittura-xyz"]
+        for percorso in resti:
+            percorso.parent.mkdir(parents=True, exist_ok=True)
+            percorso.write_text("a meta'")
+        return resti
+
+    resti = lascia_resti()
+    estraneo = radice / "02_qc_profiles" / "appunti.txt"
+    estraneo.write_text("non e' una scrittura in corso")
+    visti: list[bool] = []
+    run = ProjectRun(config)
+    fase = run.fase(Passo.S0)
+    originale = type(fase).calcola
+
+    def osserva(self, contesto):
+        # Durante l'esecuzione il blocco e' condiviso: uno esclusivo non si ottiene.
+        with open(radice / "99_logs" / NOME_BLOCCO, "rb") as file:
+            try:
+                fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                visti.append(False)
+            except BlockingIOError:
+                visti.append(True)
+        return originale(self, contesto)
+
+    with pytest.MonkeyPatch.context() as sostituzione:
+        sostituzione.setattr(type(fase), "calcola", osserva)
+        assert Esecutore(run, fino_a=Passo.S0).esegui().conclusione is Conclusione.COMPLETATA
+    chiudi()
+    assert visti == [True]
+    assert not any(p.exists() for p in resti) and estraneo.exists()
+    assert not (radice / "02_qc_profiles" / ".scrittura-letture").exists()
+    # A esecuzione finita il blocco e' sciolto.
+    with open(radice / "99_logs" / NOME_BLOCCO, "rb") as file:
+        fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    # Un'altra esecuzione sta scrivendo: i suoi file temporanei non si toccano.
+    resti = lascia_resti()
+    altra = BloccoEsecuzione(radice / "99_logs")
+    assert altra.prendi(lambda: None) is True
+    try:
+        seconda = BloccoEsecuzione(radice / "99_logs")
+        chiamate: list[int] = []
+        assert seconda.prendi(lambda: chiamate.append(1)) is False and chiamate == []
+        seconda.rilascia()
+        assert Esecutore(ProjectRun(config), fino_a=Passo.S0).esegui().conclusione is (
+            Conclusione.COMPLETATA)
+        chiudi()
+        assert all(p.exists() for p in resti)
+    finally:
+        altra.rilascia()
+
+
+def test_il_punto_di_ripresa_sparisce_con_la_ripresa_riuscita_e_non_con_una_parziale(tmp_path):
+    """
+    **Obiettivo**: Verificare che il punto di ripresa di un arresto sia tolto
+    quando un'esecuzione successiva conclude la fase su cui ci si era fermati,
+    e che resti quando un comando che esegue solo una parte del grafo (la sola
+    validazione) si conclude senza aver rifatto quella fase.
+
+    **Razionale scientifico e sistemistico**: Il punto di ripresa dice dove
+    l'esecuzione e' ferma e che cosa fare: lasciato dopo una ripresa riuscita
+    farebbe credere ferma un'esecuzione che non lo e'; tolto da una validazione
+    che non ha rimediato all'arresto ne cancellerebbe la sola traccia.
+    """
+    import sintetico
+
+    from amplicon16s import interfaccia
+    from amplicon16s.runner.executor import Conclusione, Esecutore
+    from amplicon16s.runner.graph import Passo
+    from amplicon16s.runner.project import ProjectRun
+
+    dataset = sintetico.genera(tmp_path / "dati", biologici=3, negativi=0, letture=40)
+    punto = tmp_path / "out" / "99_logs" / "punto_di_ripresa.json"
+
+    # Arresto in S0, poi la configurazione corretta: la validazione lo toglie.
+    sbagliata = valida(sintetico.configurazione(
+        dataset, tmp_path / "out", meta={"sample_id_column": "Colonna assente"}))
+    assert Esecutore(ProjectRun(sbagliata), fino_a=Passo.S0).esegui().conclusione is (
+        Conclusione.ARRESTATA)
+    chiudi()
+    assert punto.is_file() and interfaccia.stato(tmp_path / "out")["stato"] == "ferma"
+    buona = valida(sintetico.configurazione(dataset, tmp_path / "out"))
+    assert Esecutore(ProjectRun(buona), fino_a=Passo.S0).esegui().conclusione is (
+        Conclusione.COMPLETATA)
+    chiudi()
+    assert not punto.exists() and not punto.with_suffix(".txt").exists()
+
+    # Arresto in S1 (un file di letture guasto oltre quelle ispezionate): la
+    # sola validazione, che non rifa' S1, lascia il punto dov'e'.
+    (percorso,) = dataset.letture.glob("LIB002_*.fq.gz")
+    testo = gzip.decompress(percorso.read_bytes()).decode()
+    with gzip.GzipFile(percorso, "wb", mtime=0) as archivio:
+        archivio.write((testo + "@troncata\nACGT\n").encode())
+    corta = valida(sintetico.configurazione(dataset, tmp_path / "out", qc={"head_reads": 10}))
+    esito = Esecutore(ProjectRun(corta), fino_a=Passo.S1).esegui()
+    chiudi()
+    assert (esito.conclusione, esito.punto.codice) == (Conclusione.ARRESTATA, "E-S1-05")
+    assert Esecutore(ProjectRun(corta), fino_a=Passo.S0).esegui().conclusione is (
+        Conclusione.COMPLETATA)
+    chiudi()
+    assert punto.is_file() and json.loads(punto.read_text("utf-8"))["codice"] == "E-S1-05"
+    assert interfaccia.stato(tmp_path / "out")["stato"] == "ferma"
+
+
+def test_il_file_forward_di_un_tentativo_fallito_non_resta_nella_cartella(
+    tmp_path, monkeypatch, capsys
+):
+    """
+    **Obiettivo**: Verificare, con la rete simulata, che lo script delle
+    letture forward del dataset depositato con le coppie nello stesso file
+    tolga dalla cartella ``fastq`` il file forward non conforme di un
+    tentativo precedente quando lo scarico della sua corsa fallisce, che lo
+    dichiari fra i mancanti con il motivo, e che esca con 1 senza una traccia
+    Python.
+
+    **Razionale scientifico e sistemistico**: La pipeline legge cio' che trova
+    nella cartella delle letture: un file forward rimasto da un tentativo
+    fallito, con il nome giusto e il contenuto sbagliato, entrerebbe nel
+    calcolo. Si ricava di nuovo dal deposito al prossimo avvio.
+    """
+    percorso = RADICE / "dati" / "osd276" / "scarica_letture.py"
+    if not percorso.is_file():
+        pytest.skip("la cartella dati/ non e' presente (nell'immagine non viene copiata)")
+    import sys
+    import urllib.error
+
+    sys.path.insert(0, str(percorso.parents[1]))
+    try:
+        specifica = importlib.util.spec_from_file_location("scarica_letture_osd276_rete", percorso)
+        modulo = importlib.util.module_from_spec(specifica)
+        specifica.loader.exec_module(modulo)
+        import scaricamento
+    finally:
+        sys.path.pop(0)
+
+    def cade(richiesta, timeout=None):
+        raise urllib.error.URLError("connessione rifiutata")
+
+    monkeypatch.setattr(scaricamento.urllib.request, "urlopen", cade)
+    monkeypatch.setattr(scaricamento.time, "sleep", lambda secondi: None)
+    monkeypatch.setattr(modulo.time, "sleep", lambda secondi: None)
+    (riga,) = modulo.leggi_elenco()[:1]
+    monkeypatch.setattr(modulo, "leggi_elenco", lambda: [riga])
+    vecchio = tmp_path / "fastq" / riga["file"]
+    vecchio.parent.mkdir()
+    _scrivi(vecchio, "@di_un_altro_tentativo/1\nACGT\n+\nIIII\n")
+    assert modulo.main(["--cartella", str(tmp_path), "--tentativi", "1"]) == 1
+    uscita = capsys.readouterr()
+    assert "Traceback" not in uscita.out + uscita.err
+    assert riga["file"] in uscita.out and "ErroreScarico" in uscita.out
+    assert "rilancia lo script" in uscita.out
+    assert not vecchio.exists()

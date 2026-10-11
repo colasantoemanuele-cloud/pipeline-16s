@@ -32,7 +32,8 @@ agglomera <- function(ps, campioni, rango) {
   fino_a <- match(rango, colnames(tassonomia))
   tassonomia <- tassonomia[rownames(conteggi), seq_len(fino_a), drop = FALSE]
   nome <- tassonomia[, fino_a]
-  senza <- is.na(nome) | !nzchar(trimws(nome))
+  # Senza nome, o col solo prefisso di rango ("g__"): un rango non assegnato.
+  senza <- is.na(nome) | !nzchar(trimws(nome)) | grepl("^[A-Za-z]__$", nome)
   lignaggio <- apply(tassonomia, 1L, function(riga) paste(riga, collapse = ";"))
   lignaggio[senza] <- NON_ASSEGNATO
   nome[senza] <- NON_ASSEGNATO

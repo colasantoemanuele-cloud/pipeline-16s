@@ -230,3 +230,65 @@ def test_la_configurazione_di_osd734_dichiara_il_digest_di_registro():
     valida({**config, "run": {**config["run"]}})
     for documento in ("README.md", "dati/osd734/README.md"):
         assert immagine in (RADICE / documento).read_text(encoding="utf-8"), documento
+
+
+def _artefatti(radice: Path) -> dict[str, str]:
+    """Il checksum di ogni artefatto elencato nei manifesti di fase di un'esecuzione."""
+    return {
+        f"{manifesto.parent.name}/{voce['nome']}": voce["checksum"]
+        for manifesto in sorted(radice.rglob("manifest_S*.json"))
+        for voce in json.loads(manifesto.read_text(encoding="utf-8"))["artefatti"]
+    }
+
+
+def test_apptainer_e_docker_danno_gli_stessi_artefatti(tmp_path):
+    """
+    **Obiettivo**: Eseguire la catena sul sottoinsieme ridotto con Apptainer,
+    dal file ``.sif`` costruito dall'immagine pubblicata, e con Docker dalla
+    stessa immagine per digest, con i comandi della guida, e verificare che
+    gli artefatti di ogni fase abbiano gli stessi checksum e che
+    ``12_final/checksum.sha256`` sia identico.
+
+    **Razionale scientifico e sistemistico**: Sui cluster di calcolo Docker
+    non c'e', e l'immagine si esegue con Apptainer: il risultato non deve
+    dipendere dal programma che la esegue. Apptainer per difetto porta nel
+    container l'ambiente e la cartella personale di chi lancia: le opzioni che
+    lo impediscono fanno parte del comando. La prova e' manuale: richiede
+    Apptainer, Docker e il file ``.sif`` (variabile ``AMPLICON16S_SIF``), e
+    dove ne manca uno si salta dicendolo.
+    """
+    import shutil
+
+    sif = os.environ.get("AMPLICON16S_SIF")
+    mancanti = [nome for nome in ("apptainer", "docker") if shutil.which(nome) is None]
+    if mancanti or not sif or not Path(sif).is_file():
+        pytest.skip(
+            "prova manuale: richiede apptainer e docker nel PATH"
+            + (f" (mancano: {', '.join(mancanti)})" if mancanti else "")
+            + " e AMPLICON16S_SIF con il file .sif costruito dall'immagine pubblicata "
+            "(apptainer build amplicon16s.sif docker://<immagine>)")
+    radice = Path(__file__).resolve().parents[1]
+    immagine = yaml.safe_load(
+        (radice / "dati" / "osd734" / "config_osd734.yaml").read_text(encoding="utf-8")
+    )["run"]["container"]
+    comando = ["python3", "scripts/esegui.py", "run", "--config",
+               "tests/fixtures/osd734/ridotto/config_avvio_rapido.yaml"]
+    uscite = {nome: tmp_path / nome for nome in ("apptainer", "docker")}
+    for cartella in uscite.values():
+        cartella.mkdir()
+    (radice / "output").mkdir(exist_ok=True)
+    con_apptainer = subprocess.run(
+        ["apptainer", "exec", "--cleanenv", "--containall", "--bind", f"{radice}:/app:ro",
+         "--bind", f"{uscite['apptainer']}:/app/output", "--pwd", "/app", sif, *comando],
+        capture_output=True, text=True, check=False)
+    assert con_apptainer.returncode == 0, con_apptainer.stdout[-2000:] + con_apptainer.stderr[-2000:]
+    con_docker = subprocess.run(
+        ["docker", "run", "--rm", "-u", f"{os.getuid()}:{os.getgid()}", "-v", f"{radice}:/app:ro",
+         "-v", f"{uscite['docker']}:/app/output", "-w", "/app", immagine, *comando],
+        capture_output=True, text=True, check=False)
+    assert con_docker.returncode == 0, con_docker.stdout[-2000:] + con_docker.stderr[-2000:]
+    primo, secondo = (_artefatti(uscite[n] / "avvio_rapido") for n in ("apptainer", "docker"))
+    assert primo and primo == secondo
+    finali = [(uscite[n] / "avvio_rapido" / "12_final" / "checksum.sha256").read_bytes()
+              for n in ("apptainer", "docker")]
+    assert finali[0] == finali[1]

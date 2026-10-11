@@ -680,3 +680,445 @@ def test_una_variabile_che_sembra_continua_e_dichiarata(eco_r, tmp_path):
     variabili = {v["nome"]: v for v in esito.riepilogo["variabili"]}
     assert len(variabili["misura"]["gruppi"]) == 12 and variabili["misura"]["gruppi_nei_test"] == []
     assert len(variabili["dose"]["gruppi_nei_test"]) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Variabili continue e misure ripetute                                         #
+# --------------------------------------------------------------------------- #
+
+#: Le letture di ogni campione degli oggetti costruiti qui: tutti uguali, cosi'
+#: la rarefazione alla profondita' minima non toglie nulla.
+_LETTURE = 1000
+
+
+def _colonna(ricchezza: int, varianti: int, comune: int = 0) -> list[int]:
+    """I conteggi di un campione con ``ricchezza`` varianti presenti: la prima
+    dominante, le altre con una lettura; ``comune`` letture all'ultima variante
+    (se non zero conta nella ricchezza). Il totale e' sempre :data:`_LETTURE`.
+    """
+    singole = ricchezza - 1 - (1 if comune else 0)
+    conteggi = [0] * varianti
+    conteggi[0] = _LETTURE - singole - comune
+    for i in range(1, 1 + singole):
+        conteggi[i] = 1
+    conteggi[-1] = comune
+    assert sum(conteggi) == _LETTURE and sum(c > 0 for c in conteggi) == ricchezza
+    return conteggi
+
+
+def _per_varianti(colonne: list[list[int]]) -> list[list[int]]:
+    """Dalle colonne dei campioni alla matrice varianti x campioni."""
+    return [list(riga) for riga in zip(*colonne, strict=True)]
+
+
+def _oggetto_con_gradiente(tmp_path, misura: list[str] | None = None):
+    """Dodici campioni la cui ricchezza cresce di tre in tre lungo una misura."""
+    colonne = [_colonna(3 * (j + 1), 40) for j in range(12)]
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    return costruisci(tmp_path, _per_varianti(colonne), {
+        "gruppo": ["a", "b"] * 6,
+        "misura": misura or [f"{0.5 + j:.1f}" for j in range(12)],
+        # Una permutazione fissa dei ranghi, non correlata con l'ordine dei campioni.
+        "caso": [str(v) for v in (8, 5, 3, 7, 4, 9, 12, 2, 10, 11, 6, 1)],
+    })
+
+
+def test_una_correlazione_costruita_e_trovata_e_una_variabile_casuale_no(eco_r, tmp_path):
+    """
+    **Obiettivo**: su dodici campioni la cui ricchezza cresce con una misura,
+    la correlazione di Spearman fra ogni indice e la misura dichiarata continua
+    vale 1 con il p al suo minimo esatto (2/12!, sotto il quale la serie
+    dell'algoritmo non lo fa scendere), significativo dopo Benjamini-Hochberg
+    sulla famiglia dei tre indici; una variabile con i ranghi in un ordine non
+    correlato da' rho 0 e p non significativo. La PERMANOVA con la misura come
+    termine numerico e' significativa, quella con la variabile casuale no; il
+    test delle dispersioni non si esegue e la tabella lo dichiara; il grafico
+    di dispersione e' prodotto; e le tabelle dei confronti fra gruppi che
+    l'analisi produceva gia' restano identiche byte per byte.
+
+    **Razionale scientifico e sistemistico**: con un risultato noto in partenza
+    si verifica che il test trovi cio' che c'e' e non trovi cio' che non c'e'.
+    Una variabile continua in piu' non deve cambiare le analisi delle
+    variabili categoriche della stessa configurazione.
+    """
+    import math
+
+    oggetto = _oggetto_con_gradiente(tmp_path)
+    # La distanza di Aitchison e' euclidea: il residuo della PERMANOVA e'
+    # positivo anche su questi dati costruiti, dominati da una sola variante.
+    aitchison = {"distances": ["aitchison"], "clr_pseudocount": 0.5}
+    senza = esegui(oggetto, _config(stat={"min_group_size": 2}, beta=aitchison),
+                   tmp_path / "senza")
+    config = _config(design={"continuous_variables": ["misura", "caso"]},
+                     stat={"min_group_size": 2}, beta=aitchison)
+    esito = esegui(oggetto, config, tmp_path / "uscita")
+    commenti, righe = leggi_tsv(tmp_path / "uscita" / "test" / "alfa_continua.tsv")
+    per = {(r["variabile"], r["indice"]): r for r in righe}
+    assert set(per) == {(v, i) for v in ("misura", "caso")
+                        for i in ("ricchezza_osservata", "shannon", "gini_simpson")}
+    for indice in ("ricchezza_osservata", "shannon", "gini_simpson"):
+        trovata = per[("misura", indice)]
+        assert trovata["test"] == "Spearman, serie di Edgeworth" and trovata["campioni"] == "12"
+        assert float(trovata["rho"]) == pytest.approx(1.0)
+        assert float(trovata["p"]) == pytest.approx(2 / math.factorial(12), rel=1e-4)
+        assert float(trovata["p_bh"]) < 0.001 and trovata["dimensione_famiglia"] == "3"
+        casuale = per[("caso", indice)]
+        assert abs(float(casuale["rho"])) < 0.05 and float(casuale["p"]) > 0.5
+        assert float(casuale["p_bh"]) > 0.5
+    assert any("Spearman" in c for c in commenti) and any("Benjamini-Hochberg" in c for c in commenti)
+
+    _, multivariati = leggi_tsv(tmp_path / "uscita" / "test" / "permanova_continua.tsv")
+    termini = {(r["variabile"], r["analisi"], r["termine"]): r for r in multivariati}
+    della_misura = termini[("misura", "permanova", "misura")]
+    assert (della_misura["ruolo"], della_misura["gl"]) == ("analizzata", "1")
+    assert float(della_misura["p"]) < 0.05 and della_misura["campioni"] == "12"
+    assert float(termini[("caso", "permanova", "caso")]["p"]) > 0.05
+    dispersioni = termini[("misura", "dispersioni", "misura")]
+    assert dispersioni["p"] == "NA" and "non eseguito" in dispersioni["nota"]
+    assert (tmp_path / "uscita" / "alfa" / "continua_01_misura.png").stat().st_size > 1000
+    assert (tmp_path / "uscita" / "alfa" / "continua_02_caso.png").is_file()
+    assert [t["variabile"] for t in esito.riepilogo["test_continue"]] == ["misura", "caso"]
+    assert esito.riepilogo["variabili_continue"][0]["valori_distinti"] == 12
+    assert "E-ECO-31" not in _codici(esito)
+
+    # Le analisi di prima non cambiano: stessi byte nei file comuni, salvo
+    # quelli che descrivono la configurazione e l'elenco dei file.
+    prima, dopo = impronte(tmp_path / "senza"), impronte(tmp_path / "uscita")
+    descrittivi = {"riepilogo.json", "configurazione.json", "manifest.json", "campioni.tsv"}
+    assert set(prima) <= set(dopo)
+    assert {n for n in prima if prima[n] != dopo[n]} == descrittivi
+    assert set(dopo) - set(prima) == {
+        "test/alfa_continua.tsv", "test/permanova_continua.tsv",
+        "alfa/continua_01_misura.png", "alfa/continua_02_caso.png"}
+    assert "variabili_continue" not in senza.riepilogo and "test_continue" not in senza.riepilogo
+
+
+def test_una_variabile_continua_non_numerica_o_con_troppi_pochi_valori(eco_r, tmp_path):
+    """
+    **Obiettivo**: una colonna dichiarata continua con un valore che non e' un
+    numero fa respingere l'analisi con ``E-ECO-30``, che nomina il campione e
+    il valore; con meno campioni con un valore di quanti ne servono perche' una
+    correlazione perfetta sia significativa (5 al 5%), o con due soli valori
+    distinti, l'analisi prosegue, dichiara ``E-ECO-31`` dicendo che cosa manca
+    e non scrive righe per quella variabile; il minimo segue il livello di
+    significativita' dichiarato.
+
+    **Razionale scientifico e sistemistico**: un test eseguito sotto le sue
+    condizioni da' un numero che non significa nulla. Il minimo non e' una
+    costante scelta: e' il numero di campioni sotto il quale nemmeno la
+    correlazione perfetta potrebbe risultare significativa.
+    """
+    non_numerica = _oggetto_con_gradiente(
+        tmp_path / "a", ["1.0", "2.0", "alto", "4.0", *[f"{j}.0" for j in range(5, 13)]])
+    with pytest.raises(ErroreEco) as rifiuto:
+        esegui(non_numerica, _config(design={"continuous_variables": ["misura"]},
+                                     stat={"min_group_size": 2}), tmp_path / "a" / "uscita")
+    assert rifiuto.value.codici == ["E-ECO-30"]
+    assert "'misura'" in str(rifiuto.value) and "c03: alto" in str(rifiuto.value)
+    # Un valore che R leggerebbe come numero ma non e' in notazione decimale.
+    esadecimale = _oggetto_con_gradiente(
+        tmp_path / "e", ["1.0", "2.0", "0x10", "4.0", *[f"{j}.0" for j in range(5, 13)]])
+    with pytest.raises(ErroreEco) as rifiuto:
+        esegui(esadecimale, _config(design={"continuous_variables": ["misura"]},
+                                    stat={"min_group_size": 2}), tmp_path / "e" / "uscita")
+    assert rifiuto.value.codici == ["E-ECO-30"] and "c03: 0x10" in str(rifiuto.value)
+    assert CATALOGO["E-ECO-30"].specie is Specie.RIFIUTO
+
+    pochi = _oggetto_con_gradiente(
+        tmp_path / "b", ["1.0", "2.0", "3.0", "4.0", *["NA"] * 8])
+    config = _config(design={"continuous_variables": ["misura"]}, stat={"min_group_size": 2})
+    esito = esegui(pochi, config, tmp_path / "b" / "uscita")
+    mancanti = [a.dettaglio for a in esito.avvisi if a.codice == "E-ECO-31"]
+    assert len(mancanti) == 2 and all("4 campioni con un valore" in m for m in mancanti)
+    assert all("ne servono almeno 5" in m for m in mancanti)
+    assert leggi_tsv(tmp_path / "b" / "uscita" / "test" / "alfa_continua.tsv")[1] == []
+    assert not (tmp_path / "b" / "uscita" / "alfa" / "continua_01_misura.png").exists()
+    assert CATALOGO["E-ECO-31"].specie is Specie.AVVISO
+
+    due_valori = _oggetto_con_gradiente(tmp_path / "c", ["1", "2"] * 6)
+    esito = valida_sull_oggetto(due_valori, config)
+    assert any("2 valori distinti (ne servono almeno 3)" in a.dettaglio
+               for a in esito.avvisi if a.codice == "E-ECO-31")
+    # Con un livello piu' severo servono piu' campioni: 2/6! < 0,005 <= 2/5!.
+    severo = _config(design={"continuous_variables": ["misura"]},
+                     stat={"min_group_size": 2, "significance_level": 0.005})
+    cinque = _oggetto_con_gradiente(
+        tmp_path / "d", ["1.0", "2.0", "3.0", "4.0", "5.0", *["NA"] * 7])
+    assert any("ne servono almeno 6" in a.dettaglio
+               for a in valida_sull_oggetto(cinque, severo).avvisi if a.codice == "E-ECO-31")
+    assert "E-ECO-31" not in _codici(valida_sull_oggetto(cinque, config))
+
+
+def test_una_variabile_continua_costante_entro_gli_strati_non_ha_la_permanova(eco_r, tmp_path):
+    """
+    **Obiettivo**: con ``stat.permanova_strata`` dichiarato, una variabile
+    continua che ha un solo valore dentro ogni strato non riceve la PERMANOVA:
+    l'analisi lo dichiara con ``E-ECO-31``, che nomina la variabile e lo
+    strato, e ``permanova_continua.tsv`` non ha righe con un valore p per
+    quella variabile; la correlazione con gli indici di alfa diversita' si
+    esegue lo stesso. Una variabile che cambia dentro gli strati riceve la
+    PERMANOVA nella stessa esecuzione.
+
+    **Razionale scientifico e sistemistico**: le permutazioni entro gli strati
+    scambiano campioni con lo stesso valore della variabile: ogni permutazione
+    da' la statistica osservata e il valore p sarebbe 1 qualunque sia
+    l'effetto. Un numero cosi' si leggerebbe come assenza di effetto.
+    """
+    colonne = [_colonna(3 * (j + 1), 40) for j in range(12)]
+    oggetto = costruisci(tmp_path, _per_varianti(colonne), {
+        "gruppo": ["a", "b"] * 6,
+        "blocco": [f"b{j // 3 + 1}" for j in range(12)],
+        "del_blocco": [f"{10 * (j // 3 + 1)}.0" for j in range(12)],
+        "misura": [f"{0.5 + j:.1f}" for j in range(12)],
+    })
+    config = _config(design={"continuous_variables": ["del_blocco", "misura"]},
+                     stat={"min_group_size": 2, "permanova_strata": "blocco"},
+                     beta={"distances": ["aitchison"], "clr_pseudocount": 0.5})
+    esito = esegui(oggetto, config, tmp_path / "uscita")
+    dichiarati = [a.dettaglio for a in esito.avvisi if a.codice == "E-ECO-31"]
+    assert len(dichiarati) == 1 and "'del_blocco'" in dichiarati[0]
+    assert "un solo valore dentro ogni strato di 'blocco'" in dichiarati[0]
+    _, multivariati = leggi_tsv(tmp_path / "uscita" / "test" / "permanova_continua.tsv")
+    con_p = {r["variabile"] for r in multivariati
+             if r["analisi"] == "permanova" and r["p"] != "NA"}
+    assert con_p == {"misura"}
+    _, righe = leggi_tsv(tmp_path / "uscita" / "test" / "alfa_continua.tsv")
+    assert {r["variabile"] for r in righe} == {"del_blocco", "misura"}
+
+
+def _oggetto_a_misure_ripetute(tmp_path, soggetti: int = 8, in_piu: dict | None = None):
+    """Soggetti campionati prima e dopo: la ricchezza di partenza cambia molto
+    da un soggetto all'altro (5, 10, 15, ...), l'effetto entro soggetto e'
+    piccolo e sempre nello stesso verso (da 2 a 9 varianti in piu', fra cui una
+    variante comune a tutti i campioni «dopo»).
+    """
+    colonne, tempo, chi = [], [], []
+    for s in range(1, soggetti + 1):
+        colonne.append(_colonna(5 * s, 60))
+        colonne.append(_colonna(5 * s + s + 1, 60, comune=100))
+        tempo += ["prima", "dopo"]
+        chi += [f"s{s}", f"s{s}"]
+    for campione in (in_piu or {}).get("campioni", []):
+        colonne.append(_colonna(campione["ricchezza"], 60))
+        tempo.append(campione["tempo"])
+        chi.append(campione["soggetto"])
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    return costruisci(tmp_path, _per_varianti(colonne), {"tempo": tempo, "paziente": chi})
+
+
+def test_un_effetto_entro_soggetto_e_trovato_dal_test_appaiato_e_non_da_quello_fra_gruppi(
+    eco_r, tmp_path
+):
+    """
+    **Obiettivo**: con otto soggetti campionati prima e dopo, differenze fra
+    soggetti grandi e un effetto entro soggetto piccolo ma sempre nello stesso
+    verso, il Wilcoxon dei ranghi con segno sulla ricchezza e' esatto e
+    significativo (p = 2/2^8) mentre il Wilcoxon fra gruppi indipendenti della
+    stessa analisi non lo e'. La PERMANOVA entro soggetto sulla distanza di
+    Aitchison, con il soggetto come primo termine e le permutazioni entro
+    soggetto, trova l'effetto con il p minimo delle 2^8 disposizioni, e il
+    termine del soggetto non ha un p; sulla distanza di Bray-Curtis, non
+    euclidea, la somma dei quadrati residua di questi dati non e' positiva, e
+    la tabella lo dichiara invece di riportare un F senza significato. I
+    soggetti sono elencati tutti come completi; e i file dell'analisi fra
+    gruppi sono identici byte per byte a quelli ottenuti senza dichiarare il
+    soggetto.
+
+    **Razionale scientifico e sistemistico**: e' il caso per cui il disegno
+    appaiato esiste: la variabilita' fra soggetti nasconde l'effetto a un test
+    che tratta i campioni come indipendenti. Dichiarare il soggetto aggiunge
+    analisi, non cambia quelle che c'erano.
+    """
+    oggetto = _oggetto_a_misure_ripetute(tmp_path)
+    due_distanze = {"distances": ["bray", "aitchison"], "clr_pseudocount": 0.5}
+    base = {"design": {"variable": "tempo"}, "stat": {"min_group_size": 2},
+            "beta": due_distanze}
+    senza = esegui(oggetto, _config(**base), tmp_path / "senza")
+    config = _config(design={"variable": "tempo", "subject": "paziente"},
+                     stat={"min_group_size": 2}, beta=due_distanze)
+    esito = esegui(oggetto, config, tmp_path / "uscita")
+    assert not {"E-ECO-32", "E-ECO-33"} & set(_codici(esito))
+    # I test fra gruppi indipendenti restano: l'analisi dichiara che contano
+    # come indipendenti i campioni dello stesso soggetto.
+    ripetuti = [a.dettaglio for a in esito.avvisi if a.codice == "E-ECO-34"]
+    assert len(ripetuti) == 1 and "8 soggetti su 8 hanno piu' di un campione" in ripetuti[0]
+    assert CATALOGO["E-ECO-34"].specie is Specie.AVVISO and "E-ECO-34" not in _codici(senza)
+
+    commenti, appaiati = leggi_tsv(tmp_path / "uscita" / "test" / "alfa_appaiata.tsv")
+    per_indice = {r["indice"]: r for r in appaiati}
+    ricchezza = per_indice["ricchezza_osservata"]
+    assert ricchezza["test"] == "Wilcoxon dei ranghi con segno, esatto"
+    assert (ricchezza["soggetti"], ricchezza["soggetto"]) == ("8", "paziente")
+    assert (ricchezza["livello_1"], ricchezza["livello_2"]) == ("dopo", "prima")
+    assert float(ricchezza["p"]) == pytest.approx(2 / 2**8)
+    assert all(float(r["p_bh"]) < 0.05 for r in appaiati)
+    assert ricchezza["dimensione_famiglia"] == "3"
+    _, fra_gruppi = leggi_tsv(tmp_path / "uscita" / "test" / "alfa_diversita.tsv")
+    indipendente = next(r for r in fra_gruppi if r["indice"] == "ricchezza_osservata")
+    assert indipendente["test"].startswith("Wilcoxon della somma dei ranghi")
+    assert float(indipendente["p"]) > 0.3
+
+    _, entro = leggi_tsv(tmp_path / "uscita" / "test" / "permanova_appaiata.tsv")
+    righe = {(r["analisi"], r["termine"]): r for r in entro if r["distanza"] == "aitchison"}
+    del_tempo = righe[("permanova", "tempo")]
+    assert (del_tempo["ruolo"], del_tempo["gl"], del_tempo["soggetti"]) == ("analizzata", "1", "8")
+    assert float(del_tempo["p"]) == pytest.approx(2 / 2**8) and del_tempo["campioni"] == "16"
+    assert del_tempo["permutazioni"] == "255" and del_tempo["livelli"] == "2"
+    del_soggetto = righe[("permanova", "paziente")]
+    assert (del_soggetto["ruolo"], del_soggetto["gl"], del_soggetto["p"]) == ("soggetto", "7", "NA")
+    assert "entro il soggetto" in del_soggetto["nota"]
+    assert float(righe[("permanova", "residuo")]["somma_quadrati"]) > 0
+    assert ("dispersioni", "tempo") in righe
+    # Bray-Curtis su questi dati: residuo non positivo, dichiarato.
+    di_bray = {(r["analisi"], r["termine"]): r for r in entro if r["distanza"] == "bray"}
+    assert float(di_bray[("permanova", "residuo")]["somma_quadrati"]) <= 0
+    assert (di_bray[("permanova", "tempo")]["f"], di_bray[("permanova", "tempo")]["p"]) == (
+        "NA", "NA")
+    assert "non valutabile: somma dei quadrati residua non positiva" in (
+        di_bray[("permanova", "tempo")]["nota"])
+
+    _, soggetti = leggi_tsv(tmp_path / "uscita" / "test" / "soggetti.tsv")
+    assert len(soggetti) == 16 and {r["stato"] for r in soggetti} == {"completo"}
+    assert {r["analisi_eseguita"] for r in soggetti} == {"si"}
+    ripetute = esito.riepilogo["misure_ripetute"]
+    assert ripetute["soggetto"] == "paziente"
+    assert ripetute["test"][0]["alfa"]["soggetti_completi"] == 8
+    assert esito.riepilogo["soggetto"] == {
+        "colonna": "paziente", "soggetti": 8, "campioni_senza_soggetto": 0}
+
+    prima, dopo = impronte(tmp_path / "senza"), impronte(tmp_path / "uscita")
+    descrittivi = {"riepilogo.json", "configurazione.json", "manifest.json", "campioni.tsv"}
+    assert {n for n in prima if prima[n] != dopo[n]} == descrittivi
+    assert set(dopo) - set(prima) == {
+        "test/soggetti.tsv", "test/alfa_appaiata.tsv", "test/permanova_appaiata.tsv"}
+    assert "misure_ripetute" not in senza.riepilogo and "soggetto" not in senza.riepilogo
+
+
+def test_i_soggetti_incompleti_escono_e_sotto_le_condizioni_il_test_appaiato_non_si_esegue(
+    eco_r, tmp_path
+):
+    """
+    **Obiettivo**: un soggetto senza un campione in un livello esce dai test
+    entro soggetto, con l'avviso ``E-ECO-33`` e la sua riga in
+    ``soggetti.tsv`` con il livello che manca, e il test si esegue sugli altri;
+    un soggetto con due campioni nello stesso livello ferma l'analisi entro
+    soggetto di quella variabile con ``E-ECO-32``, che lo nomina, e le tabelle
+    appaiate restano senza righe; con meno soggetti completi del minimo (6 al
+    5%) vale lo stesso, con il numero che serve nel messaggio. In tutti i casi
+    il confronto fra gruppi indipendenti resta eseguito.
+
+    **Razionale scientifico e sistemistico**: un test appaiato vale solo sulle
+    coppie complete: includere un soggetto a meta', o scegliere uno di due
+    campioni dello stesso livello, sarebbe una decisione presa dallo strumento
+    al posto di chi analizza. Sotto il minimo nemmeno un effetto sempre nello
+    stesso verso potrebbe risultare significativo.
+    """
+    config = _config(design={"variable": "tempo", "subject": "paziente"},
+                     stat={"min_group_size": 2})
+
+    incompleto = _oggetto_a_misure_ripetute(tmp_path / "a", in_piu={"campioni": [
+        {"ricchezza": 7, "tempo": "prima", "soggetto": "s9"}]})
+    esito = esegui(incompleto, config, tmp_path / "a" / "uscita")
+    esclusi = [a.dettaglio for a in esito.avvisi if a.codice == "E-ECO-33"]
+    assert len(esclusi) == 2 and all("1 soggetti su 9" in e and "s9" in e for e in esclusi)
+    _, soggetti = leggi_tsv(tmp_path / "a" / "uscita" / "test" / "soggetti.tsv")
+    di_s9 = [r for r in soggetti if r["soggetto"] == "s9"]
+    assert {r["stato"] for r in di_s9} == {"escluso: manca il livello dopo"}
+    assert {r["livelli_presenti"] for r in di_s9} == {"prima"}
+    _, appaiati = leggi_tsv(tmp_path / "a" / "uscita" / "test" / "alfa_appaiata.tsv")
+    assert {r["soggetti"] for r in appaiati} == {"8"} and len(appaiati) == 3
+    assert CATALOGO["E-ECO-33"].specie is Specie.AVVISO
+
+    doppio = _oggetto_a_misure_ripetute(tmp_path / "b", in_piu={"campioni": [
+        {"ricchezza": 9, "tempo": "prima", "soggetto": "s3"}]})
+    esito = esegui(doppio, config, tmp_path / "b" / "uscita")
+    fermate = [a.dettaglio for a in esito.avvisi if a.codice == "E-ECO-32"]
+    assert len(fermate) == 2
+    assert all("piu' di un campione nello stesso livello (s3)" in f for f in fermate)
+    assert leggi_tsv(tmp_path / "b" / "uscita" / "test" / "alfa_appaiata.tsv")[1] == []
+    assert leggi_tsv(tmp_path / "b" / "uscita" / "test" / "permanova_appaiata.tsv")[1] == []
+    _, soggetti = leggi_tsv(tmp_path / "b" / "uscita" / "test" / "soggetti.tsv")
+    assert {r["analisi_eseguita"] for r in soggetti} == {"no"}
+    assert next(r for r in soggetti if r["soggetto"] == "s3")["stato"] == (
+        "escluso: piu' campioni nello stesso livello (prima)")
+    # Il confronto fra gruppi indipendenti c'e' comunque.
+    assert leggi_tsv(tmp_path / "b" / "uscita" / "test" / "alfa_diversita.tsv")[1]
+    assert CATALOGO["E-ECO-32"].specie is Specie.AVVISO
+
+    pochi = _oggetto_a_misure_ripetute(tmp_path / "c", soggetti=5)
+    esito = valida_sull_oggetto(pochi, config)
+    troppo_pochi = [a.dettaglio for a in esito.avvisi if a.codice == "E-ECO-32"]
+    assert len(troppo_pochi) == 2
+    assert all("sono 5 su 5, e ne servono almeno 6" in t for t in troppo_pochi)
+    sei = _oggetto_a_misure_ripetute(tmp_path / "d", soggetti=6)
+    assert "E-ECO-32" not in _codici(valida_sull_oggetto(sei, config))
+
+
+def test_con_piu_di_due_livelli_il_confronto_entro_soggetto_e_il_test_di_friedman(eco_r, tmp_path):
+    """
+    **Obiettivo**: con sei soggetti campionati in tre tempi e la ricchezza che
+    cresce a ogni tempo in ogni soggetto, il confronto globale e' il test di
+    Friedman (chi quadrato 12 con 2 gradi di liberta'), seguito da un Wilcoxon
+    dei ranghi con segno per ogni coppia di tempi, e la correzione di
+    Benjamini-Hochberg copre tutti i test della variabile.
+
+    **Razionale scientifico e sistemistico**: con piu' di due condizioni il
+    confronto entro soggetto e' sui ranghi delle condizioni dentro ogni
+    soggetto: se l'ordine e' lo stesso in tutti, la statistica ha il suo
+    massimo, n(k - 1).
+    """
+    colonne, tempo, chi = [], [], []
+    for s in range(1, 7):
+        for t, passo in enumerate((0, s, 2 * s + 1)):
+            colonne.append(_colonna(6 * s + passo, 60))
+            tempo.append(f"t{t + 1}")
+            chi.append(f"s{s}")
+    oggetto = costruisci(tmp_path, _per_varianti(colonne), {"tempo": tempo, "paziente": chi})
+    config = _config(design={"variable": "tempo", "subject": "paziente"},
+                     stat={"min_group_size": 2})
+    esegui(oggetto, config, tmp_path / "uscita")
+    commenti, righe = leggi_tsv(tmp_path / "uscita" / "test" / "alfa_appaiata.tsv")
+    della_ricchezza = [r for r in righe if r["indice"] == "ricchezza_osservata"]
+    assert [r["confronto"] for r in della_ricchezza] == [
+        "globale", "t1 vs t2", "t1 vs t3", "t2 vs t3"]
+    globale = della_ricchezza[0]
+    assert globale["test"] == "Friedman, approssimazione chi quadrato"
+    assert float(globale["statistica"]) == pytest.approx(12.0) and globale["gl"] == "2"
+    assert float(globale["p"]) == pytest.approx(0.00247875, rel=1e-4)
+    assert all(r["test"].startswith("Wilcoxon dei ranghi con segno") for r in della_ricchezza[1:])
+    assert all(float(r["p"]) == pytest.approx(2 / 2**6) for r in della_ricchezza[1:])
+    assert {r["dimensione_famiglia"] for r in righe} == {"12"}
+    assert any("Friedman" in c for c in commenti)
+
+
+def test_i_parametri_facoltativi_non_dichiarati_non_entrano_nella_configurazione_risolta():
+    """
+    **Obiettivo**: una configurazione che non dichiara ne' le variabili
+    continue ne' il soggetto ha la configurazione risolta, e quindi il digest,
+    senza quelle chiavi; dichiararle vuote o nulle vale come ometterle;
+    dichiarate, compaiono e cambiano il digest. Una colonna non puo' essere
+    insieme continua e categorica o tecnica, ne' il soggetto una variabile.
+
+    **Razionale scientifico e sistemistico**: il digest identifica un'analisi.
+    Un'analisi facoltativa in piu' nel pacchetto non deve cambiare il digest ne'
+    i file delle configurazioni che non la chiedono.
+    """
+    base = schema.valida(configurazione())
+    risolta = schema.risolta(base)
+    assert "continuous_variables" not in risolta["design"] and "subject" not in risolta["design"]
+    vuote = schema.valida(configurazione(design={"continuous_variables": [], "subject": None}))
+    assert schema.digest(vuote) == schema.digest(base) and schema.risolta(vuote) == risolta
+    dichiarate = schema.valida(configurazione(
+        design={"continuous_variables": ["ph"], "subject": "paziente"}))
+    assert schema.risolta(dichiarate)["design"]["continuous_variables"] == ["ph"]
+    assert schema.risolta(dichiarate)["design"]["subject"] == "paziente"
+    assert schema.digest(dichiarate) != schema.digest(base)
+    for sbagliata in ({"continuous_variables": ["gruppo"]},
+                      {"continuous_variables": ["lotto"], "technical_variables": ["lotto"]},
+                      {"continuous_variables": ["ph", "ph"]},
+                      {"subject": "gruppo"},
+                      {"subject": "ph", "continuous_variables": ["ph"]}):
+        with pytest.raises(ErroreEco) as rifiuto:
+            schema.valida(configurazione(design=sbagliata))
+        assert rifiuto.value.codici == ["E-ECO-01"], sbagliata
+    assert {"design.continuous_variables", "design.subject"} <= set(schema.FACOLTATIVI)

@@ -32,6 +32,20 @@ le sole seconde: proseguire darebbe il doppio delle letture, forward e
 inverse mescolate. Il conteggio precede i profili: è una lettura dei soli
 nomi, e un dataset da respingere si respinge prima del calcolo.
 
+**Riconosce le letture inverse prese per forward, E-S1-07.** Nessun segno di
+coppia distingue un file con le sole seconde letture, o con le due letture a
+blocchi, quando le intestazioni numerano le letture come in un file
+single-end: lo distingue il contenuto. Nella stessa passata S1 conta, in ogni
+tratto di ogni file e nelle letture di posto dispari e pari, quelle con il
+segnale di una lettura forward (il motivo conservato dopo il taglio, oppure il
+primer nelle basi tagliate: ``io_layer/reads.py``), e si ferma con ``E-S1-07``
+se un file di un campione biologico o di un controllo positivo quasi non ne
+ha, o se in un file di qualunque classe il segnale sta in una parte del file e
+manca in un'altra. La misura serve al solo
+giudizio: non entra in ``coppie.tsv`` ne' nelle metriche. Senza motivo e senza
+un primer nelle basi tagliate il controllo non si applica, e la fase lo
+dichiara nel log.
+
 **Un file che non si legge fino in fondo ferma la fase, E-S1-05.** La stessa
 lettura completa trova un record troncato, una riga vuota in mezzo al file o
 un archivio che non si decomprime fino in fondo, oltre le letture ispezionate
@@ -64,11 +78,17 @@ import json
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+from functools import partial
 from typing import Any, ClassVar, Final
 
 from amplicon16s.config.schema import thread_effettivi
 from amplicon16s.errors.exceptions import errore
-from amplicon16s.io_layer.reads import StatisticheFile, conta_coppie, senza_righe_vuote_finali
+from amplicon16s.io_layer.reads import (
+    StatisticheFile,
+    conta_coppie,
+    segnale_di_orientamento,
+    senza_righe_vuote_finali,
+)
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
@@ -133,6 +153,19 @@ def classi_oltre_soglia(corte: dict[str, dict[str, Any]], massima: float) -> lis
     ]
 
 
+def _descrivi_il_segnale(config: Any) -> str:
+    """Il segnale di una lettura forward con questa configurazione, a parole."""
+    taglio = config.filter.trimLeft
+    parti = []
+    if config.qc.conserved_motif is not None:
+        parti.append(
+            f"il motivo {config.qc.conserved_motif!r} "
+            + ("all'inizio della lettura" if taglio == 0 else f"alla posizione {taglio}"))
+    if config.qc.primer_sequence is not None and taglio > 0:
+        parti.append(f"il primer {config.qc.primer_sequence} in testa")
+    return " oppure ".join(parti)
+
+
 class ProfiloLetture(PipelineStep):
     """S1: profili di qualità e lunghezza, sul contenuto intero dei file."""
 
@@ -149,17 +182,21 @@ class ProfiloLetture(PipelineStep):
     #: ripetuti contano le letture consecutive che si distinguono per il solo
     #: marcatore di coppia in fondo all'identificativo. 8: il file senza
     #: letture di un controllo negativo non e' un guasto: il campione entra nel
-    #: conteggio con zero letture e non ha un profilo.
-    versione: ClassVar[int] = 8
+    #: conteggio con zero letture e non ha un profilo. 9: ferma un file che non
+    #: contiene le sole letture forward (E-S1-07) e una riga finale di soli
+    #: spazi (E-S1-05).
+    versione: ClassVar[int] = 9
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("grezze",)
     #: I profili dipendono solo dalle letture, cioe' da S0; il troncamento, la
     #: sua tolleranza e la frazione ammessa di letture piu' corte servono ai
     #: controlli E-S1-01 ed E-S1-02. Poiche' S1 non dichiara filter.maxEE,
     #: filter.truncQ ne' il gruppo err, la modifica di questi parametri a valle
-    #: lascia valido il manifesto manifest_S1.json.
+    #: lascia valido il manifesto manifest_S1.json. Primer, motivo e taglio
+    #: definiscono il segnale di una lettura forward (E-S1-07).
     parametri: ClassVar[tuple[str, ...]] = (
         "filter.truncLen", "filter.truncLen_shortfall_warn", "qc.max_frac_short_reads",
+        "qc.primer_sequence", "qc.conserved_motif", "filter.trimLeft",
     )
 
     def calcola(self, contesto: StepContext) -> Produzione:
@@ -173,11 +210,23 @@ class ProfiloLetture(PipelineStep):
             c.accession: str(c.file) for c in contesto.inventario if c.file is not None
         }
         processi = thread_effettivi(contesto.config)
+        segnale = segnale_di_orientamento(
+            contesto.config.qc.primer_sequence, contesto.config.qc.conserved_motif,
+            contesto.config.filter.trimLeft)
+        if segnale is None:
+            contesto.logger.warning(
+                "il controllo sulle letture inverse prese per forward non si applica: "
+                "qc.conserved_motif e' nullo e non c'e' un primer da cercare nelle basi "
+                "tagliate (filter.trimLeft 0, o qc.primer_sequence nullo). Un file con le "
+                "seconde letture di ogni coppia non sarebbe riconosciuto dal contenuto",
+                extra={"passo": "S1"},
+            )
         # Un processo per file: la decompressione e la lettura dei nomi non
         # condividono nulla, e i nomi di un file vivono solo nel suo processo.
         try:
             with ProcessPoolExecutor(max_workers=processi) as gruppo:
-                coppie = dict(zip(campioni, gruppo.map(conta_coppie, campioni.values())))
+                coppie = dict(zip(campioni, gruppo.map(
+                    partial(conta_coppie, orientamento=segnale), campioni.values())))
         except BrokenProcessPool as guasto:
             # Un processo del conteggio e' stato ucciso dal sistema: tiene in
             # memoria i nomi delle letture del suo file, e con molti processi
@@ -218,16 +267,37 @@ class ProfiloLetture(PipelineStep):
                 + f". I conteggi di ogni file sono in {NOME_COPPIE}",
                 campioni=sorted(respinti),
             )
+        # Le letture inverse prese per forward: la quota si giudica dove ci si
+        # attende il bersaglio, la struttura a blocchi in ogni file.
+        inattesi = {
+            c: motivo for c, s in coppie.items()
+            if (motivo := s.orientamento_inatteso(classi[c] in CLASSI_CONTROLLATE))
+        }
+        if inattesi:
+            elenco = "; ".join(f"{c} ({coppie[c].nome}): {motivo}"
+                               for c, motivo in list(inattesi.items())[:5])
+            raise errore(
+                "E-S1-07",
+                f"{len(inattesi)} file su {len(coppie)}, su tutte le loro letture, non "
+                f"contengono le sole letture forward: {elenco}"
+                + ("" if len(inattesi) <= 5 else f"; e altri {len(inattesi) - 5}")
+                + ". Il segnale di una lettura forward e' "
+                + _descrivi_il_segnale(contesto.config),
+                campioni=sorted(inattesi),
+            )
         # Le righe vuote in fondo a un file sono tollerate, ma il lettore a
         # blocchi di R le rifiuta: quei soli file gli arrivano in copia ripulita.
         vuote = [c for c, s in coppie.items() if s.righe_vuote_finali]
         if vuote:
             contesto.logger.info(
                 f"{len(vuote)} file hanno righe vuote in fondo: tollerate, lette da una "
-                "copia temporanea senza quelle righe",
+                "copia senza quelle righe, scritta nella cartella della fase e tolta alla "
+                "fine",
                 extra={"passo": "S1", "campioni": sorted(vuote)},
             )
-        with senza_righe_vuote_finali(campioni, vuote) as leggibili:
+        with senza_righe_vuote_finali(
+            campioni, vuote, contesto.albero.cartella(self.cartella)
+        ) as leggibili:
             esito = esegui_script(
                 cartella_r() / NOME_SCRIPT,
                 {

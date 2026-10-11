@@ -28,7 +28,9 @@ esegui_fase(function(parametri, cartella) {
   ranghi <- lapply(phyloseq::rank_names(ps), function(rango) {
     valori <- tassonomia[, rango]
     list(rango = rango,
-         quota_assegnata = mean(!is.na(valori) & nzchar(trimws(valori))))
+         # Il solo prefisso di rango ("g__") non e' un'assegnazione.
+         quota_assegnata = mean(!is.na(valori) & nzchar(trimws(valori)) &
+                                  !grepl("^[A-Za-z]__$", valori)))
   })
   colonne <- lapply(names(tabella), function(nome) {
     valori <- tabella[[nome]]

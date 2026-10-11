@@ -376,6 +376,17 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         _DEGRADA,
     ),
     _v(
+        "E-S0-21", "S0",
+        "Nessun primer cercato in testa alle letture: qc.primer_sequence e' nullo.",
+        "L'esecuzione prosegue. Con qc.primer_sequence nullo la validazione non "
+        "verifica che il primer sia stato tolto dalle letture, e "
+        "qc.max_primer_hit_frac non ha effetto: un primer rimasto in testa "
+        "entrerebbe nelle varianti. Se il primer di amplificazione e' noto, "
+        "dichiaralo; se le letture lo portano ancora, dichiara anche la sua "
+        "lunghezza in filter.trimLeft.",
+        _DEGRADA,
+    ),
+    _v(
         "E-S0-09", "S0",
         "filter.truncLen e' incompatibile con le lunghezze osservate.",
         "Fra le prime qc.head_reads letture dei campioni biologici, o fra quelle "
@@ -446,6 +457,20 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "Il checksum di tax.ref_fasta non corrisponde a tax.ref_md5: riscarica "
         "il riferimento, oppure aggiorna tax.ref_md5 dopo aver verificato "
         "l'origine del file.",
+        _UMANA,
+    ),
+    _v(
+        "E-S0-22", "S0",
+        "Nel riferimento tassonomico il rango del phylum non si individua.",
+        "L'assegnazione tassonomica da' i nomi ai ranghi per posizione: il primo e' "
+        "il regno, il secondo il phylum, fino a sette ranghi (regno, phylum, classe, "
+        "ordine, famiglia, genere, specie), separati da punto e virgola "
+        "nell'intestazione di ogni sequenza. Il dettaglio dice che cosa ha il file: "
+        "un solo rango per sequenza (il phylum manca, e i controlli e i filtri che lo "
+        "usano non avrebbero su che cosa operare), oppure piu' di sette (i ranghi "
+        "oltre il settimo non avrebbero un nome). Usa un riferimento nel formato dei "
+        "training set di dada2 (assignTaxonomy), o riscrivi le intestazioni in quella "
+        "forma.",
         _UMANA,
     ),
     _v(
@@ -523,8 +548,9 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "Un file di letture non si legge fino in fondo.",
         "La validazione ispeziona le prime qc.head_reads letture di ogni file; "
         "letto per intero, il file ha un record troncato, una riga vuota in mezzo "
-        "al file o un archivio che non si decomprime fino in fondo (il dettaglio "
-        "dice quale dei tre, e dove; le sole righe vuote in fondo sono tollerate). "
+        "al file, una riga di soli spazi o un archivio che non si decomprime fino "
+        "in fondo (il dettaglio dice quale, e dove; le sole righe vuote in fondo "
+        "sono tollerate). "
         "Riscarica il file dalla sorgente e "
         "verificane il checksum prima di rieseguire: proseguire userebbe una "
         "parte delle letture senza dirlo.",
@@ -539,6 +565,27 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "uno o piu' processi. Aumenta la memoria disponibile al container, oppure "
         "riduci i processi con run.threads, poi riprendi l'esecuzione: il "
         "risultato non dipende dal numero di processi.",
+        _UMANA,
+    ),
+    _v(
+        "E-S1-07", "S1",
+        "Un file di letture non contiene le sole letture forward.",
+        "Su tutte le letture del file il segnale di una lettura forward (il motivo "
+        "conservato di qc.conserved_motif dopo le basi di filter.trimLeft, oppure, "
+        "con il taglio, il primer di qc.primer_sequence in testa) manca, o sta in "
+        "una parte del file e non in un'altra: il dettaglio dice quale dei due "
+        "casi, con il file e la quota misurata. Nel primo caso il file contiene le "
+        "letture inverse (la seconda lettura di ogni coppia): sostituiscilo con "
+        "quello delle letture forward; se e' davvero di letture forward e il "
+        "campione non ha quasi nulla del bersaglio, toglilo dal dataset. Nel "
+        "secondo il file riporta le letture dei due versi, a blocchi o alternate: "
+        "estrai le sole forward in un file per campione. Guarda le intestazioni e "
+        "le prime basi delle letture all'inizio, a meta' e alla fine del file. Lo "
+        "stesso contrasto lo da' un file di sole letture forward riordinato per "
+        "sequenza: va riportato a un ordine qualunque non legato alla sequenza. Se "
+        "il motivo dichiarato non descrive l'inizio della regione amplificata, "
+        "correggi qc.conserved_motif (con il valore nullo il controllo non si "
+        "applica).",
         _UMANA,
     ),
     # ----------------------------------------------------------------- S2 ---

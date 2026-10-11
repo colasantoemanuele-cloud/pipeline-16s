@@ -253,7 +253,7 @@ def _dataset_diverso(radice: Path, *, con_studio: bool = True, **gruppi: dict[st
              [["id", "tipo", "nota"], *[[f"camp-{n}", t, "x"] for n, t in campioni]],
              bom=True, fine="\r\n", virgolette=True)
     riferimento = radice / "rif.fa.gz"
-    riferimento.write_bytes(b">s\nACGT\n")
+    riferimento.write_bytes(b">Bacteria;Phylum_di_prova;\nACGT\n")
     import hashlib
 
     dati: dict[str, Any] = {
@@ -578,6 +578,60 @@ def test_senza_motivo_conservato_g10_verifica_il_solo_primer(tmp_path):
     col_primer = _con_primer(tmp_path / "b", qc={"conserved_motif": None})
     esito = esegui_gate("G10", Contesto(col_primer))
     assert [v.codice for v in esito.violazioni] == ["E-S0-10"] and not esito.avvisi
+
+
+def test_con_il_primer_nullo_la_validazione_non_cerca_alcun_primer(tmp_path):
+    """
+    **Obiettivo**: Verificare che ``qc.primer_sequence`` nullo sia accettato
+    dallo schema; che G10 non cerchi alcun primer, nemmeno su letture che ne
+    portano uno in testa, e lo dichiari con ``E-S0-21`` (degradazione, nel
+    manifesto di S0); che ``letture_ispezionate.tsv`` lasci vuota la colonna
+    ``frazione_primer``; che con il motivo anch'esso nullo i due avvisi dicano
+    che nulla e' stato verificato sulla regione; che ``qc.max_primer_hit_frac``
+    non sia fra i controlli spenti ma fra quelli che non si eseguono; e che con
+    una sequenza dichiarata nulla di tutto questo cambi.
+
+    **Razionale scientifico e sistemistico**: Chi non conosce il primer non
+    deve inventarne uno che non compare per poter validare: dichiara di non
+    conoscerlo, e la pipeline dichiara a sua volta che cosa non ha potuto
+    verificare.
+    """
+    from amplicon16s.soglie import tabella
+
+    # Il motivo sta dopo il primer: con il taglio a zero non si trova in testa,
+    # e la sua soglia e' al valore che non ferma perche' qui si giudica il primer.
+    col_primer = _con_primer(tmp_path / "a", qc={"primer_sequence": None, "min_motif_frac": 0.0})
+    assert col_primer.qc.primer_sequence is None
+    esito = esegui_gate("G10", Contesto(col_primer))
+    assert esito.superato and [a.codice for a in esito.avvisi] == ["E-S0-21"]
+    assert "nessun primer cercato" in esito.avvisi[0].dettaglio
+    assert CATALOGO["E-S0-21"].categoria is Categoria.DEGRADAZIONE_AUTOMATICA
+    risultato = esegui_s0(col_primer)
+    assert risultato.superata
+    radice = Path(col_primer.io.out_root)
+    manifesto = json.loads(next(radice.rglob("manifest_S0.json")).read_text())
+    assert "E-S0-21" in {d["codice"] for d in manifesto["degradazioni"]}
+    righe = next(radice.rglob("letture_ispezionate.tsv")).read_text("utf-8").splitlines()
+    colonne = righe[0].split("\t")
+    for riga in righe[1:]:
+        valori = dict(zip(colonne, riga.split("\t")))
+        assert valori["frazione_primer"] == "" and valori["frazione_motivo"] != ""
+
+    senza_nulla = _con(col_primer, qc={"conserved_motif": None})
+    esito = esegui_gate("G10", Contesto(senza_nulla))
+    assert esito.superato and [a.codice for a in esito.avvisi] == ["E-S0-21", "E-S0-18"]
+    assert "la presenza della regione amplificata non e' verificata" in esito.avvisi[1].dettaglio
+    assert "assenza del primer" not in esito.avvisi[1].dettaglio
+
+    valori = tabella.valori_piatti(_con(col_primer, qc={"max_primer_hit_frac": 1.0}))
+    voce = tabella.soglia("qc.max_primer_hit_frac")
+    assert "qc.primer_sequence e' nullo" in tabella.non_eseguito(voce, valori)
+    assert "qc.max_primer_hit_frac" not in {
+        s.chiave for s in tabella.controlli_spenti(valori, 3)}
+
+    # Con il primer dichiarato lo stesso file e' respinto, come sempre.
+    dichiarato = _con_primer(tmp_path / "b")
+    assert [v.codice for v in esegui_gate("G10", Contesto(dichiarato)).violazioni] == ["E-S0-10"]
 
 
 # --------------------------------------------------------------------------- #

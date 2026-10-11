@@ -812,9 +812,16 @@ def test_il_primer_indicato_a_mano_e_una_cartella_non_scrivibile(tmp_path, capsy
     assert _init(dataset, tmp_path / "a.yaml") == 0
     testo = (tmp_path / "a.yaml").read_text(encoding="utf-8")
     righe = righe_dei_parametri(testo)
-    assert righe["qc.primer_sequence"] == (False, "")
+    # Il primer non e' determinabile: la partenza e' nullo, con che cosa
+    # comporta e come farsi proporre anche il motivo; le forme che il nome
+    # dei metadati puo' avere sono elencate, con il rimando alla guida.
+    assert righe["qc.primer_sequence"] == (False, "null")
     piatto = " ".join(testo.replace("#", " ").split())
     assert "i metadati nominano un primer" in piatto and "341F CCTACGGGNGGCWGCAG" in piatto
+    assert "partenza: nullo" in piatto and "non cerca alcun primer" in piatto
+    assert "rilancia init con --primer SEQUENZA" in piatto and "GUIDA.md, sezione 6.3" in piatto
+    assert "ne' nei metadati" not in testo
+    assert "i metadati lo nominano senza riportarne la sequenza" in piatto
     assert righe["qc.conserved_motif"] == (False, "null")
 
     assert _init(dataset, tmp_path / "b.yaml", "--primer", "cctacgggnggcwgcag") == 0
@@ -842,7 +849,7 @@ def test_il_primer_indicato_a_mano_e_una_cartella_non_scrivibile(tmp_path, capsy
 #: cio' che non ha ne' una proposta ne' un valore di partenza.
 def _scelte_dopo_l_accettazione(dataset, con_profilo: bool) -> dict:
     scelte = {
-        "tax.ref_name": "sintetico", "tax.ref_version": "1", "qc.head_reads": 200,
+        "tax.ref_name": "sintetico", "tax.ref_version": "1",
         "filt.remove_na_phylum": True, "filt.exclude_taxa": [], "prev.apply": False,
         "decontam.threshold": 0.1, "decontam.min_blanks": 2, "qc.min_reads_final": 100,
     }
@@ -920,7 +927,7 @@ def test_init_accetta_proposte_lascia_da_scrivere_le_sole_scelte(tmp_path, capsy
         assert righe[chiave] == (True, valore), chiave
     esplorative = {c for c, (attiva, _) in righe.items() if attiva and prima[c] == (False, "")}
     attese = {s.chiave: tabella.valore_esplorativo(s) for s in tabella.SOGLIE
-              if s.unita is tabella.Unita.FRAZIONE}
+              if s.unita is tabella.Unita.FRAZIONE and s.non_proposta is None}
     assert esplorative == set(attese)
     for chiave, valore in attese.items():
         assert yaml.safe_load(righe[chiave][1]) == valore
@@ -996,3 +1003,186 @@ def test_init_accetta_proposte_con_il_profilo_non_chiede_il_troncamento(profilo,
     completo = tmp_path / "completo.yaml"
     completo.write_text(completa(testo, scelte, accetta=set()), encoding="utf-8")
     assert esegui_s0(carica(completo)).superata
+
+
+def test_le_letture_ispezionate_hanno_un_valore_di_partenza_di_metodo(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che ``init`` dia a ``qc.head_reads`` un valore di
+    partenza: il numero di letture con cui una frazione ha un intervallo di
+    confidenza al 95% di un punto percentuale (ricalcolato qui dalle due
+    costanti), oppure, se ogni file e' stato letto per intero e il piu' grande
+    ne ha meno, le letture di quel file; che senza l'opzione la riga sia in
+    commento con il valore e con l'opzione sia attiva con ``[PARTENZA]``; e
+    che il parametro non sia piu' fra le scelte che ``validate`` elenca.
+
+    **Razionale scientifico e sistemistico**: Quante letture ispezionare e' un
+    compromesso fra tempo e precisione, non una scelta scientifica: lasciarla
+    senza valore aggiungeva una voce da scrivere a mano a ogni dataset. Il
+    valore viene da una regola dichiarata, non da un dataset.
+    """
+    import math
+
+    from amplicon16s.init import comando
+
+    assert comando.LETTURE_PER_UNA_FRAZIONE == math.ceil(
+        (comando.QUANTILE_NORMALE_95 * 0.5 / comando.PRECISIONE_DELLE_FRAZIONI) ** 2)
+    dataset = sintetico.genera(tmp_path / "dati", biologici=4, negativi=0, letture=90)
+    piccolo, limitato, accettato = (tmp_path / n for n in ("a.yaml", "b.yaml", "c.yaml"))
+    assert _init(dataset, piccolo) == 0
+    riga = righe_dei_parametri(piccolo.read_text("utf-8"))["qc.head_reads"]
+    # Ogni file letto per intero: il file piu' grande ha 90 letture.
+    assert riga == (False, "90")
+    assert "le letture del file piu' grande (90)" in " ".join(
+        piccolo.read_text("utf-8").replace("##", " ").split())
+    # Con --head-reads le letture dei file non sono note: vale la regola.
+    assert _init(dataset, limitato, "--head-reads", "20") == 0
+    assert righe_dei_parametri(limitato.read_text("utf-8"))["qc.head_reads"] == (
+        False, str(comando.LETTURE_PER_UNA_FRAZIONE))
+    capsys.readouterr()
+    assert _init(dataset, accettato, "--accetta-proposte") == 0
+    testo = accettato.read_text("utf-8")
+    assert righe_dei_parametri(testo)["qc.head_reads"] == (True, "90")
+    assert re.search(r"## \[PARTENZA\][^\n]*\n(?:  ##[^\n]*\n)*  head_reads: 90", testo)
+    assert "qc.head_reads" not in obbligatori_mancanti(yaml.safe_load(testo))
+
+
+def test_init_non_scrive_mai_il_valore_che_spegne_i_controlli_positivi(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare su un dataset sintetico con controlli positivi
+    che ``ctrl.min_positive_pass_frac`` resti una scelta senza valore, in
+    commento, con e senza ``--accetta-proposte``, e che ``validate`` la elenchi
+    fra i parametri mancanti.
+
+    **Razionale scientifico e sistemistico**: A zero il controllo sulla
+    conformita' dei controlli positivi non puo' scattare. Quanti controlli
+    devono essere conformi e' un giudizio di chi conduce l'analisi: lo
+    strumento non lo sostituisce con il valore che lo spegne.
+    """
+    dataset = sintetico.genera(tmp_path / "dati", biologici=7, negativi=2, letture=60)
+    # Tre campioni diventano controlli positivi: basta l'etichetta della tabella.
+    righe = dataset.tabella.read_text("utf-8").splitlines()
+    positivi = [r.replace(sintetico.ETICHETTA_BIOLOGICO, "controllo positivo (positive)")
+                for r in righe[1:4]]
+    dataset.tabella.write_text("\n".join([righe[0], *positivi, *righe[4:]]) + "\n", "utf-8")
+    for nome, opzioni in (("senza.yaml", ()), ("con.yaml", ("--accetta-proposte",))):
+        assert _init(dataset, tmp_path / nome, *opzioni) == 0
+        testo = (tmp_path / nome).read_text("utf-8")
+        assert righe_dei_parametri(testo)["ctrl.min_positive_pass_frac"] == (False, "")
+    assert "ctrl.min_positive_pass_frac" in obbligatori_mancanti(yaml.safe_load(testo))
+    capsys.readouterr()
+
+
+def test_il_primer_non_determinabile_parte_da_nullo_ma_una_sequenza_nota_resta_proposta(
+    tmp_path, capsys
+):
+    """
+    **Obiettivo**: Verificare che, quando il primer non e' in testa alle
+    letture, i metadati non ne riportano la sequenza e ``--primer`` non e'
+    dato, ``qc.primer_sequence`` sia una scelta con partenza nulla (in
+    commento senza l'opzione, attiva con ``[PARTENZA]`` con
+    ``--accetta-proposte``), non sia fra i parametri che ``validate`` elenca
+    come mancanti, e la configurazione completata superi la validazione
+    dichiarando ``E-S0-21``; e che, quando i metadati riportano la sequenza del
+    primer forward, la proposta resti quella sequenza e non il nullo.
+
+    **Razionale scientifico e sistemistico**: Un primer che nessuno conosce non
+    e' una scelta da inventare per poter validare. Ma il nullo spegne la
+    verifica che il primer sia stato tolto: non deve mai prendere il posto di
+    una sequenza che i dati dichiarano.
+    """
+    dataset = sintetico.genera(tmp_path / "dati", biologici=4, negativi=1, letture=60)
+    accettato = tmp_path / "con.yaml"
+    assert _init(dataset, accettato, "--reference", str(sintetico.RIFERIMENTO),
+                 "--out-root", str(tmp_path / "out"), "--accetta-proposte") == 0
+    capsys.readouterr()
+    testo = accettato.read_text("utf-8")
+    righe = righe_dei_parametri(testo)
+    assert righe["qc.primer_sequence"] == (True, "null")
+    assert re.search(r"## \[PARTENZA\][^\n]*\n(?:  ##[^\n]*\n)*  primer_sequence: null", testo)
+    mancanti = obbligatori_mancanti(yaml.safe_load(testo))
+    assert "qc.primer_sequence" not in mancanti
+    scelte = _scelte_dopo_l_accettazione(dataset, con_profilo=False)
+    completo = tmp_path / "completo.yaml"
+    completo.write_text(completa(testo, scelte, accetta=set()), encoding="utf-8")
+    assert main(["validate", "--config", str(completo), "--json"]) == 0
+    documento = json.loads(capsys.readouterr().out)
+    assert "E-S0-21" in {a["codice"] for a in documento["avvisi"]}
+    assert "qc.max_primer_hit_frac" not in {
+        s["parametro"] for s in documento["controlli_spenti"]}
+
+    # I metadati dichiarano la sequenza: la proposta e' quella.
+    righe_tabella = dataset.tabella.read_text("utf-8").splitlines()
+    dataset.tabella.write_text("\n".join(
+        [righe_tabella[0] + "\tforward primer"]
+        + [r + "\tGTGYCAGCMGCCGCGGTAA" for r in righe_tabella[1:]]) + "\n", "utf-8")
+    con_sequenza = tmp_path / "sequenza.yaml"
+    assert _init(dataset, con_sequenza) == 0
+    assert righe_dei_parametri(con_sequenza.read_text("utf-8"))["qc.primer_sequence"] == (
+        False, '"GTGYCAGCMGCCGCGGTAA"')
+
+
+def test_un_file_che_non_inizia_come_gli_altri_esce_dal_consenso_del_motivo(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che, in un dataset sintetico in cui le letture di
+    un file su cinque sono sostituite dalle loro inverse, ``init --primer``
+    nomini quel file nel riepilogo e nel commento del motivo, lo escluda dal
+    consenso, e proponga lo stesso motivo che propone sul dataset senza quel
+    file; che il motivo proposto non corrisponda ad alcuna lettura del file
+    inverso; che su un dataset di soli file forward nessun file dissenta; e che
+    senza una maggioranza (meta' dei file inversi) nessun file sia escluso.
+
+    **Razionale scientifico e sistemistico**: Il motivo e' il segnale con cui
+    S1 riconosce le letture inverse. Ricavato dal consenso di tutte le letture,
+    un solo file inverso lo allarga fino a comprendere se stesso, e il
+    controllo non lo vede piu': il consenso va preso sui file che iniziano come
+    la maggioranza, un voto per file.
+    """
+    import gzip
+
+    from amplicon16s.init import rilevamento
+
+    complemento = str.maketrans("ACGT", "TGCA")
+
+    def inverti(dataset, chiavi):
+        for chiave in chiavi:
+            (percorso,) = dataset.letture.glob(f"{chiave}_*.fq.gz")
+            with gzip.open(percorso, "rt", encoding="ascii") as file:
+                righe = file.read().splitlines()
+            record = [(righe[i][1:], righe[i + 1].translate(complemento)[::-1], righe[i + 3][::-1])
+                      for i in range(0, len(righe), 4)]
+            sintetico._scrivi_fastq(percorso, record)
+
+    primer = "ACGTACGTACGTACGTAC"   # non e' nelle letture: serve solo a chiedere il motivo
+    buono = sintetico.genera(tmp_path / "buono", biologici=5, negativi=0, letture=300)
+    assert _init(buono, tmp_path / "buono.yaml", "--primer", primer) == 0
+    assert "come gli altri" not in capsys.readouterr().out
+    atteso = righe_dei_parametri((tmp_path / "buono.yaml").read_text("utf-8"))[
+        "qc.conserved_motif"][1]
+    assert atteso not in ("", "null")
+
+    con_uno = sintetico.genera(tmp_path / "uno", biologici=5, negativi=0, letture=300)
+    inverti(con_uno, ["LIB003"])
+    assert _init(con_uno, tmp_path / "uno.yaml", "--primer", primer) == 0
+    stampato = capsys.readouterr().out
+    assert "1 file non inizia come gli altri ed e' escluso dal consenso del motivo (LIB003_" in stampato
+    testo = (tmp_path / "uno.yaml").read_text("utf-8")
+    assert "1 file non inizia come gli altri ed e' escluso dal consenso (LIB003_" in " ".join(
+        testo.replace("##", " ").split())
+    motivo = yaml.safe_load(righe_dei_parametri(testo)["qc.conserved_motif"][1])
+    # Il motivo e' quello dei quattro file forward, e nessuna lettura inversa lo porta.
+    quattro = {n: rilevamento.ispeziona((str(p), None, ()))
+               for n, p in ((p.name, p) for p in sorted(con_uno.letture.glob("*.fq.gz")))
+               if not n.startswith("LIB003_")}
+    assert motivo == rilevamento.motivo_dal_consenso(quattro.values(), 0, len(primer))
+    (inverso,) = con_uno.letture.glob("LIB003_*.fq.gz")
+    with gzip.open(inverso, "rt", encoding="ascii") as file:
+        sequenze = file.read().splitlines()[1::4]
+    assert not any(re.match(motivo, s) for s in sequenze)
+
+    # Senza una maggioranza non si esclude nessuno, e non lo si finge.
+    meta = sintetico.genera(tmp_path / "meta", biologici=4, negativi=0, letture=300)
+    inverti(meta, ["LIB001", "LIB002"])
+    ispezioni = {p.name: rilevamento.ispeziona((str(p), None, ()))
+                 for p in sorted(meta.letture.glob("*.fq.gz"))}
+    assert rilevamento.file_che_dissentono(ispezioni, 0, len(primer)) == []
+    assert rilevamento.QUOTA_DI_DISSENSO == 0.5

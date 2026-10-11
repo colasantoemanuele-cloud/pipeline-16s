@@ -86,6 +86,8 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import urllib.error
+import http.client
 import re
 import subprocess
 import sys
@@ -289,6 +291,152 @@ def test_lo_script_non_scarica_i_file_gia_integri(tmp_path, monkeypatch):
     cartella.mkdir()
     (cartella / "ERX1_A_ERR1.fastq.gz").write_bytes(contenuto)
     assert scarica_letture.main(["--cartella", str(cartella), "--pausa", "0"]) == 0
+
+
+def _elenco_di_prova(percorso: Path, url: str, contenuti: dict[str, bytes]) -> Path:
+    """Un elenco delle letture con un file per voce di ``contenuti``."""
+    righe = ["file\trun_accession\texperiment_accession\tsample_name\tfastq_url\tfastq_md5\t"
+             "fastq_bytes"]
+    righe += [f"{nome}\tERR{i}\tERX{i}\tA{i}\t{url}/{nome}\t{_md5(dati)}\t{len(dati)}"
+              for i, (nome, dati) in enumerate(contenuti.items(), start=1)]
+    percorso.write_text("\n".join(righe) + "\n", encoding="utf-8")
+    return percorso
+
+
+@pytest.mark.parametrize("guasto", [
+    http.client.IncompleteRead(b"meta'"),
+    http.client.RemoteDisconnected("il server ha chiuso la connessione"),
+    urllib.error.URLError("nome non risolto"),
+    TimeoutError("tempo scaduto"),
+])
+def test_un_guasto_di_rete_da_un_messaggio_con_il_file_e_che_cosa_fare(
+    tmp_path, monkeypatch, capsys, guasto
+):
+    """
+    **Obiettivo**: Verificare, con la rete simulata, che una risposta
+    interrotta a meta', una connessione chiusa dal server, un nome non risolto
+    e un tempo scaduto non escano dallo script come eccezione: dopo i tentativi
+    ammessi lo script termina con 1, nomina il file, dice che cosa e' successo
+    e che cosa fare, e non lascia un file con il nome definitivo.
+
+    **Razionale scientifico e sistemistico**: Chi scarica centinaia di file da
+    un archivio pubblico incontra guasti di rete: una traccia Python non dice
+    quale file manca ne' che basta rilanciare. Una risposta HTTP interrotta
+    non e' un errore del sistema operativo, e sfuggiva al trattamento.
+    """
+    import scaricamento
+
+    def cade(richiesta, timeout=None):
+        raise guasto
+
+    monkeypatch.setattr(scaricamento.urllib.request, "urlopen", cade)
+    monkeypatch.setattr(scaricamento.time, "sleep", lambda secondi: None)
+    monkeypatch.setattr(scarica_letture, "ELENCO", _elenco_di_prova(
+        tmp_path / "elenco.tsv", "http://archivio.invalid", {"ERX1_A_ERR1.fastq.gz": b"@l\nA\n+\nI\n"}))
+    cartella = tmp_path / "fastq"
+    assert scarica_letture.main(["--cartella", str(cartella), "--tentativi", "2"]) == 1
+    uscita = capsys.readouterr()
+    assert "Traceback" not in uscita.out + uscita.err
+    assert "ERX1_A_ERR1.fastq.gz: non ottenuto dopo 2 tentativi" in uscita.out
+    assert type(guasto).__name__ in uscita.out and "rilancia lo script" in uscita.out
+    assert "mancanti o non integri 1" in uscita.out
+    assert not (cartella / "ERX1_A_ERR1.fastq.gz").exists()
+
+
+def test_lo_scarico_usa_piu_connessioni_ma_non_oltre_il_limite(tmp_path, monkeypatch, capsys):
+    """
+    **Obiettivo**: Verificare, con la rete simulata, che lo script scarichi
+    piu' file insieme, che le connessioni aperte nello stesso momento non
+    superino mai il limite (quello predefinito, e quello dato con
+    ``--connessioni``), che ogni file ottenuto sia verificato con il suo MD5 e
+    che un file il cui scarico fallisce non fermi gli altri.
+
+    **Razionale scientifico e sistemistico**: Con centinaia di file piccoli il
+    tempo e' quello di apertura delle connessioni, e poche connessioni insieme
+    lo dividono; molte, verso un archivio pubblico, sono un abuso. Il limite e'
+    una costante con un nome, che chi lancia lo script puo' abbassare.
+    """
+    import io
+
+    import scaricamento
+
+    contenuti = {f"ERX{i}_A{i}_ERR{i}.fastq.gz": f"@l{i}\nACGT\n+\nIIII\n".encode() * (i + 1)
+                 for i in range(1, 13)}
+    aperte, massimo, blocco = [0], [0], threading.Lock()
+
+    class _Risposta(io.BytesIO):
+        status = 200
+
+        def close(self):
+            if not self.closed:
+                with blocco:
+                    aperte[0] -= 1
+            super().close()
+
+    def serve(richiesta, timeout=None):
+        nome = richiesta.full_url.rsplit("/", 1)[1]
+        if nome.startswith("ERX7_"):
+            raise urllib.error.URLError("connessione rifiutata")
+        with blocco:
+            aperte[0] += 1
+            massimo[0] = max(massimo[0], aperte[0])
+        threading.Event().wait(0.02)   # il tempo di un trasferimento
+        return _Risposta(contenuti[nome])
+
+    monkeypatch.setattr(scaricamento.urllib.request, "urlopen", serve)
+    monkeypatch.setattr(scaricamento.time, "sleep", lambda secondi: None)
+    monkeypatch.setattr(scarica_letture, "ELENCO", _elenco_di_prova(
+        tmp_path / "elenco.tsv", "http://archivio.invalid", contenuti))
+    assert scaricamento.CONNESSIONI == 4
+
+    cartella = tmp_path / "a"
+    assert scarica_letture.main(["--cartella", str(cartella), "--tentativi", "1"]) == 1
+    uscita = capsys.readouterr().out
+    assert 1 < massimo[0] <= scaricamento.CONNESSIONI
+    assert "scaricati 11, mancanti o non integri 1" in uscita and "ERX7_A7_ERR7" in uscita
+    for nome, dati in contenuti.items():
+        if not nome.startswith("ERX7_"):
+            assert (cartella / nome).read_bytes() == dati
+
+    massimo[0] = 0
+    assert scarica_letture.main(["--cartella", str(tmp_path / "b"), "--tentativi", "1",
+                                 "--connessioni", "2"]) == 1
+    assert 1 < massimo[0] <= 2
+    massimo[0] = 0
+    scarica_letture.main(["--cartella", str(tmp_path / "c"), "--tentativi", "1",
+                          "--connessioni", "1"])
+    assert massimo[0] == 1
+    with pytest.raises(SystemExit):
+        scarica_letture.main(["--cartella", str(tmp_path / "d"), "--connessioni", "0"])
+    capsys.readouterr()
+
+
+def test_un_interruzione_dello_scarico_non_aspetta_i_file_in_coda(tmp_path, monkeypatch):
+    """
+    **Obiettivo**: Verificare che, quando chi consuma lo scarico in parallelo
+    smette prima della fine (come accade con un'interruzione da tastiera), i
+    file ancora in coda non vengano scaricati: si conclude solo cio' che era
+    gia' cominciato.
+
+    **Razionale scientifico e sistemistico**: Con centinaia di file in coda,
+    un'interruzione che li scaricasse tutti prima di restituire il terminale
+    non sarebbe un'interruzione. I file gia' cominciati si lasciano finire,
+    cosi' sul disco non resta un file a meta' senza la sua verifica.
+    """
+    import scaricamento
+
+    cominciati: list[str] = []
+
+    def lento(atteso, destinazione, tentativi=4):
+        cominciati.append(destinazione.name)
+        threading.Event().wait(0.05)
+
+    monkeypatch.setattr(scaricamento, "scarica", lento)
+    voci = [(None, tmp_path / f"file_{i}") for i in range(40)]
+    in_corso = scaricamento.scarica_in_parallelo(voci, connessioni=2, pausa=0)
+    assert next(in_corso)[1] is None
+    in_corso.close()
+    assert len(cominciati) < 10
 
 
 # --------------------------------------------------------------------------- #

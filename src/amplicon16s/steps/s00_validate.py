@@ -121,13 +121,18 @@ def _inventario_json(inventario: Inventario) -> str:
     return json.dumps(documento, indent=2, ensure_ascii=False) + "\n"
 
 
-def _letture_tsv(scansione: dict[str, Any], head_reads: int) -> str:
+def _letture_tsv(
+    scansione: dict[str, Any], head_reads: int, con_motivo: bool = True, con_primer: bool = True
+) -> str:
     """Le statistiche per file, con il limite della stima messo agli atti.
 
     Le lunghezze sono quelle delle prime ``head_reads`` letture, non di tutto
     il file: il minimo puo' quindi essere piu' alto del vero. La colonna
     ``file_esaurito`` dice per quali file la statistica copre tutto, e per
-    quali e' una stima.
+    quali e' una stima. Con ``con_motivo`` falso il motivo conservato non e'
+    stato cercato (``qc.conserved_motif`` nullo) e la sua colonna resta vuota:
+    uno zero direbbe che nessuna lettura lo porta. Lo stesso per il primer con
+    ``con_primer`` falso (``qc.primer_sequence`` nullo).
     """
     buffer = StringIO()
     scrittore = csv.writer(buffer, delimiter="\t", lineterminator="\n")
@@ -142,7 +147,8 @@ def _letture_tsv(scansione: dict[str, Any], head_reads: int) -> str:
             [accession, s.nome, s.letture_esaminate, "si" if s.esaurito else "no",
              s.lunghezza_minima if s.lunghezza_minima is not None else "",
              s.lunghezza_massima if s.lunghezza_massima is not None else "",
-             f"{s.frazione_primer:.6f}", f"{s.frazione_motivo:.6f}",
+             f"{s.frazione_primer:.6f}" if con_primer else "",
+             f"{s.frazione_motivo:.6f}" if con_motivo else "",
              s.errore or ""]
         )
     return buffer.getvalue()
@@ -225,8 +231,11 @@ class ValidazioneIngressi(PipelineStep):
     #: con piu' valori dell'intestazione e ogni identificativo con una
     #: tabulazione o un a capo. 14: ctrl.column puo' essere nullo (nessun
     #: controllo: ogni campione e' biologico); G13 ammette il file senza
-    #: letture di un controllo negativo e lo dichiara (E-S0-20).
-    versione: ClassVar[int] = 14
+    #: letture di un controllo negativo e lo dichiara (E-S0-20). 15: con il
+    #: motivo conservato nullo la colonna frazione_motivo e' vuota. 16: il
+    #: primer puo' essere nullo (non si cerca, E-S0-21); una riga finale di
+    #: soli spazi in un file di letture e' un difetto di formato (E-S0-13).
+    versione: ClassVar[int] = 16
     #: I parametri con cui i gate producono i risultati di S0: l'inventario, il
     #: crosswalk, la scansione delle letture, gli esiti e le degradazioni.
     #: Ingressi e metadati per intero (io, meta); di ctrl la colonna, le tre
@@ -329,12 +338,14 @@ class ValidazioneIngressi(PipelineStep):
                 albero.scrivi_testo(
                     Fase.INPUT_VALIDATION,
                     NOME_LETTURE,
-                    _letture_tsv(gate.scansione, config.qc.head_reads),
+                    _letture_tsv(gate.scansione, config.qc.head_reads,
+                                 con_motivo=config.qc.conserved_motif is not None,
+                                 con_primer=config.qc.primer_sequence is not None),
                 )
             )
 
         # Gli avvisi di degradazione (E-S0-15 ed E-S0-19 da G08, E-S0-17 da G11,
-        # E-S0-18 da G10, E-S0-20 da G13) non fermano la
+        # E-S0-18 ed E-S0-21 da G10, E-S0-20 da G13) non fermano la
         # fase e finiscono nel suo manifesto; gli altri restano segnalazioni
         # nel log.
         for esito in esiti:

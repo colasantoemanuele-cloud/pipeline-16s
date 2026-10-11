@@ -1196,7 +1196,7 @@ def test_resume_con_un_digest_diverso_registra_accanto_senza_sovrascrivere(
     diversa = _scrivi_config(tmp_path / "c2.yaml", scenario.config, **senza_effetto)
     codice, uscita = _cli("resume", "--config", str(diversa), capsys=capsys)
     assert codice == 0 and registro == []  # nessuna fase rifatta
-    assert "registrata in resolved_2.yaml" in uscita
+    assert "salvata in 00_config/resolved_2.yaml" in uscita and "accanto" not in uscita
 
     prima, seconda = _registrate(scenario.config)
     assert versioni_registrate(scenario.config.io.out_root)[0].read_bytes() == originale

@@ -225,6 +225,11 @@ def main(argomenti: list[str] | None = None) -> int:
         try:
             prepara_corsa(riga, opzioni.cartella, attese, opzioni.tentativi, opzioni.pausa)
         except GUASTI as guasto:
+            # Il file forward di un tentativo precedente non e' conforme (lo si
+            # e' appena accertato) e la corsa non e' andata a buon fine: non
+            # resta dove la pipeline lo leggerebbe. Si ricava di nuovo dal
+            # deposito al prossimo avvio.
+            forward.unlink(missing_ok=True)
             mancanti.append(f"{riga['file']}: {type(guasto).__name__}: {guasto}")
             continue
         conformi += 1

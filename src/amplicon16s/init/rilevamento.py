@@ -21,7 +21,7 @@ import hashlib
 import re
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -218,6 +218,47 @@ def primer_nelle_letture(
         for k in range(len(elenco))
     ]
     return None, [(p, f) for p, f in parziali if f > 0.01]
+
+
+#: La quota di posizioni in cui la base piu' frequente di un file deve
+#: differire da quella della maggioranza dei file perche' il file dissenta: due
+#: regioni diverse dello stesso gene concordano per caso in circa un quarto
+#: delle posizioni, un file della stessa regione nella maggior parte.
+QUOTA_DI_DISSENSO = 0.5
+
+
+def file_che_dissentono(
+    ispezioni: Mapping[str, Ispezione], inizio: int, lunghezza: int
+) -> list[str]:
+    """I file le cui letture non iniziano come quelle della maggioranza dei file.
+
+    Per ogni file la base piu' frequente a ciascuna delle ``lunghezza``
+    posizioni da ``inizio``; il riferimento e', posizione per posizione, la
+    base scelta da piu' file (un voto per file, non per lettura: un file
+    profondo non decide per gli altri). Dissente il file che ne differisce in
+    piu' di :data:`QUOTA_DI_DISSENSO` delle posizioni. Un file di letture
+    inverse fra file di letture forward dissente: lasciato nel consenso
+    allargherebbe il motivo fino a comprenderlo. Se dissente la meta' dei file
+    o piu' non c'e' una maggioranza, e l'elenco e' vuoto.
+    """
+    prime: dict[str, list[str]] = {}
+    for nome, ispezione in ispezioni.items():
+        if ispezione.letture_nel_consenso and inizio + lunghezza <= len(ispezione.basi):
+            prime[nome] = [
+                max(sorted(conteggi), key=conteggi.get) if conteggi else "."
+                for conteggi in ispezione.basi[inizio:inizio + lunghezza]
+            ]
+    if len(prime) < 3:
+        return []
+    riferimento = [
+        Counter(basi[posizione] for basi in prime.values()).most_common(1)[0][0]
+        for posizione in range(lunghezza)
+    ]
+    dissentono = sorted(
+        nome for nome, basi in prime.items()
+        if sum(a != b for a, b in zip(basi, riferimento)) > QUOTA_DI_DISSENSO * lunghezza
+    )
+    return dissentono if 2 * len(dissentono) < len(prime) else []
 
 
 def motivo_dal_consenso(

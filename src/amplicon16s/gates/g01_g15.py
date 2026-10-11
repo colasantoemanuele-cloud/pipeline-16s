@@ -39,6 +39,7 @@ import os
 import re
 import shutil
 import statistics
+import zlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,7 +55,7 @@ from amplicon16s.config.schema import (
 )
 from amplicon16s.errors.catalog import CATALOGO, Categoria, VoceCatalogo, voce
 from amplicon16s.errors.exceptions import ErrorePipeline
-from amplicon16s.io_layer.reads import StatisticheFile, espandi_iupac, scansiona
+from amplicon16s.io_layer.reads import StatisticheFile, apri_fastq, espandi_iupac, scansiona
 from amplicon16s.metadata.crosswalk import Analisi, analizza
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione, Inventario
 from amplicon16s.metadata.tabelle import intestazione as _intestazione
@@ -755,10 +756,12 @@ class Contesto:
             # cerca, e il motivo conservato si cerca dove iniziera' la lettura
             # filtrata.
             taglio = self.config.filter.trimLeft
+            primer = self.config.qc.primer_sequence
             self._scansione = scansiona(
                 self.analisi.file_per_accession,
                 head_reads=self.config.qc.head_reads,
-                primer=espandi_iupac(self.config.qc.primer_sequence) if taglio == 0 else None,
+                # Un primer nullo non si cerca: non e' noto.
+                primer=espandi_iupac(primer) if taglio == 0 and primer is not None else None,
                 motivo=self.config.qc.conserved_motif,
                 inizio_motivo=taglio,
                 lunghezza_richiesta=self.config.filter.truncLen,
@@ -997,6 +1000,51 @@ def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Av
     return violazioni, []
 
 
+#: I ranghi a cui dada2::assignTaxonomy da' un nome (il suo argomento
+#: taxLevels: Kingdom, Phylum, Class, Order, Family, Genus, Species), per
+#: posizione: il secondo e' il phylum, oltre il settimo non c'e' un nome.
+RANGHI_CON_NOME: Final = 7
+POSIZIONE_DEL_PHYLUM: Final = 2
+
+#: Le intestazioni del riferimento che G12 ispeziona. Il gate gira a ogni
+#: avvio, e leggere per intero un riferimento di centinaia di migliaia di
+#: sequenze costa secondi: come per le letture, si guarda la testa del file.
+INTESTAZIONI_ISPEZIONATE: Final = 10_000
+
+
+def ranghi_non_individuabili(percorso: Path) -> str | None:
+    """Perche' nel riferimento il rango del phylum non si individua, o ``None``.
+
+    ``assignTaxonomy`` nomina i ranghi per posizione: serve che almeno una
+    sequenza ne abbia due, e che nessuna ne abbia piu' di quanti hanno un nome.
+    Si ispezionano le prime :data:`INTESTAZIONI_ISPEZIONATE` intestazioni; se
+    fra quelle nessuna arriva al phylum si prosegue fino in fondo, perche' il
+    rifiuto valga per il file intero.
+    """
+    viste = profondita = 0
+    with apri_fastq(percorso) as file:
+        for riga in file:
+            if not riga.startswith(">"):
+                continue
+            viste += 1
+            ranghi = len(riga[1:].strip().rstrip(";").split(";"))
+            if ranghi > RANGHI_CON_NOME:
+                return (f"la sequenza {viste} ha {ranghi} ranghi, piu' dei {RANGHI_CON_NOME} "
+                        f"a cui l'assegnazione da' un nome: {riga[1:].strip()[:120]!r}")
+            profondita = max(profondita, ranghi)
+            if viste >= INTESTAZIONI_ISPEZIONATE and profondita >= POSIZIONE_DEL_PHYLUM:
+                break
+    if viste == 0:
+        return "il file non contiene sequenze (nessuna riga comincia con '>')"
+    if profondita < POSIZIONE_DEL_PHYLUM:
+        return (f"le {viste} sequenze hanno un solo rango ciascuna: il secondo, il phylum, "
+                "manca")
+    return None
+
+
+#: Le colonne che S8 legge dall'elenco dei taxa difettosi del riferimento.
+COLONNE_DEI_TAXA_DIFETTOSI: Final = ("name", "rank")
+
 #: La frazione di letture che iniziano con il primer oltre la quale lo si
 #: considera in testa a tutte: sotto, e sopra qc.max_primer_hit_frac, e' in
 #: posizione variabile (distanziatori di eterogeneita'), e un taglio fisso non
@@ -1090,12 +1138,32 @@ def _g12_riferimento_verificato(contesto: Contesto) -> tuple[list[Violazione], l
     """Il database tassonomico esiste e il suo checksum e' quello dichiarato.
 
     Se ``tax.ref_bad_taxa`` indica l'elenco dei taxa difettosi del riferimento,
-    anche quel file deve esistere: S8 lo legge.
+    anche quel file deve esistere e avere la forma che S8 legge (una tabella
+    CSV con le colonne ``name`` e ``rank``): scoprirlo dopo l'assegnazione
+    tassonomica costerebbe la fase piu' lunga dopo l'inferenza.
     """
     config = contesto.config
     elenco = config.tax.ref_bad_taxa
-    if elenco is not None and not Path(elenco).is_file():
-        return [Violazione("E-S0-12", f"tax.ref_bad_taxa: {elenco} non esiste")], []
+    if elenco is not None:
+        if not Path(elenco).is_file():
+            return [Violazione("E-S0-12", f"tax.ref_bad_taxa: {elenco} non esiste")], []
+        try:
+            with open(elenco, encoding="utf-8", newline="") as file:
+                colonne = csv.DictReader(file).fieldnames or []
+        except (OSError, UnicodeDecodeError, csv.Error) as e:
+            return [Violazione(
+                "E-S0-12", f"tax.ref_bad_taxa: {elenco} non si legge come tabella CSV in "
+                           f"UTF-8 ({e})")], []
+        mancanti = [c for c in COLONNE_DEI_TAXA_DIFETTOSI if c not in colonne]
+        if mancanti:
+            return [Violazione(
+                "E-S0-12",
+                f"tax.ref_bad_taxa: {Path(elenco).name} non ha "
+                + ("la colonna " if len(mancanti) == 1 else "le colonne ")
+                + " e ".join(mancanti)
+                + f" (intestazione letta: {', '.join(colonne) or 'nessuna'}). Il file e' "
+                "una tabella CSV, con le virgole, in cui name e' il nome del taxon e rank "
+                "il rango a cui appartiene")], []
     percorso = Path(config.tax.ref_fasta)
 
     if not percorso.is_file():
@@ -1118,6 +1186,12 @@ def _g12_riferimento_verificato(contesto: Contesto) -> tuple[list[Violazione], l
                 f"dichiara {config.tax.ref_md5}",
             )
         ], []
+    try:
+        difetto = ranghi_non_individuabili(percorso)
+    except (OSError, EOFError, zlib.error, UnicodeDecodeError) as e:
+        difetto = f"il file non si legge come testo ({type(e).__name__}: {e})"
+    if difetto is not None:
+        return [Violazione("E-S0-22", f"tax.ref_fasta: {percorso.name}: {difetto}")], []
     return [], []
 
 
@@ -1351,10 +1425,21 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
         # filter.trimLeft, una volta corretto.
         return violazioni, avvisi
 
+    if config.qc.primer_sequence is None:
+        avvisi.append(
+            Avviso(
+                "E-S0-21",
+                "qc.primer_sequence e' nullo: nessun primer cercato in testa alle letture, "
+                "e qc.max_primer_hit_frac non ha effetto",
+            )
+        )
     if config.qc.conserved_motif is None:
         avvisi.append(
             Avviso(
                 "E-S0-18",
+                "qc.conserved_motif e' nullo: la presenza della regione amplificata non e' "
+                "verificata"
+                if config.qc.primer_sequence is None else
                 "qc.conserved_motif e' nullo: verificata la sola assenza del primer in "
                 "testa alle letture, non la presenza della regione amplificata",
             )

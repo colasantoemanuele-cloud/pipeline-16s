@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import os
 import statistics
 import tempfile
@@ -65,6 +66,17 @@ USCITA_RIFIUTO: Final = 3
 #: cella (un intero di R).
 _QUOTA_DI_MEMORIA: Final = 0.1
 _BYTE_PER_CELLA: Final = 4
+
+#: Il valore di partenza di qc.head_reads: le letture con cui la frazione
+#: misurata su un file (primer, motivo, letture corte) ha, nel caso peggiore di
+#: una frazione di 0,5, un intervallo di confidenza al 95% di semiampiezza non
+#: superiore a PRECISIONE_DELLE_FRAZIONI. Un punto percentuale e' un quinto del
+#: margine con cui il sottocomando soglie propone le soglie in frazione:
+#: l'errore di stima resta piccolo rispetto alla tolleranza.
+QUANTILE_NORMALE_95: Final = 1.96
+PRECISIONE_DELLE_FRAZIONI: Final = 0.01
+LETTURE_PER_UNA_FRAZIONE: Final = math.ceil(
+    (QUANTILE_NORMALE_95 * 0.5 / PRECISIONE_DELLE_FRAZIONI) ** 2)
 
 RILEVATO, INDICATO = Specie.RILEVATO, Specie.INDICATO
 PROPOSTO, SCELTA = Specie.PROPOSTO, Specie.DA_SCEGLIERE
@@ -634,28 +646,55 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
                    "sia il primer forward: da verificare; non e' nelle letture"),
                   ("sequenze trovate nei metadati: " + ", ".join(sequenze)) if len(sequenze) > 1 else "")
         else:
-            metti("qc.primer_sequence", SCELTA, SENZA_VALORE,
-                  "il primer forward non e' nelle letture e i metadati non ne dichiarano "
-                  "la sequenza: va indicato quello usato per l'amplificazione",
+            metti("qc.primer_sequence", SCELTA, None,
+                  "partenza: nullo, perche' il primer forward non e' nelle letture e i "
+                  "metadati non ne riportano la sequenza. Con il primer nullo la validazione "
+                  "non cerca alcun primer in testa alle letture. Se il primer e' noto, "
+                  "rilancia init con --primer SEQUENZA: init propone allora anche il motivo "
+                  "conservato",
                   ("i metadati riportano sequenze senza dire quale sia il forward: "
                    + ", ".join(sequenze)) if sequenze else "",
-                  ("i metadati nominano un primer senza riportarne la sequenza; quelle che "
+                  ("i metadati nominano un primer senza riportarne la sequenza; le forme che "
                    "init conosce con quel nome: "
                    + "; ".join(f"{p.nome} {p.sequenza} ({p.fonte})" for p in nominati)
-                   + ". Se e' una di queste, scrivila qui o rilancia init con --primer")
+                   + ". Come scegliere fra piu' forme: GUIDA.md, sezione 6.3")
                   if nominati else "")
             non_indovinati.append(
-                "qc.primer_sequence: il primer forward non e' nelle letture ne' nei metadati.")
+                "qc.primer_sequence: il primer forward non e' nelle letture, e i metadati "
+                + ("lo nominano senza riportarne la sequenza." if nominati else
+                   "non ne riportano la sequenza."))
     motivo = None
+    dissentono: list[str] = []
     if primer_noto is not None:
-        motivo = r.motivo_dal_consenso(da_considerare, taglio, len(primer_noto))
+        # I file che non iniziano come la maggioranza escono dal consenso: un
+        # file di letture inverse lo allargherebbe fino a comprendere se stesso.
+        dissentono = r.file_che_dissentono(
+            {n: i for n, i in ispezioni.items() if any(i is c for c in da_considerare)},
+            taglio, len(primer_noto))
+        motivo = r.motivo_dal_consenso(
+            [i for n, i in ispezioni.items()
+             if any(i is c for c in da_considerare) and n not in dissentono],
+            taglio, len(primer_noto))
+    elenco_diversi = ", ".join(dissentono[:5]) + ("..." if len(dissentono) > 5 else "")
+    quanti_diversi = (
+        "1 file non inizia come gli altri ed e' escluso" if len(dissentono) == 1 else
+        f"{len(dissentono)} file non iniziano come gli altri e sono esclusi")
+    diversi = (
+        f"attenzione: {quanti_diversi} dal consenso ({elenco_diversi}): da guardare prima "
+        "di eseguire. Puo' contenere le letture inverse di una corsa appaiata, un'altra "
+        "regione, o un campione dominato da sequenze fuori bersaglio"
+    ) if dissentono else ""
+    if dissentono:
+        note.append(
+            f"{quanti_diversi} dal consenso del motivo ({elenco_diversi}): da guardare "
+            "(letture inverse, un'altra regione, sequenze fuori bersaglio).")
     if motivo is not None:
         metti("qc.conserved_motif", PROPOSTO, motivo,
               f"il consenso delle {len(primer_noto or '')} basi "
               + ("che seguono il primer" if taglio else "con cui iniziano le letture")
               + f", su non piu' di {r.LETTURE_PER_IL_MOTIVO} letture per file: una base o "
               f"una coppia di basi dove copre almeno il {r.SOGLIA_BASE_DEL_MOTIVO:.0%} delle letture",
-              "validate ne misura la frequenza con qc.min_motif_frac", senza_negativi)
+              "validate ne misura la frequenza con qc.min_motif_frac", senza_negativi, diversi)
     else:
         metti("qc.conserved_motif", SCELTA, None,
               "partenza: nullo (si verifica la sola assenza del primer). "
@@ -742,9 +781,19 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
     # ---- Scelte di analisi: valori di partenza -----------------------------------
     letture = [i.statistiche.letture_esaminate for i in ispezioni.values() if i.statistiche.valido]
     mediana = int(statistics.median(letture)) if letture else 0
-    metti("qc.head_reads", SCELTA, SENZA_VALORE,
-          "letture ispezionate per file dalla validazione: abbastanza da rappresentare il "
-          "file, poche abbastanza da validare in minuti",
+    # Con ogni file letto per intero il file piu' grande limita il valore: uno
+    # maggiore leggerebbe comunque tutte le letture di ogni file.
+    intere = args.head_reads is None and bool(letture)
+    ispezionate = min(LETTURE_PER_UNA_FRAZIONE, max(letture)) if intere else LETTURE_PER_UNA_FRAZIONE
+    metti("qc.head_reads", SCELTA, ispezionate,
+          "partenza: "
+          + (f"le letture del file piu' grande ({max(letture)}), meno delle "
+             f"{LETTURE_PER_UNA_FRAZIONE} con cui" if intere and ispezionate < LETTURE_PER_UNA_FRAZIONE
+             else "le letture con cui")
+          + " una frazione misurata su un file ha un intervallo di confidenza al "
+          f"95% di non oltre {PRECISIONE_DELLE_FRAZIONI:.0%} in piu' o in meno; non e' una scelta "
+          "scientifica: con piu' letture la validazione dura di piu' e le frazioni sono "
+          "piu' precise",
           (f"il file mediano ha {mediana} letture: un valore pari o superiore legge quel "
            "file per intero") if args.head_reads is None else
           f"init ha ispezionato le prime {args.head_reads} letture di ogni file")

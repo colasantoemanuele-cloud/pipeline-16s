@@ -31,6 +31,7 @@ import yaml
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     StrictBool,
@@ -83,6 +84,40 @@ def _regex_valida(valore: str) -> str:
     return valore
 
 
+#: I costrutti di un'espressione regolare le cui lettere non sono basi: le
+#: sequenze con la barra rovesciata (``\d``, ``\x41``), i gruppi con nome, con
+#: opzioni o condizionali (``(?P<nome>``, ``(?P=nome)``, ``(?i)``, ``(?(1)``).
+_LETTERE_NON_BASI: Final = re.compile(
+    r"\\.|\(\?P<\w+>|\(\?P=\w+\)|\(\?[aiLmsux-]+[:)]|\(\?\(\w+\)")
+#: Quelli in cui portare in maiuscolo le altre lettere non e' sicuro: i gruppi
+#: di cui sopra e le sequenze con argomento (``\x41``, ``\N{...}``, ``\g<nome>``).
+_COSTRUTTI_CON_LETTERE: Final = re.compile(r"\(\?[A-Za-z(]|\\[xuUNgk]")
+
+
+def _motivo_in_maiuscolo(valore: str) -> str:
+    r"""Porta in maiuscolo le basi di un motivo scritto in minuscolo.
+
+    Le letture sono in maiuscolo: un motivo in minuscolo non corrisponderebbe
+    mai. Una lettera preceduta da una barra rovesciata non e' una base (``\d``,
+    ``\s``, ``\w``, ``\b`` in maiuscolo sono i loro opposti) e resta com'e'. Se
+    l'espressione ha basi in minuscolo e un costrutto in cui la regola non e'
+    sicura, si respinge: le basi vanno scritte in maiuscolo da chi la conosce.
+    Un'espressione senza basi in minuscolo resta identica.
+    """
+    basi = _LETTERE_NON_BASI.sub("", valore)
+    if basi == basi.upper():
+        return valore
+    if _COSTRUTTI_CON_LETTERE.search(valore):
+        raise ValueError(
+            "l'espressione ha lettere minuscole e un costrutto (un gruppo con nome o con "
+            "opzioni, una sequenza con argomento) in cui non si possono portare in "
+            "maiuscolo senza cambiarne il significato: scrivi le basi in maiuscolo, perche' "
+            "le letture lo sono"
+        )
+    return _regex_valida(re.sub(
+        r"\\.|[a-z]", lambda t: t.group() if t.group()[0] == "\\" else t.group().upper(), valore))
+
+
 def _glob_di_soli_nomi(valore: str) -> str:
     """Rifiuta un modello con un separatore di percorso: i file di letture si
     cercano nella sola cartella ``io.fastq_dir``.
@@ -103,10 +138,24 @@ StringaNonVuota = Annotated[str, Field(min_length=1)]
 # (un solo thread, un lotto di un campione, zero controlli richiesti).
 InteroPositivo = Annotated[int, Field(gt=0, strict=True)]
 InteroNonNegativo = Annotated[int, Field(ge=0, strict=True)]
+def _non_booleano(valore: Any) -> Any:
+    """Rifiuta ``true`` e ``false`` dove serve un numero.
+
+    YAML li legge come booleani, che per Python sono 1 e 0: una soglia scritta
+    ``true`` varrebbe 1 senza alcun messaggio.
+    """
+    if isinstance(valore, bool):
+        raise ValueError("deve essere un numero, non true o false")
+    return valore
+
+
 # Finiti: un infinito non si scrive nel JSON con cui i parametri arrivano a R,
 # e la prima fase che lo riceve si fermerebbe con un errore fuori catalogo.
-RealePositivo = Annotated[float, Field(gt=0, allow_inf_nan=False)]
-Frazione = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)]
+# Il rifiuto dei booleani viene dopo i vincoli nell'annotazione: cosi' lo
+# schema JSON del parametro resta quello di un numero con il suo intervallo.
+NonBooleano = BeforeValidator(_non_booleano)
+RealePositivo = Annotated[float, Field(gt=0, allow_inf_nan=False), NonBooleano]
+Frazione = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False), NonBooleano]
 ElencoNonVuoto = Annotated[list[StringaNonVuota], Field(min_length=1)]
 
 #: Riferimento a un'immagine container ancorata per digest. Un tag può essere
@@ -365,7 +414,7 @@ class Chimera(_Gruppo):
     # Obbligatorio: quanto un genitore deve essere piu' abbondante della
     # chimera. Il predefinito del pacchetto dipende dal metodo e dalla
     # versione, e il valore adatto dalla profondita' dei campioni.
-    min_fold_parent_over_abundance: Annotated[float, Field(ge=1.0)] = Field(description=(
+    min_fold_parent_over_abundance: Annotated[float, Field(ge=1.0), NonBooleano] = Field(description=(
         "Quanto un genitore deve essere piu' abbondante di una variante perche' questa "
         "possa essere giudicata chimerica (dada2, minFoldParentOverAbundance)."))
     min_parent_abundance: InteroPositivo = Field(
@@ -592,7 +641,7 @@ class Katharoseq(_Gruppo):
         d.KATHAROSEQ_CURVE_MODEL, description=(
             "Forma della curva di calibrazione: la sola realizzata."))
     # Strettamente fra 0 e 1: a fedelta' 1 la profondita' richiesta e' infinita.
-    target_sensitivity: Annotated[float, Field(gt=0.0, lt=1.0)] | None = Field(
+    target_sensitivity: Annotated[float, Field(gt=0.0, lt=1.0), NonBooleano] | None = Field(
         None, description=(
             "Fedelta' (frazione delle letture del controllo sul taxon atteso) a cui si "
             "legge sulla curva la profondita' minima dei campioni. Serve solo con "
@@ -720,12 +769,16 @@ class Qc(_Gruppo):
         "mediana dei campioni biologici e dei controlli positivi (E-S0-16)."))
     # Obbligatori: dipendono dalla regione amplificata. Il motivo puo' essere
     # nullo, per una regione senza un motivo noto: G10 verifica allora la sola
-    # assenza del primer.
-    primer_sequence: SequenzaIupac = Field(description=(
-        "Primer di amplificazione forward, in codici IUPAC."))
-    conserved_motif: Regex | None = Field(description=(
-        "Motivo conservato atteso all'inizio della regione amplificata, come "
-        "espressione regolare. Nullo: si verifica la sola assenza del primer."))
+    # assenza del primer. Anche il primer puo' essere nullo, se non e' noto:
+    # G10 non cerca allora alcun primer, e lo dichiara.
+    primer_sequence: SequenzaIupac | None = Field(description=(
+        "Primer di amplificazione forward, in codici IUPAC. Nullo: la validazione "
+        "non cerca alcun primer in testa alle letture."))
+    conserved_motif: Annotated[Regex, AfterValidator(_motivo_in_maiuscolo)] | None = Field(
+        description=(
+            "Motivo conservato atteso all'inizio della regione amplificata, come "
+            "espressione regolare sulle basi in maiuscolo. Nullo: si verifica la sola "
+            "assenza del primer."))
 
     @model_validator(mode="before")
     @classmethod

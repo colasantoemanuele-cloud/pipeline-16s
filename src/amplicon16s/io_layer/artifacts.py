@@ -32,9 +32,11 @@ file troncato con il nome definitivo. Il lato R fa lo stesso
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -85,7 +87,7 @@ def scrivi_atomico(percorso: Path, contenuto: str | bytes) -> None:
     o a un container avviato con un altro utente.
     """
     dati = contenuto.encode("utf-8") if isinstance(contenuto, str) else contenuto
-    descrittore, temporaneo = tempfile.mkstemp(prefix=".scrittura-", dir=percorso.parent)
+    descrittore, temporaneo = tempfile.mkstemp(prefix=PREFISSO_SCRITTURA, dir=percorso.parent)
     try:
         os.fchmod(descrittore, PERMESSI_DEI_FILE)
         with os.fdopen(descrittore, "wb") as file:
@@ -94,6 +96,92 @@ def scrivi_atomico(percorso: Path, contenuto: str | bytes) -> None:
     except BaseException:
         Path(temporaneo).unlink(missing_ok=True)
         raise
+
+
+#: Il prefisso di cio' che una scrittura in corso lascia nella cartella di
+#: uscita: il file temporaneo di una scrittura atomica, la cartella delle copie
+#: di lavoro di una fase. A scrittura conclusa non ne resta nulla.
+PREFISSO_SCRITTURA: Final = ".scrittura-"
+
+#: Il file su cui le esecuzioni di una cartella di uscita si coordinano.
+NOME_BLOCCO: Final = "esecuzione.blocco"
+
+
+def togli_scritture_interrotte(radice: Path) -> list[Path]:
+    """Toglie dalla cartella di uscita cio' che un'esecuzione interrotta ha
+    lasciato a meta' (:data:`PREFISSO_SCRITTURA`), e restituisce cio' che ha
+    tolto. Va chiamata solo quando nessun'altra esecuzione scrive nella
+    cartella (:class:`BloccoEsecuzione`).
+    """
+    tolti = []
+    for percorso in sorted(radice.rglob(PREFISSO_SCRITTURA + "*")):
+        if not percorso.exists():   # dentro una cartella gia' tolta
+            continue
+        if percorso.is_dir():
+            shutil.rmtree(percorso, ignore_errors=True)
+        else:
+            percorso.unlink(missing_ok=True)
+        tolti.append(percorso)
+    return tolti
+
+
+class BloccoEsecuzione:
+    """Il blocco con cui le esecuzioni di una stessa cartella di uscita si
+    coordinano, per la sola pulizia dei file lasciati da un'interruzione.
+
+    Ogni esecuzione tiene il blocco in forma condivisa finche' dura. All'avvio
+    prova a prenderlo in forma esclusiva: se ci riesce nessun'altra esecuzione
+    sta scrivendo nella cartella, e cio' che porta il prefisso delle scritture
+    in corso e' il resto di un'interruzione; se non ci riesce, quei file possono
+    essere di chi sta scrivendo, e non si toccano. Dove il filesystem non
+    realizza i blocchi non si blocca e non si pulisce.
+
+    Razionale sistemistico: il blocco e' del sistema operativo e si scioglie da
+    solo se il processo muore; non e' un file da cancellare a mano.
+    """
+
+    def __init__(self, cartella: Path) -> None:
+        self._percorso = cartella / NOME_BLOCCO
+        self._descrittore: int | None = None
+
+    def prendi(self, se_da_soli: Callable[[], None]) -> bool:
+        """Prende il blocco; se nessun altro lo tiene esegue ``se_da_soli``
+        prima di condividerlo. Restituisce vero se era da solo.
+        """
+        try:
+            self._percorso.parent.mkdir(parents=True, exist_ok=True)
+            self._descrittore = os.open(self._percorso, os.O_RDWR | os.O_CREAT, PERMESSI_DEI_FILE)
+        except OSError:
+            return False
+        try:
+            fcntl.flock(self._descrittore, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            # Un'altra esecuzione lo tiene: ci si accoda in forma condivisa.
+            self._condividi()
+            return False
+        except OSError:
+            self.rilascia()
+            return False
+        try:
+            se_da_soli()
+        finally:
+            self._condividi()
+        return True
+
+    def _condividi(self) -> None:
+        try:
+            fcntl.flock(self._descrittore, fcntl.LOCK_SH)
+        except OSError:
+            self.rilascia()
+
+    def rilascia(self) -> None:
+        """Scioglie il blocco."""
+        if self._descrittore is not None:
+            try:
+                os.close(self._descrittore)
+            except OSError:
+                pass
+            self._descrittore = None
 
 
 def nome_manifesto_passo(passo: str) -> str:

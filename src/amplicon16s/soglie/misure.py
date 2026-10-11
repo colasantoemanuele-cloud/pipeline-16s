@@ -41,6 +41,7 @@ from amplicon16s.steps.s01_profile import NOME_RIEPILOGO as RIEPILOGO_PROFILO
 from amplicon16s.steps.s05_seqtab import NOME_RIEPILOGO as RIEPILOGO_TABELLA
 from amplicon16s.steps.s06_chimera import NOME_RIEPILOGO as RIEPILOGO_CHIMERE
 from amplicon16s.steps.s08_taxonomy import NOME_RIEPILOGO as RIEPILOGO_TASSONOMIA
+from amplicon16s.steps.s11_controls import NOME_RIEPILOGO as RIEPILOGO_CONTROLLI
 from amplicon16s.steps.s12_decontam import NOME_RIEPILOGO as RIEPILOGO_DECONTAM
 from amplicon16s.steps.s13_filtri import NOME_RIEPILOGO as RIEPILOGO_FILTRI
 
@@ -349,6 +350,19 @@ def _contaminanti(radice: Path, valori: Mapping[str, Any]) -> Misura:
     return Misura(_frazione(rimossa), statistica, relativo)
 
 
+def _conformi(radice: Path, valori: Mapping[str, Any]) -> Misura:
+    relativo = f"{Fase.CONTROLS.value}/{RIEPILOGO_CONTROLLI}"
+    statistica = "frazione dei controlli positivi valutabili conformi al loro livello"
+    motivo = non_eseguito(soglia("ctrl.min_positive_pass_frac"), valori)
+    if motivo is not None:
+        return Misura(None, statistica, relativo, assente=motivo)
+    frazione = _campo(_json(radice, relativo), relativo, "frazione_conformi")
+    if frazione is None:
+        return Misura(None, statistica, relativo,
+                      assente="nessun controllo positivo valutabile")
+    return Misura(_frazione(frazione), statistica, relativo)
+
+
 def _trattenute(radice: Path) -> Misura:
     relativo = f"{Fase.FINAL.value}/{_INTERMEDI}/{RIEPILOGO_FILTRI}"
     letture = _campo(_json(radice, relativo), relativo, "letture")
@@ -393,6 +407,7 @@ def _leggi(radice: Path, valori: Mapping[str, Any]) -> dict[str, Misura]:
         "qc.warn_frac_chimeric": chimere,
         "qc.stop_frac_chimeric": chimere,
         "qc.min_frac_phylum": _phylum(radice),
+        "ctrl.min_positive_pass_frac": _conformi(radice, valori),
         "qc.max_frac_contaminant": _contaminanti(radice, valori),
         "qc.min_frac_reads_retained": _trattenute(radice),
     }

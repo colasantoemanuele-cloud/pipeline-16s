@@ -83,6 +83,7 @@ PROPOSTA: Final = "proposta"
 TENUTA: Final = "tenuta"
 SENZA_MISURA: Final = "senza_misura"
 NON_LEGGIBILE: Final = "esclusa"
+NON_PROPOSTA: Final = "non_proposta"
 OMESSA: Final = "omessa"
 
 _AVVERTENZA: Final = (
@@ -176,6 +177,10 @@ def proponi(voce: Soglia, misura: Misura, configurazione: Any, al_limite: int | 
     if configurazione is None:
         return Esito(voce, OMESSA, misura, None,
                      regola="condizionale non pertinente: resta omessa")
+    if voce.non_proposta is not None:
+        return Esito(voce, NON_PROPOSTA, misura, configurazione, valore=configurazione,
+                     regola=f"non proposta: {voce.non_proposta}",
+                     note=(misura.assente,) if misura.assente else ())
     if misura.valore is None:
         if misura.non_leggibile is not None:
             return Esito(voce, NON_LEGGIBILE, misura, configurazione, valore=configurazione,
@@ -200,8 +205,7 @@ def proponi(voce: Soglia, misura: Misura, configurazione: Any, al_limite: int | 
     letta_rispettata = usata >= misura.valore if massima else usata <= misura.valore
     if voce.ferma and not usata_spenta and letta_rispettata:
         peggiore = min(peggiore, usata) if massima else max(peggiore, usata)
-    margine = (peggiore * Fraction(voce.margine) if voce.margine_proporzionale
-               else Fraction(voce.margine))
+    margine = Fraction(voce.margine)
     suggerito = _verso_l_esterno(peggiore + segno * margine, voce)
     if al_limite is not None and oltre_il_limite(voce, suggerito, al_limite):
         if suggerito != al_limite:
@@ -302,6 +306,8 @@ def _righe_di_commento(esito: Esito, attive: bool, rientro: str) -> list[str]:
     elif esito.esito == TENUTA:
         testo = (f"{_NOSTRO} {esito.regola}; {_testo_misura(esito)}; suggerimento "
                  f"{valore_yaml(esito.suggerito)}.")
+    elif esito.esito == NON_PROPOSTA:
+        testo = f"{_NOSTRO} {esito.regola}; {_testo_misura(esito)}."
     else:
         testo = f"{_NOSTRO} {esito.regola}."
     righe = _commento(testo, rientro)
@@ -574,6 +580,12 @@ def _riga_console(esito: Esito) -> list[str]:
         che = "senza misura" if esito.esito == SENZA_MISURA else "esclusa"
         return [testa + f"{che}, resta {valore_yaml(esito.configurazione)}",
                 *[f"      {n}" for n in esito.note if n]]
+    if esito.esito == NON_PROPOSTA:
+        misurata = "" if esito.misura is None or esito.misura.valore is None else (
+            f"misura {_numero(esito.misura.valore, esito.voce)}, ")
+        return [testa + f"{misurata}resta {valore_yaml(esito.configurazione)}"
+                + (" [CONTROLLO SPENTO]" if esito.spento else ""),
+                f"      {esito.regola}", *[f"      {n}" for n in esito.note if n]]
     misura = esito.misura
     assert misura is not None and misura.valore is not None
     righe = [

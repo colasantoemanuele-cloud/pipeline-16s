@@ -509,11 +509,14 @@ qc:
   ## guardare: frazione di varianti con il phylum assegnato, nel report
   # min_frac_phylum:
   ## Letture ispezionate per file dalla validazione iniziale.
-  ## [DA SCEGLIERE] letture ispezionate per file dalla validazione: abbastanza
-  ## da rappresentare il file, poche abbastanza da validare in minuti
+  ## [DA SCEGLIERE] partenza: le letture del file piu' grande (120), meno
+  ## delle 9604 con cui una frazione misurata su un file ha un intervallo di
+  ## confidenza al 95% di non oltre 1% in piu' o in meno; non e' una scelta
+  ## scientifica: con piu' letture la validazione dura di piu' e le frazioni
+  ## sono piu' precise
   ## il file mediano ha 120 letture: un valore pari o superiore legge quel
   ## file per intero
-  # head_reads:
+  # head_reads: 120
   ## Frazione di letture che iniziano con il primer oltre la quale lo si
   ## considera presente (E-S0-10).
   ## [DA SCEGLIERE] soglia di qualita' da fissare sui propri dati; misura da
@@ -525,13 +528,15 @@ qc:
   ## [DA SCEGLIERE] soglia di qualita' da fissare sui propri dati; misura da
   ## guardare: frazione di letture con il motivo, nello stesso file
   # min_motif_frac:
-  ## Primer di amplificazione forward, in codici IUPAC.
+  ## Primer di amplificazione forward, in codici IUPAC. Nullo: la validazione
+  ## non cerca alcun primer in testa alle letture.
   ## [RILEVATO] primer 341F (Klindworth et al. 2013, Nucleic Acids Res 41:e1
   ## (V3-V4)), in testa alle letture di ogni file: dal 95% al 100% delle
   ## letture, su tutte le letture
   primer_sequence: "CCTACGGGNGGCWGCAG"
   ## Motivo conservato atteso all'inizio della regione amplificata, come
-  ## espressione regolare. Nullo: si verifica la sola assenza del primer.
+  ## espressione regolare sulle basi in maiuscolo. Nullo: si verifica la sola
+  ## assenza del primer.
   ## [PROPOSTO] il consenso delle 17 basi che seguono il primer, su non piu'
   ## di 2000 letture per file: una base o una coppia di basi dove copre almeno
   ## il 90% delle letture

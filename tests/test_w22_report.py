@@ -129,7 +129,7 @@ from amplicon16s.config import defaults
 from amplicon16s.config.resolve import parametri_dichiarati, risolvi
 from amplicon16s.config.schema import Config, carica
 from amplicon16s.errors.exceptions import errore
-from amplicon16s.io_layer.artifacts import Fase
+from amplicon16s.io_layer.artifacts import NOME_BLOCCO, Fase
 from amplicon16s.logging.logger import NOME_FILE_AVVII, NOME_FILE_LOG, chiudi, configura
 from amplicon16s.report.builder import CARTELLA_REPORT, CARTELLA_TABELLE, NOME_REPORT, costruisci, genera
 from amplicon16s.runner.executor import EVENTO_CONTROLLI, _blocco_r
@@ -373,8 +373,10 @@ def test_il_report_mostra_tutte_le_riprese_anche_con_il_log_ruotato(
 
     radice = Path(scenario.config.io.out_root)
     cartella = radice / Fase.LOGS.value
+    # Oltre al log e al registro degli avvii, il file su cui le esecuzioni
+    # della cartella si coordinano: non e' un artefatto.
     assert sorted(p.name for p in cartella.iterdir()) == [
-        NOME_FILE_AVVII, NOME_FILE_LOG, f"{NOME_FILE_LOG}.1",
+        NOME_FILE_AVVII, NOME_BLOCCO, NOME_FILE_LOG, f"{NOME_FILE_LOG}.1",
     ]
     nel_log = [
         json.loads(riga)

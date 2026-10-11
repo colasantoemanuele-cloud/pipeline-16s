@@ -82,6 +82,12 @@ def prepara(descrizione: dict[str, Any]) -> tuple[dict[str, Voce], list[str]]:
     albero = descrizione["albero"]
     fatti = [
         f"Oggetto: {descrizione['campioni']} campioni, {descrizione['varianti']} varianti.",
+        # Tutte le colonne, non solo le candidate: una variabile continua o il
+        # soggetto di un disegno a misure ripetute si scelgono fra queste.
+        "Colonne della tabella dei campioni (valori distinti; «numerica» se tutti i valori "
+        "sono numeri): " + ", ".join(
+            f"{c['nome']} ({c['distinti']}{', numerica' if c['numerica'] else ''})"
+            for c in colonne) + ".",
         "Ranghi tassonomici (quota di varianti assegnate): "
         + ", ".join(f"{r['rango']} {r['quota_assegnata']:.2f}" for r in ranghi) + ".",
         "Albero filogenetico: " + (
@@ -93,10 +99,22 @@ def prepara(descrizione: dict[str, Any]) -> tuple[dict[str, Voce], list[str]]:
     # Variabile biologica: proposta solo se una sola colonna ha gruppi ripetuti.
     # Il numero di gruppi non dice quale colonna lo studio confronta: una
     # coordinata di laboratorio si ripete quanto un fattore sperimentale.
+    # Una colonna che sembra una misura non e' candidata a variabile
+    # categorica: si propone come variabile continua.
+    continue_ = sorted(
+        c["nome"] for c in colonne
+        if c["nome"] not in _TECNICHE + _NON_VARIABILI and _sembra_continua(c))
     candidate = sorted(
         (c for c in colonne
-         if c["nome"] not in _TECNICHE + _NON_VARIABILI and c["gruppi_ripetuti"] >= 2),
+         if c["nome"] not in _TECNICHE + _NON_VARIABILI and c["gruppi_ripetuti"] >= 2
+         and c["nome"] not in continue_),
         key=lambda c: c["nome"])
+    if continue_:
+        metti("design.continuous_variables", PROPOSTO, continue_,
+              "le colonne con valori tutti numerici, almeno 10 distinti e distinti in "
+              "almeno l'80% dei campioni con un valore: misure, non gruppi. Per ciascuna "
+              "l'analisi calcola la correlazione con l'alfa diversita' e una PERMANOVA con "
+              "un termine numerico")
     if len(candidate) == 1:
         sola = candidate[0]
         metti("design.variable", PROPOSTO, sola["nome"],
@@ -263,6 +281,12 @@ def testo_yaml(
                 elenco, metodi = CONDIZIONALI[chiave]
                 righe += commento(f"[CONDIZIONALE] solo se {elenco} comprende "
                                   + " o ".join(metodi))
+            if voce is None and chiave in CONDIZIONALI:
+                # Senza una proposta il condizionale non ha un valore da
+                # mostrare: il nullo dello schema e' la sua assenza, e scritto
+                # sembrerebbe una scelta.
+                righe.append(f"  # {nome}:")
+                continue
             if voce is None:
                 predefinito = campo.get_default(call_default_factory=True)
                 if chiave in STANDARD_DEL_METODO:

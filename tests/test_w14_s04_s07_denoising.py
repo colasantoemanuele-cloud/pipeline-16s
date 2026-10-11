@@ -622,3 +622,59 @@ def test_s4_s7_sul_dataset_completo(dada2, catena_reale):
     for campione, letture in tracciamento.letture.items():
         conteggi = [letture[p] for p in tracciamento.passi if p in letture]
         assert conteggi == sorted(conteggi, reverse=True), campione
+
+
+def test_se_la_seconda_passata_non_si_stima_il_messaggio_ne_riporta_la_causa(dada2, tmp_path):
+    """
+    **Obiettivo**: Provocare davvero, su un dataset sintetico, la condizione in
+    cui la prima passata dell'inferenza riesce e il modello d'errore della
+    seconda non si stima: S0-S3 si eseguono sulle letture generate, poi le
+    letture filtrate che S4 legge sono rese a qualita' uniforme, cosi' che le
+    transizioni accumulate dalla prima passata abbiano un solo valore di
+    qualita'. Verificare che S4 si fermi, che il messaggio nomini la seconda
+    passata, il modello, le transizioni osservate e la causa riportata dalla
+    funzione di stima, e che la fase non risulti conclusa.
+
+    **Razionale scientifico e sistemistico**: La stima della seconda passata
+    fallisce per cio' che la prima ha accumulato. In una catena integra S3 si
+    fermerebbe prima sulle stesse letture, quindi la condizione si ottiene
+    alterando le letture filtrate dopo S3: il codice eseguito e' quello vero
+    (dada2, la funzione d'errore, lo script della fase), non il suo testo.
+    """
+    import gzip
+
+    import sintetico
+
+    from amplicon16s.errors.exceptions import ErrorePipeline
+
+    dataset = sintetico.genera(tmp_path / "dati", biologici=4, negativi=0, letture=800)
+    config = valida(sintetico.configurazione(
+        dataset, tmp_path / "out", err={"error_function": "loess_monotono"},
+        dada={"pool": "pseudo"}))
+    run = ProjectRun(config)
+    assert Esecutore(run, fino_a=Passo.S3).esegui().conclusione is Conclusione.COMPLETATA
+    chiudi()
+    # Il contesto si prende prima di toccare le letture filtrate: le fasi a
+    # monte risultano concluse, com'erano.
+    contesto = run.contesto(Passo.S4, run.valuta())
+    filtrate = sorted(run.albero.cartella(Fase.FILTERED).glob("*_filt.fastq.gz"))
+    assert len(filtrate) == 4
+    for percorso in filtrate:
+        with gzip.open(percorso, "rt", encoding="ascii") as file:
+            righe = file.read().splitlines()
+        for i in range(3, len(righe), 4):
+            righe[i] = "I" * len(righe[i])
+        with gzip.open(percorso, "wt", encoding="ascii") as file:
+            file.write("\n".join(righe) + "\n")
+
+    with pytest.raises(ErrorePipeline) as fermata:
+        run.fase(Passo.S4).esegui(contesto)
+    chiudi()
+    dettaglio = fermata.value.dettaglio or ""
+    assert "il modello d'errore della seconda passata non si stima" in dettaglio
+    assert "transizioni della prima passata per modello_" in dettaglio
+    assert "transizioni osservate" in dettaglio
+    # La causa e' quella della funzione di stima, non un errore generico.
+    assert "loess_monotono: 1 valori di qualita' osservati" in dettaglio
+    assert "ne servono almeno due" in dettaglio
+    assert run.albero.manifesto_passo(Passo.S4, Fase.ASV_INFERENCE) is None

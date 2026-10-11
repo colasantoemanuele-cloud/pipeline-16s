@@ -118,7 +118,13 @@ from typing import ClassVar
 
 import pytest
 from conftest import NEGATIVO, POSITIVO, Campione, copia_esecuzione, crea_scenario
-from sottoinsieme import RIFERIMENTO, config_ridotta, attesi_dataset, motivo_pacchetti_r_assenti
+from sottoinsieme import (
+    RIFERIMENTO,
+    attesi_dataset,
+    config_ridotta,
+    motivo_pacchetti_r_assenti,
+    riferimento_con_linee,
+)
 
 from amplicon16s.config.schema import valida
 from amplicon16s.errors.catalog import Categoria
@@ -143,7 +149,7 @@ from amplicon16s.runner.provenienza import (
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
 from amplicon16s.steps.s00_validate import ValidazioneIngressi, impronta_dati_grezzi
 from amplicon16s.steps.s04_dada import InferenzaVarianti
-from amplicon16s.steps.s08_taxonomy import controlla_copertura, marca_difetti
+from amplicon16s.steps.s08_taxonomy import assegnato, controlla_copertura, marca_difetti
 
 
 @pytest.fixture(autouse=True)
@@ -525,7 +531,7 @@ def test_s0_non_dipende_dal_riferimento_tassonomico(tmp_path):
     assert not any(p.startswith("tax") for p in ValidazioneIngressi.parametri)
     config = config_ridotta(tmp_path)
     altro = tmp_path / "altro.fa.gz"
-    altro.write_bytes(b">Bacteria;\nACGT\n")
+    altro.write_bytes(b">Bacteria;Phylum_di_prova;\nACGT\n")
     dati = config.model_dump(mode="python")
     dati["tax"].update(ref_fasta=str(altro), ref_md5=hashlib.md5(altro.read_bytes()).hexdigest())
     assert impronta_dati_grezzi(valida(dati)) == impronta_dati_grezzi(config)
@@ -543,7 +549,7 @@ def test_cambiare_il_riferimento_lascia_concluse_s0(tmp_path):
     run = ProjectRun(scenario.config, passi={Passo.S0: ValidazioneIngressi()})
     assert Esecutore(run, fino_a=Passo.S0).esegui().conclusione is Conclusione.COMPLETATA
     altro = tmp_path / "altro.fa.gz"
-    altro.write_bytes(b">Bacteria;\nTTTT\n")
+    altro.write_bytes(b">Bacteria;Phylum_di_prova;\nTTTT\n")
     dati = scenario.config.model_dump(mode="python")
     dati["tax"].update(ref_fasta=str(altro), ref_md5=hashlib.md5(altro.read_bytes()).hexdigest())
     cambiata = ProjectRun(valida(dati), passi={Passo.S0: ValidazioneIngressi()})
@@ -852,3 +858,149 @@ def test_s8_sul_dataset_completo_e_variovorax_nei_controlli_positivi(dada2, cate
             if n.rsplit(".", 1)[1] in concentrati["suffissi"]}
     assert len(alti) == concentrati["numero"]
     assert {n: g for n, g in alti.items() if g != run.config.katharoseq.target_taxon} == {}
+
+
+# --------------------------------------------------------------------------- #
+# Riferimenti con ranghi e nomi diversi                                        #
+# --------------------------------------------------------------------------- #
+
+#: I phylum del riferimento sintetico, con i nomi nella forma di un training
+#: set senza prefissi i cui taxa portano un suffisso (come quelli di GTDB).
+_PHYLUM_CON_SUFFISSO = {"Phylum_A": "Firmicutes_A", "Phylum_B": "Bacteroidota"}
+
+
+def _linea_senza_prefissi(indice: int, ranghi: list[str]) -> list[str]:
+    """Sei ranghi dal dominio al genere, senza prefissi: il dominio e' Archaea
+    per le ultime sequenze, il phylum ha un nome con suffisso, e un ordine
+    mancante nel riferimento sintetico e' ricostruito dalla famiglia.
+    """
+    if len(ranghi) == 5:
+        ranghi = [*ranghi[:3], "Ordine_di_" + ranghi[3], *ranghi[3:]]
+    return ["Archaea" if indice >= 22 else "Bacteria", _PHYLUM_CON_SUFFISSO[ranghi[1]],
+            *ranghi[2:]]
+
+
+def _linea_con_prefissi(indice: int, ranghi: list[str]) -> list[str]:
+    """Sette ranghi con il prefisso di rango; cio' che la sequenza non ha e'
+    scritto col solo prefisso: la specie sempre, il genere una volta su due, e
+    per quattro sequenze anche il phylum e i ranghi sotto.
+    """
+    if len(ranghi) == 5:
+        ranghi = [*ranghi[:3], "", *ranghi[3:]]
+    if indice % 6 == 5:
+        ranghi = [ranghi[0], "", "", "", "", ""]
+    elif indice % 2:
+        ranghi = [*ranghi[:5], ""]
+    return [f"{p}__{nome}" for p, nome in zip("kpcofgs", [*ranghi, ""])]
+
+
+def test_un_rango_col_solo_prefisso_non_e_un_assegnazione():
+    """
+    **Obiettivo**: Verificare che la copertura del phylum non conti come
+    assegnato un nome vuoto ne' un nome fatto del solo prefisso di rango
+    (``p__``, ``g__``), e conti un nome con il prefisso, senza prefisso o con
+    un suffisso.
+
+    **Razionale scientifico e sistemistico**: Alcuni training set scrivono col
+    solo prefisso un rango che la sequenza non ha: contarlo come assegnato
+    terrebbe alta la frazione di varianti con il phylum proprio quando il
+    riferimento non le riconosce.
+    """
+    assert [assegnato(n) for n in ("", "p__", "g__", "D__")] == [False] * 4
+    assert all(assegnato(n) for n in ("p__Firmicutes", "Firmicutes_A", "Proteobacteria", "p_"))
+
+
+def test_la_catena_arriva_in_fondo_con_un_riferimento_nel_formato_di_gtdb(
+    dada2, catena_calcolata, tmp_path
+):
+    """
+    **Obiettivo**: Verificare sulla versione ridotta che, con il riferimento
+    sintetico riscritto nel formato dei training set GTDB per dada2 (sei
+    ranghi dal dominio al genere, nessun prefisso, nomi con suffisso, i domini
+    Bacteria e Archaea), la catena arrivi all'oggetto finale; che la
+    tassonomia abbia le colonne di sempre, nominate per posizione; che un
+    taxon escluso scritto come lo scrive il riferimento (``Firmicutes_A``)
+    tolga le varianti di quel phylum e solo quelle; e che i nomi dei
+    cloroplasti e dei mitocondri di un altro riferimento, che questo non ha,
+    non tolgano nulla.
+
+    **Razionale scientifico e sistemistico**: Il livello del phylum e' il
+    secondo rango, qualunque nome abbia nel riferimento: la pipeline non deve
+    dipendere dai nomi di un riferimento. I filtri tassonomici confrontano i
+    nomi come stringhe: vanno scritti nella forma del riferimento in uso, e un
+    nome che il riferimento non ha non agisce.
+    """
+    riferimento = riferimento_con_linee(tmp_path / "gtdb.fa.gz", _linea_senza_prefissi)
+    run = copia_esecuzione(
+        catena_calcolata, tmp_path,
+        tax={"ref_fasta": str(riferimento), "ref_bad_taxa": None, "ref_name": "sintetico",
+             "ref_md5": hashlib.md5(riferimento.read_bytes()).hexdigest()},
+        filt={"remove_na_phylum": True,
+              "exclude_taxa": ["Firmicutes_A", "Chloroplast", "Mitochondria"]},
+    )
+    esito = Esecutore(run).esegui()
+    chiudi()
+    assert esito.conclusione is Conclusione.COMPLETATA, esito.punto
+    tassonomia = _tsv(run.albero.cartella(Fase.TAXONOMY) / "tassonomia.tsv")
+    assert list(tassonomia[0]) == ["sequenza", "Kingdom", "Phylum", "Class", "Order", "Family",
+                                   "Genus", "letture"]
+    phylum = {r["Phylum"] for r in tassonomia}
+    assert "Firmicutes_A" in phylum and "Bacteroidota" in phylum
+    finale = run.albero.cartella(Fase.FINAL)
+    assert (finale / "ps_final.rds").is_file()
+    rimaste = _tsv(finale / "tassonomia.tsv")
+    assert rimaste and "Firmicutes_A" not in {r["Phylum"] for r in rimaste}
+    assert "Bacteroidota" in {r["Phylum"] for r in rimaste}
+    rimosse = _tsv(finale / "intermedi" / "varianti_rimosse.tsv")
+    motivi = {r["motivo"] for r in rimosse}
+    assert any("Firmicutes_A" in m for m in motivi)
+    assert not any("Chloroplast" in m or "Mitochondria" in m for m in motivi)
+
+
+def test_con_i_prefissi_di_rango_i_ranghi_mancanti_non_contano_come_assegnati(
+    dada2, catena_calcolata, tmp_path
+):
+    """
+    **Obiettivo**: Verificare sulla versione ridotta che, con il riferimento
+    sintetico riscritto con i prefissi di rango e i ranghi mancanti scritti col
+    solo prefisso (la forma del training set Greengenes per dada2), la catena
+    arrivi all'oggetto finale; che la copertura del phylum di S8 non conti le
+    varianti assegnate a ``p__``; che il filtro sulle varianti senza phylum le
+    tolga; e che un taxon escluso scritto senza prefisso tolga le varianti il
+    cui nome nel riferimento lo porta.
+
+    **Razionale scientifico e sistemistico**: Un rango col solo prefisso e' un
+    rango che il riferimento non conosce per quella sequenza. Se contasse come
+    assegnato, il controllo sulla copertura passerebbe e il filtro sulle
+    varianti senza phylum non toglierebbe cio' che deve.
+    """
+    riferimento = riferimento_con_linee(tmp_path / "prefissi.fa.gz", _linea_con_prefissi)
+    run = copia_esecuzione(
+        catena_calcolata, tmp_path,
+        tax={"ref_fasta": str(riferimento), "ref_bad_taxa": None, "ref_name": "sintetico",
+             "ref_md5": hashlib.md5(riferimento.read_bytes()).hexdigest()},
+        filt={"remove_na_phylum": True, "exclude_taxa": ["Classe_1"]},
+        qc={"min_frac_phylum": 0.0},
+        katharoseq={"target_taxon": "g__Genere_00"},
+    )
+    esito = Esecutore(run).esegui()
+    chiudi()
+    assert esito.conclusione is Conclusione.COMPLETATA, esito.punto
+    cartella = run.albero.cartella(Fase.TAXONOMY)
+    tassonomia = _tsv(cartella / "tassonomia.tsv")
+    assert list(tassonomia[0])[1:-1] == ["Kingdom", "Phylum", "Class", "Order", "Family",
+                                         "Genus", "Species"]
+    col_solo_prefisso = [r for r in tassonomia if r["Phylum"] == "p__"]
+    assert col_solo_prefisso, "nessuna variante assegnata a una sequenza senza phylum"
+    riepilogo = json.loads((cartella / "riepilogo.json").read_text(encoding="utf-8"))
+    con_phylum = [r for r in tassonomia if r["Phylum"] not in ("", "p__")]
+    assert riepilogo["varianti_con_phylum"] == len(con_phylum) < len(tassonomia)
+    copertura = {r["gruppo"]: r for r in _tsv(cartella / "copertura_per_gruppo.tsv")}
+    assert all(int(r["varianti_con_phylum"]) < int(r["varianti"]) or int(r["varianti"]) == 0
+               for r in copertura.values()) or len(con_phylum) < len(tassonomia)
+    finale = run.albero.cartella(Fase.FINAL)
+    rimaste = _tsv(finale / "tassonomia.tsv")
+    assert rimaste and not [r for r in rimaste if r["Phylum"] in ("", "p__")]
+    assert not [r for r in rimaste if r["Class"] == "c__Classe_1"]
+    motivi = {r["motivo"] for r in _tsv(finale / "intermedi" / "varianti_rimosse.tsv")}
+    assert "phylum non assegnato" in motivi and any("Classe_1" in m for m in motivi)

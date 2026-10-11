@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import gzip
 import re
+import shutil
 import sys
 import tempfile
 import zlib
@@ -36,16 +37,24 @@ from collections import Counter
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 from typing import IO, Final
 
 __all__ = [
+    "LETTURE_MINIME_PER_LA_QUOTA",
+    "QUOTA_MINIMA_DEL_SEGNALE",
+    "RAPPORTO_MASSIMO_FRA_LE_PARTI",
+    "SEGNALE_MINIMO_DI_UNA_PARTE",
+    "TRATTI",
+    "SegnaleDiOrientamento",
     "StatisticheFile",
     "apri_fastq",
     "conta_coppie",
     "espandi_iupac",
     "scansiona",
     "scansiona_file",
+    "segnale_di_orientamento",
     "senza_righe_vuote_finali",
 ]
 
@@ -69,6 +78,79 @@ def espandi_iupac(sequenza: str) -> str:
         return "".join(_IUPAC[carattere] for carattere in sequenza.upper())
     except KeyError as guasto:
         raise ValueError(f"codice IUPAC sconosciuto: {guasto.args[0]!r}") from None
+
+
+@dataclass(frozen=True)
+class SegnaleDiOrientamento:
+    """Che cosa distingue le letture dell'orientamento atteso in un file.
+
+    Una lettura porta il segnale se il motivo corrisponde alla posizione
+    ``taglio``, oppure se il primer e' in testa: le due condizioni si uniscono
+    per lettura, perche' una lettura con un errore nel primer e il motivo
+    integro (o viceversa) e' dell'orientamento atteso quanto una che li ha
+    entrambi, e una lettura dell'altro orientamento non ha ne' l'uno ne'
+    l'altro. ``primer`` e ``motivo`` sono espressioni regolari; una delle due
+    puo' mancare.
+
+    Vale per qualunque estremita' dell'amplicone: con il primer forward e il
+    motivo con cui inizia la regione descrive un file di letture forward, con
+    il primer inverso (e il motivo dell'altra estremita', se noto) un file di
+    letture inverse.
+    """
+
+    primer: str | None
+    motivo: str | None
+    taglio: int = 0
+
+
+def segnale_di_orientamento(
+    primer: str | None, motivo: str | None, taglio: int
+) -> SegnaleDiOrientamento | None:
+    """Il segnale da cercare nelle letture, dati il primer (in codici IUPAC),
+    il motivo conservato e le basi tolte in testa; ``None`` se non ce n'e'.
+
+    Il primer si cerca solo se il taglio lo toglie: con il taglio a zero il
+    primer deve essere assente dalle letture, e il segnale e' il solo motivo.
+    Senza motivo e senza un primer da cercare nelle basi tagliate non c'e'
+    nulla che distingua un orientamento dall'altro.
+    """
+    in_testa = espandi_iupac(primer) if primer is not None and taglio > 0 else None
+    if in_testa is None and motivo is None:
+        return None
+    return SegnaleDiOrientamento(in_testa, motivo, taglio)
+
+
+#: Le letture con cui la quota del segnale di un file si giudica: con meno,
+#: zero letture con il segnale non escludono una quota vera dell'uno per cento
+#: (0,99 alla 500 e' sotto l'uno per cento).
+LETTURE_MINIME_PER_LA_QUOTA: Final = 500
+
+#: La quota del segnale sotto la quale un file non e' dell'orientamento atteso.
+#: In una lettura dell'altro orientamento il motivo compare solo per caso (un
+#: motivo con quindici basi determinate corrisponde a una sequenza casuale una
+#: volta su 4 alla 15), quindi la quota attesa e' zero: uno per mille tollera
+#: le letture attribuite al file sbagliato. Un file dell'orientamento atteso,
+#: anche dominato da sequenze fuori bersaglio, conserva una quota di ordini di
+#: grandezza superiore.
+QUOTA_MINIMA_DEL_SEGNALE: Final = Fraction(1, 1000)
+
+#: Il contrasto fra le parti di un file che ne rivela la struttura a blocchi
+#: (tutte le prime letture, poi tutte le seconde, anche in piu' blocchi o di
+#: lunghezza diversa) o intercalata (una lettura per verso): una parte ha
+#: almeno SEGNALE_MINIMO_DI_UNA_PARTE letture con il segnale, e la quota di
+#: un'altra e' sotto RAPPORTO_MASSIMO_FRA_LE_PARTI della sua. Le parti sono i
+#: TRATTI tratti consecutivi di uguale lunghezza in cui si divide il file, e le
+#: letture di posto dispari e pari. In un file di un solo orientamento, letto
+#: nell'ordine del sequenziatore, le parti hanno la stessa composizione: con 30
+#: letture in una e meno di 3 attese nell'altra, la probabilita' che si dividano
+#: cosi' per caso e' sotto una su un milione. Un rapporto, e non una soglia di
+#: significativita': su un file profondo anche una differenza piccola fra le
+#: parti e' significativa, e non indica nulla. Dieci tratti: abbastanza da
+#: vedere blocchi di lunghezza diversa o ripetuti, pochi abbastanza perche' un
+#: tratto di un file di poche migliaia di letture ne abbia a sufficienza.
+SEGNALE_MINIMO_DI_UNA_PARTE: Final = 30
+RAPPORTO_MASSIMO_FRA_LE_PARTI: Final = Fraction(1, 10)
+TRATTI: Final = 10
 
 
 #: I primi due byte di un archivio gzip.
@@ -129,6 +211,69 @@ class StatisticheFile:
     #: campione lo distingue da un file guasto: per un controllo negativo
     #: l'assenza di letture e' un esito legittimo.
     vuoto: bool = False
+    #: Le letture con il segnale dell'orientamento atteso in ogni tratto
+    #: consecutivo del file, ciascuno come (letture con il segnale, letture);
+    #: ``None`` se il segnale non e' stato cercato.
+    segnale_per_tratto: tuple[tuple[int, int], ...] | None = None
+    #: Lo stesso per le letture di posto dispari e per quelle di posto pari.
+    segnale_alterno: tuple[tuple[int, int], tuple[int, int]] | None = None
+
+    def orientamento_inatteso(self, giudica_la_quota: bool = True) -> str | None:
+        """Perche' il file non contiene le sole letture dell'orientamento
+        atteso, o ``None``.
+
+        Due giudizi, sulle letture esaminate (tutte, per essere validi:
+        :func:`conta_coppie`). Il primo riconosce un file di sole letture
+        dell'altro orientamento: la quota delle letture con il segnale e' sotto
+        :data:`QUOTA_MINIMA_DEL_SEGNALE`, su almeno
+        :data:`LETTURE_MINIME_PER_LA_QUOTA` letture. Si chiede con
+        ``giudica_la_quota``: da un controllo negativo non ci si attende il
+        bersaglio, e un bianco con soli prodotti aspecifici ha legittimamente
+        quota zero. Il secondo riconosce, in un file di qualunque classe, le
+        letture dei due orientamenti a blocchi o intercalate: una parte del
+        file ha il segnale e un'altra quasi nulla
+        (:data:`SEGNALE_MINIMO_DI_UNA_PARTE`,
+        :data:`RAPPORTO_MASSIMO_FRA_LE_PARTI`).
+        """
+        if self.segnale_per_tratto is None:
+            return None
+        letture = sum(n for _, n in self.segnale_per_tratto)
+        con_segnale = sum(k for k, _ in self.segnale_per_tratto)
+        if (giudica_la_quota and letture >= LETTURE_MINIME_PER_LA_QUOTA
+                and con_segnale < QUOTA_MINIMA_DEL_SEGNALE * letture):
+            return (
+                f"{con_segnale} letture su {letture} portano il segnale dell'orientamento "
+                f"atteso (quota {con_segnale / letture:.4f}, sotto "
+                f"{float(QUOTA_MINIMA_DEL_SEGNALE)})"
+            )
+        tratti = len(self.segnale_per_tratto)
+        suddivisioni = [(
+            self.segnale_per_tratto,
+            [f"tratto {i + 1} di {tratti}" for i in range(tratti)],
+            "il file riporta a blocchi letture dei due orientamenti")]
+        if self.segnale_alterno is not None:
+            suddivisioni.append((
+                self.segnale_alterno, ["letture di posto dispari", "letture di posto pari"],
+                "il file alterna letture dei due orientamenti"))
+        for parti, nomi, conclusione in suddivisioni:
+            # Frazioni esatte: al confine del rapporto un errore di virgola
+            # mobile deciderebbe il giudizio.
+            quote = [Fraction(k, n) if n else None for k, n in parti]
+            candidate = [i for i, (k, _) in enumerate(parti) if k >= SEGNALE_MINIMO_DI_UNA_PARTE]
+            presenti = [i for i, q in enumerate(quote) if q is not None]
+            if not candidate or len(presenti) < 2:
+                continue
+            forte = max(candidate, key=lambda i: quote[i])
+            debole = min(presenti, key=lambda i: quote[i])
+            if quote[debole] < RAPPORTO_MASSIMO_FRA_LE_PARTI * quote[forte]:
+                return (
+                    f"il segnale dell'orientamento atteso e' nel {nomi[forte]} "
+                    f"({parti[forte][0]} letture su {parti[forte][1]}, quota "
+                    f"{float(quote[forte]):.4f}) e quasi assente nel {nomi[debole]} "
+                    f"({parti[debole][0]} su {parti[debole][1]}, quota "
+                    f"{float(quote[debole]):.4f}): {conclusione}"
+                ).replace("nel letture", "nelle letture")
+        return None
 
     @property
     def coppie_nello_stesso_file(self) -> str | None:
@@ -324,9 +469,19 @@ class SerieDiCompagne:
         self._prefisso_precedente = prima[0]
 
 
-def _solo_righe_vuote(file: IO[str]) -> bool:
-    """Vero se fino alla fine del file restano solo righe vuote."""
-    return all(not riga.strip() for riga in file)
+def _resto_del_file(file: IO[str]) -> str | None:
+    """Che cosa c'e' fino alla fine del file dopo una riga vuota: ``None`` se
+    solo righe vuote, altrimenti la descrizione del difetto.
+
+    Una riga di soli spazi o tabulazioni non e' una riga vuota: i lettori di R
+    la leggono come l'inizio di un record.
+    """
+    for riga in file:
+        if riga.strip():
+            return "seguono altre righe"
+        if riga.strip("\r\n"):
+            return "segue una riga di soli spazi"
+    return None
 
 
 def scansiona_file(
@@ -336,6 +491,7 @@ def scansiona_file(
     motivo: str | None,
     inizio_motivo: int = 0,
     lunghezza_richiesta: int = 0,
+    orientamento: SegnaleDiOrientamento | None = None,
 ) -> StatisticheFile:
     """Legge le prime ``head_reads`` letture e ne ricava tutte le statistiche.
 
@@ -349,10 +505,23 @@ def scansiona_file(
     regione, la lunghezza di cio' che la precede (``filter.trimLeft``) se
     portano ancora il primer che il filtro togliera'. Con ``None`` la ricerca
     corrispondente non si fa e il conteggio resta zero.
+
+    Con ``orientamento`` si registra per ogni lettura se porta il segnale
+    dell'orientamento atteso, e le statistiche ne riportano il conteggio per
+    tratto del file e per posto dispari o pari
+    (:attr:`StatisticheFile.segnale_per_tratto`,
+    :attr:`StatisticheFile.segnale_alterno`): un byte per lettura, per la
+    durata della scansione.
     """
     percorso = Path(percorso)
     espressione_primer = re.compile(primer) if primer is not None else None
     espressione_motivo = re.compile(motivo) if motivo is not None else None
+    in_testa = dopo_il_taglio = None
+    if orientamento is not None:
+        in_testa = re.compile(orientamento.primer) if orientamento.primer is not None else None
+        dopo_il_taglio = (
+            re.compile(orientamento.motivo) if orientamento.motivo is not None else None)
+    con_segnale = bytearray()
 
     letture = con_primer = con_motivo = corte = 0
     prime = seconde = 0
@@ -373,14 +542,21 @@ def scansiona_file(
                     # Una riga vuota al posto di un'intestazione: in fondo al
                     # file e' solo spaziatura (alcuni strumenti chiudono cosi'
                     # i file), in mezzo spezza i record e chi legge a blocchi
-                    # di quattro righe li sfaserebbe tutti.
-                    if _solo_righe_vuote(file):
+                    # di quattro righe li sfaserebbe tutti. Una riga di soli
+                    # spazi non e' spaziatura: il lettore di R la prende per un
+                    # record, e va respinta qui.
+                    difetto = ("e' di soli spazi" if intestazione.strip("\r\n")
+                               else _resto_del_file(file))
+                    if difetto is None:
                         vuote_finali = True
                         break
                     return StatisticheFile(
                         percorso.name, letture, minima, massima, con_primer, con_motivo,
-                        errore=f"riga vuota in mezzo al file dopo {letture} letture: "
-                               f"seguono altre righe",
+                        errore=(f"riga di soli spazi dopo {letture} letture: non e' una riga "
+                                "vuota, e i lettori la prendono per un record"
+                                if "soli spazi" in difetto else
+                                f"riga vuota in mezzo al file dopo {letture} letture: "
+                                f"seguono altre righe"),
                     )
                 sequenza = file.readline()
                 separatore = file.readline()
@@ -432,6 +608,11 @@ def scansiona_file(
                     sequenza[inizio_motivo:]
                 ):
                     con_motivo += 1
+                if orientamento is not None:
+                    con_segnale.append(bool(
+                        (dopo_il_taglio is not None
+                         and dopo_il_taglio.match(sequenza[orientamento.taglio:]))
+                        or (in_testa is not None and in_testa.match(sequenza))))
             else:
                 esaurito = False
     except (OSError, EOFError, zlib.error) as guasto:
@@ -462,12 +643,31 @@ def scansiona_file(
         nomi_oltre_due=sum(1 for volte in nomi.values() if volte > 2),
         righe_vuote_finali=vuote_finali,
         compagne_per_marcatore=compagne.contate,
+        segnale_per_tratto=_per_tratto(con_segnale) if orientamento is not None else None,
+        segnale_alterno=(
+            ((sum(con_segnale[0::2]), len(con_segnale[0::2])),
+             (sum(con_segnale[1::2]), len(con_segnale[1::2])))
+            if orientamento is not None else None),
     )
+
+
+def _per_tratto(con_segnale: bytearray) -> tuple[tuple[int, int], ...]:
+    """Le letture con il segnale in ciascuno dei :data:`TRATTI` tratti
+    consecutivi di uguale lunghezza del file, con le letture del tratto.
+    """
+    confini = [i * len(con_segnale) // TRATTI for i in range(TRATTI + 1)]
+    return tuple((sum(con_segnale[a:b]), b - a) for a, b in zip(confini, confini[1:]))
+
+
+#: La cartella delle copie ripulite, dentro la cartella della fase che le usa.
+#: Il nome ha il prefisso delle scritture in corso (``io_layer/artifacts.py``):
+#: se la fase e' interrotta, l'avvio successivo la toglie.
+CARTELLA_DELLE_COPIE: Final = ".scrittura-letture"
 
 
 @contextmanager
 def senza_righe_vuote_finali(
-    percorsi: dict[str, str], con_righe_vuote: Iterable[str]
+    percorsi: dict[str, str], con_righe_vuote: Iterable[str], in_cartella: Path | str | None = None
 ) -> Iterator[dict[str, str]]:
     """I percorsi da dare ai lettori di R, con una copia ripulita dei file indicati.
 
@@ -475,24 +675,37 @@ def senza_righe_vuote_finali(
     di R (``ShortRead``, quindi anche ``dada2::filterAndTrim``) le rifiutano
     come un record che non comincia con ``@``. Dei soli file in
     ``con_righe_vuote`` (chiavi di ``percorsi``) si scrive una copia senza
-    quelle righe in una cartella temporanea, che vive quanto il blocco
-    ``with``: i file di ingresso non si toccano mai, e senza file da ripulire
-    non si scrive nulla.
+    quelle righe, che vive quanto il blocco ``with``: i file di ingresso non
+    si toccano mai, e senza file da ripulire non si scrive nulla.
+
+    Le copie stanno in :data:`CARTELLA_DELLE_COPIE` sotto ``in_cartella`` (la
+    cartella della fase): occupano fino a una volta i file ripuliti, e lo
+    spazio e' quello della cartella di uscita, che la validazione ha
+    verificato, non quello della cartella temporanea del sistema. Senza
+    ``in_cartella`` si usa quest'ultima.
     """
     chiavi = sorted(con_righe_vuote)
     if not chiavi:
         yield percorsi
         return
-    with tempfile.TemporaryDirectory(prefix="amplicon16s-letture-") as cartella:
+    if in_cartella is None:
+        cartella = Path(tempfile.mkdtemp(prefix="amplicon16s-letture-"))
+    else:
+        cartella = Path(in_cartella) / CARTELLA_DELLE_COPIE
+        shutil.rmtree(cartella, ignore_errors=True)
+        cartella.mkdir(parents=True)
+    try:
         ripuliti = dict(percorsi)
         for numero, chiave in enumerate(chiavi):
             # Una sottocartella per file: due file di cartelle diverse possono
             # avere lo stesso nome.
-            destinazione = Path(cartella) / str(numero) / Path(percorsi[chiave]).name
+            destinazione = cartella / str(numero) / Path(percorsi[chiave]).name
             destinazione.parent.mkdir()
             _copia_senza_righe_vuote_finali(percorsi[chiave], destinazione)
             ripuliti[chiave] = str(destinazione)
         yield ripuliti
+    finally:
+        shutil.rmtree(cartella, ignore_errors=True)
 
 
 def _copia_senza_righe_vuote_finali(origine: Path | str, destinazione: Path) -> None:
@@ -507,7 +720,9 @@ def _copia_senza_righe_vuote_finali(origine: Path | str, destinazione: Path) -> 
             uscita.write(riga)
 
 
-def conta_coppie(percorso: Path | str) -> StatisticheFile:
+def conta_coppie(
+    percorso: Path | str, orientamento: SegnaleDiOrientamento | None = None
+) -> StatisticheFile:
     """I segni di coppia su **tutte** le letture del file, con le regole di G07.
 
     E' la stessa scansione dei gate senza il limite delle prime letture e senza
@@ -515,9 +730,11 @@ def conta_coppie(percorso: Path | str) -> StatisticheFile:
     (:attr:`StatisticheFile.coppie_nello_stesso_file`) e' lo stesso, e cio' che
     G07 non vede oltre ``qc.head_reads`` qui si vede. I nomi di lettura di un
     file restano in memoria solo per la durata della sua scansione. Dice anche
-    se il file si chiude con righe vuote (``righe_vuote_finali``).
+    se il file si chiude con righe vuote (``righe_vuote_finali``) e, con
+    ``orientamento``, quante letture portano il segnale dell'orientamento
+    atteso in ogni tratto del file (``segnale_per_tratto``).
     """
-    return scansiona_file(percorso, sys.maxsize, None, None)
+    return scansiona_file(percorso, sys.maxsize, None, None, orientamento=orientamento)
 
 
 def scansiona(

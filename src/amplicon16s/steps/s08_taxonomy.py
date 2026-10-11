@@ -45,6 +45,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, ClassVar, Final
@@ -76,6 +77,18 @@ NOME_RIEPILOGO: Final = "riepilogo.json"
 #: Lo script che legge dalle librerie installate versione e correzione dei
 #: pacchetti R: lo stesso della regola rigorosa sulla provenienza.
 NOME_AMBIENTE: Final = "00_ambiente.R"
+
+
+#: Un rango scritto col solo prefisso (``p__``, ``g__``): alcuni riferimenti
+#: scrivono cosi' un rango che la sequenza non ha.
+_SOLO_PREFISSO: Final = re.compile(r"[A-Za-z]__")
+
+
+def assegnato(nome: str) -> bool:
+    """Vero se il nome di un rango dice un taxon: non vuoto, e non il solo
+    prefisso di rango.
+    """
+    return bool(nome) and _SOLO_PREFISSO.fullmatch(nome) is None
 
 
 def leggi_taxa_difettosi(percorso: Path) -> dict[str, str]:
@@ -144,7 +157,9 @@ class AssegnazioneTassonomica(PipelineStep):
     passo: ClassVar[Passo] = Passo.S8
     #: 2: a ogni esecuzione accerta la versione di dada2 che R carica e la
     #: correzione dei pareggi, e senza la correzione lo dichiara (E-S8-03).
-    versione: ClassVar[int] = 2
+    #: 3: un phylum scritto col solo prefisso di rango (``p__``) non conta
+    #: come assegnato nella copertura.
+    versione: ClassVar[int] = 3
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: Il riferimento e il classificatore (il contenuto del riferimento entra
     #: con tax.ref_md5, che G12 verifica a ogni avvio); il seme del bootstrap;
@@ -237,7 +252,7 @@ class AssegnazioneTassonomica(PipelineStep):
             "seme": config.run.seed,
             "ranghi": ranghi,
             "varianti": len(righe),
-            "varianti_con_phylum": sum(1 for r in righe if r["Phylum"]),
+            "varianti_con_phylum": sum(1 for r in righe if assegnato(r["Phylum"])),
             "per_gruppo": per_gruppo,
             "frazione_con_phylum": frazioni,
             "classi_controllate": [c.value for c in CLASSI_CONTROLLATE],

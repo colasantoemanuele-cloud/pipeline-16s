@@ -18,6 +18,9 @@ lanciano dalla radice di un clone del repository.
 - Il nome di ogni file deve contenere una parte unica per campione (un accession, un
   codice di libreria): è la chiave con cui file e metadati si agganciano.
 - Un file senza alcuna lettura è ammesso solo per un controllo negativo.
+- Un file può chiudersi con righe vuote. Una riga finale di soli spazi è un difetto del
+  file: la validazione la respinge (`E-S0-13`) se cade fra le letture che ispeziona,
+  altrimenti la respinge S1 (`E-S1-05`).
 
 ### 1.2 Letture appaiate
 
@@ -39,8 +42,39 @@ tiene il file dichiarato forward, e conviene guardare il motivo che `init` propo
 con un nome senza `R1`, `R2`, `_1` o `_2`: quei marcatori dicono alla validazione che il
 file fa parte di una coppia.
 
-`init` e la validazione riconoscono le letture appaiate dal nome dei file e dal
-contenuto, e si fermano senza proporre né eseguire nulla.
+`init` e la validazione riconoscono le letture appaiate dal nome dei file e dalle
+intestazioni delle letture, e si fermano senza proporre né eseguire nulla.
+
+Un file con le sole seconde letture, o con tutte le prime seguite da tutte le seconde,
+può non avere alcun segno nelle intestazioni. Lo riconosce il contenuto: la fase S1
+conta, su tutte le letture di ogni file, quelle che portano il segnale di una lettura
+forward (il motivo conservato, `qc.conserved_motif`, dopo le basi di
+`filter.trimLeft`; con il taglio, anche il primer in testa) e si ferma con `E-S1-07`,
+nominando il file e la quota misurata, in due casi:
+
+- un file di un campione biologico o di un controllo positivo con almeno 500 letture in
+  cui meno di una lettura su mille porta il segnale: sono le letture inverse. Vale
+  anche se ogni file del dataset è così, e qualunque siano le soglie di qualità;
+- un file, di qualunque tipo, in cui una parte ha il segnale (almeno 30 letture) e
+  un'altra meno di un decimo della sua quota: riporta le letture dei due versi, a
+  blocchi (il file si confronta in dieci tratti consecutivi) o alternate (le letture
+  di posto dispari con quelle di posto pari).
+
+Due casi in cui il controllo ferma un file di sole letture forward: un campione che non
+ha quasi nulla del bersaglio (va tolto dal dataset: non avrebbe dato varianti utili), e
+un file riordinato per sequenza, in cui le letture col motivo stanno tutte insieme (va
+riportato a un ordine non legato alla sequenza).
+
+Il controllo ha bisogno del segnale: con `qc.conserved_motif` nullo e nessun primer
+nelle basi tagliate non si applica, e l'esecuzione lo dichiara nel log. Il motivo deve
+venire da chi conosce la regione amplificata, o dalla proposta di `init`. `init` ricava
+il motivo dal consenso dei file che iniziano come la maggioranza: un file che inizia in
+un altro modo (un file di letture inverse fra file forward, per esempio) esce dal
+consenso ed è nominato nel riepilogo e nel commento del motivo, e va guardato prima di
+eseguire. Se però la maggior parte dei file è di letture inverse, il motivo proposto
+descrive quelle, e il controllo passa. Non
+sono riconosciuti un file di letture inverse con meno di 500 letture, uno di un
+controllo negativo, e una libreria in cui i due versi sono mescolati in ogni file.
 
 ### 1.3 I metadati
 
@@ -67,6 +101,19 @@ solo modello d'errore e non distingue le piastre.
 
 Un file nel formato dei training set di dada2 (`assignTaxonomy`). Quello usato per i
 dataset del repository si scarica con `python3 dati/riferimento/scarica_riferimento.py`.
+Se il riferimento ha un elenco di taxa con un difetto noto (`tax.ref_bad_taxa`), il
+file è una tabella CSV con le colonne `name` e `rank`: la validazione lo verifica a
+ogni avvio (`E-S0-12`). L'MD5 da dichiarare in `tax.ref_md5` è quello di `md5sum FILE`,
+fra virgolette; `init --reference` lo calcola da sé.
+
+L'intestazione di ogni sequenza porta i ranghi separati da punto e virgola, dal regno
+in giù. L'assegnazione dà loro un nome per posizione (`Kingdom`, `Phylum`, `Class`,
+`Order`, `Family`, `Genus`, `Species`), qualunque nome abbiano nel riferimento: il
+phylum è il secondo. Servono da due a sette ranghi; la validazione respinge
+(`E-S0-22`) un riferimento in cui ogni sequenza ne ha uno solo, o in cui una ne ha più
+di sette. Vanno bene i training set di SILVA, RDP, GTDB e Greengenes per dada2; come
+scrivere i filtri tassonomici per ciascuno è nella sezione 6.4.
+
 
 ## 2. Scrivere la configurazione con `init`
 
@@ -82,11 +129,13 @@ che nessuno strumento può fare al posto di chi conosce lo studio.
 1. **`init --accetta-proposte`** scrive come righe attive ciò che ha rilevato, ciò che
    propone e i valori di partenza; le soglie di qualità senza un valore di partenza
    prendono il valore che non ferma (`[ESPLORATIVA]`, sezione 6.6).
-   Se `init` dice che il primer non è nelle letture né nei metadati, conviene
-   rilanciarlo con `--primer SEQUENZA` e un altro `--output` prima di proseguire: solo
-   così propone anche il motivo conservato (sezione 6.3). Scritto a mano nel file, il
-   primer lascia il motivo nullo, e la validazione verifica la sola assenza del primer
-   (`E-S0-18` a ogni esecuzione).
+   Se `init` non trova il primer nelle letture né la sua sequenza nei metadati, lo
+   scrive nullo: la validazione non cerca allora alcun primer, e il motivo conservato
+   resta nullo. Se il primer è noto conviene rilanciare `init` con `--primer SEQUENZA`
+   e un altro `--output` prima di proseguire: solo così propone anche il motivo
+   (sezione 6.3), che serve a verificare la regione amplificata e a riconoscere un
+   file di letture inverse (sezione 1.2). Scritto a mano nel file, il primer lascia il
+   motivo nullo (`E-S0-18` a ogni esecuzione).
 2. **Le scelte.** `validate` elenca i parametri che mancano (`E-G15-10`): sono le
    scelte senza valore di partenza (di solito i filtri tassonomici, la prevalenza, le
    letture minime, con i controlli negativi la soglia di decontaminazione). Si
@@ -196,7 +245,10 @@ riga attiva porta nel commento la sua origine e la fonte, e va comunque letta: u
 proposta può sbagliare (sezione 2.3).
 
 I parametri che hanno un predefinito (`[STANDARD]`, `[UNICA FORMA]`, `[STRUMENTO]`,
-`[FACOLTATIVO]`) sono in commento con quello: si possono lasciare così.
+`[FACOLTATIVO]`) sono in commento con quello: si possono lasciare così. Un parametro
+`[UNICA FORMA]` ammette un solo valore, perché la pipeline realizza quella sola forma
+del metodo: `katharoseq.curve_model`, per esempio, nomina la curva di calibrazione,
+che è una, e scriverlo non cambia nulla.
 
 Nessun valore entra nella configurazione senza un gesto: una proposta si accetta
 togliendo il commento alla sua riga (`  # column: "tipo"` diventa `  column: "tipo"`),
@@ -266,7 +318,9 @@ commento mostra alcuni abbinamenti file-chiave da controllare.
 - Se nessun primer dell'elenco è nelle letture: `filter.trimLeft: 0` (un primer fuori
   elenco va indicato a mano) e `qc.primer_sequence` dai metadati, se riportano una
   sequenza marcata come forward, o una sola sequenza (e allora il commento dice che
-  l'indicazione manca).
+  l'indicazione manca). Senza una sequenza nei metadati il primer è una scelta con
+  partenza nulla, e il commento elenca le forme che `init` conosce del primer che i
+  metadati nominano.
 - Il motivo conservato (`qc.conserved_motif`), solo se il primer è noto: il consenso
   delle basi con cui inizia la regione amplificata.
 
@@ -364,9 +418,48 @@ uscita nuova o vuota: dopo un `validate` nella stessa cartella si rifiuta e indi
 - La prima esecuzione serve anche a fissare le soglie: `soglie` le propone dalle
   misure, e il report riporta le misure accanto a ciascuna (sezione 6.6). Cambiare una
   soglia e lanciare `resume` rifà la fase che la applica e quelle che ne dipendono.
+- `validate` guarda le prime letture di ogni file: un file di letture inverse, o a
+  blocchi, lo riconosce la fase S1, che le legge tutte (sezione 1.2).
 - Una soglia al valore che non ferma è una configurazione valida con un controllo
   spento: `validate`, `run` e `resume` lo dicono in coda, con l'elenco delle soglie, e
   il report lo riporta fra le segnalazioni in apertura.
+
+### 3.1 Eseguire con Apptainer
+
+Dove Docker non è disponibile (i cluster di calcolo) la stessa immagine si esegue con
+Apptainer, senza privilegi. L'immagine si converte una volta, **per digest**, in un file
+`.sif`:
+
+```bash
+apptainer build amplicon16s.sif docker://<immagine>
+```
+
+`<immagine>` è quella indicata nel README, con il suo `@sha256:...`: il file `.sif`
+contiene esattamente quell'immagine, e `run.container` nella configurazione resta lo
+stesso. Ogni comando di questa guida ha poi la stessa forma, con `apptainer exec` al
+posto di `docker run`:
+
+```bash
+apptainer exec --cleanenv --containall \
+  --bind "$(pwd)":/app --bind /percorso/dei/dati:/dati:ro --bind /percorso/di/lavoro:/lavoro \
+  --pwd /app amplicon16s.sif \
+  python3 scripts/esegui.py validate --config /lavoro/configurazione.yaml
+```
+
+| Docker | Apptainer | Perché |
+|---|---|---|
+| `-v A:B`, `-v A:B:ro` | `--bind A:B`, `--bind A:B:ro` | i montaggi; i percorsi nel container sono gli stessi |
+| `-w /app` | `--pwd /app` | la cartella di lavoro |
+| `-u "$(id -u):$(id -g)"` | nulla | Apptainer esegue già con l'utente di chi lancia |
+| isolamento per difetto | `--cleanenv --containall` | Apptainer per difetto porta nel container le variabili d'ambiente e la cartella personale di chi lancia (`PYTHONPATH`, `R_LIBS_USER`, `.Rprofile`): con le due opzioni il container vede solo ciò che è montato, come con Docker |
+
+Con `--containall` la cartella temporanea del container è piccola e in memoria: se un
+comando segnala spazio esaurito in `/tmp`, le si monta una cartella del disco
+(`--bind /percorso/tmp:/tmp`). Le righe `INFO:` che Apptainer stampa prima dell'uscita
+dei comandi sono sue e non riguardano la pipeline. I risultati non dipendono da quale dei due programmi
+esegue l'immagine: gli artefatti di fase hanno gli stessi checksum, e differiscono
+solo i campi che descrivono l'esecuzione (istante, identificativo, e le impronte che
+ne derivano).
 
 ## 4. Analisi ecologiche di base
 
@@ -390,6 +483,8 @@ ogni riga è in commento:
   non si potranno eseguire); `design.technical_variables`, piastra e corsa se hanno più
   di un valore, dalla più grossolana alla più annidata; `comp.rank`, il rango più fine con almeno
   metà delle varianti assegnate; `beta.unifrac_root: existing` se l'albero è radicato;
+  `design.continuous_variables`, le colonne che sembrano misure (valori tutti numerici,
+  almeno dieci distinti, distinti in almeno quattro quinti dei campioni);
 - **da scegliere**: distanze (`beta.distances`), metodi e distanze dell'ordinazione
   (`ord.methods`, `ord.distances`), seme (`run.seed`), numero di taxa nei grafici
   (`comp.top_n`), dimensione minima dei gruppi (`stat.min_group_size`), livello di
@@ -399,7 +494,7 @@ ogni riga è in commento:
   (`none`, `ape::pcoa`).
 
 Con `--accetta-proposte` le proposte sono righe attive (la variabile biologica, le
-variabili tecniche, il rango). Fanno eccezione i parametri che servono solo con un
+variabili tecniche, il rango, le variabili continue). Fanno eccezione i parametri che servono solo con un
 metodo (`beta.unifrac_root`, `ord.pcoa_correction`, `ord.nmds_trymax`), i soli ad
 avere un valore proposto o di partenza oltre a quelli: restano in commento con il loro
 valore, perché dichiarati senza quel metodo sono respinti, e quali distanze e quali
@@ -448,21 +543,106 @@ docker run --rm -u "$(id -u):$(id -g)" \
     --out /lavoro/analisi
 ```
 
+### 4.1 Variabili continue
+
+Una misura (una distanza, un tempo, una concentrazione) non si dichiara fra le
+variabili categoriche: divisa in gruppi diventa un gruppo per campione, nessun test si
+esegue, e l'analisi avvisa (`E-ECO-29`). Si dichiara in `design.continuous_variables`:
+
+```yaml
+design:
+  variable: "trattamento"            # resta obbligatoria: una colonna categorica
+  continuous_variables: ["distanza_m"]
+```
+
+I valori devono essere numeri, con il punto decimale (altrimenti `E-ECO-30`). Per ogni
+variabile continua l'analisi scrive:
+
+- `test/alfa_continua.tsv`: la correlazione per ranghi di Spearman fra ogni indice di
+  alfa diversità e la variabile, con il valore p e la correzione di
+  Benjamini-Hochberg sui tre indici;
+- `alfa/continua_NN_<variabile>.png`: l'alfa diversità contro la variabile;
+- `test/permanova_continua.tsv`: la PERMANOVA con la variabile come termine numerico,
+  dopo le variabili tecniche. Il test delle dispersioni non si esegue (confronta
+  gruppi, e una variabile continua non ne ha): la tabella lo dichiara. Con
+  `stat.permanova_strata`, una variabile che ha un solo valore dentro ogni strato non
+  ha la PERMANOVA (`E-ECO-31`): le permutazioni entro gli strati non la spostano.
+
+La colonna deve essere nella tabella dei campioni dell'oggetto: una variabile dello
+studio vi arriva dichiarandola in `out.study_columns` (o `out.batch_columns`, se sta
+nel file del lotto) nella configurazione della pipeline, prima dell'esecuzione o con un
+`resume`; `eco init` elenca in testa al file tutte le colonne che l'oggetto ha.
+
+La correlazione non si esegue (avviso `E-ECO-31`, che dice che cosa manca) con meno
+campioni di quanti ne servono perché una correlazione perfetta scenda sotto
+`stat.significance_level` (5 campioni al 5%), o con meno di tre valori distinti: con
+due soli valori la variabile separa due gruppi, e va dichiarata categorica.
+
+### 4.2 Misure ripetute
+
+Se gli stessi soggetti (individui, siti, colture) sono campionati in più condizioni, la
+colonna che li identifica si dichiara in `design.subject`:
+
+```yaml
+design:
+  variable: "tempo"
+  subject: "paziente"
+```
+
+Ogni variabile categorica è allora analizzata anche **entro soggetto**, sui soli
+soggetti che hanno un campione in ogni livello della variabile:
+
+- `test/alfa_appaiata.tsv`: con due livelli il test di Wilcoxon dei ranghi con segno;
+  con più di due il test di Friedman e un Wilcoxon dei ranghi con segno per ogni
+  coppia di livelli;
+- `test/permanova_appaiata.tsv`: la PERMANOVA con il soggetto come primo termine e le
+  permutazioni ristrette entro il soggetto, con il test delle dispersioni. Con una
+  distanza non euclidea (Bray-Curtis, Jaccard) il soggetto e la variabile possono
+  spiegare insieme più della variabilità totale: il test non è allora valutabile, e la
+  tabella lo dice; la distanza di Aitchison non ha questo limite;
+- `test/soggetti.tsv`: ogni soggetto, i livelli che ha e se è completo o perché è
+  escluso.
+
+I confronti fra gruppi indipendenti (`test/alfa_diversita.tsv`, `test/permanova.tsv`)
+restano, e non tengono conto del soggetto: con differenze fra soggetti grandi possono
+non vedere un effetto che il test entro soggetto trova, e per una variabile che
+distingue i soggetti i loro valori p sono troppo piccoli, perché contano come
+indipendenti i campioni dello stesso soggetto (avviso `E-ECO-34`; lo stesso vale per
+le variabili continue).
+
+L'analisi entro soggetto di una variabile **non si esegue** (avviso `E-ECO-32`, che dice
+che cosa manca) se un soggetto ha più di un campione nello stesso livello (se sono
+repliche, se ne tiene una con `design.subset`, che seleziona i campioni per i valori
+di una colonna, anche `accession`, o meglio con una colonna dei metadati che le
+distingua), o se i soggetti completi sono meno del
+minimo perché un test entro soggetto scenda sotto `stat.significance_level` (6 soggetti
+al 5%). I soggetti senza un campione in ogni livello sono esclusi e dichiarati
+(`E-ECO-33`).
+
+Quando un'analisi di una variabile continua o entro soggetto non si esegue, la sua
+tabella ha la sola intestazione: il motivo è nell'avviso, sulla console e in
+`riepilogo.json`.
+
+I due parametri sono facoltativi: una configurazione che non li dichiara dà gli stessi
+file, byte per byte, e lo stesso digest.
+
+### 4.3 Uscite
+
 La cartella di uscita deve essere assente o vuota e fuori dalla cartella dell'oggetto.
 Contiene tabelle (alfa diversità, composizione, distanze, ordinazione, test), grafici
 PNG, `riepilogo.json` con gli avvisi e `manifest.json` con dimensione e SHA-256 di ogni
 altro file. A parità di oggetto, configurazione e seme i file sono identici byte per byte.
 Gli avvisi (`E-ECO-`) non fermano l'analisi: dichiarano una condizione che chi legge i
-risultati deve conoscere, per esempio un gruppo troppo piccolo per i test o una
-variabile che sembra continua.
+risultati deve conoscere, per esempio un gruppo troppo piccolo per i test, una
+variabile che sembra continua, un'analisi entro soggetto che non si è potuta eseguire.
 
 ## 5. Integrazione con altri programmi
 
 Quattro comandi scrivono sullo standard output un solo documento JSON: `schema`,
 `validate --json` e `status --json` per la pipeline e, con `eco` davanti, per le
 analisi ecologiche; `soglie --json` per la sola pipeline. Ogni documento ha `versione_formato`
-(oggi 1), `comando` e `strumento`. La versione cambia solo se un campo esistente cambia
-significato o sparisce: chi legge deve ignorare i campi che non conosce. Con `--json`
+(un intero: vale 1), `comando` e `strumento`. La versione cambia solo se un campo esistente
+cambia significato o sparisce: chi legge deve ignorare i campi che non conosce. Con `--json`
 il testo per l'operatore va sullo standard error.
 
 ### 5.1 `schema`
@@ -545,10 +725,11 @@ lanciare durante un'esecuzione, anche da un altro container.
 | Campo | Contenuto |
 |---|---|
 | `stato` | `non_avviata`, `in_corso`, `interrotta`, `ferma`, `conclusa`, `incompleta` |
-| `fasi` | per ogni fase: `passo`, `descrizione`, `cartella`, `stato` (`conclusa`, `in_corso`, `da_eseguire`, `disattivata`, `sconosciuta`) e, se conclusa, `artefatti`, `versione`, `degradazioni` |
+| `fasi` | per ogni fase: `passo`, `descrizione`, `cartella`, `stato` (`conclusa`, `in_corso`, `da_eseguire`, `disattivata`, `sconosciuta`) e, se conclusa, `artefatti`, `versione`, `degradazioni`; `da_rifare: true` se il manifesto è di un'esecuzione precedente e quella in corso deve ricalcolare la fase |
 | `fasi_concluse` | i passi conclusi, nell'ordine di esecuzione |
+| `fasi_da_rifare` | i passi con `da_rifare`: hanno un manifesto, ma l'esecuzione in corso (o interrotta) li ricalcola |
 | `fase_in_corso` | il passo in esecuzione, o nullo |
-| `esecuzione` | se un'esecuzione ha lasciato il suo stato: `passo`, `avviata`, `ultimo_battito`, `secondi_dall_ultimo_battito`, `battito_recente` |
+| `esecuzione` | se un'esecuzione ha lasciato il suo stato: `passo`, `avviata`, `ultimo_battito`, `secondi_dall_ultimo_battito`, `battito_recente`, `da_rifare` (le fasi che deve ancora calcolare) |
 | `arresto` | se c'è un punto di ripresa: `passo`, `codice`, `sintesi`, `dettaglio`, `azione`, `comando` |
 | `configurazione` | file e digest dell'ultima configurazione registrata |
 
@@ -559,7 +740,11 @@ lanciare durante un'esecuzione, anche da un altro container.
 - `incompleta`: alcune fasi sono concluse e nessun processo è attivo, per esempio dopo
   `validate`, che esegue la sola prima fase.
 - Una fase risulta conclusa se il suo manifesto esiste: se i suoi artefatti siano
-  ancora integri e validi per una configurazione lo stabilisce `resume`.
+  ancora integri e validi per una configurazione lo stabilisce `resume`. Durante una
+  ripresa che ricalcola le fasi (dopo `soglie`, o dopo una modifica alla
+  configurazione) i manifesti dell'esecuzione precedente restano sul disco finché la
+  fase non è rifatta: quelle fasi hanno `stato` `conclusa` e in più `da_rifare`, e
+  `status` senza `--json` le mostra come `da_rifare`.
 
 Per le analisi ecologiche lo stato è `non_avviata`, `in_corso`, `interrotta` o
 `conclusa` (con `file`, il numero dei file prodotti compreso il manifesto, `avvisi`,
@@ -589,7 +774,7 @@ output, il documento.
 | `avvertenza` | che cosa una soglia proposta protegge e che cosa no |
 
 Ogni elemento di `soglie`: `parametro`; `esito` (`proposta`, `tenuta`, `senza_misura`,
-`esclusa`, `omessa`); `direzione` (`massima` o `minima`), `unita` (`frazione`,
+`esclusa`, `omessa`, `non_proposta`); `direzione` (`massima` o `minima`), `unita` (`frazione`,
 `conteggio`, `basi`), `ferma` e `codici` del controllo; `misura`, `statistica` (che
 cosa è stato misurato) e `origine_della_misura` (l'artefatto); `valore_configurazione`
 (nel file letto), `valore_suggerito` (misura e margine), `valore` (quello che il file
@@ -663,22 +848,33 @@ Senza file del lotto questi parametri sono rilevati nulli o vuoti.
 | `filter.truncLen` | lunghezza a cui si troncano le letture; le più corte sono scartate | dal profilo di lunghezze e qualità | proposta: la più lunga che non scarta letture e precede il calo di qualità (profilo di S1) | report, «Troncamento suggerito dalle letture» |
 | `filter.truncLen_shortfall_warn` | di quante basi il troncamento può stare sotto la lettura più corta prima di un avviso | dalla variabilità delle lunghezze | lo scarto fra lettura più corta e troncamento proposto (dai dati) | segnalazione `E-S1-01` |
 | `filter.trimLeft` | basi tolte in testa: la lunghezza del primer se è nelle letture, altrimenti 0 | dal primer | rilevato se un primer dell'elenco è nelle letture; altrimenti proposto 0 | S0, gate G10 |
-| `qc.primer_sequence` | primer forward, in codici IUPAC | dal protocollo di amplificazione (vedi sotto) | rilevato nelle letture; proposto dai metadati; indicato con `--primer`; altrimenti nessuno | `01_input_validation/letture_ispezionate.tsv`, `frazione_primer` |
+| `qc.primer_sequence` | primer forward, in codici IUPAC; nullo se non è noto | dal protocollo di amplificazione (vedi sotto) | rilevato nelle letture; proposto dai metadati; indicato con `--primer`; altrimenti nullo | `01_input_validation/letture_ispezionate.tsv`, `frazione_primer` |
 | `qc.conserved_motif` | espressione del motivo con cui inizia la regione amplificata; nullo | dal consenso delle prime basi (vedi sotto) | proposto se il primer è noto; altrimenti nullo | `letture_ispezionate.tsv`, `frazione_motivo` |
 | `qc.max_primer_hit_frac` | frazione di letture con il primer in testa oltre la quale è considerato presente | bassa: il primer o c'è o non c'è | nessuno | `frazione_primer` per file |
 | `qc.min_motif_frac` | frazione minima di letture con il motivo, sulla mediana dei campioni | sotto il valore osservato nei campioni buoni | nessuno | `frazione_motivo` per file |
-| `qc.head_reads` | letture ispezionate per file dalla validazione | abbastanza da rappresentare il file | nessuno; il commento riporta le letture del file mediano | durata della validazione |
+| `qc.head_reads` | letture ispezionate per file dalla validazione | un compromesso fra durata della validazione e precisione delle frazioni misurate | 9.604: le letture con cui una frazione ha un intervallo di confidenza al 95% di un punto percentuale; le letture del file più grande, se sono meno | durata della validazione |
 | `qc.max_frac_short_reads` | frazione massima di letture più corte del troncamento, per classe | zero se il troncamento non scarta letture | 0 con il troncamento proposto (dai dati) | report, «Troncamento suggerito» |
 | `tax.ref_name`, `tax.ref_version` | nome e versione del riferimento, riportati con i risultati | dalla fonte del riferimento | proposti dal nome del file, se vi compaiono | report, «Configurazione» |
 | `tax.try_rc` | se provare anche il complemento inverso | vero se le letture possono essere nell'altro orientamento | falso (`dada2::assignTaxonomy`) | report: frazione di varianti con il phylum |
 
 **Il primer.** Il nome di un primer nei metadati non basta: lo stesso nome ha più
-forme. Le sequenze che `init` riconosce sono: 515F `GTGYCAGCMGCCGCGGTAA` (Parada 2016) e
+forme. Del 515F ce ne sono due, che differiscono per la quarta base: la forma
+modificata (Parada 2016) porta `Y`, cioè C oppure T, dove la forma originale (Caporaso
+2011) porta C. Si dichiara quella del protocollo di amplificazione usato; se il
+protocollo dice solo «515F», si dichiara la forma modificata: comprende l'originale
+(ogni lettura che inizia con il primer originale inizia anche con quello modificato),
+quindi la verifica che il primer sia assente dalle letture vale per entrambe, e il
+motivo conservato, che descrive le basi dopo il primer, è lo stesso. Le sequenze che `init` riconosce sono: 515F `GTGYCAGCMGCCGCGGTAA` (Parada 2016) e
 `GTGCCAGCMGCCGCGGTAA` (Caporaso 2011); 341F `CCTACGGGNGGCWGCAG`; 357F
 `CCTACGGGAGGCAGCAG`; 27F `AGAGTTTGATCMTGGCTCAG`; 8F `AGAGTTTGATCCTGGCTCAG`; 799F
 `AACMGGATTAGATACCCKG`. Se i metadati nominano uno di questi `init` riporta le sue forme
 nel commento. Per un primer diverso, o per farsi proporre il motivo quando il primer
 non è nelle letture, si rilancia `init` con `--primer SEQUENZA` e un altro `--output`.
+
+Con il primer nullo la validazione non cerca alcun primer in testa alle letture e lo
+dichiara (`E-S0-21`); `qc.max_primer_hit_frac` non ha effetto. È la scelta di chi non
+conosce il primer, non di chi lo conosce: se le letture lo portano ancora e nessuno lo
+dichiara, entra nelle varianti. La sequenza si può scrivere in minuscolo.
 
 I metadati possono dichiarare un primer che le letture non portano (tolto prima del
 deposito), o persino il primer di un'altra regione: `init` propone allora la sequenza dei
@@ -689,7 +885,11 @@ verifica la sola assenza; quale regione le letture coprano davvero lo dice il mo
 amplificata, quelle che seguono il primer: una base dove quasi tutte le letture
 concordano, una classe (`[AG]`) dove ne compaiono due, un punto dove variano. `init` lo
 propone dal consenso delle letture quando conosce il primer. Senza una proposta la
-scelta ragionevole è `null`: la validazione verifica allora la sola assenza del primer.
+scelta ragionevole è `null`: la validazione verifica allora la sola assenza del primer,
+e S1 non può riconoscere un file di letture inverse (sezione 1.2). Le basi si scrivono
+in maiuscolo, come le letture; scritte in minuscolo sono portate in maiuscolo, salvo in
+un'espressione con gruppi con nome o con opzioni, che è respinta con la richiesta di
+scriverle in maiuscolo.
 
 ### 6.4 Scelte di analisi
 
@@ -743,6 +943,30 @@ zcat RIFERIMENTO.fa.gz | grep '^>' | sed 's/^>//' | tr ';' '\n' | sort -u \
   | grep -i -E 'chloroplast|mitochondria|eukaryot'
 ```
 
+**Con un altro riferimento** i nomi cambiano, e con loro ciò che i filtri possono
+togliere. Si guarda come il riferimento scrive i taxa, con il comando qui sopra, e si
+scrivono così:
+
+- un training set con i **prefissi di rango** (Greengenes: `p__Proteobacteria`,
+  `c__Chloroplast`) si confronta senza il prefisso: `Chloroplast` e `c__Chloroplast`
+  valgono lo stesso. Un rango scritto col solo prefisso (`g__`) è un rango che la
+  sequenza non ha: non conta come assegnato, né per `filt.remove_na_phylum` né per
+  `qc.min_frac_phylum`. In Greengenes i cloroplasti sono la classe `Chloroplast` e i
+  mitocondri la famiglia `mitochondria`, in minuscolo, dentro i Rickettsiales: si
+  scrivono così (`["Chloroplast", "mitochondria"]`);
+- un training set **GTDB** ha sei ranghi senza prefissi, e i nomi portano i suffissi
+  di GTDB (`Firmicutes_A`, `Blautia_A`): `Firmicutes` non toglie `Firmicutes_A`, vanno
+  scritti entrambi. GTDB contiene solo genomi di batteri e archei: **non ha cloroplasti,
+  mitocondri né eucarioti**, quindi nessun nome li toglie, e le loro letture vengono
+  assegnate al taxon batterico più simile, anche con un bootstrap alto, o restano senza
+  phylum. Se il campione può
+  contenerne (tessuti, piante, superfici toccate) e vanno tolte, conviene un
+  riferimento che le nomini; con GTDB `filt.remove_na_phylum: true` toglie solo quelle
+  rimaste senza phylum.
+
+Un nome di `filt.exclude_taxa` che il riferimento non ha non è un errore e non toglie
+nulla: che cosa è stato tolto si controlla in `varianti_rimosse.tsv`.
+
 Un riferimento può dare a una variante il solo regno: in SILVA 138 nel formato di dada2
 le sequenze eucariotiche hanno `Eukaryota` e nessun altro rango. Una variante così non
 ha phylum, quindi `filt.remove_na_phylum: true` la toglie anche senza `Eukaryota`
@@ -776,9 +1000,9 @@ tutti); che cosa cambia fra ometterlo e dichiararlo è nella sezione 2.5.
 | Parametro | Significato | Come si ricava | Partenza (fonte) | Conferma |
 |---|---|---|---|---|
 | `ctrl.min_positives` | controlli positivi minimi per una curva e per giudicare un livello; solo con controlli positivi | dal numero di controlli per piastra e per livello | 3: un punto più dei due parametri della curva | report, «Decisioni»: curve per piastra |
-| `ctrl.min_positive_pass_frac` | frazione minima di controlli positivi conformi; solo con controlli positivi | secondo quanto ci si fida dei controlli | nessuno | report: controlli non conformi |
+| `ctrl.min_positive_pass_frac` | frazione minima di controlli positivi conformi; solo con controlli positivi | secondo quanto ci si fida dei controlli; a 0 il controllo è spento (sezione 6.6) | nessuno | report: controlli non conformi |
 | `ctrl.positive_gate` | vero: sotto la frazione l'esecuzione si ferma; falso: avvisa; solo con controlli positivi | falso finché la conformità non è nota | falso | segnalazioni `E-S11-03`, `E-S11-04` |
-| `katharoseq.target_taxon` | taxon atteso nei controlli positivi, come lo scrive il riferimento; solo con controlli positivi | da chi ha allestito i controlli | nessuno | `11_controls/`: fedeltà dei controlli |
+| `katharoseq.target_taxon` | taxon atteso nei controlli positivi, come lo scrive il riferimento (con o senza il prefisso di rango); solo con controlli positivi | da chi ha allestito i controlli | nessuno | `11_controls/`: fedeltà dei controlli |
 | `katharoseq.collapse_rank` | rango a cui si sommano le varianti del taxon atteso; solo con controlli positivi | il più fine a cui il riferimento lo distingue | `Genus`: il più fine che la pipeline assegna | come sopra |
 | `katharoseq.target_sensitivity` | fedeltà a cui si legge la profondità minima dei campioni; solo con controlli positivi | quanta contaminazione si accetta nei campioni poveri | nessuno | report: soglia per piastra, campioni esclusi |
 | `katharoseq.min_r2` | bontà minima di una curva valida; solo con controlli positivi | secondo la qualità dei controlli | nessuno | report: R² delle curve |
@@ -789,30 +1013,34 @@ tutti); che cosa cambia fra ometterlo e dichiararlo è nella sezione 2.5.
 
 ### 6.6 Soglie di qualità
 
-Dodici parametri hanno un solo effetto: fermare l'esecuzione o dare un avviso quando
-una misura supera la soglia (o le sta sotto). Non cambiano conteggi, tassonomia,
-campioni né varianti. Si fissano sui propri dati, dopo una prima esecuzione.
+I parametri di questa tabella hanno un solo effetto: fermare l'esecuzione o dare un
+avviso quando una misura supera la soglia (o le sta sotto). Non cambiano conteggi,
+tassonomia, campioni né varianti. Si fissano sui propri dati, dopo una prima
+esecuzione; fanno eccezione gli ultimi due, che `soglie` non propone: uno protegge la
+memoria, l'altro è un giudizio sui controlli positivi.
 
 **Il valore che non ferma.** Ogni confronto è stretto: una misura uguale alla soglia
 non fa scattare il controllo. Una soglia al limite della tabella, o oltre, è quindi un
 controllo spento: la configurazione è valida, ma `validate`, `run`, `resume` e il
 report lo segnalano. `init --accetta-proposte` scrive il valore che non ferma
-(`[ESPLORATIVA]`) per le soglie in frazione che non hanno un valore di partenza.
+(`[ESPLORATIVA]`) per le soglie in frazione che non hanno un valore di partenza e che
+`soglie` propone poi dalla misura.
 
 | Parametro | Significato | Scatta se | Non ferma (limite) | Partenza di `init` |
 |---|---|---|---|---|
-| `qc.max_primer_hit_frac` | frazione di letture con il primer in testa oltre la quale è considerato presente | la frazione di un file di un campione biologico o di un controllo positivo la supera (`E-S0-10`); con `filter.trimLeft` maggiore di zero il primer non si cerca e la soglia non ha effetto | 1 | nessuna |
+| `qc.max_primer_hit_frac` | frazione di letture con il primer in testa oltre la quale è considerato presente | la frazione di un file di un campione biologico o di un controllo positivo la supera (`E-S0-10`); con `filter.trimLeft` maggiore di zero, o con `qc.primer_sequence` nullo, il primer non si cerca e la soglia non ha effetto | 1 | nessuna |
 | `qc.min_motif_frac` | frazione minima di letture con il motivo conservato | la mediana fra i file le sta sotto (`E-S0-16`); con `qc.conserved_motif` nullo non ha effetto | 0 | nessuna |
 | `qc.max_frac_short_reads` | frazione massima di letture più corte del troncamento, per classe | la frazione di una classe la supera, sulle prime letture o su tutte (`E-S0-09`, `E-S1-02`) | 1 | 0 con il troncamento proposto |
 | `filter.truncLen_shortfall_warn` | di quante basi il troncamento può stare sotto la lettura più corta | lo scarto la supera (avviso `E-S1-01`) | `filter.truncLen` meno 1, il massimo ammesso | lo scarto del troncamento proposto |
 | `qc.max_zeroed_samples` | campioni che il filtro può lasciare senza letture | i campioni biologici e i controlli positivi azzerati sono di più (`E-S2-01`) | il numero dei campioni biologici e dei controlli positivi | 0 |
 | `qc.max_frac_lost_filter` | perdita media massima di letture nel filtro | la perdita media la supera (`E-S2-02`) | 1 | nessuna |
-| `qc.max_asv_count` | varianti oltre le quali la tabella non si costruisce | le varianti distinte sono di più (`E-S5-01`) | nessun limite: non è mai riportata come spenta | dalla memoria della macchina |
 | `qc.warn_frac_chimeric` | frazione di letture chimeriche che dà un avviso | la frazione chimerica la supera (avviso `E-S6-02`) | 1 | nessuna |
 | `qc.stop_frac_chimeric` | frazione di letture chimeriche che ferma | la frazione chimerica la supera (`E-S6-01`) | 1 | nessuna |
 | `qc.min_frac_phylum` | frazione minima di varianti con il phylum assegnato | la frazione di una classe le sta sotto (`E-S8-02`) | 0 | nessuna |
 | `qc.max_frac_contaminant` | frazione massima di letture rimosse come contaminanti; solo con controlli negativi | la frazione rimossa dai biologici la supera (`E-S12-02`) | 1 | nessuna |
 | `qc.min_frac_reads_retained` | frazione minima di letture trattenute dall'insieme | letture finali su letture senza chimere le sta sotto (`E-S14-01`) | 0 | nessuna |
+| `qc.max_asv_count` | varianti oltre le quali la tabella non si costruisce: protegge la memoria | le varianti distinte sono di più (`E-S5-01`) | nessun limite: non è mai riportata come spenta | dalla memoria della macchina; `soglie` non la propone |
+| `ctrl.min_positive_pass_frac` | frazione minima di controlli positivi conformi; solo con controlli positivi | i conformi sono meno: arresto `E-S11-03` con `ctrl.positive_gate` vero, altrimenti avviso `E-S11-04` | 0 | nessuna, mai: è una scelta; `soglie` non la propone |
 
 **`soglie`.** Da un'esecuzione conclusa e dalla configurazione con cui è stata fatta
 scrive un nuovo file, uguale al primo salvo le soglie; non ricalcola nulla e non
@@ -838,8 +1066,14 @@ mediana o la misura d'insieme dove giudica quella) e propone:
 
 - per una soglia massima la misura più un margine, per una minima la misura meno un
   margine: 0,05 per le frazioni; 0,10 per l'arresto delle chimere, così che fra avviso
-  e arresto resti una fascia; la metà in più per le varianti; nessun margine per i
-  campioni azzerati (ogni campione perso deve essere visto) e per le basi dello scarto;
+  e arresto resti una fascia; nessun margine per i campioni azzerati (ogni campione
+  perso deve essere visto) e per le basi dello scarto;
+- **non propone** `qc.max_asv_count` né `ctrl.min_positive_pass_frac`: restano al
+  valore del file letto, e il comando lo dichiara con il motivo. Le varianti crescono
+  in modo naturale con i campioni: una soglia ricavata dalla misura fermerebbe
+  un'analisi con più campioni senza un peggioramento, e la soglia protegge la memoria.
+  Quanti controlli positivi devono essere conformi è un giudizio, non una misura da
+  proteggere;
 - mai un valore più stretto della misura: la ripresa sugli stessi dati non avvisa né
   si ferma per una soglia appena scritta. Le frazioni hanno quattro decimali,
   arrotondate verso l'esterno. Una sola eccezione, dichiarata dal comando: se la
@@ -858,7 +1092,8 @@ mediana o la misura d'insieme dove giudica quella) e propone:
 
 Nel file scritto ogni soglia è preceduta da un commento: `[PROPOSTO] da soglie` con
 misura, artefatto, regola e valore che aveva, per una soglia proposta; `[SOGLIE]` con
-l'esito, per una soglia tenuta, senza misura o esclusa, che conserva la sua riga. In
+l'esito, per una soglia tenuta, senza misura, esclusa o non proposta, che conserva la
+sua riga. In
 testa al file c'è il riepilogo; le intestazioni che seguono, se il file veniva da
 `init`, descrivono il file com'era prima.
 

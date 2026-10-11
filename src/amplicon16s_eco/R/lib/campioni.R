@@ -130,6 +130,9 @@ esamina <- function(ps, parametri) {
   tecniche <- as.character(unlist(design$technical_variables))
   sottoinsieme <- design$subset
   if (is.null(sottoinsieme)) sottoinsieme <- list()
+  # Facoltativi: assenti dai parametri se non dichiarati.
+  continue_dichiarate <- as.character(unlist(design$continuous_variables))
+  colonna_soggetto <- design$subject
 
   tabella <- tabella_campioni(ps)
   conteggi <- conteggi_di(ps)
@@ -137,7 +140,8 @@ esamina <- function(ps, parametri) {
 
   # --- Cio' che rende impossibile ogni calcolo: ci si ferma qui. -------------
   dichiarate <- unique(c(biologiche, tecniche, names(sottoinsieme),
-                         colonne_aggiuntive(parametri)))
+                         colonne_aggiuntive(parametri), continue_dichiarate,
+                         colonna_soggetto))
   for (colonna in dichiarate[!dichiarate %in% names(tabella)]) {
     errore("E-ECO-05", sprintf(
       "Colonna '%s' non trovata. Colonne dell'oggetto: %s.", colonna,
@@ -265,6 +269,39 @@ esamina <- function(ps, parametri) {
     tecnici[[nome]] <- valori
   }
 
+  # --- Variabili continue: i valori devono essere numeri. --------------------
+  continue <- list()
+  for (nome in continue_dichiarate) {
+    grezzi <- stats::setNames(as.character(tabella[campioni, nome]), campioni)
+    grezzi[e_mancante(grezzi, marcatori)] <- NA
+    numeri <- suppressWarnings(as.numeric(grezzi))
+    # Un numero in notazione decimale: as.numeric leggerebbe anche "0x10".
+    decimali <- grepl("^[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?$", trimws(grezzi))
+    non_numerici <- names(grezzi)[!is.na(grezzi) & (!is.finite(numeri) | !decimali)]
+    if (length(non_numerici)) {
+      errore("E-ECO-30", sprintf(
+        "Variabile continua '%s': %d campioni con un valore che non e' un numero (%s).",
+        nome, length(non_numerici),
+        .elenco(sprintf("%s: %s", non_numerici, grezzi[non_numerici]))))
+      next
+    }
+    mancanti <- names(grezzi)[is.na(grezzi)]
+    if (length(mancanti)) {
+      avviso("E-ECO-13", sprintf(
+        "Variabile continua '%s': %d campioni con valore mancante (%s).",
+        nome, length(mancanti), .elenco(mancanti)))
+    }
+    continue[[nome]] <- list(nome = nome, valori = stats::setNames(numeri, campioni),
+                             mancanti = mancanti)
+  }
+  # --- Soggetto del disegno a misure ripetute. --------------------------------
+  soggetto <- NULL
+  if (!is.null(colonna_soggetto)) {
+    valori <- stats::setNames(as.character(tabella[campioni, colonna_soggetto]), campioni)
+    valori[e_mancante(valori, marcatori)] <- NA
+    soggetto <- list(nome = colonna_soggetto, valori = valori)
+  }
+
   list(
     errori = errori,
     avvisi = avvisi,
@@ -282,6 +319,8 @@ esamina <- function(ps, parametri) {
       tecniche = tecniche,
       variabili = variabili,
       tecnici = tecnici,
+      continue = continue,
+      soggetto = soggetto,
       ranghi = ranghi,
       albero = !is.null(albero),
       varianti = nrow(conteggi)
@@ -348,12 +387,26 @@ tabella_dei_campioni <- function(d, piani = list()) {
     valori[d$campioni] <- d$tecnici[[nome]][d$campioni]
     tabella[[paste0("valore:", nome)]] <- valori
   }
+  # Le colonne delle variabili continue e del soggetto ci sono solo se dichiarate.
+  for (v in d$continue) {
+    valori <- rep(NA_character_, length(tutti))
+    names(valori) <- tutti
+    valori[d$campioni] <- as.character(d$tabella[d$campioni, v$nome])
+    valori[d$campioni][is.na(v$valori[d$campioni])] <- NA
+    tabella[[paste0("valore:", v$nome)]] <- valori
+  }
+  if (!is.null(d$soggetto)) {
+    valori <- rep(NA_character_, length(tutti))
+    names(valori) <- tutti
+    valori[d$campioni] <- d$soggetto$valori[d$campioni]
+    tabella[[paste0("soggetto:", d$soggetto$nome)]] <- valori
+  }
   tabella
 }
 
 # Il disegno in forma di riepilogo: numeri e nomi, senza i vettori per campione.
 riepilogo_del_disegno <- function(d) {
-  list(
+  riepilogo <- list(
     campioni = list(
       nell_oggetto = length(d$nell_oggetto),
       analizzati = length(d$campioni),
@@ -379,4 +432,23 @@ riepilogo_del_disegno <- function(d) {
     ))),
     variabili_tecniche = I(d$tecniche)
   )
+  # Le voci delle variabili continue e del soggetto ci sono solo se dichiarate:
+  # senza, il riepilogo e' quello di sempre.
+  if (length(d$continue)) {
+    riepilogo$variabili_continue <- unname(lapply(d$continue, function(v) list(
+      nome = v$nome,
+      campioni_con_valore = sum(!is.na(v$valori)),
+      campioni_con_valore_mancante = length(v$mancanti),
+      valori_distinti = length(unique(v$valori[!is.na(v$valori)]))
+    )))
+  }
+  if (!is.null(d$soggetto)) {
+    valori <- d$soggetto$valori
+    riepilogo$soggetto <- list(
+      colonna = d$soggetto$nome,
+      soggetti = length(unique(valori[!is.na(valori)])),
+      campioni_senza_soggetto = sum(is.na(valori))
+    )
+  }
+  riepilogo
 }

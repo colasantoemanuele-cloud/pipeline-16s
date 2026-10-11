@@ -57,6 +57,10 @@ NOME_FILE_LOG: Final = "pipeline.jsonl"
 #: Nome del registro degli avvii sotto 99_logs: solo in aggiunta, senza rotazione.
 NOME_FILE_AVVII: Final = "avvii.jsonl"
 
+#: Il campo ``extra`` con cui un evento resta fuori dalla console. Comincia con
+#: un trattino basso: il formato del file lo tralascia.
+SOLO_NEL_FILE: Final = "_solo_nel_file"
+
 #: Dimensione oltre la quale il file ruota, e quante rotazioni conservare.
 MAX_BYTE: Final = 16 * 1024 * 1024
 ROTAZIONI: Final = 5
@@ -152,6 +156,9 @@ def configura(
     console = logging.StreamHandler()
     console.setLevel(livello_console)
     console.setFormatter(_FormattatoreConsole())
+    # Un evento che il comando ha gia' riportato all'operatore con parole
+    # proprie va nel solo file: sulla console sarebbe una ripetizione.
+    console.addFilter(lambda record: not getattr(record, SOLO_NEL_FILE, False))
     logger.addHandler(console)
 
     if out_root is None:

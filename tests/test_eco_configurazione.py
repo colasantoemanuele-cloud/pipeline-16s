@@ -650,7 +650,9 @@ def _stringhe_dei_dataset() -> set[str]:
 def test_gli_esempi_dei_dataset_sono_configurazioni_valide():
     """
     **Obiettivo**: ogni ``dati/*/eco_*.yaml`` supera la validazione del file e
-    dichiara tutti i parametri, anche quelli con un predefinito.
+    dichiara tutti i parametri, anche quelli con un predefinito; fanno
+    eccezione i facoltativi che, non dichiarati, non entrano nella
+    configurazione risolta, e che un esempio dichiara solo se li usa.
 
     **Razionale scientifico e sistemistico**: la configurazione di un dataset
     e' il luogo in cui stanno i suoi valori, e deve bastare a se stessa.
@@ -666,8 +668,8 @@ def test_gli_esempi_dei_dataset_sono_configurazioni_valide():
             for n in modello.annotation.model_fields
         }
         usati = {c for c in campi
-                 if c not in schema.CONDIZIONALI
-                 or getattr(getattr(config, c.split(".")[0]), c.split(".")[1]) is not None}
+                 if c not in (*schema.CONDIZIONALI, *schema.ASSENTI_SE_NON_DICHIARATI)
+                 or getattr(getattr(config, c.split(".")[0]), c.split(".")[1])}
         assert dichiarati == usati, esempio.name
 
 
@@ -998,3 +1000,133 @@ def test_eco_init_accetta_proposte_attiva_proposte_e_partenze_non_i_condizionali
             assert righe[chiave][0] is False, chiave
     dati = yaml.safe_load(testo)
     assert dati["design"]["variable"] == "trattamento" and dati["comp"] == {"rank": "Famiglia"}
+
+
+def test_i_condizionali_dei_metodi_gia_dichiarati_si_chiedono_nello_stesso_giro():
+    """
+    **Obiettivo**: Verificare che, quando la configurazione ha gia' l'elenco
+    delle distanze e dei metodi di ordinazione ma le manca un altro parametro
+    obbligatorio, il rifiuto nomini insieme a quello anche i condizionali che i
+    metodi dichiarati richiedono (lo pseudoconteggio con Aitchison, la
+    correzione con la PCoA); che un condizionale gia' respinto dallo schema per
+    il suo valore non risulti anche mancante; che con l'elenco dei metodi non
+    ancora dichiarato nessun condizionale sia chiesto; e che il testo «che
+    cosa fare» di un parametro mancante valga per ogni parametro.
+
+    **Razionale scientifico e sistemistico**: Chi completa la configurazione
+    deve vedere in un solo giro tutto cio' che manca e che si puo' gia'
+    conoscere. Un condizionale dipende dai metodi scelti: senza l'elenco non
+    lo si puo' chiedere senza inventare una scelta.
+    """
+    from amplicon16s_eco.catalogo import CATALOGO
+
+    completa = configurazione()
+    completa["beta"]["distances"] = ["bray", "aitchison"]
+    completa["ord"] = {"methods": ["pcoa"], "distances": ["bray"]}
+    completa["beta"].pop("clr_pseudocount", None)
+    del completa["stat"]["significance_level"]
+    with pytest.raises(ErroreEco) as rifiuto:
+        schema.valida(completa)
+    testo = str(rifiuto.value)
+    assert rifiuto.value.codici == ["E-ECO-02"] * 3
+    for parametro in ("stat.significance_level", "beta.clr_pseudocount", "ord.pcoa_correction"):
+        assert parametro in testo
+
+    # Un valore non ammesso e' un solo problema, non anche un parametro mancante.
+    completa["beta"]["clr_pseudocount"] = -1
+    with pytest.raises(ErroreEco) as rifiuto:
+        schema.valida(completa)
+    assert sorted(rifiuto.value.codici) == ["E-ECO-01", "E-ECO-02", "E-ECO-02"]
+
+    # Senza l'elenco dei metodi i suoi condizionali non si conoscono.
+    senza = configurazione()
+    del senza["beta"]["distances"]
+    senza["ord"] = {"methods": [], "distances": []}
+    with pytest.raises(ErroreEco) as rifiuto:
+        schema.valida(senza)
+    assert "clr_pseudocount" not in str(rifiuto.value)
+
+    assert "design.variable" not in CATALOGO["E-ECO-02"].azione
+
+
+def test_eco_init_non_scrive_un_valore_per_un_condizionale_senza_proposta():
+    """
+    **Obiettivo**: Verificare che, per un oggetto senza albero, la riga di
+    ``beta.unifrac_root`` scritta da ``eco init`` sia in commento e senza
+    valore, con la condizione che la richiede, e non riporti il nullo dello
+    schema.
+
+    **Razionale scientifico e sistemistico**: Il nullo e' l'assenza del
+    parametro, non una scelta: scritto accanto al nome fa pensare a un valore
+    da confermare, mentre senza albero il parametro non va dichiarato.
+    """
+    from init_aiuti import righe_dei_parametri
+
+    from amplicon16s_eco import init
+
+    descrizione = {
+        "campioni": 6, "varianti": 4,
+        "ranghi": [{"rango": "Regno", "quota_assegnata": 1.0}],
+        "albero": {"presente": False, "radicato": False, "con_lunghezze": False},
+        "colonne": [{"nome": "trattamento", "distinti": 2, "gruppi_ripetuti": 2,
+                     "numerica": False, "con_valore": 6}],
+    }
+    voci, fatti = init.prepara(descrizione)
+    testo = init.testo_yaml(voci, fatti, "ps.rds")
+    assert righe_dei_parametri(testo, schema.ConfigEco)["beta.unifrac_root"] == (False, "")
+    assert "unifrac_root: null" not in testo
+    assert re.search(r"\[CONDIZIONALE\] solo se beta.distances comprende[^\n]*\n(?:  ##[^\n]*\n)*"
+                     r"  # unifrac_root:\n", testo)
+
+
+def test_eco_init_propone_come_continua_la_colonna_che_sembra_una_misura():
+    """
+    **Obiettivo**: Verificare, sulla descrizione di un oggetto con una colonna
+    numerica dai valori quasi tutti diversi, che ``eco init`` la proponga in
+    ``design.continuous_variables`` e non fra le candidate a variabile
+    categorica; che una colonna numerica con pochi valori ripetuti (una dose a
+    due livelli) resti candidata categorica; che senza colonne di quel tipo il
+    parametro resti la riga facoltativa del modello; e che il soggetto non sia
+    mai proposto.
+
+    **Razionale scientifico e sistemistico**: una misura continua trattata
+    come categorica diventa un gruppo per campione. La regola della proposta e'
+    quella dell'avviso sulle variabili che sembrano continue: numerica, almeno
+    dieci valori distinti, distinti in almeno quattro quinti dei campioni. Chi
+    sia il soggetto di un disegno a misure ripetute lo sa solo chi lo ha fatto.
+    """
+    from init_aiuti import righe_dei_parametri
+
+    from amplicon16s_eco import init
+
+    def descrizione(*colonne):
+        return {
+            "campioni": 12, "varianti": 4,
+            "ranghi": [{"rango": "Regno", "quota_assegnata": 1.0}],
+            "albero": {"presente": False, "radicato": False, "con_lunghezze": False},
+            "colonne": list(colonne),
+        }
+
+    gruppo = {"nome": "trattamento", "distinti": 2, "gruppi_ripetuti": 2, "numerica": False,
+              "con_valore": 12}
+    dose = {"nome": "dose", "distinti": 2, "gruppi_ripetuti": 2, "numerica": True,
+            "con_valore": 12}
+    misura = {"nome": "distanza_m", "distinti": 11, "gruppi_ripetuti": 1, "numerica": True,
+              "con_valore": 12}
+    voci, fatti = init.prepara(descrizione(gruppo, misura))
+    assert voci["design.continuous_variables"].valore == ["distanza_m"]
+    # Tutte le colonne dell'oggetto sono elencate, con cio' che serve a scegliere.
+    assert any("trattamento (2)" in f and "distanza_m (11, numerica)" in f for f in fatti)
+    assert voci["design.variable"].valore == "trattamento"
+    testo = init.testo_yaml(voci, fatti, "ps.rds")
+    assert righe_dei_parametri(testo, schema.ConfigEco)["design.continuous_variables"] == (
+        False, '["distanza_m"]')
+    accettato = init.testo_yaml(init.accetta(voci), fatti, "ps.rds", True)
+    assert righe_dei_parametri(accettato, schema.ConfigEco)["design.continuous_variables"][0]
+    assert righe_dei_parametri(accettato, schema.ConfigEco)["design.subject"] == (False, "null")
+
+    # Una dose a due livelli e' numerica ma non una misura: resta categorica.
+    voci, _ = init.prepara(descrizione(gruppo, dose))
+    assert "design.continuous_variables" not in voci
+    assert voci["design.variable"].valore is not None
+    assert "design.subject" not in voci

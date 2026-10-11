@@ -7,7 +7,9 @@
 # e l'orchestratore li riporta tutti.
 
 for (f in c("io_json.R", "errors.R")) source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
-for (f in c("uscite.R", "campioni.R", "test.R")) source(file.path(Sys.getenv("AMPLICON16S_ECO_R_LIB"), f))
+for (f in c("uscite.R", "campioni.R", "test.R", "continua.R", "ripetute.R")) {
+  source(file.path(Sys.getenv("AMPLICON16S_ECO_R_LIB"), f))
+}
 
 esegui_fase(function(parametri, cartella) {
   richiedi_pacchetti(c("phyloseq", "ape", "permute"))
@@ -22,7 +24,9 @@ esegui_fase(function(parametri, cartella) {
       # Il piano dei test si ricava dal solo disegno: i suoi avvisi (confusione
       # con il lotto, termini non stimabili, permutazioni) si conoscono prima
       # di calcolare qualunque distanza.
-      esame$avvisi <- c(esame$avvisi, disegno_dei_test(esame$disegno, parametri)$avvisi)
+      esame$avvisi <- c(esame$avvisi, disegno_dei_test(esame$disegno, parametri)$avvisi,
+                        piano_continue(esame$disegno, parametri)$avvisi,
+                        piano_appaiato(esame$disegno, parametri)$avvisi)
     }
     esito <- list(
       errori = esame$errori, avvisi = esame$avvisi,
