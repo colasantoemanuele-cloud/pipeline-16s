@@ -8,7 +8,7 @@
 #
 # Il sottocomando "eco init" scrive un file come questo a partire dal proprio
 # oggetto, con cio' che l'oggetto contiene e con le proposte gia' scritte
-# (GUIDA.md, sezione 4).
+# (GUIDA.md, passo 10; RIFERIMENTO.md, sezione 4).
 #
 # Marcatori:
 #   [OBBLIGATORIO]   nessun valore predefinito: senza, l'analisi non parte

@@ -778,11 +778,11 @@ def test_il_profilo_propone_troncamento_e_funzione_d_errore(profilo, tmp_path):
 
 def test_la_guida_copre_ogni_parametro_obbligatorio_e_ogni_argomento_di_init():
     """
-    **Obiettivo**: Verificare che la guida per un nuovo dataset nomini, nella
+    **Obiettivo**: Verificare che il documento di riferimento nomini, nella
     sezione dei parametri, ogni parametro obbligatorio dello schema; che elenchi
     ogni argomento del sottocomando ``init`` e nessuno che non esiste; che ogni
-    sottocomando che il README e la guida mostrano esista nella riga di
-    comando; e che il README resti sotto le trecento righe.
+    sottocomando che il README, la guida e il riferimento mostrano esista nella
+    riga di comando; e che il README resti sotto le trecento righe.
 
     **Razionale scientifico e sistemistico**: Un parametro obbligatorio che la
     guida non spiega, o un argomento che la guida nomina e il programma non
@@ -795,18 +795,20 @@ def test_la_guida_copre_ogni_parametro_obbligatorio_e_ogni_argomento_di_init():
     from amplicon16s.init.comando import aggiungi_argomenti
     from amplicon16s_eco.cli import build_parser as build_parser_eco
 
-    if not (RADICE / "GUIDA.md").is_file():
+    if not (RADICE / "GUIDA.md").is_file() or not (RADICE / "RIFERIMENTO.md").is_file():
         pytest.skip("la guida non e' disponibile in questo ambiente (non e' copiata nell'immagine)")
     guida = (RADICE / "GUIDA.md").read_text(encoding="utf-8")
+    riferimento = (RADICE / "RIFERIMENTO.md").read_text(encoding="utf-8")
     readme = (RADICE / "README.md").read_text(encoding="utf-8")
-    parametri = guida[guida.index("## 6. "):]
+    parametri = riferimento[riferimento.index("## 6. "):]
     assert [c for c in defaults.OBBLIGATORI if f"`{c}`" not in parametri] == []
 
     parser = argparse.ArgumentParser()
     aggiungi_argomenti(parser)
     argomenti = {o for azione in parser._actions for o in azione.option_strings if o.startswith("--")}
     argomenti.discard("--help")
-    tabella = guida[guida.index("| Argomento | Significato |"):guida.index("`init` legge tutte le letture")]
+    tabella = riferimento[
+        riferimento.index("| Argomento | Significato |"):riferimento.index("`init` legge tutte le letture")]
     assert set(re.findall(r"`(--[a-z-]+)", tabella)) == argomenti
 
     def sottocomandi(parser_radice) -> set[str]:
@@ -814,9 +816,11 @@ def test_la_guida_copre_ogni_parametro_obbligatorio_e_ogni_argomento_di_init():
         return set(azione.choices)
 
     pipeline, eco = sottocomandi(build_parser()), sottocomandi(build_parser_eco())
-    for testo in (guida, readme):
+    for testo in (guida, riferimento, readme):
         for comando in re.findall(r"scripts/esegui\.py (eco )?([a-z]+)", testo):
             assert comando[1] in (eco if comando[0] else pipeline), comando
+    for comando in re.findall(r"^\s*p16s (eco )?([a-z]+)", guida, flags=re.MULTILINE):
+        assert comando[1] in (eco if comando[0] else pipeline), comando
     assert {"init", "schema", "status", "validate", "run", "resume", "report"} <= pipeline
     assert {"init", "schema", "status", "validate", "run"} <= eco
     assert len(readme.splitlines()) < 300

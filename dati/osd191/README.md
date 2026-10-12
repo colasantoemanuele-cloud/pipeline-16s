@@ -56,11 +56,11 @@ deposito.
   basi gli errori sono troppi perche' la riconosca (poche coppie su cento). Le due
   letture coprono comunque la regione: i due troncamenti si scelgono dal profilo di
   qualita' rispettando il vincolo della fusione, e l'intervallo delle lunghezze dalla
-  regione amplificata (GUIDA.md, sezione 6.7).
+  regione amplificata (RIFERIMENTO.md, sezione 6.7).
 - **Sulle sole forward `init` propone un troncamento di 35 basi**, la lunghezza della
   lettura piu' corta: la sua proposta e' la lunghezza maggiore che non scarta alcuna
   lettura, e qui va sostituita con una scelta fatta sul profilo di qualita', accettando
-  di scartare le poche letture piu' corte (GUIDA.md, sezione 6.3).
+  di scartare le poche letture piu' corte (RIFERIMENTO.md, sezione 6.3).
 
 ## Confronto con l'elaborazione di GeneLab
 

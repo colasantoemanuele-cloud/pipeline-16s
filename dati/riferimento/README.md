@@ -35,7 +35,7 @@ messo da parte, non sovrascritto. I file scaricati sono esclusi da git (`.gitign
 ## Il classificatore addestrato per IdTaxa
 
 Con `tax.classifier: idtaxa` la pipeline usa, al posto del riferimento FASTA, un
-classificatore addestrato nel formato di DECIPHER (GUIDA.md, 1.5):
+classificatore addestrato nel formato di DECIPHER (RIFERIMENTO.md, 1.5):
 
 ```bash
 python3 dati/riferimento/scarica_addestrato.py 138.2                 # SILVA SSU r138.2, circa 299 MB
