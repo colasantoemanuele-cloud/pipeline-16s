@@ -52,8 +52,8 @@ in [RIFERIMENTO.md](RIFERIMENTO.md).
   Greengenes) per `assignTaxonomy`, o un classificatore addestrato di DECIPHER per IdTaxa (`tax.classifier`; RIFERIMENTO.md, 1.5).
 
 File e metadati si agganciano con una chiave estratta dal nome di ogni file, unica per
-campione (`io.accession_regex`). Come preparare letture e tabelle è in GUIDA.md, passo 2, e in RIFERIMENTO.md,
-sezione 1.
+campione (`io.accession_regex`). Come preparare letture e tabelle, e come scaricare uno studio di OSDR
+(`scripts/scarica_osdr.py`), è in GUIDA.md, passo 2, e in RIFERIMENTO.md, sezione 1.
 
 Nel repository ci sono i dataset su cui la pipeline è eseguita, con dati, configurazioni e istruzioni: `dati/osd734/`
 (960 campioni, controlli e file del lotto), `dati/osd276/` (15, senza controlli), `dati/osd170/` (30, soli controlli negativi),
@@ -144,7 +144,7 @@ tutti con `--accetta-proposte`. Il percorso breve: `init ... --accetta-proposte`
 valori di partenza attivi, soglie di qualità al valore che non ferma); si scrivono le scelte che
 `validate` elenca; `run`; `soglie --config <configurazione.yaml> --output <nuova.yaml>
 --accetta-proposte` propone le soglie dalle misure di quell'esecuzione, e `resume --config
-<nuova.yaml>` le attiva. Una soglia proposta protegge dai peggioramenti, non giudica la misura.
+<nuova.yaml>` le attiva, ripetendo i calcoli. Una soglia proposta protegge dai peggioramenti, non giudica la misura.
 Passi in GUIDA.md, dettagli in RIFERIMENTO.md (2 e 6.6); le configurazioni in `dati/` sono esempi commentati.
 
 - I parametri che dipendono dai dati o dallo studio sono **obbligatori**, senza predefinito
@@ -263,12 +263,10 @@ misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in
 ## Limiti noti
 
 - Le letture inverse prese per forward si riconoscono dal contenuto (`E-S1-07`), con il motivo
-  conservato o con il primer nelle basi tagliate: non con il motivo nullo e senza taglio, non in un
-  file con meno di 500 letture o di un controllo negativo, non se il motivo è stato ricavato da
+  conservato o con il primer nelle basi tagliate: non con il motivo nullo e senza taglio, non in un file con meno di 500 letture o di un controllo negativo, non se il motivo è stato ricavato da
   file in maggioranza inversi, non se la libreria mescola i due versi (RIFERIMENTO.md, 1.2).
 - In modalità single-end un file con il nome di una seconda lettura (`R2`, `_2`) è respinto per il
-  nome solo dove il contenuto non si può giudicare (RIFERIMENTO.md, 1.2); lo è un dataset le cui letture
-  portano tutte il marcatore `/2`. In modalità appaiata i taxa con la regione più lunga di quanto
+  nome solo dove il contenuto non si può giudicare (RIFERIMENTO.md, 1.2); lo è un dataset le cui letture portano tutte il marcatore `/2`. In modalità appaiata i taxa con la regione più lunga di quanto
   le letture troncate coprono non si fondono, senza alcun errore (RIFERIMENTO.md, 6.7).
 - `init` riconosce il primer solo se è in un elenco di primer 16S comuni; la chiave del campione solo se una colonna corrisponde uno a uno ai file (o alle righe che ne hanno uno);
   in modalità appaiata non propone troncamenti e intervallo se non misura la sovrapposizione né riconosce i due primer (RIFERIMENTO.md, 2). Il primer cercato lungo la lettura ammette sole sostituzioni, non
@@ -287,6 +285,8 @@ misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in
   dichiarati (`design.continuous_variables`, `design.subject`: RIFERIMENTO.md, 4.1 e 4.2). Con una
   distanza non euclidea la PERMANOVA entro soggetto può non essere valutabile. Un'analisi respinta
   non lascia nulla nella cartella di uscita: `eco status` non la riporta, il codice lo dà il comando.
+  Gli avvisi di `eco init` su rarefazione e variabili confuse richiedono gli export accanto all'oggetto.
+- Dopo `soglie`, `resume` ripete tutti i calcoli (dura quanto `run`) anche se sono cambiate solo soglie di qualità, che non cambiano i risultati.
 
 ## Test
 

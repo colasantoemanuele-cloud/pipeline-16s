@@ -39,6 +39,7 @@ import json
 import math
 import os
 import re
+import statistics
 import textwrap
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -55,10 +56,20 @@ from amplicon16s.config.schema import Config, ErroreConfigurazione, carica, vali
 from amplicon16s.init.scrittura import valore_yaml
 from amplicon16s.io_layer.artifacts import nome_manifesto_passo, scrivi_atomico
 from amplicon16s.runner.graph import GRAFO
-from amplicon16s.soglie.misure import ArtefattoNonLeggibile, Misura, campioni_controllati, leggi
+from amplicon16s.soglie.misure import (
+    ArtefattoNonLeggibile,
+    LettureFinali,
+    Misura,
+    campioni_controllati,
+    gruppi_dei_campioni_finali,
+    leggi,
+    letture_finali,
+)
 from amplicon16s.steps.base import impronta_parametri
 from amplicon16s.config import defaults
 from amplicon16s.soglie.tabella import (
+    LETTURE_FINALI_POCHE,
+    QUOTA_DELLA_MEDIANA_DELLE_LETTURE,
     SOGLIE_SENZA_LIMITE_AMMESSO,
     TRONCAMENTO_DELLO_SCARTO,
     Direzione,
@@ -71,8 +82,8 @@ from amplicon16s.soglie.tabella import (
     valori_piatti,
 )
 
-__all__ = ["USCITA_RIFIUTO", "Esito", "Rifiuto", "aggiungi_argomenti", "esegui", "proponi",
-           "riscrivi", "suggerisci"]
+__all__ = ["USCITA_RIFIUTO", "Esito", "LettureMinime", "Rifiuto", "aggiungi_argomenti",
+           "esegui", "letture_minime", "proponi", "riscrivi", "suggerisci"]
 
 USCITA_RIFIUTO: Final = 3
 
@@ -477,6 +488,167 @@ def _verifica(originale: str, nuovo: str, accettato: str, esiti: list[Esito]) ->
 
 
 # --------------------------------------------------------------------------- #
+# Letture minime per campione                                                  #
+# --------------------------------------------------------------------------- #
+
+#: Il parametro che toglie dall'oggetto finale i campioni con poche letture.
+_LETTURE_MINIME: Final = "qc.min_reads_final"
+#: Il marcatore del commento che ``soglie`` scrive accanto a quella riga.
+_DA_SCEGLIERE: Final = "[DA SCEGLIERE] da soglie, letture minime per campione:"
+
+
+@dataclass(frozen=True)
+class LettureMinime:
+    """La proposta di ``qc.min_reads_final``: non una soglia di qualita', ma
+    una scelta che cambia l'oggetto finale, e che per questo resta a chi
+    conduce l'analisi.
+    """
+
+    #: Il valore della configurazione usata.
+    configurazione: int
+    #: Il valore con cui i campioni elencati escono.
+    raccomandato: int
+    #: La mediana delle letture finali dei campioni rimasti.
+    mediana: float
+    #: Quanti campioni ha l'oggetto finale.
+    campioni: int
+    #: I campioni con molte meno letture degli altri, dal piu' povero.
+    poveri: tuple[LettureFinali, ...]
+    #: Vero se toglierli e' raccomandato: hanno meno letture di quante ne
+    #: servono a descrivere un campione. Falso se ne hanno molte meno degli
+    #: altri ma abbastanza in assoluto: si nominano, e la scelta resta aperta.
+    consigliato: bool = True
+    #: I gruppi dello studio che, togliendoli, resterebbero con meno di due
+    #: campioni: (colonna, valore, campioni che restano, campioni di prima).
+    gruppi_svuotati: tuple[tuple[str, str, int, int], ...] = ()
+
+    def testo(self) -> str:
+        """La proposta a parole, per la console e per il file."""
+        elenco = ", ".join(
+            f"{c.nome or c.accession} ({c.letture})" for c in self.poveri[:10]) + (
+            f" e altri {len(self.poveri) - 10}" if len(self.poveri) > 10 else "")
+        inizio = (
+            f"{len(self.poveri)} campioni su {self.campioni} dell'oggetto finale hanno molte "
+            f"meno letture degli altri (meno di {self.raccomandato}; mediana "
+            f"{self.mediana:.0f}): {elenco}. Le analisi che rarefanno alla profondita' del "
+            f"campione piu' povero scenderebbero a {self.poveri[0].letture} letture per tutti. ")
+        if self.consigliato:
+            consiglio = (
+                f"Raccomandato {_LETTURE_MINIME}: {self.raccomandato}, con cui i campioni "
+                "elencati escono dall'oggetto finale")
+        else:
+            consiglio = (
+                f"Hanno pero' almeno {LETTURE_FINALI_POCHE} letture, che bastano a "
+                "descriverli: di solito si tengono, e non c'e' un valore raccomandato. Per "
+                f"toglierli comunque: {_LETTURE_MINIME}: {self.raccomandato}")
+        gruppi = ""
+        if self.gruppi_svuotati:
+            gruppi = ". ATTENZIONE: togliendoli resterebbero con meno di due campioni " + "; ".join(
+                f"il gruppo {valore!r} di {colonna} ({restano} su {prima})"
+                for colonna, valore, restano, prima in self.gruppi_svuotati[:6]
+            ) + ": un confronto che lo riguarda non si potrebbe piu' fare"
+        return (inizio + consiglio + gruppi + ". Non e' una soglia di qualita': cambia i "
+                "risultati, e per questo non si attiva con --accetta-proposte")
+
+    def documento(self) -> dict[str, Any]:
+        """La proposta nella forma del documento JSON."""
+        return {
+            "parametro": _LETTURE_MINIME,
+            "valore_configurazione": self.configurazione,
+            "valore_raccomandato": self.raccomandato,
+            "raccomandato": self.consigliato,
+            "mediana": self.mediana,
+            "campioni": self.campioni,
+            "campioni_che_uscirebbero": [
+                {"accession": c.accession, "nome": c.nome, "letture": c.letture}
+                for c in self.poveri],
+            "gruppi_con_meno_di_due_campioni": [
+                {"colonna": colonna, "valore": valore, "restano": restano, "campioni": prima}
+                for colonna, valore, restano, prima in self.gruppi_svuotati],
+        }
+
+
+def letture_minime(
+    campioni: list[LettureFinali] | None, configurazione: Any,
+    gruppi: Mapping[str, Mapping[str, str]] | None = None,
+) -> LettureMinime | None:
+    """La proposta di ``qc.min_reads_final``, o ``None`` se nessun campione
+    dell'oggetto finale ha molte meno letture degli altri.
+
+    Poveri sono i campioni sotto :data:`LETTURE_FINALI_POCHE` letture: toglierli
+    e' raccomandato, perche' non bastano a descrivere un campione. Se nessuno e'
+    sotto quel numero, ma alcuni sono sotto un decimo della mediana, si
+    nominano senza raccomandare di toglierli: hanno abbastanza letture, e
+    possono essere un intero gruppo dello studio. Se sotto il limite cadrebbe
+    almeno la meta' dei campioni il dataset e' povero nel suo insieme: vale
+    allora il solo decimo della mediana, e se anche cosi' sono almeno la meta'
+    non c'e' proposta. ``gruppi`` da', per ogni colonna dello studio, il valore
+    di ogni campione: serve a dire quali gruppi resterebbero con meno di due.
+    """
+    if not campioni or len(campioni) < 2 or not isinstance(configurazione, int):
+        return None
+    mediana = statistics.median(c.letture for c in campioni)
+    decimo = math.ceil(Fraction(mediana) * Fraction(QUOTA_DELLA_MEDIANA_DELLE_LETTURE))
+    scelto: tuple[int, list[LettureFinali], bool] | None = None
+    for limite_inferiore, consigliato in (
+            (LETTURE_FINALI_POCHE, True), (decimo, decimo < LETTURE_FINALI_POCHE)):
+        poveri = sorted((c for c in campioni if c.letture < limite_inferiore),
+                        key=lambda c: (c.letture, c.accession))
+        if poveri and 2 * len(poveri) < len(campioni):
+            scelto = (limite_inferiore, poveri, consigliato)
+            break
+    if scelto is None:
+        return None
+    limite_inferiore, poveri, consigliato = scelto
+    fuori = {c.accession for c in poveri}
+    presenti = {c.accession for c in campioni}
+    svuotati = []
+    for colonna, valori in (gruppi or {}).items():
+        per_valore: dict[str, list[str]] = {}
+        for accession, valore in valori.items():
+            if accession in presenti and valore:
+                per_valore.setdefault(valore, []).append(accession)
+        for valore, membri in sorted(per_valore.items()):
+            restano = sum(a not in fuori for a in membri)
+            if len(membri) >= 2 and restano < 2:
+                svuotati.append((colonna, valore, restano, len(membri)))
+    return LettureMinime(configurazione, limite_inferiore, float(mediana), len(campioni),
+                         tuple(poveri), consigliato, tuple(svuotati))
+
+
+def _con_le_letture_minime(testo: str, proposta: LettureMinime | None) -> str:
+    """Il testo con la proposta scritta sopra la riga di ``qc.min_reads_final``.
+
+    Toglie il commento di un passaggio precedente del comando; senza una
+    proposta, e senza quel commento, il testo resta com'e'. La riga del
+    parametro non cambia: chi accetta scrive il valore raccomandato al posto
+    del suo.
+    """
+    gruppo_cercato, nome = _LETTURE_MINIME.split(".")
+    uscita: list[str] = []
+    gruppo: str | None = None
+    for riga in testo.split("\n"):
+        intestazione = _GRUPPO.match(riga)
+        if intestazione:
+            gruppo = intestazione.group(1)
+        trovata = re.match(rf"^(\s+){nome}:(\s|$)", riga) if gruppo == gruppo_cercato else None
+        if trovata:
+            inizio = len(uscita)
+            while inizio and uscita[inizio - 1].lstrip().startswith("##"):
+                inizio -= 1
+            nostre = [i for i in range(inizio, len(uscita)) if _DA_SCEGLIERE in uscita[i]]
+            if nostre:
+                del uscita[nostre[0]:]
+            if proposta is not None:
+                uscita += _commento(
+                    f"{_DA_SCEGLIERE} {proposta.testo()}. Per toglierli scrivi "
+                    f"{proposta.raccomandato} al posto del valore nella riga qui sotto, poi "
+                    "resume.", trovata.group(1))
+        uscita.append(riga)
+    return "\n".join(uscita)
+
+
+# --------------------------------------------------------------------------- #
 # L'esecuzione letta                                                           #
 # --------------------------------------------------------------------------- #
 
@@ -572,8 +744,11 @@ def aggiungi_argomenti(parser: argparse.ArgumentParser) -> None:
 
 
 def _documento(args: argparse.Namespace, cartella: Path | None, esiti: list[Esito],
-               uscita: int, rifiuto: str | None) -> dict[str, Any]:
+               uscita: int, rifiuto: str | None,
+               minime: LettureMinime | None = None) -> dict[str, Any]:
     return {
+        # Solo se c'e' una proposta: senza, il documento e' quello di sempre.
+        **({"letture_minime": minime.documento()} if minime is not None else {}),
         "versione_formato": interfaccia.VERSIONE_FORMATO,
         "comando": "soglie",
         "strumento": "amplicon16s",
@@ -618,10 +793,11 @@ def _riga_console(esito: Esito) -> list[str]:
 
 
 def prepara(args: argparse.Namespace, in_cartella: Callable[[Config], Config]) -> tuple[
-    Path, list[Esito], str
+    Path, list[Esito], str, LettureMinime | None
 ]:
     """Legge esecuzione e configurazione e restituisce la cartella letta, gli
-    esiti e il testo del file nuovo. Solleva :class:`Rifiuto`.
+    esiti, il testo del file nuovo e la proposta delle letture minime per
+    campione, se c'e'. Solleva :class:`Rifiuto`.
     """
     uscita: Path = args.output
     if uscita.exists():
@@ -650,12 +826,16 @@ def prepara(args: argparse.Namespace, in_cartella: Callable[[Config], Config]) -
                       "cartella non e' quella di un'esecuzione conclusa integra") from guasto
     esiti = suggerisci(valori, misure, campioni_controllati(radice))
 
+    minime = letture_minime(letture_finali(radice), valori.get(_LETTURE_MINIME),
+                            gruppi_dei_campioni_finali(radice))
+
     base = _senza_intestazione(testo)
-    nuovo = riscrivi(base, esiti, bool(args.accetta_proposte))
+    nuovo = _con_le_letture_minime(riscrivi(base, esiti, bool(args.accetta_proposte)), minime)
     _verifica(testo, nuovo, riscrivi(base, esiti, True), esiti)
     scritto = _intestazione(esiti, bool(args.accetta_proposte), radice) + nuovo
     # Il file nuovo ha il fine riga di quello di partenza.
-    return radice, esiti, scritto.replace("\n", "\r\n") if b"\r\n" in grezzo else scritto
+    return (radice, esiti, scritto.replace("\n", "\r\n") if b"\r\n" in grezzo else scritto,
+            minime)
 
 
 def esegui(
@@ -670,7 +850,7 @@ def esegui(
     gli altri comandi, perche' il digest sia quello registrato dall'esecuzione.
     """
     try:
-        radice, esiti, testo = prepara(args, in_cartella)
+        radice, esiti, testo, minime = prepara(args, in_cartella)
     except Rifiuto as rifiuto:
         stampa(f"soglie: {rifiuto}. Nulla e' stato scritto")
         if args.json and stampa_json is not None:
@@ -691,10 +871,16 @@ def esegui(
         stampa("Avviso: controlli spenti anche dopo la proposta: " + ", ".join(spente) + ".")
     for riga in textwrap.wrap(_AVVERTENZA, 96):
         stampa(riga)
+    if minime is not None:
+        for riga in textwrap.wrap(
+                f"Letture minime per campione, da scegliere: {minime.testo()}. Per toglierli "
+                f"scrivi {minime.raccomandato} nella riga di {_LETTURE_MINIME} in "
+                f"{args.output}, prima di resume.", 96):
+            stampa(riga)
     stampa(f"Poi: resume --config {args.output}" if args.accetta_proposte or not proposte else
            f"Poi: togli il commento alle soglie che accetti in {args.output} (finche' restano "
            "in commento validate le elenca come mancanti), e lancia resume --config "
            f"{args.output}")
     if args.json and stampa_json is not None:
-        stampa_json(_documento(args, radice, esiti, 0, None))
+        stampa_json(_documento(args, radice, esiti, 0, None, minime))
     return 0

@@ -1197,8 +1197,9 @@ def test_init_non_allunga_i_troncamenti_dentro_basi_di_qualita_bassa(
     assert "fino alla 15 nelle reverse (lunghezza piu' frequente 100)" in stampato
     assert "fin dove la qualita' mediana e' almeno 20 le due letture danno 70 + 25 = 95 basi" \
         in stampato
-    assert "Si consiglia di usare le sole letture forward: togli dalla cartella delle letture " \
-           "i file reverse e rilancia init." in stampato
+    assert "Si consiglia di usare le sole letture forward: prepara una cartella con i soli " \
+           "file forward (GUIDA.md, passo 2) e rilancia init con --reads su quella cartella " \
+           "e un altro --output." in stampato
     assert "le coppie non si fondono senza basi di qualita' bassa" in testo
     necessarie = int(stampato.split("e ne servono ")[1].split()[0])
     # La somma delle lunghezze ammesse basterebbe: e' la qualita' a fermare.
@@ -1225,3 +1226,54 @@ def test_init_non_allunga_i_troncamenti_dentro_basi_di_qualita_bassa(
     assert righe["filter.truncLen"] == (True, "115")
     assert righe["pair.truncLen_reverse"] == (True, "108")
     assert "allungato" not in testo and "non si fondono" not in stampato
+
+
+def test_il_taglio_delle_reverse_resta_da_scegliere_se_un_file_non_porta_il_primer(
+    tmp_path, capsys
+):
+    """
+    **Obiettivo**: Verificare che in modalita' appaiata, quando il primer
+    reverse e' in testa alle letture reverse di quasi tutti i file ma non di
+    uno, ``init`` proponga il primer reverse e lasci da scegliere, senza
+    valore, il taglio delle reverse, nominando il file che non lo porta e il
+    taglio che sarebbe; che il riepilogo lo dica; che il taglio delle forward,
+    che ogni file porta, resti un fatto rilevato; e che con il primer in ogni
+    file reverse anche quel taglio sia rilevato.
+
+    **Razionale scientifico e sistemistico**: Un taglio fisso toglie le prime
+    basi di ogni lettura: al file che non porta il primer toglierebbe basi
+    vere della regione, spostando la sovrapposizione delle coppie di quel solo
+    campione. Vale per le reverse come per le forward, con la stessa regola.
+    """
+    def lancia(dataset: sintetico.DatasetAppaiato, uscita: Path) -> dict:
+        assert main(["init", "--reads", str(dataset.letture), "--metadata",
+                     str(dataset.tabella), "--output", str(uscita), "--skip-profile",
+                     "--threads", "1"]) == 0
+        return righe_dei_parametri(uscita.read_text(encoding="utf-8"))
+
+    forward, reverse = sintetico.PRIMER_341F, vocabolario.PRIMER_16S_REVERSE[0].sequenza
+    intero = sintetico.genera_coppie(tmp_path / "intero", biologici=4, coppie=80,
+                                     primer=forward, primer_reverse=reverse)
+    righe = lancia(intero, tmp_path / "intero.yaml")
+    assert righe["pair.trimLeft_reverse"] == (True, str(len(reverse)))
+    capsys.readouterr()
+
+    misto = sintetico.genera_coppie(tmp_path / "misto", biologici=4, coppie=80,
+                                    primer=forward, primer_reverse=reverse)
+    senza = sorted(misto.coppie)[0]
+    del_reverse = misto.coppie[senza][1]
+    sintetico._scrivi_fastq(del_reverse, [
+        (nome, sequenza[len(reverse):], qualita[len(reverse):])
+        for nome, sequenza, qualita in _record(del_reverse)])
+    righe = lancia(misto, tmp_path / "misto.yaml")
+    console = " ".join(capsys.readouterr().out.split())
+    assert righe["pair.trimLeft_reverse"] == (False, "")
+    assert righe["pair.primer_sequence_reverse"][0] is False
+    assert yaml.safe_load(righe["pair.primer_sequence_reverse"][1]) == reverse
+    assert righe["filter.trimLeft"] == (True, str(len(forward)))
+    piatto = " ".join((tmp_path / "misto.yaml").read_text(encoding="utf-8").replace(
+        "#", " ").split())
+    assert "1 file su 4 non lo portano in testa" in piatto
+    assert f"il taglio sarebbe {len(reverse)}" in piatto
+    assert "maggior parte dei file ma non di 1: il primer e' proposto, il taglio resta da " \
+           "scegliere" in console

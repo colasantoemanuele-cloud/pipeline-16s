@@ -1130,3 +1130,161 @@ def test_eco_init_propone_come_continua_la_colonna_che_sembra_una_misura():
     assert "design.continuous_variables" not in voci
     assert voci["design.variable"].valore is not None
     assert "design.subject" not in voci
+
+
+def _consegna(cartella: Path, letture: dict[str, int], colonne: dict[str, list[str]]) -> Path:
+    """Scrive in ``cartella`` un oggetto finto con gli export in testo e il file
+    dei checksum, come la pipeline li consegna; restituisce il percorso
+    dell'oggetto. ``eco init`` non apre l'oggetto per leggere gli export: ne
+    verifica l'impronta.
+    """
+    from amplicon16s.io_layer.checksums import checksum_file
+
+    cartella.mkdir(parents=True, exist_ok=True)
+    campioni = list(letture)
+    (cartella / "ps_final.rds").write_bytes(b"oggetto di prova")
+    (cartella / "conteggi.tsv").write_text(
+        "asv_id\t" + "\t".join(campioni) + "\n"
+        + "ASV1\t" + "\t".join(str(letture[c] - letture[c] // 2) for c in campioni) + "\n"
+        + "ASV2\t" + "\t".join(str(letture[c] // 2) for c in campioni) + "\n", encoding="utf-8")
+    (cartella / "metadati.tsv").write_text(
+        "accession\tsample_name\t" + "\t".join(colonne) + "\n" + "".join(
+            f"{c}\tcampione {c}\t" + "\t".join(v[i] for v in colonne.values()) + "\n"
+            for i, c in enumerate(campioni)), encoding="utf-8")
+    (cartella / "checksum.sha256").write_text("".join(
+        f"{checksum_file(cartella / n).removeprefix('sha256:')}  {n}\n"
+        for n in ("ps_final.rds", "conteggi.tsv", "metadati.tsv")), encoding="utf-8")
+    return cartella / "ps_final.rds"
+
+
+def _descrizione(colonne: dict[str, list[str]]) -> dict:
+    """La descrizione che ``descrivi`` darebbe di una tabella dei campioni."""
+    def una(nome: str, valori: list[str]) -> dict:
+        presenti = [v for v in valori if v]
+        return {"nome": nome, "con_valore": len(presenti), "distinti": len(set(presenti)),
+                "gruppi_ripetuti": sum(presenti.count(v) >= 2 for v in set(presenti)),
+                "numerica": False}
+    return {"campioni": len(next(iter(colonne.values()))), "varianti": 2,
+            "ranghi": [{"rango": "Regno", "quota_assegnata": 1.0}],
+            "albero": {"presente": False, "radicato": None, "con_lunghezze": None},
+            "colonne": [una(n, v) for n, v in colonne.items()]}
+
+
+def test_eco_init_avvisa_se_la_rarefazione_scende_molto_sotto_la_mediana(tmp_path):
+    """
+    **Obiettivo**: Verificare che, quando il campione piu' povero ha meno di un
+    decimo della mediana delle letture, ``eco init`` lo dica fra i fatti
+    rilevati (in testa al file e nel riepilogo), con la profondita' a cui le
+    analisi rarefarebbero, i campioni che la abbassano nominati dal piu'
+    povero con le loro letture, e il rimedio (alzare ``qc.min_reads_final`` e
+    ``resume``, o ``design.subset``); che con campioni di profondita'
+    paragonabile l'avviso non compaia; e che gli export si usino solo se il
+    file dei checksum li dichiara per questo oggetto: con l'oggetto o un
+    export cambiati dopo la consegna, o senza export, l'avviso non si valuta e
+    il riepilogo lo dichiara.
+
+    **Razionale scientifico e sistemistico**: Senza una profondita' dichiarata
+    le analisi rarefanno al campione piu' povero: un campione fallito porta
+    tutti gli altri a poche centinaia di letture, e chi legge i grafici non lo
+    vede. I conteggi in testo valgono per l'oggetto solo se la loro impronta e'
+    quella consegnata con lui: altrimenti si dichiara di non sapere.
+    """
+    from amplicon16s_eco import init
+
+    colonne = {"gruppo": ["a", "a", "a", "b", "b", "b", "b"]}
+    letture = {"c1": 60000, "c2": 250000, "c3": 357, "c4": 1584, "c5": 102, "c6": 44000,
+               "c7": 8700}
+    oggetto = _consegna(tmp_path / "poveri", letture, colonne)
+    trovati = init.esportati(oggetto)
+    assert trovati is not None and trovati.letture == letture
+    voci, fatti = init.prepara(_descrizione(colonne), trovati)
+    avviso = next(f for f in fatti if f.startswith("Rarefazione:"))
+    assert "la profondita' sarebbe 102 letture" in avviso and "mediana (8700)" in avviso
+    assert "La abbassano: campione c5 (102), campione c3 (357)." in avviso
+    assert "c4" not in avviso
+    assert "alzare qc.min_reads_final a 1000" in avviso
+    assert "design.subset" in avviso and "resume" in avviso
+    assert "non siano un intero gruppo dello studio" in avviso
+    assert any(f.startswith("Gruppi delle colonne candidate") and "gruppo: 'a' 3, 'b' 4" in f
+               for f in fatti)
+    # Con almeno mille letture nel campione piu' povero il consiglio e' tenerlo.
+    profondi = init.rarefazione_bassa({"c1": 9000, "c2": 150000, "c3": 160000, "c4": 170000})
+    assert "di solito si lascia cosi'" in profondi and "qc.min_reads_final" not in profondi
+    testo = " ".join(init.testo_yaml(voci, fatti, "ps_final.rds").replace("#", " ").split())
+    assert "la profondita' sarebbe 102 letture" in testo
+
+    pari = _consegna(tmp_path / "pari", {"c1": 9000, "c2": 12000, "c3": 30000, "c4": 4000},
+                     {"gruppo": ["a", "a", "b", "b"]})
+    _, fatti = init.prepara(_descrizione({"gruppo": ["a", "a", "b", "b"]}), init.esportati(pari))
+    assert not [f for f in fatti if "Rarefazione" in f or "non valutate" in f]
+
+    # Un export cambiato dopo la consegna, l'oggetto sostituito, nessun export.
+    (tmp_path / "pari" / "conteggi.tsv").write_text("asv_id\tc1\nASV1\t5\n", encoding="utf-8")
+    assert init.esportati(pari) is None
+    oggetto.write_bytes(b"un altro oggetto")
+    assert init.esportati(oggetto) is None
+    (tmp_path / "solo").mkdir()
+    (tmp_path / "solo" / "ps.rds").write_bytes(b"oggetto")
+    assert init.esportati(tmp_path / "solo" / "ps.rds") is None
+    _, fatti = init.prepara(_descrizione(colonne), None)
+    assert any(f.startswith("Profondita' di rarefazione e variabili confuse: non valutate")
+               for f in fatti)
+
+
+def test_eco_init_avvisa_sulle_variabili_confuse(tmp_path):
+    """
+    **Obiettivo**: Verificare che ``eco init`` riconosca fra le colonne
+    candidate a variabile biologica: due colonne che dividono i campioni negli
+    stessi gruppi (la stessa variabile, detta una volta); una colonna i cui
+    gruppi cadono ciascuno in un solo gruppo dell'altra (confuse); e il caso
+    parziale, in cui un gruppo intero di una cade in un solo gruppo dell'altra
+    senza che valga per tutti (i campioni a terra sono tutti di un tessuto, e
+    un tessuto e' tutto in volo); che l'avviso stia nel riepilogo e nel
+    commento di ``design.variable``, con il rimedio; e che due colonne
+    incrociate, in cui ogni gruppo dell'una ha campioni di piu' gruppi
+    dell'altra, non diano alcun avviso.
+
+    **Razionale scientifico e sistemistico**: Se tutti i campioni di una
+    condizione sono anche di un solo tessuto, il confronto fra le condizioni
+    misura insieme la differenza fra i tessuti, e nessun test le separa: chi
+    sceglie la variabile deve saperlo prima di leggere un valore di p, e i
+    metadati da soli non lo mostrano.
+    """
+    from amplicon16s_eco import init
+
+    colonne = {
+        "condizione": ["volo", "volo", "volo", "volo", "volo", "volo", "terra", "terra"],
+        "tessuto": ["radice", "radice", "foglia", "foglia", "foglia", "foglia", "radice",
+                    "radice"],
+        "materiale": ["r", "r", "f", "f", "f", "f", "r", "r"],
+        "replica": ["1", "2", "1", "2", "1", "2", "1", "2"],
+    }
+    letture = {f"c{i}": 5000 + i for i in range(8)}
+    trovati = init.esportati(_consegna(tmp_path / "parziale", letture, colonne))
+    voci, fatti = init.prepara(_descrizione(colonne), trovati)
+    avvisi = [f.removeprefix("Variabili confuse: ") for f in fatti
+              if f.startswith("Variabili confuse: ")]
+    assert len(avvisi) == 2
+    assert avvisi[0].startswith("materiale e tessuto dividono i campioni negli stessi gruppi")
+    assert avvisi[1].startswith(
+        "condizione e materiale sono confuse in parte: i campioni 'terra' di condizione sono "
+        "tutti 'r' di materiale; i campioni 'f' di materiale sono tutti 'volo' di condizione.")
+    assert "design.subset" in avvisi[1]
+    # La replica incrocia ogni altra colonna: nessun avviso la nomina.
+    assert not [a for a in avvisi if "replica" in a]
+    note = " ".join(voci["design.variable"].note)
+    assert "attenzione: condizione e materiale sono confuse in parte" in note
+    testo = " ".join(init.testo_yaml(voci, fatti, "ps_final.rds").replace("#", " ").split())
+    assert testo.count("condizione e materiale sono confuse in parte") == 2
+
+    # Ogni gruppo di una colonna in un solo gruppo dell'altra: confuse del tutto.
+    annidate = {"soggetto": ["s1", "s1", "s2", "s2", "s3", "s3", "s4", "s4"],
+                "dieta": ["x", "x", "x", "x", "y", "y", "y", "y"]}
+    assert init.confuse(
+        [dict(zip(annidate, valori)) for valori in zip(*annidate.values())], list(annidate)
+    )[0].startswith("soggetto e dieta sono confuse: ogni gruppo di soggetto cade in un solo "
+                    "gruppo di dieta.")
+    # Un valore assente non conta come gruppo.
+    con_assenti = [{"a": "p", "b": "u"}, {"a": "p", "b": "v"}, {"a": "q", "b": "u"},
+                   {"a": "q", "b": "v"}, {"a": "NA", "b": "u"}, {"a": "NA", "b": "u"}]
+    assert init.confuse(con_assenti, ["a", "b"]) == []

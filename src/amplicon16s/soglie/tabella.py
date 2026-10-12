@@ -45,6 +45,8 @@ from amplicon16s.config import defaults
 from amplicon16s.config.schema import Config
 
 __all__ = [
+    "LETTURE_FINALI_POCHE",
+    "QUOTA_DELLA_MEDIANA_DELLE_LETTURE",
     "MARGINE_ARRESTO_CHIMERE",
     "MARGINE_AZZERATI",
     "MARGINE_BASI",
@@ -75,6 +77,17 @@ __all__ = [
 #: stesso studio o si ripete l'esecuzione dopo un aggiornamento che non cambia
 #: il metodo, senza lasciar passare un peggioramento netto.
 MARGINE_FRAZIONE: Final = Decimal("0.05")
+
+#: Le letture finali sotto le quali un campione ne ha molte meno degli altri:
+#: mille in assoluto, o un decimo della mediana dei campioni finali. Non sono
+#: soglie di qualita': servono a proporre ``qc.min_reads_final``, perche' le
+#: analisi che rarefanno alla profondita' del campione piu' povero perdono, con
+#: un campione di poche centinaia di letture, quasi tutta l'informazione degli
+#: altri. Mille letture e' l'ordine di grandezza sotto il quale la rarefazione
+#: non descrive piu' una comunita' di qualche decina di taxa; un decimo della
+#: mediana riconosce il campione fallito anche quando gli altri sono profondi.
+LETTURE_FINALI_POCHE: Final = 1000
+QUOTA_DELLA_MEDIANA_DELLE_LETTURE: Final = Decimal("0.1")
 
 #: Margine dell'arresto sulle chimere: il doppio di quello dell'avviso, cosi'
 #: che fra avviso e arresto resti una fascia in cui l'esecuzione prosegue e

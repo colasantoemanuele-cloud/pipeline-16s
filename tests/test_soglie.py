@@ -787,6 +787,137 @@ def test_il_file_scritto_cambia_solo_le_soglie_e_porta_origine_e_misura(tmp_path
     capsys.readouterr()
 
 
+def _letture_finali(uscita: Path, letture: dict[str, int], esclusi: tuple[str, ...] = ()) -> None:
+    """Scrive le due tabelle dei filtri finali che ``soglie`` legge per le
+    letture minime per campione: letture finali ed esclusi.
+    """
+    cartella = uscita / "12_final" / "intermedi"
+    (cartella / "letture_finali.tsv").write_text(
+        "campione\tpasso\tletture\n"
+        + "".join(f"{c}\tfinali\t{0 if c in esclusi else n}\n" for c, n in letture.items()),
+        encoding="utf-8")
+    (cartella / "esclusioni.tsv").write_text(
+        "accession\tsample_name\tpiastra\tfiltro\tmotivo\n"
+        + "".join(f"{c}\t{c}\t\tprofondita\tsotto la soglia\n" for c in esclusi),
+        encoding="utf-8")
+
+
+def test_soglie_propone_le_letture_minime_se_alcuni_campioni_ne_hanno_poche(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che, quando alcuni campioni dell'oggetto finale
+    hanno meno di mille letture, ``soglie`` li elenchi con le loro letture, sulla console,
+    nel documento JSON e nel file, e proponga ``qc.min_reads_final`` come
+    scelta, con il valore raccomandato, in un commento sopra la riga del
+    parametro; che la riga non cambi, nemmeno con ``--accetta-proposte``; che
+    un campione gia' escluso non conti; che un secondo passaggio non accumuli
+    commenti; e che senza campioni poveri, o senza le tabelle dei filtri
+    finali, file e documento siano quelli di sempre. La regola, sui casi
+    limite: se sotto mille letture cadrebbe almeno meta' dei campioni vale il
+    solo decimo della mediana, e se anche cosi' sono almeno la meta' non c'e'
+    proposta; campioni sotto un decimo della mediana ma con almeno mille
+    letture sono nominati senza raccomandare di toglierli; e i gruppi dello
+    studio che resterebbero con meno di due campioni sono dichiarati.
+
+    **Razionale scientifico e sistemistico**: Le analisi ecologiche rarefanno
+    alla profondita' del campione piu' povero: un campione di poche centinaia
+    di letture cancella l'informazione di tutti gli altri. Toglierlo cambia
+    l'oggetto finale, quindi e' una scelta di chi conduce l'analisi e non una
+    soglia che lo strumento attiva da se': lo strumento porta i campioni e il
+    valore, il gesto resta all'utente.
+    """
+    dati = _dati(tmp_path / "out")
+    attuale = dati["qc"]["min_reads_final"]
+    codice, senza, file_senza, _ = _soglie(tmp_path, dati, capsys=capsys)
+    assert codice == 0 and "letture_minime" not in senza
+
+    letture = {"a": 60000, "b": 250000, "c": 1500, "d": 18000, "e": 44000, "f": 8700,
+               "g": 357, "h": 102, "x": 50}
+    # Nessun campione povero: stesso file, stesso documento.
+    _letture_finali(tmp_path / "out", {c: n for c, n in letture.items() if n >= 8700})
+    codice, uguale, file_uguale, _ = _soglie(tmp_path, dati, capsys=capsys)
+    assert "letture_minime" not in uguale
+    assert file_uguale.read_text(encoding="utf-8") == file_senza.read_text(encoding="utf-8")
+
+    _letture_finali(tmp_path / "out", letture, esclusi=("x",))
+    capsys.readouterr()
+    proposto = tmp_path / "proposto.yaml"
+    assert main(["soglie", "--config", str(tmp_path / "configurazione.yaml"),
+                 "--output", str(proposto), "--accetta-proposte"]) == 0
+    console = " ".join(capsys.readouterr().out.split())
+    assert "Letture minime per campione, da scegliere: 2 campioni su 8" in console
+    assert "h (102), g (357)" in console and "scenderebbero a 102 letture" in console
+    codice, documento, nuovo, _ = _soglie(tmp_path, dati, "--accetta-proposte", capsys=capsys)
+    minime = documento["letture_minime"]
+    assert minime["valore_raccomandato"] == 1000 and minime["valore_configurazione"] == attuale
+    assert minime["raccomandato"] is True and minime["gruppi_con_meno_di_due_campioni"] == []
+    assert minime["campioni"] == 8 and minime["mediana"] == 13350.0
+    assert [c["accession"] for c in minime["campioni_che_uscirebbero"]] == ["h", "g"]
+    testo = nuovo.read_text(encoding="utf-8")
+    righe = testo.splitlines()
+    posto = righe.index(f"  min_reads_final: {attuale}")
+    sopra = " ".join(r.strip("# ") for r in righe[posto - 12:posto])
+    assert "[DA SCEGLIERE] da soglie, letture minime per campione: 2 campioni su 8" in sopra
+    assert "Per toglierli scrivi 1000 al posto del valore nella riga qui sotto" in sopra
+    assert yaml.safe_load(testo)["qc"]["min_reads_final"] == attuale
+    # Il resto del file e' quello senza la proposta: tolto il commento, gli stessi byte.
+    riferimento = tmp_path / "riferimento.yaml"
+    _letture_finali(tmp_path / "out", {c: n for c, n in letture.items() if n >= 8700})
+    assert main(["soglie", "--config", str(tmp_path / "configurazione.yaml"),
+                 "--output", str(riferimento), "--accetta-proposte"]) == 0
+    inizio = next(i for i, r in enumerate(righe) if "[DA SCEGLIERE] da soglie" in r)
+    assert righe[:inizio] + righe[posto:] == riferimento.read_text(encoding="utf-8").splitlines()
+
+    # Secondo passaggio sul file scritto: un solo commento.
+    shutil.rmtree(tmp_path / "out")
+    _esecuzione(tmp_path / "out", yaml.safe_load(testo))
+    _letture_finali(tmp_path / "out", letture, esclusi=("x",))
+    secondo = tmp_path / "secondo.yaml"
+    assert main(["soglie", "--config", str(nuovo), "--output", str(secondo),
+                 "--accetta-proposte"]) == 0
+    assert secondo.read_text(encoding="utf-8").count("letture minime per campione:") == 1
+    # Senza piu' campioni poveri il commento di prima se ne va.
+    _letture_finali(tmp_path / "out", {c: n for c, n in letture.items() if n >= 8700})
+    terzo = tmp_path / "terzo.yaml"
+    assert main(["soglie", "--config", str(nuovo), "--output", str(terzo),
+                 "--accetta-proposte"]) == 0
+    assert "letture minime per campione:" not in terzo.read_text(encoding="utf-8")
+    capsys.readouterr()
+
+    def campioni(*valori: int) -> list[misure.LettureFinali]:
+        return [misure.LettureFinali(f"c{i}", "", n) for i, n in enumerate(valori)]
+
+    # Dataset povero nel suo insieme: vale il solo decimo della mediana.
+    povero = comando.letture_minime(campioni(300, 400, 500, 20), 0)
+    assert povero.raccomandato == 35 and [c.letture for c in povero.poveri] == [20]
+    assert povero.consigliato
+    # Meta' dei campioni sotto ogni limite: nessuna proposta.
+    assert comando.letture_minime(campioni(10, 10, 5000, 6000), 0) is None
+    assert comando.letture_minime(campioni(5000, 6000, 7000), 0) is None
+    assert comando.letture_minime(campioni(5000), 0) is None
+    assert comando.letture_minime(None, 0) is None
+    # Sotto mille, con gli altri appena sopra: basta il limite assoluto.
+    mille = comando.letture_minime(campioni(900, 3000, 3200, 3500, 4000), 0)
+    assert mille.raccomandato == 1000 and [c.letture for c in mille.poveri] == [900]
+    # Molte meno letture degli altri, ma piu' di mille: nominati, non raccomandato
+    # toglierli; e se sono un gruppo intero dello studio lo si dice.
+    profondi = campioni(9000, 12000, 150000, 160000, 170000, 180000)
+    gruppi = {"tessuto": {"c0": "foglia", "c1": "foglia", "c2": "radice", "c3": "radice",
+                          "c4": "suolo", "c5": "suolo"}}
+    tenuti = comando.letture_minime(profondi, 0, gruppi)
+    assert tenuti.raccomandato == 15500 and not tenuti.consigliato
+    assert [c.letture for c in tenuti.poveri] == [9000, 12000]
+    assert tenuti.gruppi_svuotati == (("tessuto", "foglia", 0, 2),)
+    testo = tenuti.testo()
+    assert "di solito si tengono, e non c'e' un valore raccomandato" in testo
+    assert "ATTENZIONE: togliendoli resterebbero con meno di due campioni il gruppo " \
+           "'foglia' di tessuto (0 su 2)" in testo
+    assert tenuti.documento()["raccomandato"] is False
+    # Un gruppo che resta con due campioni non e' segnalato.
+    assert comando.letture_minime(
+        profondi, 0, {"sito": dict.fromkeys(("c0", "c2", "c3"), "a")
+                      | dict.fromkeys(("c1", "c4", "c5"), "b")}).gruppi_svuotati == ()
+
+
 def test_soglie_dichiara_controllo_spento_senza_misura_esclusa_e_omessa(tmp_path, capsys):
     """
     **Obiettivo**: Verificare che il comando dichiari, sulla console, nel

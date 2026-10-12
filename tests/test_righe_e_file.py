@@ -294,6 +294,35 @@ def test_senza_un_primer_in_testa_o_senza_dichiarazioni_il_confronto_non_si_fa(t
 # --------------------------------------------------------------------------- #
 
 
+def test_init_dice_quante_righe_non_ha_potuto_confrontare_con_le_letture(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che, quando una parte delle righe collegate a un
+    file non si puo' confrontare con le letture (la riga dichiara l'amplicone
+    in un modo che non si interpreta, e non dichiara un primer) mentre le
+    altre risultano coerenti, il riepilogo di ``init`` dica quante sono e che
+    il loro collegamento resta da verificare; e che con tutte le righe
+    giudicate la nota non compaia.
+
+    **Razionale scientifico e sistemistico**: Una riga non giudicata puo'
+    essere collegata al file di un altro amplicone senza che nulla lo segnali:
+    il silenzio, quando le altre righe sono coerenti, verrebbe letto come una
+    verifica riuscita su tutta la tabella.
+    """
+    tutte = _due_ampliconi(tmp_path / "tutte", con_file_its=True)
+    assert _init(tutte, tmp_path / "tutte.yaml") == 0
+    assert "non si sono potute confrontare" not in capsys.readouterr().out
+
+    dataset = _due_ampliconi(tmp_path / "parte", con_file_its=True)
+    righe = _leggi(dataset.tabella)
+    righe[1][COLONNA_AMPLICONE], righe[1][COLONNA_PRIMER] = "amplicone da definire", ""
+    _scrivi(dataset.tabella, righe)
+    assert _init(dataset, tmp_path / "parte.yaml") == 0
+    console = " ".join(capsys.readouterr().out.split())
+    assert "1 righe su 6 collegate a un file non si sono potute confrontare con le letture" \
+        in console
+    assert "resta da verificare" in console
+
+
 def test_le_righe_da_tenere_si_dichiarano_e_le_altre_sono_escluse_con_un_avviso(tmp_path):
     """
     **Obiettivo**: Verificare che una tabella con righe di un altro amplicone,

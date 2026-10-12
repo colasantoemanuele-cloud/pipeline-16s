@@ -339,6 +339,9 @@ class Ispezione:
     #: Per ciascuno di quei primer, in quante di quelle letture dopo il primer
     #: c'e' un adattatore (:data:`ADATTATORI`) o la lettura finisce.
     code_con_adattatore: tuple[int, ...] = ()
+    #: Per ciascuno di quei primer, in quante di quelle letture dopo il primer
+    #: restano meno di :data:`BASI_PER_L_ADATTATORE` basi: non si giudicano.
+    code_non_giudicate: tuple[int, ...] = ()
 
     def dopo_il_primer(self, indice: int) -> Ispezione:
         """La stessa ispezione con, al posto delle basi in testa, quelle che
@@ -373,6 +376,7 @@ def ispeziona(argomenti: tuple[Any, ...]) -> Ispezione:
         for sequenza in (resto[1] if len(resto) > 1 else ())]
     code: list[Counter[int]] = [Counter() for _ in in_coda]
     con_adattatore = [0] * len(in_coda)
+    non_giudicate = [0] * len(in_coda)
     limite = sys.maxsize if quante is None else quante
     statistiche = scansiona_file(percorso, limite, None, None)
     espressioni = [re.compile(p) for p in primer]
@@ -415,7 +419,9 @@ def ispeziona(argomenti: tuple[Any, ...]) -> Ispezione:
                         if trovata_in_coda is not None:
                             code[indice][trovata_in_coda.start()] += 1
                             dopo_il_primer = sequenza.upper()[trovata_in_coda.end():]
-                            if not dopo_il_primer or any(
+                            if 0 < len(dopo_il_primer) < BASI_PER_L_ADATTATORE:
+                                non_giudicate[indice] += 1
+                            elif not dopo_il_primer or any(
                                     a[:len(dopo_il_primer)] in dopo_il_primer
                                     for a in ADATTATORI):
                                 con_adattatore[indice] += 1
@@ -423,7 +429,7 @@ def ispeziona(argomenti: tuple[Any, ...]) -> Ispezione:
         statistiche, tuple(conteggi), tuple(dict(b) for b in basi), nel_consenso,
         tuple(dict(s) for s in sfasamenti),
         tuple(tuple(dict(b) for b in del_primer) for del_primer in dopo),
-        tuple(dict(c) for c in code), tuple(con_adattatore))
+        tuple(dict(c) for c in code), tuple(con_adattatore), tuple(non_giudicate))
 
 
 @dataclass(frozen=True)
@@ -505,6 +511,10 @@ def primer_sfasato(
 #: 1000000002694). Dicono che il primer trovato in coda chiude l'amplicone: lo
 #: stesso sito, dentro un amplicone piu' lungo, e' seguito dal gene.
 ADATTATORI = ("AGATCGGAAGAGC", "CTGTCTCTTATACACATCT")
+#: Le basi dopo il primer che servono a dire se comincia un adattatore: con
+#: meno, l'inizio dell'adattatore coincide per caso troppo spesso (con una
+#: base, una volta su due), e la lettura non si giudica.
+BASI_PER_L_ADATTATORE = 4
 
 
 @dataclass(frozen=True)
@@ -517,7 +527,8 @@ class PrimerInCoda:
     #: Sull'insieme dei file: basi che lo precedono -> letture.
     posizioni: dict[int, int]
     #: La quota di quelle letture in cui dopo il primer c'e' un adattatore, o
-    #: la lettura finisce.
+    #: la lettura finisce, fra quelle che si possono giudicare (zero se
+    #: nessuna: in tutte restano troppe poche basi dopo il primer).
     con_adattatore: float = 1.0
 
     @property
@@ -567,12 +578,18 @@ def primer_in_coda(
         return None
     totali: Counter[int] = Counter()
     seguiti = 0
+    non_giudicate = 0
     for ispezione in valide.values():
         totali.update(ispezione.code[migliore])
         seguiti += ispezione.code_con_adattatore[migliore]
+        if ispezione.code_non_giudicate:
+            non_giudicate += ispezione.code_non_giudicate[migliore]
+    # La quota e' sulle letture che si possono giudicare: se dopo il primer
+    # restano una o due basi in tutte, non si sa se l'amplicone finisca li'.
+    giudicate = sum(totali.values()) - non_giudicate
     return PrimerInCoda(
         elenco[migliore], mediane[migliore], dict(sorted(totali.items())),
-        seguiti / sum(totali.values()))
+        seguiti / giudicate if giudicate else 0.0)
 
 
 @dataclass(frozen=True)

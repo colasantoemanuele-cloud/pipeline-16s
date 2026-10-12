@@ -210,6 +210,148 @@ def test_il_file_di_init_non_e_eseguibile_finche_non_e_completato(tmp_path, caps
     assert len(risultato.inventario) == len(dataset.campioni)
 
 
+def test_una_chiave_lunga_quanto_il_nome_del_file_e_dichiarata_con_il_rimedio(tmp_path):
+    """
+    **Obiettivo**: Verificare che, quando la chiave rilevata e' il nome intero
+    di ogni file (la colonna riporta i nomi dei file e l'espressione scelta li
+    prende per intero, senza l'estensione), il commento di ``io.accession_regex`` lo dica, dica che
+    la chiave diventa l'identificativo del campione nelle uscite e indichi le
+    altre espressioni verificate per accorciarla; e che con una chiave che e'
+    solo una parte del nome (quella che anche il file del lotto riporta) la
+    nota non compaia.
+
+    **Razionale scientifico e sistemistico**: La chiave e' il nome con cui
+    ogni campione compare nei conteggi, nei grafici e nel report: un nome di
+    file di quaranta caratteri li rende illeggibili, e chi non conosce le
+    espressioni regolari non sa che una piu' corta e' gia' stata verificata.
+    """
+    dataset = sintetico.genera(tmp_path / "dati", biologici=3, letture=40)
+    nota = "la chiave e' il nome intero del file"
+    assert _init(dataset, tmp_path / "intera.yaml") == 0
+    testo = (tmp_path / "intera.yaml").read_text(encoding="utf-8")
+    espressione = yaml.safe_load(righe_dei_parametri(testo)["io.accession_regex"][1])
+    nomi = sorted(p.name for p in dataset.letture.iterdir())
+    assert [estrai_accession(n, re.compile(espressione)) for n in nomi] == [
+        n.removesuffix(".fq.gz") for n in nomi]
+    piatto = " ".join(testo.replace("#", " ").split())
+    assert nota in piatto and "altre espressioni verificate" in piatto
+    assert "diventa l'identificativo di ogni campione nelle uscite" in piatto
+
+    # Con il file del lotto la chiave e' la sola parte che anche il lotto riporta.
+    con_lotto = sintetico.genera(tmp_path / "lotto", biologici=3, letture=40, con_lotto=True)
+    assert _init(con_lotto, tmp_path / "parte.yaml") == 0
+    testo = (tmp_path / "parte.yaml").read_text(encoding="utf-8")
+    espressione = yaml.safe_load(righe_dei_parametri(testo)["io.accession_regex"][1])
+    assert estrai_accession(nomi[0], re.compile(espressione)) == nomi[0].split("_")[0]
+    assert nota not in " ".join(testo.replace("#", " ").split())
+
+
+def test_le_variabili_dello_studio_dichiarate_come_fattori_sono_proposte(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che, quando la tabella dichiara le variabili
+    dello studio con il prefisso delle tabelle ISA-Tab («Factor Value[...]»),
+    ``init`` proponga quelle colonne per ``out.study_columns`` (riga attiva
+    con ``--accetta-proposte``, in commento senza), con il nome esatto
+    dell'intestazione; e che senza colonne cosi' dichiarate la riga resti
+    all'elenco vuoto e il riepilogo dica, in una nota, che le analisi a valle
+    non avranno gruppi da confrontare.
+
+    **Razionale scientifico e sistemistico**: Senza le variabili dello studio
+    nell'oggetto finale le analisi ecologiche non hanno nulla da confrontare,
+    e chi configura lo scopre solo dopo l'esecuzione, perche' un elenco vuoto
+    e' un valore valido che la validazione non segnala. Dove i metadati
+    dichiarano quali colonne sono i fattori, la proposta e' un fatto letto
+    dalla tabella, non una congettura.
+    """
+    dataset = sintetico.genera(tmp_path / "dati", biologici=4, letture=40)
+    originale = dataset.tabella.read_text(encoding="utf-8")
+    assert _init(dataset, tmp_path / "senza.yaml", "--accetta-proposte") == 0
+    console = " ".join(capsys.readouterr().out.split())
+    assert righe_dei_parametri((tmp_path / "senza.yaml").read_text(encoding="utf-8"))[
+        "out.study_columns"] == (True, "[]")
+    assert "Nota: out.study_columns e' vuoto" in console
+
+    intestazione, *resto = originale.splitlines()
+    colonne = [f"Factor Value[{c}]" if c in (sintetico.COLONNA_SITO, sintetico.COLONNA_GRUPPO)
+               else c for c in intestazione.split("\t")]
+    dataset.tabella.write_text("\n".join(["\t".join(colonne), *resto]) + "\n", encoding="utf-8")
+    attese = [f"Factor Value[{sintetico.COLONNA_SITO}]", f"Factor Value[{sintetico.COLONNA_GRUPPO}]"]
+    assert _init(dataset, tmp_path / "con.yaml", "--accetta-proposte") == 0
+    assert "out.study_columns e' vuoto" not in capsys.readouterr().out
+    attiva, valore = righe_dei_parametri((tmp_path / "con.yaml").read_text(encoding="utf-8"))[
+        "out.study_columns"]
+    assert attiva and yaml.safe_load(valore) == attese
+    assert _init(dataset, tmp_path / "commento.yaml") == 0
+    attiva, valore = righe_dei_parametri(
+        (tmp_path / "commento.yaml").read_text(encoding="utf-8"))["out.study_columns"]
+    assert not attiva and yaml.safe_load(valore) == attese
+
+
+def test_validate_dice_a_che_riga_scrivere_ogni_parametro_mancante(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che, sul file appena scritto da ``init``,
+    ``validate`` riporti accanto a ogni parametro obbligatorio non dichiarato
+    il numero della riga del file in cui scriverlo, e che a quella riga ci sia
+    proprio la riga in commento del parametro, sotto il suo gruppo; che per un
+    parametro con piu' righe pronte le nomini tutte, dicendo di attivarne una
+    sola; che per un parametro senza riga nel file indichi la riga del gruppo
+    sotto cui aggiungerla; e che una riga di spiegazione con la stessa forma
+    non sia scambiata per un parametro.
+
+    **Razionale scientifico e sistemistico**: Il file ha centinaia di righe e
+    l'elenco di ``validate`` e' la lista delle cose da fare: senza il numero
+    della riga chi configura deve cercare ogni parametro a mano, ed e' il
+    punto in cui si scrive il valore nel gruppo sbagliato.
+    """
+    from amplicon16s.cli import dove_scriverli, righe_nel_file
+    from amplicon16s.gates.g01_g15 import Violazione
+
+    dataset = sintetico.genera(tmp_path / "dati", biologici=3, letture=40)
+    intestazione, *resto = dataset.tabella.read_text(encoding="utf-8").splitlines()
+    colonne = intestazione.split("\t")
+    posto = colonne.index(sintetico.COLONNA_FILE)
+    dataset.tabella.write_text("\n".join(
+        ["\t".join(colonne + ["archivio"])]
+        + [r + "\t" + r.split("\t")[posto] for r in resto]) + "\n", encoding="utf-8")
+    uscita = tmp_path / "config.yaml"
+    assert _init(dataset, uscita, "--reference", str(sintetico.RIFERIMENTO),
+                 "--out-root", str(tmp_path / "out")) == 0
+    righe = uscita.read_text(encoding="utf-8").splitlines()
+    mancanti = obbligatori_mancanti(yaml.safe_load("\n".join(righe)))
+    capsys.readouterr()
+    assert main(["validate", "--config", str(uscita)]) == 3
+    stampato = capsys.readouterr().out
+    assert f"dove scriverli, in {uscita} (parametro: riga del file):" in stampato
+    indicate = dict(re.findall(r"^    ([a-z_A-Z.0-9]+): (.+)$", stampato, flags=re.M))
+    assert set(mancanti) <= set(indicate)
+    for nome in mancanti:
+        gruppo, parametro = nome.split(".")
+        numeri = [int(n) for n in re.findall(r"\d+", indicate[nome].split("(")[0])]
+        assert numeri, nome
+        for numero in numeri:
+            assert righe[numero - 1].startswith(f"  # {parametro}:"), (nome, righe[numero - 1])
+            # Il gruppo e' l'ultima intestazione prima della riga.
+            sopra = [r for r in righe[:numero] if re.match(r"^[a-z_]+:\s*$", r)]
+            assert sopra[-1] == f"{gruppo}:", nome
+    assert "righe pronte: togli il commento a una sola" in indicate["meta.accession_column"]
+    assert indicate["meta.accession_column"].count(",") == 1
+    assert indicate["filt.exclude_taxa"].startswith("riga ")
+
+    # Senza la riga, o senza il gruppo, lo dice; la prosa non e' un parametro.
+    breve = tmp_path / "breve.yaml"
+    breve.write_text("filt:\n  ## exclude_taxa: come si sceglie\n  # nota: testo\n"
+                     "  remove_na_phylum: true\n", encoding="utf-8")
+    parametri, gruppi = righe_nel_file(breve.read_text(encoding="utf-8"))
+    assert parametri == {"filt.remove_na_phylum": [(4, True)]} and gruppi == {"filt": 1}
+    testo = "\n".join(dove_scriverli(
+        [Violazione("E-G15-10", "parametri obbligatori non dichiarati (2): "
+                    "filt.exclude_taxa, prev.apply. Descrivono il dataset")], breve))
+    assert "filt.exclude_taxa: nessuna riga nel file: aggiungila sotto «filt:» (riga 1)" in testo
+    assert "prev.apply: nessuna riga e nessun gruppo «prev:» nel file" in testo
+    assert dove_scriverli([Violazione("E-G15-02", "decontam.threshold fuori intervallo")],
+                          breve) == []
+
+
 def test_init_non_chiede_i_condizionali_non_pertinenti(tmp_path, capsys):
     """
     **Obiettivo**: Verificare che ``init`` scriva come ``[CONDIZIONALE]``, in
@@ -300,22 +442,33 @@ def test_init_non_sceglie_in_silenzio_quando_la_risposta_non_e_una(tmp_path, cap
     """
     **Obiettivo**: Verificare i casi senza una risposta sola. Nessuna colonna
     che corrisponda ai file: colonna ed espressione della chiave restano da
-    scegliere, senza valore, e il riepilogo lo dice. Due colonne con i nomi dei
-    file: nessuna e' scelta, entrambe sono elencate. Nessun controllo e nessuna
-    colonna del tipo: ``ctrl.column`` proposto nullo e le etichette non richieste.
+    scegliere, senza valore, e il riepilogo lo dice. Due colonne con una parte
+    del nome dei file, nessuna con il nome intero: restano da scegliere, come
+    righe pronte, senza una consigliata. Due colonne con i nomi dei
+    file: nessuna e' scelta ne' consigliata, entrambe sono scritte come righe
+    pronte in commento. Nessun controllo e nessuna colonna del tipo:
+    ``ctrl.column`` proposto nullo e le etichette non richieste.
 
     **Razionale scientifico e sistemistico**: Un'euristica che sceglie fra due
     risposte plausibili sbaglia meta' delle volte senza dirlo: qui la scelta
     resta a chi conosce i dati, e ``init`` porta gli elementi per farla.
     """
-    # Nessuna colonna corrisponde ai file.
+    # Due colonne hanno una parte del nome dei file, nessuna il nome intero.
     senza = sintetico.genera(tmp_path / "senza", biologici=3, letture=40, con_tipo=False)
     tabella = senza.tabella.read_text(encoding="utf-8").replace(".fq.gz", "").replace("LIB", "X")
-    senza.tabella.write_text(re.sub(r"X(\d+)_", r"Y\1-", tabella), encoding="utf-8")
+    tabella = re.sub(r"X(\d+)_", r"Y\1-", tabella)
+    senza.tabella.write_text(tabella, encoding="utf-8")
+    assert _init(senza, tmp_path / "parti.yaml") == 0
+    testo = (tmp_path / "parti.yaml").read_text(encoding="utf-8")
+    assert len(re.findall(r"^  # accession_column: \S", testo, flags=re.M)) == 2
+    assert not re.search(r"^  accession_(column|regex):", testo, flags=re.M)
+    assert "nessuna e' consigliata" in " ".join(capsys.readouterr().out.split())
+    # Nessuna colonna corrisponde ai file.
+    senza.tabella.write_text(re.sub(r"\b[TB](\d\d)\b", r"Q\1", tabella), encoding="utf-8")
     assert _init(senza, tmp_path / "senza.yaml") == 0
     righe = righe_dei_parametri((tmp_path / "senza.yaml").read_text(encoding="utf-8"))
     assert righe["meta.accession_column"] == (False, "") and righe["io.accession_regex"] == (False, "")
-    assert "Chiave del campione non rilevata" in capsys.readouterr().out
+    assert "Chiave del campione non rilevata: nessuna colonna" in capsys.readouterr().out
     # Senza colonna del tipo: nessun controllo, proposto e non attivo.
     assert righe["ctrl.column"] == (False, "null")
     # Le etichette sono condizionali: senza colonna non sono richieste.
@@ -331,10 +484,78 @@ def test_init_non_sceglie_in_silenzio_quando_la_risposta_non_e_una(tmp_path, cap
     due.tabella.write_text("\n".join(doppia) + "\n", encoding="utf-8")
     assert _init(due, tmp_path / "due.yaml") == 0
     testo = (tmp_path / "due.yaml").read_text(encoding="utf-8")
-    righe = righe_dei_parametri(testo)
-    assert righe["meta.accession_column"] == (False, "")
     assert "2 colonne corrispondono uno a uno ai file" in testo
-    assert f"'{sintetico.COLONNA_FILE}'" in testo and "'archivio'" in testo
+    assert f'  # accession_column: "{sintetico.COLONNA_FILE}"' in testo
+    assert '  # accession_column: "archivio"' in testo
+    assert not re.search(r"^  accession_(column|regex):", testo, flags=re.M)
+    assert "consigliata" not in testo
+    assert "nessuna e' consigliata" in " ".join(capsys.readouterr().out.split())
+
+
+def _attiva(testo: str, riga: str) -> str:
+    """Il testo con il commento tolto a una riga pronta, che deve esserci una volta sola."""
+    assert testo.count(f"  # {riga}\n") == 1, riga
+    return testo.replace(f"  # {riga}\n", f"  {riga}\n")
+
+
+def test_con_piu_colonne_candidate_la_chiave_e_una_coppia_di_righe_pronte(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che, quando due colonne corrispondono uno a uno
+    ai file (una riporta il nome dei file della cartella, l'altra il nome di
+    file derivati che ne condividono una parte), ``init`` scriva per ciascuna
+    la coppia ``meta.accession_column`` e ``io.accession_regex`` come righe in
+    commento con il valore gia' scritto, numerate allo stesso modo nei due
+    gruppi; che consigli la coppia della colonna con il nome dei file, nel file
+    e nel riepilogo; che nessuna riga sia attiva, nemmeno con
+    ``--accetta-proposte``; e che togliendo il commento alle due righe di una
+    coppia, per l'una e per l'altra, l'espressione estragga da ogni file una
+    chiave unica, la stessa che si ricava dalla colonna.
+
+    **Razionale scientifico e sistemistico**: La chiave decide quale riga dei
+    metadati descrive quale file: una scelta sbagliata scambia i campioni.
+    ``init`` non sceglie fra due colonne plausibili, ma chi sceglie non deve
+    saper scrivere un'espressione regolare: le espressioni verificate su tutti
+    i file sono gia' scritte, e basta togliere un commento.
+    """
+    dataset = sintetico.genera(tmp_path / "dati", biologici=3, letture=40)
+    intestazione, *resto = dataset.tabella.read_text(encoding="utf-8").splitlines()
+    colonne = intestazione.split("\t")
+    posto = colonne.index(sintetico.COLONNA_FILE)
+    righe = ["\t".join(colonne + ["elaborati"])]
+    for riga in resto:
+        chiave = riga.split("\t")[posto].split("_")[0]
+        righe.append(f"{riga}\tfiltrate_{chiave}_pulite.fq.gz")
+    dataset.tabella.write_text("\n".join(righe) + "\n", encoding="utf-8")
+    nomi = sorted(p.name for p in dataset.letture.iterdir())
+
+    for opzione in ((), ("--accetta-proposte",)):
+        uscita = tmp_path / f"c{len(opzione)}.yaml"
+        assert _init(dataset, uscita, *opzione) == 0
+        console = " ".join(capsys.readouterr().out.split())
+        testo = uscita.read_text(encoding="utf-8")
+        assert not re.search(r"^  accession_(column|regex):", testo, flags=re.M)
+        piatto = " ".join(testo.replace("#", " ").split())
+        assert "coppia 1 (consigliata: la colonna riporta il nome dei file)" in piatto
+        assert "coppia 2" in piatto and "coppia 2 (consigliata" not in piatto
+        assert f"coppia 1: {sintetico.COLONNA_FILE!r}; coppia 2: 'elaborati'" in console
+        assert "consigliata la coppia 1" in console
+        # Le righe pronte, nell'ordine delle coppie, nei due gruppi.
+        pronte = {nome: re.findall(rf"^  # {nome}: (.+)$", testo, flags=re.M)
+                  for nome in ("accession_column", "accession_regex")}
+        assert [yaml.safe_load(x) for x in pronte["accession_column"]] == [
+            sintetico.COLONNA_FILE, "elaborati"]
+        assert len(pronte["accession_regex"]) == 2
+        valori = {c: [r.split("\t")[colonne.index(c) if c in colonne else -1]
+                      for r in righe[1:]] for c in (sintetico.COLONNA_FILE, "elaborati")}
+        for colonna, espressione in zip(pronte["accession_column"], pronte["accession_regex"]):
+            scelto = _attiva(_attiva(testo, f"accession_column: {colonna}"),
+                             f"accession_regex: {espressione}")
+            dati = yaml.safe_load(scelto)
+            compilata = re.compile(dati["io"]["accession_regex"])
+            dai_file = {estrai_accession(n, compilata) for n in nomi}
+            assert len(dai_file) == len(nomi)
+            assert dai_file == {chiave_dalla_tabella(x, compilata)
+                                for x in valori[dati["meta"]["accession_column"]]}
 
 
 def test_init_rifiuta_letture_appaiate_e_un_file_gia_esistente(tmp_path, capsys):
@@ -641,6 +862,9 @@ def test_un_fatto_e_attivo_solo_se_vale_per_ogni_file(tmp_path, capsys):
     testo = (tmp_path / "testa.yaml").read_text(encoding="utf-8")
     assert righe_dei_parametri(testo)["filter.trimLeft"] == (False, "17")
     assert "sole prime letture (--head-reads)" in " ".join(testo.replace("#", " ").split())
+    # Il riepilogo dice che primer e taglio non sono fatti verificati su tutto.
+    assert "verificati sulle sole prime 10 letture di ogni file (--head-reads)" in " ".join(
+        capsys.readouterr().out.split())
     for sbagliato in ("0", "-5"):
         with pytest.raises(SystemExit):
             _init(intero, tmp_path / "no.yaml", "--head-reads", sbagliato)
@@ -948,6 +1172,27 @@ def test_il_primer_dell_altra_estremita_in_coda_si_riconosce(tmp_path):
         {"corte.fq.gz": ispezioni["corte.fq.gz"]}, vocabolario.PRIMER_16S_REVERSE) is None
     # Senza il quinto argomento l'ispezione non cerca nulla in coda.
     assert rilevamento.ispeziona((str(lunghe), None, (), ())).code == ()
+    # Una o due basi dopo il sito non bastano a dire che comincia un adattatore:
+    # quelle letture non si giudicano, e se sono tutte cosi' la fine
+    # dell'amplicone non e' dimostrata. Con sole basi A e C dopo il sito la
+    # coincidenza con la prima base di un adattatore sarebbe la regola.
+    monche = tmp_path / "monche.fq.gz"
+    with gzip.open(monche, "wt") as file:
+        for numero in range(200):
+            lettura = ("".join(caso.choice("ACGT") for _ in range(90)) + in_coda
+                       + caso.choice(("A", "C", "AG", "CT")))
+            file.write(f"@m{numero}\n{lettura}\n+\n{'I' * len(lettura)}\n")
+    ispezione = rilevamento.ispeziona((str(monche), None, (), (), sequenze))
+    indice = [p.sequenza for p in vocabolario.PRIMER_16S_REVERSE].index(primer.sequenza)
+    assert ispezione.code_non_giudicate[indice] == 200
+    assert ispezione.code_con_adattatore[indice] == 0
+    monco = rilevamento.primer_in_coda({"monche.fq.gz": ispezione}, vocabolario.PRIMER_16S_REVERSE)
+    assert monco is not None and monco.con_adattatore == 0.0 and not monco.chiude_l_amplicone
+    # Insieme a letture giudicabili, la quota e' sulle sole giudicabili.
+    insieme = rilevamento.primer_in_coda(
+        {"monche.fq.gz": ispezione, "lunghe.fq.gz": ispezioni["lunghe.fq.gz"]},
+        vocabolario.PRIMER_16S_REVERSE)
+    assert insieme.con_adattatore == 1.0 and insieme.chiude_l_amplicone
 
 
 def test_init_ferma_il_troncamento_prima_del_primer_in_coda(profilo, tmp_path, capsys):
@@ -1039,8 +1284,8 @@ def test_la_colonna_dei_controlli_e_proposta_solo_se_nulla_la_contraddice(
     ne' le tre etichette, nemmeno con ``--accetta-proposte``: restano da
     scegliere, senza valore; il commento dice quale colonna sarebbe la piu'
     plausibile e perche' non e' proposta (un'altra candidata classifica i
-    campioni in modo diverso, e i due «bianchi» hanno piu' letture della
-    mediana degli altri), ed elenca per ogni valore i campioni che lo portano,
+    campioni in modo diverso), nomina i due «bianchi» con piu' letture della
+    mediana degli altri, ed elenca per ogni valore i campioni che lo portano,
     per quella colonna e per ogni altra candidata; il riepilogo lo dice. E che
     con due colonne che danno ai campioni le stesse classi, e bianchi con poche
     letture, la colonna sia proposta come sempre, anche quando una colonna di
@@ -1074,7 +1319,7 @@ def test_la_colonna_dei_controlli_e_proposta_solo_se_nulla_la_contraddice(
     assert "non proposta: la colonna piu' plausibile e' 'materiale'" in piatto
     assert f"1 altre colonne candidate classificano i campioni in modo diverso " \
            f"({sintetico.COLONNA_TIPO!r})" in piatto
-    assert "2 campioni che ne risulterebbero controlli negativi hanno piu' letture della " \
+    assert "2 campioni che ne risultano controlli negativi hanno piu' letture della " \
            "mediana degli altri campioni" in piatto and "T01 (120), T02 (120)" in piatto
     assert "valori di 'materiale' e campioni che li portano: 'blank': T01, T02; " \
            "'polvere': B05, B06, T03, T04" in piatto
@@ -1113,6 +1358,44 @@ def test_la_colonna_dei_controlli_e_proposta_solo_se_nulla_la_contraddice(
     parametri = righe_dei_parametri((tmp_path / "c.yaml").read_text(encoding="utf-8"))
     assert parametri["ctrl.column"] == (True, f'"{sintetico.COLONNA_TIPO}"')
     assert "Colonna dei controlli non proposta" not in capsys.readouterr().out
+
+
+def test_un_bianco_con_molte_letture_e_una_nota_e_non_toglie_la_proposta(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che, quando la sola colonna del tipo classifica
+    come controlli negativi campioni che hanno piu' letture della mediana degli
+    altri, ``init`` proponga comunque la colonna e le tre etichette (righe
+    attive con ``--accetta-proposte``), e nomini quei controlli con le loro
+    letture nel riepilogo e nel commento di ``ctrl.column``; e che con bianchi
+    poveri di letture la nota non compaia.
+
+    **Razionale scientifico e sistemistico**: Con campioni a bassa biomassa
+    (superfici di un ambiente confinato) i bianchi hanno spesso tante letture
+    quante i campioni: la colonna e' quella giusta, e togliere la proposta
+    lascerebbe quattro righe da scrivere a mano. Che un bianco abbia tante
+    letture resta un fatto da guardare, e per questo e' nominato.
+    """
+    ricchi = sintetico.genera(tmp_path / "ricchi", biologici=4, negativi=2, letture=60,
+                              letture_negativi=200)
+    assert _init(ricchi, tmp_path / "ricchi.yaml", "--accetta-proposte") == 0
+    console = " ".join(capsys.readouterr().out.split())
+    testo = (tmp_path / "ricchi.yaml").read_text(encoding="utf-8")
+    parametri = righe_dei_parametri(testo)
+    assert parametri["ctrl.column"] == (True, f'"{sintetico.COLONNA_TIPO}"')
+    assert yaml.safe_load(parametri["ctrl.blank_values"][1]) == [sintetico.ETICHETTA_NEGATIVO]
+    assert parametri["ctrl.biological_values"][0] is True
+    frase = ("2 campioni che ne risultano controlli negativi hanno piu' letture della mediana "
+             "degli altri campioni (60): B05 (200), B06 (200)")
+    assert "Nota: Controlli negativi con molte letture" in console and frase in console
+    assert frase in " ".join(testo.replace("#", " ").split())
+    assert "Colonna dei controlli non proposta" not in console
+
+    poveri = sintetico.genera(tmp_path / "poveri", biologici=4, negativi=2, letture=60,
+                              letture_negativi=20)
+    assert _init(poveri, tmp_path / "poveri.yaml", "--accetta-proposte") == 0
+    assert "Controlli negativi con molte letture" not in capsys.readouterr().out
+    assert "piu' letture della mediana" not in (tmp_path / "poveri.yaml").read_text(
+        encoding="utf-8")
 
 
 def test_una_colonna_del_lotto_e_proposta_solo_se_e_la_sola_candidata(tmp_path, capsys):

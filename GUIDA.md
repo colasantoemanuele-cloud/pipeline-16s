@@ -1,16 +1,17 @@
-# Guida: dal proprio dataset al report, passo per passo
+# Guida: da un dataset 16S al report e alle analisi ecologiche
 
-Per chi ha un dataset 16S, single-end o appaiato, e vuole scrivere la configurazione ed eseguire lo
-strumento. Qui c'è solo il percorso; il significato di ogni parametro, i casi particolari e i
-formati JSON sono in [RIFERIMENTO.md](RIFERIMENTO.md).
+Per chi sa usare un terminale e ha un dataset 16S Illumina, proprio o di OSDR (l'archivio aperto
+della NASA). Si seguono i passi nell'ordine: ogni passo dà il comando, che cosa si vede e che cosa
+si scrive. Per un'analisi normale non serve altro: [RIFERIMENTO.md](RIFERIMENTO.md) spiega ogni
+parametro e i casi rari.
 
-I messaggi dello strumento citano sezioni numerate (per esempio «GUIDA.md, 6.3») o un titolo
-(«Letture appaiate»): sono in RIFERIMENTO.md, con lo stesso numero e lo stesso titolo, non nei passi
-di questa guida; dove un argomento è trattato qui, RIFERIMENTO.md rimanda al passo giusto.
+Nei messaggi dello strumento «GUIDA.md, passo N» è un passo di questa guida; una sezione numerata
+(«RIFERIMENTO.md, sezione 6», «GUIDA.md, 6.3») o un titolo fra virgolette è in RIFERIMENTO.md.
 
 ## Passo 1. Requisiti
 
-- **Docker**. Dove non c'è (un cluster di calcolo) si usa Apptainer: RIFERIMENTO.md, 3.1.
+- **Docker** (su un cluster senza Docker: Apptainer, RIFERIMENTO.md 3.1) e **Python 3** per gli
+  script di scarico.
 - **L'immagine pubblicata**, scaricata per digest (1,86 GB da scaricare, 7,6 GB su disco):
 
   ```bash
@@ -24,45 +25,51 @@ di questa guida; dove un argomento è trattato qui, RIFERIMENTO.md rimanda al pa
   cd pipeline-16s
   ```
 
-- **Memoria e spazio** in proporzione ai dati. Per orientarsi: 960 campioni e 21 milioni di letture
-  chiedono 13 GB di memoria, 2,3 GB di disco e 50 minuti con 12 processori; qualche decina di
-  campioni, una decina di minuti.
+- **Memoria e tempo**: per una decina di campioni pochi GB e 10-20 minuti; per 960, 13 GB e 50.
 
 ## Passo 2. Preparare i dati
 
-Una cartella dei dati, fuori dal clone, con dentro:
+**Da OSDR**, con l'identificativo dello studio (`OSD-` e il numero) e una cartella dei dati fuori dal clone:
 
-- **Le letture**, in una cartella senza sottocartelle: file FASTQ (`.fastq.gz`, `.fq.gz`, `.fastq`,
-  `.fq`), meglio se tutti con la stessa estensione. Il nome di ogni file contiene una parte unica
-  per campione (un accession, un codice), che compare anche nei metadati.
-  - Single-end: un file per campione.
-  - Appaiate: due file per campione, con lo stesso nome salvo un marcatore in fondo, prima
-    dell'estensione: `_R1` e `_R2`, `_1` e `_2`, `.1` e `.2` (anche `_R1_001`).
-- **I metadati**: tabelle di testo UTF-8 separate da tabulazioni, con una riga di intestazione. O
-  una sola tabella con una riga per campione (una colonna con il nome del file o la sua parte unica,
-  una con il nome del campione, una con il tipo se ci sono controlli), o le tabelle ISA-Tab di assay
-  e di studio.
-- **Il file del lotto**, se c'è: una tabella con piastra di estrazione e corsa di sequenziamento per
-  campione. È facoltativo; che cosa deve contenere è in RIFERIMENTO.md, 1.4.
-- **Il riferimento tassonomico.** Dal clone, `python3 dati/riferimento/scarica_riferimento.py`
-  scarica SILVA 138 (138 MB) in `dati/riferimento/`: nel container è
-  `/app/dati/riferimento/silva_nr99_v138_train_set.fa.gz`. È il riferimento del classificatore
-  predefinito (bayesiano ingenuo), la prima scelta per un'analisi al livello di genere: l'altro
-  classificatore, IdTaxa, con SILVA 138.2 non ha superato la prova sulle comunità a composizione
-  nota. Per un altro riferimento, o per IdTaxa, vedi RIFERIMENTO.md, 1.5.
+```bash
+python3 scripts/scarica_osdr.py OSD-NNN /percorso/dei/dati
+```
 
-Che cosa non mettere nella cartella delle letture:
-- file di campioni che non sono nei metadati: la validazione si ferma (`E-S0-06`);
-- file di un altro amplicone (ITS, 18S): se i metadati non dichiarano per riga l'amplicone o
-  il primer, nulla li ferma;
-- per usare le sole forward di una corsa appaiata, i file delle seconde letture: con i due file di
-  ogni campione `init` sceglie la modalità appaiata;
-- file con le due letture di ogni coppia insieme, o seconde letture senza il compagno: `init` si
-  rifiuta e non scrive nulla. I primi vanno separati in due file.
+Lo script crea `metadati/` (le tabelle ISA-Tab dello studio) e `letture/` (i file elencati nella
+tabella di assay del 16S). Prima di scaricare dice quanti file e quanti GB; alla fine stampa il
+comando di `init` del passo 4, da copiare. Si può rilanciare dopo un'interruzione: riprende. Se
+lo studio ha più tabelle del 16S le nomina e si ferma: si rilancia con `--assay NOME`.
+
+**Coppie o sole forward.** Se lo studio ha due file per campione (`_R1` e `_R2`) si parte con le
+coppie. Si passa alle sole forward (i file `_R1`) in due casi: lo script avverte che nei nomi il
+marcatore non è in fondo (`_R1_raw`: lo strumento non li riconosce come coppie); oppure `init`, al
+passo 4, scrive la nota «Le coppie non si fondono senza basi di qualità bassa» o lascia da
+scegliere i troncamenti consigliando le forward (le reverse sono troppo corte o di qualità bassa).
+Si preparano così, e si rilancia il comando del passo 4 con `--reads /dati/letture_forward`:
+
+```bash
+mkdir /percorso/dei/dati/letture_forward
+cp /percorso/dei/dati/letture/*_R1*.fastq.gz /percorso/dei/dati/letture_forward/
+```
+
+**Con dati propri** la cartella dei dati, fuori dal clone, contiene:
+
+- le letture, in una cartella senza sottocartelle: file `.fastq.gz` (o `.fq.gz`, `.fastq`, `.fq`),
+  uno per campione, oppure due con lo stesso nome salvo `_R1`/`_R2` (o `_1`/`_2`) in fondo. Il
+  nome di ogni file contiene una parte unica per campione, che compare anche nei metadati. Non
+  vanno messi file di campioni assenti dai metadati né di un altro amplicone (ITS, 18S);
+- i metadati: una tabella separata da tabulazioni, una riga per campione (colonne con il nome del
+  file, il nome del campione, il tipo se ci sono controlli, le variabili), o le tabelle ISA-Tab.
+
+**Il riferimento tassonomico**, una volta sola, dal clone:
+
+```bash
+python3 dati/riferimento/scarica_riferimento.py     # SILVA 138, 138 MB, in dati/riferimento/
+```
 
 ## Passo 3. Un modo solo di lanciare i comandi
 
-Si definisce una volta, nel terminale, dalla radice del clone, il comando `p16s`:
+Nel terminale, dalla radice del clone, si definisce una volta il comando `p16s`:
 
 ```bash
 IMMAGINE=ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
@@ -73,42 +80,40 @@ p16s() { docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -v "$DATI":/dat
            -v "$LAVORO":/lavoro -w /app "$IMMAGINE" python3 scripts/esegui.py "$@"; }
 ```
 
-Da qui ogni passo è una riga che comincia con `p16s`, lanciata dalla radice del clone. Nel container
-la cartella dei dati si chiama `/dati` (in sola lettura), quella di lavoro `/lavoro`, il clone
-`/app`: nei comandi e nella configurazione si scrivono questi nomi, non i percorsi del proprio
-disco. La cartella di lavoro va creata prima (`mkdir -p`): se manca la crea Docker, di un altro
-utente, e `init` non può scrivervi. Docker va lanciato sempre con `-u "$(id -u):$(id -g)"`, come fa
-`p16s`: senza, i file scritti sono di root. In un terminale nuovo queste righe si ripetono. Dove un
-messaggio dello strumento dice di lanciare `python3 scripts/esegui.py ...`, si scrive `p16s ...`.
+Da qui ogni passo è una riga che comincia con `p16s`, lanciata dalla radice del clone. Dentro il
+container la cartella dei dati si chiama `/dati`, quella di lavoro `/lavoro`, il clone `/app`: nei
+comandi e nella configurazione si scrivono questi nomi, non i percorsi del proprio disco. In un
+terminale nuovo le righe qui sopra si ripetono. La cartella di lavoro va creata prima (`mkdir`):
+se la crea Docker appartiene a root. Dove un messaggio dice `python3 scripts/esegui.py ...`, si
+scrive `p16s ...`.
 
-## Passo 4. `init --accetta-proposte`
+## Passo 4. `init`: la configurazione di partenza
 
 ```bash
-p16s init --reads /dati/letture --metadata /dati/campioni.tsv \
+p16s init --reads /dati/letture --metadata /dati/metadati \
   --reference /app/dati/riferimento/silva_nr99_v138_train_set.fa.gz \
   --out-root /lavoro/esecuzione --output /lavoro/configurazione.yaml --accetta-proposte
 ```
 
-- Con ISA-Tab `--metadata` è la cartella con le tabelle `a_*.txt` e `s_*.txt`; se le due tabelle
-  hanno altri nomi si indicano entrambe, e il file del lotto con `--batch-table`: `--metadata
-  /dati/assay.txt --study-table /dati/studio.txt --batch-table /dati/lotto.tsv`.
-- `init` legge letture e metadati e scrive `/lavoro/configurazione.yaml`: ciò che ha rilevato e ciò
-  che propone sono righe attive, le soglie di qualità senza un valore di partenza sono al valore che
-  non ferma (si fissano al passo 8), le scelte che restano sono righe in commento. La modalità
-  (single-end o appaiata) la riconosce dai nomi dei file.
-- Dura qualche decina di secondi con decine di campioni, alcuni minuti con centinaia. Sulla console
-  e in testa al file c'è il riepilogo: va letto. Ogni riga ha un commento che dice da dove viene il
-  valore e come sceglierlo. Le righe lasciate da scegliere con una nota nel riepilogo vanno lette
-  per prime: `init` le ha lasciate perché i dati erano ambigui, e il commento dice che cosa raccomanda.
-- **Il primer.** Se `init` dice di non aver trovato il primer e il primer è noto, anche se è già
-  stato tolto dalle letture, si rilancia con `--primer SEQUENZA` (in modalità appaiata anche
-  `--primer-reverse SEQUENZA`) e un altro `--output`: serve a riconoscere la regione amplificata e i
-  file di letture inverse. Se se ne conosce solo il nome, il commento di `qc.primer_sequence` nel
-  file elenca le sequenze di quel nome; fra due forme si prende quella con più codici degenerati,
-  che comprende l'altra (515F `GTGYCAGCMGCCGCGGTAA`, 806R `GGACTACNVGGGTWTCTAAT`; RIFERIMENTO.md,
-  6.3 e 2, «In modalità appaiata»). Se non è noto si prosegue: `qc.primer_sequence` resta `null`.
-- `init` non scrive su un file che esiste. Dopo un secondo `init` si cancella il primo file, e nei
-  comandi che seguono si usa il nome del nuovo. Tutti gli argomenti: RIFERIMENTO.md, 2, «Il comando».
+- `--metadata` è la cartella ISA-Tab, oppure la tabella dei campioni (`/dati/campioni.tsv`). Se la
+  cartella ha più tabelle di assay (16S e ITS) `init` le nomina e si aggiunge `--assay NOME`, con
+  il nome di quella del 16S: lo script del passo 2 lo scrive già nel comando che stampa. Il file
+  del lotto, se c'è, si indica con `--batch-table /dati/lotto.tsv`.
+- `init` legge letture e metadati (da decine di secondi ad alcuni minuti) e scrive
+  `/lavoro/configurazione.yaml`: ciò che ha verificato e ciò che propone sono righe attive, le
+  soglie di qualità sono al valore che non ferma (si fissano al passo 8), ciò che non può
+  decidere è una riga in commento. Sopra ogni riga un commento dice da dove viene il valore; una
+  riga attiva a `null` o `[]` dichiara un'assenza, e resta così se lo studio non ha quel dato.
+- **Il riepilogo va letto**, sulla console o in testa al file: soprattutto le righe «Nota:». Una
+  nota che nomina un parametro dice che `init` ha lasciato quella scelta a chi conosce i dati.
+  **Come si risolve:** si apre il file alla riga del parametro; il commento sopra la riga riporta
+  ciò che `init` ha visto e la sua raccomandazione; si segue quella, salvo sapere di più sullo
+  studio. Una nota che non nomina parametri («resta da verificare») informa, e non chiede nulla.
+- **Il primer.** Se è proposto dai metadati e il commento dice che «non è nelle letture», è già
+  stato tolto: non c'è nulla da fare. Se la nota dice che non è stato trovato e lo si conosce, si
+  rilancia con `--primer SEQUENZA` (con le coppie anche `--primer-reverse SEQUENZA`); se non lo
+  si conosce si prosegue, e `qc.primer_sequence` resta `null`.
+- `init` non scrive su un file che esiste: per rilanciarlo si cancella il file di prima.
 
 ## Passo 5. Le scelte da scrivere
 
@@ -116,52 +121,63 @@ p16s init --reads /dati/letture --metadata /dati/campioni.tsv \
 p16s validate --config /lavoro/configurazione.yaml
 ```
 
-`validate` elenca i parametri che mancano (`E-G15-10`). Ciascuno è nel file come riga in commento
-senza valore, sotto il suo gruppo: `filt.exclude_taxa` è la riga `  # exclude_taxa:` sotto `filt:`.
-Si toglie `# `, lasciando i due spazi, e si scrive il valore: le stringhe fra virgolette, gli
-elenchi in linea (`["a", "b"]`), i logici `true` o `false`. Le sezioni dell'ultima colonna sono di
-RIFERIMENTO.md.
+`validate` elenca i parametri che mancano (`E-G15-10`) e, sotto «dove scriverli», **la riga del
+file** di ciascuno. A quella riga c'è il parametro in commento, sotto il suo gruppo: per
+`filt.exclude_taxa` la riga `  # exclude_taxa:` sotto `filt:`. Si toglie `# ` lasciando i due
+spazi e si scrive il valore dopo i due punti: le stringhe fra virgolette, gli elenchi fra
+parentesi quadre (`["a", "b"]`), i logici `true` o `false`.
 
-| Parametro | Che cosa decide | Regola semplice | Sezione |
-|---|---|---|---|
-| `tax.ref_name`, `tax.ref_version` | nome e versione del riferimento, riportati con i risultati | quelli della fonte: `"SILVA"` e `"138"` per il file del passo 2. `init` li scrive da sé se si leggono dal nome del file | 6.3 |
-| `filt.remove_na_phylum` | se togliere le varianti a cui il riferimento non dà un phylum | `true` se ciò che il riferimento non riconosce è fuori bersaglio (il caso comune); `false` per tenerle | 6.4 |
-| `filt.exclude_taxa` | i taxa da togliere, a qualunque rango | di solito `["Chloroplast", "Mitochondria", "Eukaryota"]`, scritti come li scrive il riferimento (così in SILVA 138); `[]` per non togliere nulla | 6.4 |
-| `prev.apply` | se togliere le varianti presenti in pochi campioni | `false` se interessa la composizione di ogni singolo campione; `true` per togliere le varianti viste in un campione solo, spesso errori, sapendo che escono anche i taxa rari | 6.4 |
-| `prev.min_fraction`, `prev.min_count` | solo con `prev.apply: true`: in quale frazione dei campioni, e con quante letture, una variante deve comparire | frazione più bassa con campioni numerosi o diversi fra loro (con 20 campioni e `0.2` servono 4 campioni); conteggio `1` conta ogni lettura, `2` ignora le letture singole | 6.4 |
-| `qc.min_reads_final` | le letture sotto le quali un campione esce dall'oggetto finale | `0` non toglie nessuno: si parte da lì, si guardano nel report le letture per campione, si alza il valore e si lancia `resume` | 6.4 |
-| `katharoseq.target_taxon` | solo con controlli positivi: il taxon atteso nei controlli | il genere del ceppo usato, come lo scrive il riferimento: lo sa chi ha allestito i controlli | 6.5 |
-| `katharoseq.target_sensitivity` | solo con controlli positivi: la fedeltà (frazione di letture sul taxon atteso) a cui si legge la profondità minima dei campioni | strettamente fra 0 e 1; più alta, più campioni poveri esclusi. Non c'è un valore buono per tutti: si sceglie quanta contaminazione accettare, e nel report si guardano la soglia per piastra e i campioni esclusi | 6.5 |
-| `katharoseq.min_r2` | solo con controlli positivi: la bontà minima (R²) perché una curva di calibrazione sia valida | fra 0 e 1; è una scelta: nel report si guardano gli R² delle curve, e una piastra sotto il minimo usa una soglia di ripiego | 6.5 |
-| `ctrl.min_positive_pass_frac` | solo con controlli positivi: la frazione minima di controlli conformi al loro livello | fra 0 e 1; sotto, un avviso (`E-S11-04`), o un arresto se `ctrl.positive_gate` è `true`. `0` spegne il controllo: va bene finché la conformità non è nota | 6.5, 6.6 |
-| `decontam.threshold` | solo con controlli negativi: la soglia sotto la quale una variante è un contaminante | strettamente fra 0 e 1. `0.1` è il predefinito di `decontam`; un valore più alto toglie di più e si usa con bassa biomassa | 6.5 |
-| `decontam.min_blanks` | solo con controlli negativi: quanti controlli negativi con letture servono per decontaminare, e perché una piastra abbia un confronto proprio | non più dei controlli negativi del dataset. Una piastra che ne ha meno dà un avviso (`E-S0-15`) e si confronta con i negativi di tutte | 6.5 |
+**La chiave del campione.** Se `validate` indica per `meta.accession_column` e
+`io.accession_regex` più righe «pronte», più colonne dei metadati corrispondono ai file. Nel file
+ogni candidata è una coppia di righe già scritte, numerata («coppia 1», «coppia 2»): si toglie il
+commento alle due righe della stessa coppia, una sotto `meta:` e una sotto `io:`, scegliendo
+quella marcata «consigliata». Non c'è nessuna espressione da scrivere.
 
-Le righe attive da controllare sempre, perché `init` può averle lasciate a un valore che dichiara
-un'assenza (`null` o `[]`; il riepilogo le elenca):
-
-| Parametro | Che cosa succede se resta così | Che cosa scrivere |
+| Parametro | Che cosa decide | Regola semplice |
 |---|---|---|
-| `io.accession_regex`, `meta.accession_column` | se `init` non le ha rilevate restano in commento, e il riepilogo dice perché (nessuna colonna corrisponde ai file, o righe collegate al file sbagliato: passo 11) | la colonna che riporta il file di ogni campione, e un'espressione che estrae dal nome del file la parte unica per campione: `"^(CAMP[0-9]+)_"` (RIFERIMENTO.md, 1.1 e 6.1) |
-| `meta.assay_keep_column`, `meta.assay_keep_values` | proposte solo se la tabella descrive anche un altro amplicone: tengono le sole righe 16S | controllare che i valori siano quelli delle righe da analizzare (RIFERIMENTO.md, 1.3) |
-| `ctrl.column` e le tre etichette (`ctrl.blank_values`, `ctrl.positive_values`, `ctrl.biological_values`) | `null`: tutti i campioni sono biologici. La proposta guarda le parole dei valori e può sbagliare: il commento elenca i campioni di ogni valore | la colonna del tipo di campione e, per ogni etichetta, i valori di quella colonna; ogni campione deve ricadere in una sola. Colture pure e standard senza diluizioni vanno fra i biologici (RIFERIMENTO.md, 2.3, 6.1 e 6.5) |
-| `ctrl.blank_override_column`, `ctrl.blank_override_values` | `null`: nessun campione è riclassificato | se alcuni campioni dichiarati biologici sono in realtà controlli negativi (materiale mai usato), la colonna e i valori che li riconoscono (RIFERIMENTO.md, 6.1) |
-| `meta.module_column` | `null`: l'oggetto finale non ha la posizione di prelievo | la colonna della posizione, se lo studio ne ha una: nell'oggetto diventa `posizione`, e non va ripetuta in `out.study_columns` (RIFERIMENTO.md, 6.1) |
-| `out.study_columns` | `[]`: l'oggetto finale non ha le altre variabili dello studio, e le analisi ecologiche non possono confrontarle | le colonne dei metadati con le variabili da confrontare, con il nome esatto dell'intestazione: `["Trattamento", "Tempo"]` (RIFERIMENTO.md, 6.1) |
-| `qc.primer_sequence` | `null`: nessun primer è cercato nelle letture; se le letture lo portano entra nelle varianti | vedi il passo 4 (RIFERIMENTO.md, 6.3) |
-| `filter.truncLen`, in modalità appaiata anche `pair.truncLen_reverse`, `pair.len_min`, `pair.len_max` | proposte dalla lunghezza più frequente e dalla qualità; il commento riporta lunghezze e qualità. Se mancano, vedi il passo 11 | (RIFERIMENTO.md, 6.3 e 6.7) |
+| `tax.ref_name`, `tax.ref_version` | nome e versione del riferimento, riportati con i risultati | `"SILVA"` e `"138"` per il file del passo 2 (di solito `init` li scrive da sé) |
+| `filt.remove_na_phylum` | se togliere le varianti a cui il riferimento non dà un phylum | `true`: ciò che il riferimento non riconosce di solito non è un batterio |
+| `filt.exclude_taxa` | i taxa da togliere | `["Chloroplast", "Mitochondria", "Eukaryota"]`: non sono batteri del campione |
+| `prev.apply` | se togliere le varianti presenti in pochi campioni | `false` con poche decine di campioni, o se interessa ogni singolo campione; con `true` vanno scritti anche `prev.min_fraction` (con 20 campioni e `0.2` una variante deve comparire in 4) e `prev.min_count` (`1`) |
+| `qc.min_reads_final` | le letture sotto le quali un campione esce dal risultato | `0` alla prima esecuzione: il valore giusto lo propone il passo 8 |
+| `out.study_columns` | le colonne dei metadati da portare nel risultato: senza, le analisi ecologiche non hanno nulla da confrontare. `validate` non la chiede: va controllata comunque | le variabili dello studio, con il nome esatto dell'intestazione. In ISA-Tab sono le colonne «Factor Value[...]», e `init` le propone già; altrimenti la riga è attiva con `[]`, e si scrive l'elenco al posto di `[]`: `["Trattamento", "Tempo"]`. Il commento elenca le colonne disponibili |
+| `ctrl.column` e le tre etichette `ctrl.*_values` | quali campioni sono controlli negativi (bianchi) o positivi | se `init` le ha proposte, controllare nel commento quali campioni porta ogni valore; `null` e tre elenchi vuoti se non ci sono controlli. Colture pure e standard senza diluizioni si lasciano fra i biologici |
+| `decontam.threshold`, `decontam.min_blanks` | solo con controlli negativi: quanto è severa la decontaminazione, e quanti bianchi servono | `0.1`, il valore del metodo (più alto toglie di più, e si usa con bassa biomassa); il numero dei bianchi, non più di quelli che ci sono |
+| `katharoseq.target_taxon`, `katharoseq.target_sensitivity`, `katharoseq.min_r2`, `ctrl.min_positive_pass_frac` | solo con controlli positivi in diluizione: il genere atteso e come si calibra la profondità minima | il genere del ceppo usato; gli altri tre sono scelte dello studio, fra 0 e 1: RIFERIMENTO.md 6.5 |
+| `filter.truncLen` (con le coppie anche `pair.truncLen_reverse`, `pair.len_min`, `pair.len_max`) | dove si troncano le letture, e quanto sono lunghe le coppie fuse | di solito proposti. Se mancano, il commento riporta la raccomandazione; se consiglia le sole forward, vedi il passo 2 |
 
-Le altre righe a `null` o `[]` si lasciano così se lo studio non ha quell'informazione: il commento
-di ciascuna dice che cosa dichiara (RIFERIMENTO.md, 6.1 e 6.2).
+**Il classificatore.** Non c'è nulla da scrivere per quello predefinito, il bayesiano ingenuo
+(`tax.classifier: naive_bayes`): è la scelta consigliata per un'analisi al livello di genere,
+perché assegna più generi. L'alternativa è IdTaxa (`tax.classifier: idtaxa`), più prudente: assegna
+meno generi ma sbaglia meno quando il batterio non è nel riferimento. È il classificatore della
+pipeline di NASA GeneLab, e serve per confrontarsi con le sue tabelle: il file `2019` (SILVA r138)
+corrisponde alle versioni precedenti di quella pipeline, il `138.2` a quella attuale. Per usarlo:
+
+```bash
+python3 dati/riferimento/scarica_addestrato.py 2019     # oppure 138.2; stampa percorso e MD5
+```
+
+Nel file, sotto `tax:`, si mettono in commento (`# ` davanti) le righe `ref_fasta`, `ref_md5` e
+`try_rc`, e si aggiungono queste, con l'MD5 stampato dallo script (per il `138.2` il file è
+`SILVA_SSU_r138_2_2024.RData`, e `ref_version` diventa `"138.2"`):
+
+```yaml
+  classifier: idtaxa
+  idtaxa_trained: "/app/dati/riferimento/SILVA_SSU_r138_2019.RData"
+  idtaxa_trained_md5: "<MD5 stampato dallo script>"
+  idtaxa_threshold: 60
+  idtaxa_strand: both
+```
+
+Con il file `138.2` i taxa da togliere si scrivono `["Chloroplast_2", "Mitochondria_2",
+"Eukaryota"]`: quel classificatore li nomina con il suffisso.
 
 ## Passo 6. `validate`, finché passa
 
-Si rilancia il comando del passo 5 dopo ogni correzione, finché scrive «Validazione superata».
-L'avviso sui controlli di qualità spenti è atteso: si chiude al passo 8. Gli altri avvisi
-(`WARNING`) non fermano, ma vanno letti: senza controlli negativi o positivi è atteso `E-S0-17`, e
-l'esecuzione dirà poi che non decontamina o non calibra; `E-S0-32` dice che un taxon di
-`filt.exclude_taxa` non è nel riferimento con quel nome, e quindi non toglie nulla; `E-S0-31`
-elenca le righe dei metadati escluse perché di un altro amplicone.
+Si rilancia il comando del passo 5 dopo ogni correzione, finché scrive «Validazione superata». Gli
+avvisi (`WARNING`) non fermano. Sono attesi, qui e durante `run`: i controlli di qualità spenti
+(passo 8); `E-S0-17` ed `E-S12-03` senza controlli negativi o positivi; `E-S0-31`, le righe di un
+altro amplicone, escluse. `E-S0-32` va corretto: quel taxon di `filt.exclude_taxa` non toglie nulla.
 
 ## Passo 7. `run` e `status`
 
@@ -171,25 +187,37 @@ p16s run --config /lavoro/configurazione.yaml
 p16s status --out /lavoro/esecuzione
 ```
 
-Al posto di cancellare la cartella e lanciare `run` si può lanciare `resume`. `status` si può
-lanciare durante `run` da un altro terminale, dopo avervi ripetuto le righe del passo 3. Se `run` si
-ferma dice la fase, il codice e che cosa fare (passo 11). Corretta la causa, si riparte con `p16s
-resume --config /lavoro/configurazione.yaml`, che rifà solo ciò che serve. I risultati sono in
-`/lavoro/esecuzione/12_final/` (`ps_final.rds` e gli stessi dati in testo).
+`status` si può lanciare da un altro terminale, dopo le righe del passo 3. Se `run` si ferma dice
+la fase, il codice e che cosa fare (passo 11); corretta la causa si riparte con `p16s resume
+--config /lavoro/configurazione.yaml`. Il risultato è in `/lavoro/esecuzione/12_final/`.
 
-## Passo 8. `soglie --accetta-proposte` e `resume`
+## Passo 8. `soglie` e `resume`
 
 ```bash
 p16s soglie --config /lavoro/configurazione.yaml --output /lavoro/con_soglie.yaml --accetta-proposte
+```
+
+`soglie` legge le misure dell'esecuzione e scrive un file nuovo, uguale al primo salvo le soglie
+di qualità: proteggono dai peggioramenti, non dicono se la misura è buona. Due cose da guardare:
+
+- **Quante letture restano** (`qc.min_frac_reads_retained`, «letture finali su letture senza
+  chimere»). Con campioni di piante o di un ospite è normale che ne resti meno di un terzo: il
+  resto sono cloroplasti e mitocondri, tolti dal filtro. Che cosa è stato tolto, con le letture, è
+  in `/lavoro/esecuzione/report/tabelle/varianti_rimosse.tsv`, dopo il passo 9.
+- **Le letture minime per campione.** Se alcuni campioni hanno molte meno letture degli altri
+  `soglie` li elenca in fondo. Sotto 1.000 letture raccomanda di toglierli, perché le analisi
+  ecologiche portano ogni campione alla profondità del più povero: si scrive il valore indicato in
+  `con_soglie.yaml`, nella riga `min_reads_final:`. Se hanno più di 1.000 letture di solito si
+  tengono. In ogni caso, se `soglie` scrive «ATTENZIONE» un gruppo dello studio resterebbe senza
+  campioni: allora si tengono, salvo rinunciare a quel confronto.
+
+```bash
 p16s resume --config /lavoro/con_soglie.yaml
 ```
 
-`soglie` legge le misure dell'esecuzione conclusa e scrive un nuovo file, uguale al primo salvo le
-soglie di qualità, ciascuna con la sua misura accanto. `resume` con il nuovo file le attiva: avvisa
-che la configurazione è cambiata, ripete i calcoli (dura quanto `run`) e non cambia i risultati. Una
-soglia proposta protegge dai peggioramenti, non giudica se la misura è buona: una misura che
-sorprende va capita prima di accettarla (che cosa misura ogni soglia: RIFERIMENTO.md, 6.6; per le
-coppie fuse, 6.7). Da qui in poi la configurazione è `con_soglie.yaml`.
+`resume` attiva le soglie. **Ripete tutti i calcoli: dura quanto `run`**; se `qc.min_reads_final`
+non è cambiato i risultati sono gli stessi. Da qui in poi la configurazione è `con_soglie.yaml`;
+un `resume` successivo, dopo aver cambiato solo `qc.min_reads_final`, dura meno di un minuto.
 
 ## Passo 9. `report`
 
@@ -197,70 +225,76 @@ coppie fuse, 6.7). Da qui in poi la configurazione è `con_soglie.yaml`.
 p16s report --config /lavoro/con_soglie.yaml
 ```
 
-Scrive `$LAVORO/esecuzione/report/report.html`, che si apre con un browser. Come si legge è nel
-README, «Come si legge il report»; le tre cose da guardare per prime:
+Scrive `$LAVORO/esecuzione/report/report.html`, che si apre con un browser, e le stesse tabelle in
+testo in `report/tabelle/`. Da guardare per primi:
 
-1. **Segnalazioni in apertura**: i controlli di qualità spenti e il numero delle degradazioni, cioè
-   degli avvisi con cui l'esecuzione ha proseguito rinunciando a qualcosa; il loro elenco è in
-   «Decisioni prese automaticamente».
-2. **Tracciamento delle letture**: quante letture restano dopo ogni fase; una perdita forte in una
-   fase dice dove guardare (in modalità appaiata, la quota di coppie fuse).
-3. **Risultato finale**: campioni e varianti rimasti. Quali campioni sono usciti, e perché, è in
-   «Decisioni prese automaticamente», alla voce dei filtri finali.
+1. **Segnalazioni in apertura**: i controlli di qualità spenti e le «degradazioni», cioè gli
+   avvisi con cui l'esecuzione ha proseguito rinunciando a qualcosa;
+2. **Tracciamento delle letture**: quante ne restano dopo ogni fase; una perdita forte dice dove
+   guardare (con le coppie, la quota di coppie fuse);
+3. **Risultato finale** e **Decisioni prese automaticamente**: campioni e varianti rimasti, quali
+   campioni sono usciti e perché, le varianti tolte dai filtri.
 
 ## Passo 10. Analisi ecologiche
 
 ```bash
 p16s eco init --object /lavoro/esecuzione/12_final/ps_final.rds --output /lavoro/eco.yaml --accetta-proposte
 p16s eco validate --object /lavoro/esecuzione/12_final/ps_final.rds --config /lavoro/eco.yaml
-p16s eco run --object /lavoro/esecuzione/12_final/ps_final.rds --config /lavoro/eco.yaml --out /lavoro/analisi
 ```
 
-`eco init` scrive `eco.yaml` ed elenca le colonne dell'oggetto con i loro valori distinti: fra le
-altre `posizione`, `piastra` e `corsa` (con 0 valori se non dichiarate) e quelle portate con
-`out.study_columns`, con il nome in minuscolo e i trattini bassi (`Factor Value[Tempo]` diventa
-`factor_value_tempo`). Le proposte attive (variabili tecniche, rango) si controllano. `eco validate`
-nomina le scelte che mancano (`E-ECO-02`); si scrivono come al passo 5:
+`eco init` scrive `eco.yaml` e, sotto «Rilevato sull'oggetto», elenca le colonne dei campioni:
+quelle portate con `out.study_columns` hanno il nome in minuscolo con i trattini bassi (`Factor
+Value[Tempo]` diventa `factor_value_tempo`). Tre righe vanno lette:
+
+- **«Gruppi delle colonne candidate»**: per ogni colonna, i gruppi e quanti campioni hanno. La
+  variabile da confrontare è una di queste: quella della domanda dello studio, che si legge in
+  `metadati/i_Investigation.txt` (righe «Study Title» e «Study Description») o sulla pagina
+  dello studio.
+- **«Variabili confuse»**: compare se due colonne dividono i campioni quasi allo stesso modo (per
+  esempio tutti i campioni a terra sono radici). Un confronto sull'una misura anche l'altra: lo
+  si dichiara nei risultati, oppure si restringe l'analisi con `design.subset` ai campioni di un
+  solo gruppo dell'altra colonna (le sole radici), se ne restano almeno due per gruppo.
+- **«Rarefazione»**: compare se il campione più povero ha meno di un decimo delle letture della
+  mediana. La riga stessa dice che cosa fare: sopra 1.000 letture di solito nulla.
+
+Dopo ogni `resume` si rilanciano `report` ed `eco init` (con un altro `--output`).
+`eco validate` nomina le scelte che mancano (`E-ECO-02`), senza il numero della riga: ogni
+parametro è nel file sotto il suo gruppo (`design.variable` è `# variable:` sotto `design:`).
 
 | Parametro | Che cosa decide | Regola semplice |
 |---|---|---|
-| `design.variable` | la colonna con i gruppi da confrontare | una delle colonne elencate da `eco init`, che la propone solo se una sola ha gruppi ripetuti. Va dichiarata anche se nessuna ne ha: i test non si eseguono, tabelle e grafici sì. Se la colonna giusta manca dall'oggetto, la si aggiunge a `out.study_columns` in `con_soglie.yaml` e si rilanciano `resume` (passo 8) ed `eco init` con un altro `--output` |
-| `run.seed` | il seme di rarefazione e permutazioni | un intero qualunque |
-| `comp.rank` | il rango a cui si riassume la composizione | di solito proposto: il più fine con almeno metà delle varianti assegnate; altrimenti uno dei ranghi elencati da `eco init` |
-| `comp.top_n` | quanti taxa distinguere nei grafici di composizione | una decina: di più non si distinguono i colori |
-| `beta.distances` | le distanze fra campioni | `["bray", "jaccard"]`. Con `"aitchison"` si scrive anche `beta.clr_pseudocount` (`1` è la scelta più diffusa); per le UniFrac serve un albero: `config/eco.example.yaml` |
-| `ord.methods`, `ord.distances` | le ordinazioni, e su quali distanze | `["pcoa"]`, `["nmds"]` o entrambe; le distanze fra quelle di `beta.distances`. Con `pcoa` si toglie il commento a `ord.pcoa_correction`, con `nmds` a `ord.nmds_trymax`, che hanno già un valore |
-| `stat.min_group_size` | i campioni che un gruppo deve avere per entrare nei test | non meno di `2` |
-| `stat.significance_level` | il livello di significatività dello studio | di consueto `0.05` |
-| `design.subset` | facoltativo: quali campioni entrano nelle analisi | toglie i campioni fuori dal confronto, per esempio una coltura pura tenuta come biologica: una colonna e i suoi valori da tenere (RIFERIMENTO.md, 4) |
+| `design.variable` | la colonna con i gruppi da confrontare | quella della domanda dello studio, fra le colonne elencate; se manca dall'oggetto si aggiunge a `out.study_columns` in `con_soglie.yaml` e si rilanciano `resume` ed `eco init` |
+| `run.seed` | il seme di rarefazione e permutazioni | un intero qualunque, per esempio `1` |
+| `comp.rank`, `comp.top_n` | il rango della composizione e quanti taxa distinguere nei grafici | il rango è di solito proposto (`"Genus"`); `10` |
+| `beta.distances` | le distanze fra campioni | `["bray", "jaccard"]` |
+| `ord.methods`, `ord.distances` | le ordinazioni, e su quali distanze (è la riga `distances:` sotto `ord:`) | `["pcoa"]` e `["bray", "jaccard"]`; con `pcoa` si toglie il commento anche a `ord.pcoa_correction`, che ha già il valore |
+| `stat.min_group_size`, `stat.significance_level` | i campioni che un gruppo deve avere per entrare nei test, e il livello di significatività | `2` (`3` se ogni gruppo da confrontare ha almeno tre campioni) e `0.05` |
+| `design.subset` | facoltativo: quali campioni entrano nelle analisi | una colonna e i valori da tenere: `subset: {factor_value_tempo: ["Giorno 1", "Giorno 7"]}` |
 
-`eco run` vuole una cartella di uscita assente o vuota. In `/lavoro/analisi` scrive tabelle (`.tsv`)
-e grafici (`.png`) nelle sottocartelle `alfa`, `composizione`, `beta`, `ordinazione` e `test`, e
-`riepilogo.json` con gli avvisi (`E-ECO-`): non fermano, ma dicono che cosa non si è potuto
-calcolare (un gruppo troppo piccolo per i test, una NMDS con pochi campioni). Per ogni altra
-scelta, le variabili continue e le misure ripetute: RIFERIMENTO.md, sezione 4.
+```bash
+p16s eco run --object /lavoro/esecuzione/12_final/ps_final.rds --config /lavoro/eco.yaml --out /lavoro/analisi
+```
+
+`eco run` vuole una cartella di uscita assente o vuota. In `/lavoro/analisi` scrive tabelle
+(`.tsv`) e grafici (`.png`) in `alfa`, `composizione`, `beta`, `ordinazione` e `test`, e
+`riepilogo.json` con gli avvisi (`E-ECO-`): non fermano, dicono che cosa non si è potuto calcolare
+o va letto con cautela. Variabili continue, misure ripetute, UniFrac, NMDS: RIFERIMENTO.md, 4.
 
 ## Passo 11. Se qualcosa va storto
 
-Ogni arresto porta un codice, il dettaglio del caso e che cosa fare: va letto per intero, e basta
-anche per i codici che qui non ci sono. I più comuni (le sezioni sono di RIFERIMENTO.md):
+Ogni arresto porta un codice, il dettaglio e che cosa fare: va letto per intero. I più comuni:
 
-| Codice | Che cosa vuol dire | Che cosa fare | Sezione |
-|---|---|---|---|
-| `E-G15-10` | mancano parametri obbligatori | scrivere le scelte elencate (passo 5) | 6 |
-| `E-G15-99` | un valore non è ammesso, o una chiave è scritta male | correggere la riga che il messaggio nomina | 6 |
-| `E-S0-06`, `E-S0-04` | file e metadati non corrispondono: un file senza riga, una riga senza file, una chiave che non si estrae dal nome | togliere il file estraneo o completare i metadati; controllare `io.accession_regex` e `meta.accession_column` | 1.1, 6.1 |
-| `E-S0-30`, o `init` che non propone la chiave | i metadati del deposito sono sbagliati: una riga è collegata al file di un altro amplicone, o a un file che non c'è | copiare le tabelle in una cartella propria e correggere la copia, mai gli originali (ogni campione al suo file, via le righe estranee), poi rilanciare `init` sulla copia. Va verificata ogni riga, non solo quelle segnalate: uno scambio fra campioni dello stesso amplicone non si vede dalle letture | 1.3 |
-| `E-S0-11` | un campione non ricade in nessuna etichetta | aggiungere il suo valore a una delle tre etichette `ctrl.*_values` | 6.1 |
-| `E-S0-12` | il riferimento manca o il suo MD5 non è quello dichiarato | controllare il percorso; `tax.ref_md5` è l'uscita di `md5sum FILE` | 1.5 |
-| `E-S0-24`, `E-S0-23` | la cartella ha due file per campione ma la modalità è single-end; oppure, in modalità appaiata, a un file manca il compagno | rilanciare `init` (riconosce le coppie), o lasciare nella cartella i soli file forward; aggiungere il file che manca | 1.2 |
-| `E-S0-09`, `E-S1-02` | troppe letture sono più corte di `filter.truncLen` | abbassare `filter.truncLen`, oppure alzare `qc.max_frac_short_reads` se la perdita è accettata | 6.3 |
-| `E-S1-07` | single-end: un file non contiene le sole letture forward | il dettaglio dice il caso: sostituire il file con quello delle forward; togliere il campione se non ha quasi nulla del bersaglio; riportare a un ordine non legato alla sequenza un file riordinato | 1.2 |
-| `E-S1-09` | appaiata: i file di una corsa non hanno l'orientamento dichiarato | il dettaglio dice il caso; se la corsa è invertita, scambiare i nomi dei suoi due file, poi `resume` | 1.2 |
-| `E-S7-02` | appaiata: nessuna sequenza fusa ha una lunghezza fra `pair.len_min` e `pair.len_max` | guardare `05_pair_merge/lunghezze_fuse.tsv` e correggere l'intervallo, o i troncamenti | 6.7 |
-| `E-S13-04` | nessun campione resta nell'oggetto finale | guardare `12_final/intermedi/esclusioni.tsv`; abbassare `qc.min_reads_final`, rivedere `prev.min_fraction` | 6.4 |
-| `E-RUN-01` | un'altra esecuzione usa la stessa cartella di uscita | aspettare che finisca (`status`), o cambiare `io.out_root` | 3 |
-| nessun codice: `run` dice che la cartella non è vuota | `validate` o un'esecuzione vi ha già scritto | cancellare la cartella, oppure usare `resume` (passo 7) | 3 |
-| nessun codice: «Permission denied», o cartella non scrivibile, scrivendo nella cartella di lavoro o di uscita | la cartella è stata creata da Docker, o da un comando lanciato senza `-u`: appartiene a root | crearla prima con `mkdir -p` (passo 3); se esiste già, toglierla con `sudo rm -r` e ricrearla | 2, «Il comando» |
-| nessun codice: in modalità appaiata `init` non propone `filter.truncLen`, `pair.truncLen_reverse`, `pair.len_min`, `pair.len_max` | non ha potuto misurare la sovrapposizione delle due letture né riconoscere i due primer (code con molti errori, o letture troppo corte per la regione) | se le letture coprono la regione, scegliere a mano i due troncamenti dalle lunghezze e dalla qualità che il commento delle due righe riporta, rispettando il vincolo della fusione, e l'intervallo dalla lunghezza della regione; altrimenti usare le sole forward | 2, «In modalità appaiata»; 6.7 |
-| nessun codice: `init` dice che le coppie non si fondono senza basi di qualità bassa | le letture reverse sono corte o di qualità bassa: per fonderle i troncamenti dovrebbero entrare in basi di qualità mediana sotto 20 | usare le sole forward: togliere i file reverse dalla cartella delle letture e rilanciare `init` con un altro `--output` | 2, «In modalità appaiata»; 6.3 |
+| Codice o sintomo | Che cosa vuol dire | Che cosa fare |
+|---|---|---|
+| `E-G15-10` | mancano parametri obbligatori | scriverli alle righe che `validate` indica (passo 5) |
+| `E-G15-99` | un valore non è ammesso, una chiave è scritta male o ripetuta | correggere la riga che il messaggio nomina; un parametro compare una volta sola nel suo gruppo |
+| `E-S0-06`, `E-S0-04` | file e metadati non corrispondono: un file senza riga, una riga senza file | togliere dalla cartella il file estraneo; se la chiave è sbagliata, scegliere l'altra coppia (passo 5) |
+| `E-S0-30`, o `init` che non propone la chiave per «righe collegate a un file di un altro amplicone» | i metadati del deposito sono sbagliati | copiare le tabelle in una cartella propria, correggere la copia (ogni campione al suo file) e rilanciare `init` sulla copia |
+| `E-S0-11` | un campione non ricade in nessuna etichetta | aggiungere il suo valore a una delle tre etichette `ctrl.*_values` |
+| `E-S0-24`, `E-S0-23` | due file per campione con la modalità single-end; oppure a un file manca il compagno | rilanciare `init`, o lasciare nella cartella i soli file forward (passo 2) |
+| `E-S0-09`, `E-S1-02` | troppe letture sono più corte di `filter.truncLen` | abbassare `filter.truncLen`: il commento della riga, nel file, riporta le lunghezze delle letture |
+| `E-S1-07`, `E-S1-09` | un file non contiene le letture che il nome dichiara (inverse, o scambiate) | il dettaglio dice il caso e il file: sostituirlo, o scambiare i nomi dei due file |
+| `E-S7-02` | con le coppie: nessuna sequenza fusa ha una lunghezza fra `pair.len_min` e `pair.len_max` | guardare `05_pair_merge/lunghezze_fuse.tsv` e correggere l'intervallo |
+| `E-S13-04` | nessun campione resta nel risultato | guardare `12_final/intermedi/esclusioni.tsv`; abbassare `qc.min_reads_final` |
+| `run` dice che la cartella non è vuota | `validate` o un'esecuzione vi ha già scritto | cancellarla (passo 7), oppure usare `resume` |
+| l'esecuzione finisce la memoria (il processo è terminato dal sistema) | troppi processi per la memoria disponibile | scrivere `threads: 4` sotto `run:` e rilanciare `resume` |

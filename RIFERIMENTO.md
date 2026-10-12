@@ -7,9 +7,9 @@ modalità appaiata, primer cercato lungo la lettura, IdTaxa e i nomi dei taxa, G
 Greengenes, file del lotto, controlli positivi e negativi), Apptainer, le analisi
 ecologiche nel dettaglio e i formati JSON per chi integra lo strumento.
 
-I messaggi dello strumento citano sezioni della guida, per numero («GUIDA.md, 6.3») o
-per titolo («Letture appaiate»): sono le sezioni di questo documento, con lo stesso
-numero e lo stesso titolo.
+Nei messaggi dello strumento una sezione numerata («RIFERIMENTO.md, sezione 6», «GUIDA.md,
+6.3») o un titolo («Letture appaiate») è una sezione di questo documento, con lo stesso
+numero e lo stesso titolo; «GUIDA.md, passo N» è un passo della guida.
 
 Nei comandi `<immagine>` è l'immagine pubblicata, indicata nel README. I comandi si
 lanciano dalla radice di un clone del repository.
@@ -52,6 +52,22 @@ lanciano dalla radice di un clone del repository.
   - [6.7 Modalità appaiata](#67-modalità-appaiata)
 
 ## 1. Preparare i dati
+
+**Da OSDR.** `python3 scripts/scarica_osdr.py OSD-NNN CARTELLA` scarica l'archivio ISA-Tab
+di uno studio in `CARTELLA/metadati/`, vi trova la tabella di assay del 16S (dal nome; con
+più candidate le nomina e chiede `--assay NOME`) e scarica in `CARTELLA/letture/` i file
+che la sua colonna `Raw Data File` elenca: una cella può nominare i due file di una coppia,
+separati da una virgola. `--solo-forward` scarica di ogni coppia il solo file della prima
+lettura (i due nomi differiscono per il marcatore, 1 e 2, dopo un separatore o una R);
+`--connessioni N` cambia le connessioni aperte insieme (4). Lo script usa la sola libreria
+standard, dichiara file e GB prima di scaricare, non riscarica un file presente con la
+dimensione che l'archivio dichiara e riprende quelli rimasti a metà (`<nome>.parziale`):
+si può rilanciare dopo un'interruzione. L'archivio non pubblica checksum nell'elenco dei
+file: la verifica è sulla dimensione. Se la tabella descrive anche righe di un altro
+amplicone, i loro file sono scaricati con gli altri: `init` lo dice, e nomina quelli da
+togliere dalla cartella. Se nei nomi dei due file di una coppia il marcatore della lettura
+non è in fondo (`_R1_raw.fastq.gz`), lo strumento non li abbina (sezione 1.2): lo script
+avverte, e la strada è quella delle sole forward.
 
 ### 1.1 Le letture
 
@@ -220,7 +236,8 @@ in più si tolgono da una copia della tabella.
 altro campione. Dove la tabella di assay dichiara per riga l'amplicone o i primer (in
 ISA-Tab le colonne `Parameter Value[Target Molecule]` e `Parameter Value[Primer Info]`),
 `init` e la validazione confrontano la dichiarazione con il primer che le letture del
-file collegato portano in testa, sulle prime 2.000 letture. Il confronto si fa su tutte
+file collegato portano in testa: `init` sulle prime 2.000 letture, la validazione sul
+minore fra 2.000 e `qc.head_reads`. Il confronto si fa su tutte
 le righe, prima della regola delle righe da tenere, e solo dove è senza ambiguità: la
 riga deve dichiarare un amplicone noto (16S, 18S, ITS e simili) o un primer
 riconoscibile (una sequenza in codici IUPAC, o il nome di un primer dell'elenco di
@@ -331,6 +348,9 @@ che nessuno strumento può fare al posto di chi conosce lo studio.
    controlli spenti: è atteso.
 4. **`soglie --accetta-proposte`** legge le misure di quell'esecuzione e scrive un
    nuovo file con le soglie proposte, ciascuna accanto alla sua misura (sezione 6.6).
+   Se alcuni campioni dell'oggetto finale hanno molte meno letture degli altri propone
+   anche `qc.min_reads_final`, come scelta da fare a mano (sezione 6.4, «Le letture
+   minime»).
 5. **`resume`** con il nuovo file: le soglie diventano attive.
 
 I comandi dei cinque passi, e quello del report, sono in [GUIDA.md](GUIDA.md), passi 4-9.
@@ -556,8 +576,8 @@ punti in cui i dati non bastavano. Le condizioni, proposta per proposta:
 
 | Proposta | È una proposta se | Altrimenti |
 |---|---|---|
-| `ctrl.column` e le tre etichette | le altre colonne candidate danno ai campioni le stesse classi (non conta una colonna di nomi, con un valore per riga); ogni valore si attribuisce a una classe; nessun campione che ne risulta controllo negativo ha più letture della mediana degli altri | da scegliere: il commento nomina la colonna più plausibile, dice che cosa la contraddice, i valori da scrivere nelle etichette e i campioni di ogni valore, per quella e per le altre candidate |
-| `meta.accession_column`, `io.accession_regex` | una sola colonna corrisponde uno a uno ai file, e la chiave non è di sole cifre né molto corta (altrimenti la corrispondenza può essere una coincidenza) | da scegliere: il commento mostra l'abbinamento e i valori da scrivere se è giusto |
+| `ctrl.column` e le tre etichette | le altre colonne candidate danno ai campioni le stesse classi (non conta una colonna di nomi, con un valore per riga); ogni valore si attribuisce a una classe | da scegliere: il commento nomina la colonna più plausibile, dice che cosa la contraddice, i valori da scrivere nelle etichette e i campioni di ogni valore, per quella e per le altre candidate |
+| `meta.accession_column`, `io.accession_regex` | una sola colonna corrisponde uno a uno ai file, e la chiave non è di sole cifre né molto corta (altrimenti la corrispondenza può essere una coincidenza) | da scegliere. Con più colonne candidate ogni candidata è una coppia di righe pronte, in commento con il valore già scritto e numerate allo stesso modo sotto `meta:` e sotto `io:` («coppia 1», «coppia 2»): si toglie il commento alle due righe di una coppia, senza scrivere espressioni. È consigliata la coppia della sola colonna che riporta per intero il nome dei file della cartella. Con una chiave debole il commento mostra l'abbinamento e i valori da scrivere se è giusto |
 | `filter.trimLeft`, `pair.trimLeft_reverse` (lunghezza del primer) | il primer è in testa alle letture di ogni file | il primer resta proposto, il taglio è da scegliere: il commento nomina i file che non lo portano |
 | `qc.primer_sequence`, `pair.primer_sequence_reverse` dai metadati | una sola sequenza è candidata a quel verso: i metadati la dichiarano tale, oppure coincide, codici IUPAC compresi, con un primer dell'elenco di `init` (e allora il verso è noto) | parte da nullo, se nessuna sequenza dei metadati è un primer noto né ha l'etichetta, o se due sono candidate allo stesso verso: il commento le riporta |
 | `pair.len_min`, `pair.len_max` misurati | l'intervallo misurato è largo almeno il 2% della mediana (la V4 varia di sei basi su 253 nel tutorial di dada2: più stretto descrive i taxa di quei campioni, non la regione) | da scegliere: il commento raccomanda la mediana meno e più il 5%, da stringere dopo la prima esecuzione |
@@ -571,6 +591,14 @@ metà delle coppie si sovrappone ma i primer riconosciuti li confermano, o quand
 vengono dalla sola distanza fra i primer (dichiarati come tali); il nome del campione
 quando più colonne hanno un valore per riga (cambia solo come i campioni si chiamano).
 I valori di partenza (`[PARTENZA]`) non sono euristiche: sono gli standard del metodo.
+Restano proposti, con una nota nel riepilogo, anche il primer e il taglio verificati
+sulle sole prime letture (`--head-reads`), e la colonna dei controlli quando un campione
+che ne risulta controllo negativo ha più letture della mediana degli altri: la nota
+nomina quei controlli con le loro letture. Con campioni a bassa biomassa è normale che
+un bianco abbia tante letture quante i campioni; altrimenti va controllato che sia
+davvero un bianco. Se la chiave rilevata è il nome intero dei file, il commento di
+`io.accession_regex` lo dice (la chiave è il nome di ogni campione nelle uscite) e
+riporta le altre espressioni verificate, più corte.
 
 - La colonna del tipo di campione e le etichette (`ctrl.column`, `ctrl.blank_values`,
   `ctrl.positive_values`, `ctrl.biological_values`), dalle parole dei valori: blank,
@@ -584,11 +612,15 @@ I valori di partenza (`[PARTENZA]`) non sono euristiche: sono gli standard del m
   etichette dei campioni biologici. Il commento della colonna proposta, e di ogni altra
   candidata, elenca per ogni valore i campioni che lo portano: una parola dei controlli
   può marcare campioni che non lo sono (una coltura pura descritta come «blank»), e lo
-  si vede leggendo l'elenco. Se un campione che ne risulterebbe controllo negativo ha
-  più letture della mediana degli altri, di solito non è un bianco: la colonna non è
-  proposta (il report segnala lo stesso caso dopo l'esecuzione).
+  si vede leggendo l'elenco. Se un campione che ne risulta controllo negativo ha più
+  letture della mediana degli altri, la colonna resta proposta e una nota lo nomina (il
+  report segnala lo stesso caso dopo l'esecuzione).
 - Le righe della tabella di assay da tenere (`meta.assay_keep_column`,
   `meta.assay_keep_values`), solo se la tabella dichiara più ampliconi (sezione 1.3).
+- Le variabili dello studio (`out.study_columns`): le colonne che la tabella dichiara con
+  il prefisso di ISA-Tab, «Factor Value[...]», esclusa quella già usata per il tipo del
+  campione. Senza colonne così dichiarate la riga resta all'elenco vuoto, e una nota del
+  riepilogo ricorda che le analisi a valle non avranno gruppi da confrontare.
 - Nel file del lotto, le colonne di piastra, corsa e cellule dei controlli positivi,
   dal loro nome, se le colonne che lo portano raggruppano i campioni allo stesso modo.
 - Il troncamento (`filter.truncLen`), dal profilo di qualità e delle lunghezze, con la
@@ -626,7 +658,10 @@ o al disegno dello studio (soglie di qualità, prevalenza, taxa da escludere).
 3. Per ogni riga `[DA SCEGLIERE]`: scrivere il valore. La sezione 6 dice, parametro per
    parametro, che cosa significa, come si ricava e che cosa guardare per confermarlo.
 4. Lanciare `validate` (sezione 3): finché manca qualcosa elenca i parametri ancora da
-   dichiarare (`E-G15-10`). È la lista delle cose da fare.
+   dichiarare (`E-G15-10`). È la lista delle cose da fare: sotto «dove scriverli» dà per
+   ciascuno il numero della riga del file in cui la riga in commento del parametro si
+   trova (più numeri se `init` ha scritto più righe pronte: se ne attiva una sola), o,
+   se il file non ha quella riga, la riga del gruppo sotto cui aggiungerla.
 
 Un parametro condizionale non pertinente si omette: la sua riga resta in commento.
 Dichiarato comunque non cambia i risultati, e il report lo segnala; il valore però è
@@ -794,7 +829,32 @@ docker run --rm -u "$(id -u):$(id -g)" \
 
 `eco init` riporta ciò che l'oggetto contiene (ranghi tassonomici con la quota di
 varianti assegnate, albero e sua radice) e scrive una configurazione di partenza in cui
-ogni riga è in commento:
+ogni riga è in commento. Fra i fatti rilevati, due avvisi guardano i campioni uno per
+uno:
+
+- **Rarefazione.** Senza `alpha.rarefy_depth` le analisi rarefanno alla profondità del
+  campione più povero. Se questa è sotto un decimo della mediana delle letture per
+  campione, l'avviso la riporta e nomina i campioni sotto quella quota. Se il più povero
+  ha meno di 1.000 letture il rimedio è alzare `qc.min_reads_final` a 1.000 nella
+  configurazione della pipeline e rilanciare `resume`, o tenere fuori quei campioni con
+  `design.subset`; con almeno 1.000 letture di solito si lascia così.
+- **Gruppi delle colonne candidate.** Per ogni colonna candidata a variabile biologica
+  (fino a otto gruppi), i gruppi con il numero dei campioni: servono a scegliere
+  `design.variable` e `stat.min_group_size`.
+- **Variabili confuse.** Fra le colonne candidate a variabile biologica `eco init`
+  segnala: due colonne che dividono i campioni negli stessi gruppi (la stessa variabile);
+  una colonna i cui gruppi cadono ciascuno in un solo gruppo dell'altra (confuse); e il
+  caso parziale, in cui un gruppo intero di una cade in un solo gruppo dell'altra (tutti
+  i campioni di una condizione sono di un solo tessuto). Contano i gruppi di almeno due
+  campioni. Un confronto sull'una misura anche la differenza dell'altra: si sceglie la
+  variabile sapendolo, o si restringe con `design.subset` ai campioni di un solo gruppo
+  dell'altra. L'avviso è anche nel commento di `design.variable`.
+
+I dati per campione vengono dagli export in testo che la pipeline consegna accanto
+all'oggetto (`conteggi.tsv`, `metadati.tsv`), usati solo se `checksum.sha256` della
+stessa cartella li dichiara, con l'oggetto, alle impronte che hanno ora. Con un oggetto
+spostato senza quei file, o non prodotto dalla pipeline, i due avvisi non si valutano e
+il riepilogo lo dichiara. Le righe della configurazione:
 
 - **proposti**: `design.variable`, solo se una sola colonna ha almeno due gruppi di
   almeno due campioni (con più candidate la riga resta da scegliere e le elenca: quale
@@ -1115,6 +1175,7 @@ output, il documento.
 | `soglie` | un elemento per soglia (vedi sotto) |
 | `controlli_spenti` | i parametri il cui controllo resta spento anche con il valore del file scritto |
 | `avvertenza` | che cosa una soglia proposta protegge e che cosa no |
+| `letture_minime` | presente solo se alcuni campioni finali hanno molte meno letture degli altri: `parametro` (`qc.min_reads_final`), `valore_configurazione`, `valore_raccomandato` (il valore con cui escono), `raccomandato` (vero se toglierli è raccomandato: sono sotto 1.000 letture), `mediana`, `campioni`, `campioni_che_uscirebbero` (`accession`, `nome`, `letture`), `gruppi_con_meno_di_due_campioni` (`colonna`, `valore`, `restano`, `campioni`) |
 
 Ogni elemento di `soglie`: `parametro`; `esito` (`proposta`, `tenuta`, `senza_misura`,
 `esclusa`, `omessa`, `non_proposta`); `direzione` (`massima` o `minima`), `unita` (`frazione`,
@@ -1372,7 +1433,18 @@ la verifica di una comunità nota) il filtro si lascia spento.
 prima dell'esecuzione. Se non c'è un valore da cui partire si può dichiarare 0 (nessun
 campione escluso), guardare nel report della prima esecuzione le letture per campione,
 e poi alzarlo: è una nuova scelta di analisi, da dichiarare come tale, e la ripresa
-rifà i filtri finali.
+rifà i filtri finali. `soglie` aiuta a sceglierlo: se alcuni campioni dell'oggetto finale
+hanno meno di 1.000 letture li elenca (sulla console, nel documento JSON e in un commento
+`[DA SCEGLIERE]` sopra la riga del parametro) e raccomanda 1.000, il valore con cui
+escono. Se nessuno è sotto 1.000 ma alcuni sono sotto un decimo della mediana li nomina
+senza raccomandare di toglierli: hanno letture sufficienti, e il valore con cui uscirebbero
+è riportato per chi lo vuole. Se sotto il limite cadrebbe almeno metà dei campioni il
+dataset è povero nel suo insieme e vale il solo decimo della mediana; se anche così sono
+almeno la metà, non c'è proposta. Per ogni colonna di `out.study_columns` dichiara
+(«ATTENZIONE») i gruppi che, tolti quei campioni, resterebbero con meno di due. La riga
+del parametro non cambia, nemmeno con `--accetta-proposte`: chi accetta scrive il valore
+al posto del suo. Tenere campioni con poche centinaia di letture costa nelle analisi
+ecologiche, che rarefanno alla profondità del campione più povero (sezione 4).
 
 **I due classificatori.** `naive_bayes` è il bayesiano ingenuo di
 `dada2::assignTaxonomy`: lavora su un riferimento FASTA (`tax.ref_fasta`, `tax.ref_md5`,
@@ -1684,8 +1756,9 @@ Una frazione chimerica alta, proposta con il suo margine, resta una frazione chi
 alta: va guardata prima di accettarla.
 
 `qc.min_reads_final` non è fra queste soglie: decide quali campioni restano nell'oggetto
-finale (un campione con meno letture esce), quindi cambia il risultato e si sceglie
-prima dell'esecuzione.
+finale (un campione con meno letture esce), quindi cambia il risultato. `soglie` lo
+propone come scelta, senza attivarlo, quando alcuni campioni hanno molte meno letture
+degli altri (sezione 6.4, «Le letture minime»).
 
 ### 6.7 Modalità appaiata
 

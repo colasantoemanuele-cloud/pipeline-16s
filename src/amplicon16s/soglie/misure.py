@@ -39,6 +39,7 @@ from amplicon16s.io_layer.artifacts import Fase, nome_manifesto_passo
 from amplicon16s.io_layer.reads import RicercaPrimer, scansiona_file
 from amplicon16s.metadata.lettura_inventario import NOME_CROSSWALK
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE
+from amplicon16s.metadata.tabelle import COLONNE_INVENTARIO
 from amplicon16s.soglie.tabella import non_eseguito, soglia
 from amplicon16s.steps.s00_validate import NOME_INVENTARIO, NOME_LETTURE, NOME_LETTURE_REVERSE
 from amplicon16s.steps.s01_profile import NOME_LUNGHEZZE, nome_reverse
@@ -52,7 +53,8 @@ from amplicon16s.steps.s11_controls import NOME_RIEPILOGO as RIEPILOGO_CONTROLLI
 from amplicon16s.steps.s12_decontam import NOME_RIEPILOGO as RIEPILOGO_DECONTAM
 from amplicon16s.steps.s13_filtri import NOME_RIEPILOGO as RIEPILOGO_FILTRI
 
-__all__ = ["ArtefattoNonLeggibile", "Misura", "campioni_controllati", "leggi"]
+__all__ = ["ArtefattoNonLeggibile", "LettureFinali", "Misura", "campioni_controllati",
+           "gruppi_dei_campioni_finali", "leggi", "letture_finali"]
 
 _CONTROLLATE: Final = tuple(c.value for c in CLASSI_CONTROLLATE)
 _INTERMEDI: Final = "intermedi"
@@ -138,6 +140,61 @@ def _classi(radice: Path) -> dict[str, str]:
         return {r["accession"]: r["classe"] for r in _tsv(radice, relativo)}
     except KeyError as guasto:
         raise ArtefattoNonLeggibile(f"{relativo}: manca la colonna {guasto}") from guasto
+
+
+@dataclass(frozen=True)
+class LettureFinali:
+    """Le letture di un campione dell'oggetto finale."""
+
+    accession: str
+    nome: str
+    letture: int
+
+
+#: Le tabelle della fase dei filtri finali: letture per campione ed esclusi.
+_LETTURE_FINALI: Final = "letture_finali.tsv"
+_ESCLUSIONI: Final = "esclusioni.tsv"
+
+
+def letture_finali(radice: Path | str) -> list[LettureFinali] | None:
+    """Le letture finali dei campioni rimasti nell'oggetto finale, nell'ordine
+    della tabella; ``None`` se le tabelle dei filtri finali non ci sono.
+
+    Sono i campioni della tabella delle letture finali che la tabella delle
+    esclusioni non nomina: i soli su cui ha senso chiedersi se qualcuno ha
+    molte meno letture degli altri.
+    """
+    radice = Path(radice)
+    cartella = f"{Fase.FINAL.value}/{_INTERMEDI}"
+    if not all((radice / cartella / n).is_file() for n in (_LETTURE_FINALI, _ESCLUSIONI)):
+        return None
+    try:
+        esclusi = {r["accession"] for r in _tsv(radice, f"{cartella}/{_ESCLUSIONI}")}
+        relativo = f"{Fase.INPUT_VALIDATION.value}/{NOME_CROSSWALK}"
+        nomi = {r["accession"]: r.get("sample_name", "") for r in _tsv(radice, relativo)}
+        return [
+            LettureFinali(r["campione"], nomi.get(r["campione"], ""), int(r["letture"]))
+            for r in _tsv(radice, f"{cartella}/{_LETTURE_FINALI}")
+            if r["campione"] not in esclusi
+        ]
+    except (KeyError, ValueError, ArtefattoNonLeggibile):
+        return None
+
+
+def gruppi_dei_campioni_finali(radice: Path | str) -> dict[str, dict[str, str]]:
+    """Per ogni colonna dello studio portata nell'oggetto finale, il valore di
+    ogni campione: dalla tabella dei campioni consegnata in testo. Vuoto se la
+    tabella non c'e' o non porta colonne oltre a quelle dell'inventario.
+    """
+    relativo = f"{Fase.FINAL.value}/metadati.tsv"
+    if not (Path(radice) / relativo).is_file():
+        return {}
+    try:
+        righe = _tsv(Path(radice), relativo)
+    except ArtefattoNonLeggibile:
+        return {}
+    colonne = [c for c in (righe[0] if righe else {}) if c not in COLONNE_INVENTARIO]
+    return {c: {r.get("accession", ""): r.get(c, "") for r in righe} for c in colonne}
 
 
 def campioni_controllati(radice: Path | str) -> int | None:

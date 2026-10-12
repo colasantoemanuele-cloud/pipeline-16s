@@ -59,6 +59,7 @@ from amplicon16s.io_layer.reads import (
     espandi_iupac,
 )
 from amplicon16s.metadata import ampliconi
+from amplicon16s.metadata.crosswalk import elementi_di_una_cella
 from amplicon16s.metadata.models import ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.soglie.tabella import (
@@ -149,6 +150,10 @@ LETTURE_PER_UNA_FRAZIONE: Final = math.ceil(
 
 RILEVATO, INDICATO = Specie.RILEVATO, Specie.INDICATO
 PROPOSTO, SCELTA = Specie.PROPOSTO, Specie.DA_SCEGLIERE
+
+
+#: Il prefisso con cui le tabelle ISA-Tab dichiarano le variabili dello studio.
+PREFISSO_DEI_FATTORI: Final = "Factor Value["
 
 
 class Rifiuto(Exception):
@@ -1023,7 +1028,8 @@ def _voci_delle_coppie(
                 f"{massimo_forward + massimo_reverse} basi, e ne servono {necessarie} (l'inserto "
                 f"piu' lungo, {da_coprire}, piu' {sovrapposizione} di sovrapposizione). I due "
                 "troncamenti restano da scegliere. Si consiglia di usare le sole letture "
-                "forward: togli dalla cartella delle letture i file reverse e rilancia init.")
+                "forward: prepara una cartella con i soli file forward (GUIDA.md, passo 2) e "
+                "rilancia init con --reads su quella cartella e un altro --output.")
         else:
             note.append(
                 f"Nessuna coppia di troncamenti entro la lunghezza ammessa permette la fusione: "
@@ -1326,6 +1332,15 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
                    "le letture non portano in testa un primer riconosciuto (di solito perche' "
                    "e' gia' stato tolto)")
                 + ". Che ogni riga sia collegata al suo file resta da verificare.")
+        elif giudicate < len(collegate):
+            # Una riga non giudicata puo' essere collegata al file di un altro
+            # amplicone senza che lo si veda: va detto anche quando le altre
+            # righe risultano coerenti.
+            note.append(
+                f"{len(collegate) - giudicate} righe su {len(collegate)} collegate a un file "
+                "non si sono potute confrontare con le letture (la riga non dichiara "
+                "amplicone o primer in modo interpretabile, o il file non porta in testa un "
+                "primer riconosciuto): che siano collegate al loro file resta da verificare.")
         if senza_file:
             elenco = "; ".join(
                 f"{nome} ({nome_file}"
@@ -1446,7 +1461,15 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
               f"estrae da ogni file una chiave unica, la stessa che si ricava dalla "
               f"colonna {chiave.colonna!r}: verificato su tutti i file e le righe ({len(nomi)})",
               ("altre espressioni verificate: " + ", ".join(chiave.alternative[:4]))
-              if chiave.alternative else "", avvertenza)
+              if chiave.alternative else "",
+              # La chiave e' il nome del campione in ogni uscita: se e' il nome
+              # intero del file, lo si dice, con il modo di accorciarla.
+              ("la chiave e' il nome intero del file, e diventa l'identificativo di ogni "
+               "campione nelle uscite: per una chiave piu' corta si puo' scrivere una delle "
+               "altre espressioni verificate, se da' ancora un valore diverso per campione")
+              if chiave.alternative and all(
+                  c == r._senza_estensione(n) for c, n in chiave.file_per_chiave.items())
+              else "", avvertenza)
         if chiave.debole:
             note.append(
                 "Chiave del campione non proposta: la sola colonna che corrisponde ai file "
@@ -1457,16 +1480,61 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
             non_indovinati.append(
                 "meta.accession_column e io.accession_regex: la chiave trovata e' di sole "
                 "cifre o molto corta.")
+    elif migliori and not incoerenze:
+        # Piu' colonne corrispondono ai file: init non sceglie, ma scrive per
+        # ciascuna la coppia di righe pronta (colonna ed espressione), cosi'
+        # chi sceglie toglie un commento e non scrive un'espressione regolare.
+        # Si consiglia la colonna che riporta per intero il nome dei file
+        # della cartella, se e' una sola: e' il collegamento dichiarato fra
+        # riga e file, non una parte del nome in comune.
+        dei_file = set(nomi) | {p.name for p in reverse_di.values()}
+        con_il_nome = [
+            c for c in migliori
+            if all(any(e in dei_file for e in elementi_di_una_cella(x.get(c.colonna, "")))
+                   for i, x in enumerate(tutte_le_righe) if c.righe is None or i in c.righe)]
+        consigliata = con_il_nome[0] if len(con_il_nome) == 1 else None
+
+        def etichetta(numero: int, candidata: r.Chiave) -> str:
+            return f"coppia {numero}" + (
+                " (consigliata: la colonna riporta il nome dei file)"
+                if candidata is consigliata else "") + (
+                " (chiave di sole cifre o molto corta: la corrispondenza puo' essere una "
+                "coincidenza)" if candidata.debole else "")
+
+        come_scegliere = (
+            "togli il commento a una sola delle righe qui sotto, e alla riga con lo stesso "
+            "numero di coppia sotto {altra}: le due righe di una coppia vanno insieme")
+        metti("meta.accession_column", SCELTA, SENZA_VALORE,
+              f"{len(migliori)} colonne corrispondono uno a uno ai file, e init non sceglie "
+              "fra loro: " + come_scegliere.format(altra="io.accession_regex (gruppo io)"))
+        metti("io.accession_regex", SCELTA, SENZA_VALORE,
+              "si sceglie insieme a meta.accession_column (gruppo meta): "
+              + come_scegliere.format(altra="meta.accession_column"))
+        voci["meta.accession_column"] = replace(voci["meta.accession_column"], pronte=tuple(
+            (etichetta(n, c) + ": i valori sono come "
+             + repr(tutte_le_righe[c.righe[0] if c.righe else 0].get(c.colonna, "")), c.colonna)
+            for n, c in enumerate(migliori, 1)))
+        voci["io.accession_regex"] = replace(voci["io.accession_regex"], pronte=tuple(
+            (etichetta(n, c) + f", con la colonna {c.colonna!r}: abbinamento, per esempio: "
+             + "; ".join(f"{nome} -> {k}" for k, nome in list(c.file_per_chiave.items())[:2]),
+             c.espressione)
+            for n, c in enumerate(migliori, 1)))
+        note.append(
+            f"Chiave del campione da scegliere: {len(migliori)} colonne corrispondono uno a "
+            "uno ai file ("
+            + "; ".join(f"coppia {n}: {c.colonna!r}" for n, c in enumerate(migliori, 1))
+            + "). Nel file le coppie sono righe pronte sotto meta.accession_column e "
+            "io.accession_regex: si toglie il commento alle due righe della coppia scelta"
+            + (f"; consigliata la coppia {migliori.index(consigliata) + 1}, la colonna che "
+               "riporta il nome dei file" if consigliata is not None else
+               "; nessuna e' consigliata: guarda l'abbinamento scritto accanto a ciascuna")
+            + ".")
     else:
         if incoerenze:
             origine = (
                 f"non proposta: {len(incoerenze)} righe della tabella sono collegate a un "
                 "file le cui letture portano il primer di un altro amplicone (elencate nel "
                 "riepilogo): si corregge una copia della tabella, poi si sceglie la chiave")
-        elif migliori:
-            elenco = "; ".join(f"{c.colonna!r} con {c.espressione!r}" for c in migliori)
-            origine = (f"{len(migliori)} colonne corrispondono uno a uno ai file, e init non "
-                       f"sceglie fra loro: {elenco}")
         else:
             origine = (
                 "nessuna colonna della tabella corrisponde uno a uno ai file: i valori "
@@ -1572,8 +1640,10 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
                     if della_riga is not None:
                         negativi_proposti.add(della_riga)
                         nome_del_negativo[della_riga] = riga.get(colonna_campione, "")
-            # Un controllo negativo con piu' letture della mediana dei biologici
-            # di solito non e' un bianco: la colonna puo' essere sbagliata.
+            # Un controllo negativo con piu' letture della mediana degli altri
+            # campioni si nomina, senza togliere la proposta: con campioni a
+            # bassa biomassa i bianchi hanno spesso tante letture quante i
+            # campioni, e la colonna e' comunque quella giusta.
             if negativi_proposti and args.head_reads is None:
                 letture_di = {
                     _chiave_del_file(chiave, n): i.statistiche.letture_esaminate
@@ -1586,10 +1656,9 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
                         c for c in negativi_proposti
                         if c is not None and letture_di.get(c, 0) > mediana_biologici)
         # La proposta e' sicura solo se nulla la contraddice: le altre candidate
-        # danno ai campioni le stesse classi, ogni valore e' attribuito, e
-        # nessun campione che ne esce controllo negativo ha piu' letture dei
-        # biologici. Altrimenti la colonna resta da scegliere, con cio' che
-        # serve a scegliere.
+        # danno ai campioni le stesse classi e ogni valore e' attribuito.
+        # Altrimenti la colonna resta da scegliere, con cio' che serve a
+        # scegliere.
         # Una colonna con un valore diverso per ogni riga e' un nome, non una
         # classificazione: una parola dei controlli in un nome non contraddice
         # la colonna del tipo.
@@ -1605,12 +1674,18 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
             *(["alcuni valori hanno la sola parola «control» e non si attribuiscono a una "
                "classe (" + ", ".join(map(repr, tipo.non_attribuiti)) + ")"]
               if tipo.non_attribuiti else []),
-            *([("1 campione che ne risulterebbe controllo negativo ha " if len(ricchi) == 1 else
-                f"{len(ricchi)} campioni che ne risulterebbero controlli negativi hanno ")
-               + f"piu' letture della mediana degli altri campioni ({mediana_biologici:.0f}): "
-               + ", ".join(f"{nome_del_negativo.get(c) or c} ({letture_di[c]})" for c in ricchi[:8])
-               + "; un bianco con tante letture di solito non e' un bianco"] if ricchi else []),
         ]
+        dei_ricchi = (
+            ("1 campione che ne risulta controllo negativo ha " if len(ricchi) == 1 else
+             f"{len(ricchi)} campioni che ne risultano controlli negativi hanno ")
+            + f"piu' letture della mediana degli altri campioni ({mediana_biologici:.0f}): "
+            + ", ".join(f"{nome_del_negativo.get(c) or c} ({letture_di[c]})" for c in ricchi[:8])
+            + (f" e altri {len(ricchi) - 8}" if len(ricchi) > 8 else "")
+            + ". Con campioni a bassa biomassa e' normale; altrimenti controlla che siano "
+            "davvero bianchi") if ricchi else ""
+        if ricchi:
+            note.append(f"Controlli negativi con molte letture (colonna {tipo.colonna!r}): "
+                        + dei_ricchi + ".")
         per_valore = (
             f"valori di {tipo.colonna!r} e campioni che li portano: "
             + _campioni_per_valore(righe_classe, tipo.colonna, colonna_dei_nomi_di_classe),
@@ -1635,7 +1710,8 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
         if not dubbi:
             metti("ctrl.column", PROPOSTO, tipo.colonna, f"colonna proposta perche' {come}",
                   "la proposta guarda le parole dei valori e puo' sbagliare: controlla quali "
-                  "campioni porta ogni valore, qui e nelle altre candidate", *per_valore)
+                  "campioni porta ogni valore, qui e nelle altre candidate", dei_ricchi,
+                  *per_valore)
             for nome, valori, origine, altro in etichette:
                 metti(f"ctrl.{nome}", PROPOSTO, valori, origine, altro)
         else:
@@ -1651,7 +1727,7 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
                   "motivo conservato, troncamento e note di questo file sono calcolati "
                   f"escludendo i campioni che {tipo.colonna!r} darebbe per controlli negativi: "
                   "con un'altra colonna conviene rilanciare init dopo aver corretto la tabella, "
-                  "o verificare quelle righe a mano", *per_valore)
+                  "o verificare quelle righe a mano", dei_ricchi, *per_valore)
             for nome, valori, origine, altro in etichette:
                 metti(f"ctrl.{nome}", SCELTA, SENZA_VALORE,
                       f"si sceglie insieme a ctrl.column; con {tipo.colonna!r} sarebbe "
@@ -1685,10 +1761,30 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
           "colonne della tabella: " + ", ".join(map(repr, colonne_classe[:20])))
     metti("meta.non_surface_positions", SCELTA, [],
           "partenza: nessuna; ha senso solo con meta.module_column")
-    metti("out.study_columns", SCELTA, [],
-          "partenza: nessuna colonna oltre a quelle dell'inventario; elenca qui le "
-          "variabili dello studio che le analisi a valle useranno",
-          "colonne disponibili: " + ", ".join(map(repr, colonne_classe[:20])))
+    # Nelle tabelle ISA-Tab le variabili dello studio sono dichiarate come
+    # tali: le colonne «Factor Value[...]». Portarle nell'oggetto finale e'
+    # cio' che permette alle analisi a valle di confrontare i gruppi; una
+    # colonna gia' usata per il tipo del campione non si ripete.
+    gia_usate = {voci["ctrl.column"].valore} if "ctrl.column" in voci else set()
+    fattori = [c for c in colonne_classe
+               if c.startswith(PREFISSO_DEI_FATTORI) and colonne_classe.count(c) == 1
+               and c not in gia_usate]
+    if fattori:
+        metti("out.study_columns", PROPOSTO, fattori,
+              f"le colonne «{PREFISSO_DEI_FATTORI}...]» della tabella: in ISA-Tab sono le "
+              "variabili dello studio, quelle che le analisi a valle confrontano",
+              "altre colonne disponibili: " + ", ".join(
+                  repr(c) for c in colonne_classe[:20] if c not in fattori))
+    else:
+        metti("out.study_columns", SCELTA, [],
+              "partenza: nessuna colonna oltre a quelle dell'inventario; elenca qui le "
+              "variabili dello studio che le analisi a valle useranno",
+              "colonne disponibili: " + ", ".join(map(repr, colonne_classe[:20])))
+        note.append(
+            "out.study_columns e' vuoto: nessuna variabile dello studio entra nell'oggetto "
+            "finale, e le analisi ecologiche non avranno gruppi da confrontare. Se la tabella "
+            "ha colonne con le variabili dello studio, scrivile in quella riga (il commento "
+            "elenca le colonne disponibili).")
 
     # ---- File del lotto: colonne ---------------------------------------------------
     if lotto is None:
@@ -1807,6 +1903,11 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
             specie_primer = PROPOSTO
             limite = ("verificato sulle sole prime letture (--head-reads): senza l'opzione "
                       "init lo verifica su tutte")
+            note.append(
+                f"Primer {trovato.nome} e taglio sono verificati sulle sole prime "
+                f"{args.head_reads} letture di ogni file (--head-reads): restano proposte, e "
+                "non fatti. Per verificarli su tutte le letture si rilancia init senza "
+                "l'opzione.")
         metti("qc.primer_sequence", specie_primer, trovato.sequenza,
               f"primer {trovato.nome} ({trovato.fonte}), {dove}", limite)
         if osservato.in_ogni_file:
@@ -2340,12 +2441,17 @@ def _chiave_della_riga(chiave: r.Chiave, riga: dict[str, str]) -> str | None:
 
 
 def _letture_appaiate(dettaglio: str) -> str:
-    """Il messaggio con cui ``init`` rifiuta un dataset di letture appaiate."""
+    """Il messaggio con cui ``init`` rifiuta una cartella in cui alcuni file
+    contengono seconde letture, ma i file non si abbinano a coppie per nome.
+    """
     return (
-        f"le letture risultano appaiate: {dettaglio}. La pipeline tratta dati single-end e "
-        "init non propone una configurazione. Usa le sole letture forward: un file per "
-        "campione con la prima lettura di ogni coppia, in una cartella a parte, e indica "
-        "quella con --reads (RIFERIMENTO.md, 1.2)"
+        f"le letture risultano appaiate: {dettaglio}. I file non si abbinano pero' a coppie "
+        "per nome: le due letture di un campione si riconoscono solo se i due nomi "
+        "differiscono per il marcatore in fondo al nome, prima dell'estensione (_R1 e _R2, _1 "
+        "e _2, anche seguito da _001), e non se dopo il marcatore il nome continua (per "
+        "esempio _R1_raw). Usa le sole letture forward: una cartella a parte con un file per "
+        "campione, quello della prima lettura di ogni coppia, indicata con --reads (GUIDA.md, "
+        "passo 2)"
     )
 
 

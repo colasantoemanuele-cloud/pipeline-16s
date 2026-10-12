@@ -60,6 +60,7 @@ import itertools
 import json
 import logging
 import os
+import re
 import shlex
 import sys
 from collections.abc import Callable, Sequence
@@ -167,16 +168,92 @@ def _uscita_non_utilizzabile(radice: Path) -> str | None:
     return None
 
 
-def _stampa_rifiuto(rifiuto: ErroreGate) -> None:
+def _stampa_rifiuto(rifiuto: ErroreGate, configurazione: Path | None = None) -> None:
     """Il rifiuto di G15 sull'uscita: ogni violazione con il suo codice del
     catalogo, poi l'azione di ogni codice, una volta sola.
 
     Vale per i due modi in cui G15 respinge: una configurazione che lo schema
     non accetta, e una che lo schema accetta ma i controlli di coerenza no.
+    Con il percorso della configurazione, per i parametri obbligatori che
+    mancano dice anche a quale riga del file si scrivono.
     """
     _stampa(str(rifiuto))
+    for riga in dove_scriverli(rifiuto.violazioni, configurazione):
+        _stampa(riga)
     for codice in dict.fromkeys(v.codice for v in rifiuto.violazioni):
         _stampa(f"  cosa fare [{codice}]: {voce(codice).azione}")
+
+
+_GRUPPO_NEL_FILE: Final = re.compile(r"^([A-Za-z_]+):\s*(?:#.*)?$")
+_PARAMETRO_NEL_FILE: Final = re.compile(r"^  (# )?([A-Za-z_0-9]+):(.*)$")
+
+
+def righe_nel_file(testo: str) -> tuple[dict[str, list[tuple[int, bool]]], dict[str, int]]:
+    """Dove sono scritti i parametri in un file di configurazione.
+
+    Per ogni parametro dello schema le righe che lo portano, attive o in
+    commento (numero della riga, contato da 1, e se la riga ha gia' un
+    valore); per ogni gruppo, la riga della sua intestazione. Una riga di
+    spiegazione che comincia con una parola e i due punti non e' un parametro:
+    conta solo cio' che lo schema conosce.
+    """
+    note = interfaccia.chiavi_dello_schema()
+    parametri: dict[str, list[tuple[int, bool]]] = {}
+    gruppi: dict[str, int] = {}
+    gruppo = None
+    for numero, riga in enumerate(testo.splitlines(), 1):
+        if (trovato := _GRUPPO_NEL_FILE.match(riga)):
+            gruppo = trovato.group(1)
+            gruppi.setdefault(gruppo, numero)
+        elif gruppo is not None and (trovato := _PARAMETRO_NEL_FILE.match(riga)):
+            chiave = f"{gruppo}.{trovato.group(2)}"
+            if chiave in note:
+                valore = trovato.group(3).split(" #")[0].strip()
+                parametri.setdefault(chiave, []).append((numero, bool(valore)))
+    return parametri, gruppi
+
+
+def dove_scriverli(violazioni: Sequence[Violazione], configurazione: Path | None) -> list[str]:
+    """Per ogni parametro obbligatorio non dichiarato, la riga del file di
+    configurazione in cui scriverlo.
+
+    Razionale sistemistico: il file scritto da ``init`` ha centinaia di righe,
+    e ogni parametro da scegliere vi e' gia' come riga in commento sotto il suo
+    gruppo. Dire il numero della riga evita di cercarla; dove ``init`` ha
+    scritto piu' righe pronte per lo stesso parametro le nomina tutte, perche'
+    se ne attiva una sola. Senza il file, o senza parametri mancanti, nessuna
+    riga.
+    """
+    mancanti: list[str] = []
+    for v in violazioni:
+        if v.codice == "E-G15-10":
+            mancanti += interfaccia.parametri_nel_testo(v.dettaglio.split(". Descrivono")[0])
+        elif v.dettaglio.endswith(": parametro obbligatorio mancante"):
+            mancanti += interfaccia.parametri_nel_testo(v.dettaglio)
+    mancanti = list(dict.fromkeys(mancanti))
+    if not mancanti or configurazione is None:
+        return []
+    try:
+        parametri, gruppi = righe_nel_file(Path(configurazione).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        return []
+    righe = [f"  dove scriverli, in {configurazione} (parametro: riga del file):"]
+    for nome in mancanti:
+        trovate = parametri.get(nome, [])
+        gruppo = nome.split(".")[0]
+        if len(trovate) == 1:
+            dove = f"riga {trovate[0][0]}"
+        elif trovate:
+            dove = "righe " + ", ".join(str(n) for n, _ in trovate) + (
+                " (righe pronte: togli il commento a una sola)"
+                if all(con_valore for _, con_valore in trovate) else "")
+        elif gruppo in gruppi:
+            dove = (f"nessuna riga nel file: aggiungila sotto «{gruppo}:» "
+                    f"(riga {gruppi[gruppo]}), con due spazi davanti")
+        else:
+            dove = f"nessuna riga e nessun gruppo «{gruppo}:» nel file: aggiungili in fondo"
+        righe.append(f"    {nome}: {dove}")
+    return righe
 
 
 def _passi() -> dict[Passo, PipelineStep]:
@@ -492,7 +569,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
         except ErroreConfigurazione as e:
             _stampa(f"configurazione non valida ({e.origine})" if e.origine else
                     "configurazione non valida")
-            _stampa_rifiuto(rifiuto_di_g15(e))
+            _stampa_rifiuto(rifiuto_di_g15(e), args.config)
             return USCITA_CONFIGURAZIONE
         except OSError as e:
             _stampa(f"configurazione non leggibile: {e}")
@@ -642,7 +719,7 @@ def main(argv: Sequence[str] | None = None, programma: str = "amplicon16s") -> i
         _stampa(f"configurazione non valida ({e.origine})" if e.origine else
                 "configurazione non valida")
         rifiuto = rifiuto_di_g15(e)
-        _stampa_rifiuto(rifiuto)
+        _stampa_rifiuto(rifiuto, args.config)
         rifiutata(rifiuto.violazioni)
         return USCITA_CONFIGURAZIONE
     except OSError as e:
@@ -671,7 +748,7 @@ def main(argv: Sequence[str] | None = None, programma: str = "amplicon16s") -> i
     except ErroreGate as e:
         # Solo G15 arriva fin qui: gli altri gate sono dentro S0, e un loro
         # fallimento e' un arresto con punto di ripresa.
-        _stampa_rifiuto(e)
+        _stampa_rifiuto(e, args.config)
         rifiutata(e.violazioni)
         return USCITA_CONFIGURAZIONE
     except Exception as e:  # noqa: BLE001 - l'ultimo argine prima dell'uscita

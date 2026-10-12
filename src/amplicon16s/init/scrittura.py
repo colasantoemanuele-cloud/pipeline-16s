@@ -88,6 +88,10 @@ class Voce:
     note: tuple[str, ...] = ()
     #: Vero per una proposta accettata con l'opzione: la riga e' attiva.
     accettata: bool = False
+    #: Le alternative pronte di una scelta senza valore: per ciascuna una
+    #: spiegazione e il valore, scritto in una riga in commento. Chi sceglie
+    #: toglie il commento a una riga, senza scrivere il valore.
+    pronte: tuple[tuple[str, Any], ...] = ()
 
     @property
     def attiva(self) -> bool:
@@ -330,6 +334,11 @@ def testo_yaml(
             righe += _commento(f"[{voce.specie.value}] {voce.origine}")
             for nota in voce.note:
                 righe += _commento(nota)
+            if voce.pronte and voce.valore is SENZA_VALORE:
+                for spiegazione, valore in voce.pronte:
+                    righe += _commento(spiegazione)
+                    righe.append(f"  # {nome}: {valore_yaml(valore)}")
+                continue
             scritto = "" if voce.valore is SENZA_VALORE else f" {valore_yaml(voce.valore)}"
             righe.append(f"  {'' if voce.attiva else '# '}{nome}:{scritto}")
         righe.append("")
