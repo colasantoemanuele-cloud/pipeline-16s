@@ -471,3 +471,77 @@ def test_status_distingue_le_fasi_che_l_esecuzione_in_corso_deve_rifare(tmp_path
     testo = capsys.readouterr().out
     assert re.search(r"S2\s+da_rifare", testo) and re.search(r"S3\s+conclusa", testo)
     assert "artefatti di un'esecuzione precedente" in testo
+
+
+_TIENI_IL_BLOCCO = """
+import fcntl, os, sys
+descrittore = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)
+fcntl.flock(descrittore, fcntl.LOCK_EX if sys.argv[2] == "esclusivo" else fcntl.LOCK_SH)
+print("preso", flush=True)
+sys.stdin.read()
+"""
+
+
+@pytest.mark.parametrize("forma", ["esclusivo", "condiviso"])
+def test_una_cartella_tenuta_da_un_altro_processo_ferma_l_esecuzione_senza_scrivere(
+        tmp_path, capsys, forma):
+    """
+    **Obiettivo**: Verificare che, mentre un altro processo tiene il blocco
+    della cartella di uscita (in forma esclusiva o condivisa), ``run``,
+    ``resume`` e ``validate`` si fermino con ``E-RUN-01`` e il codice di uscita
+    6 senza creare, modificare ne' troncare alcun file della cartella; che
+    ``status`` risponda comunque; e che, sciolto il blocco, ``run`` superi il
+    controllo e arrivi a un arresto di S0.
+
+    **Razionale scientifico e sistemistico**: Due esecuzioni sulla stessa
+    cartella, magari con configurazioni diverse, mescolerebbero gli artefatti.
+    Chi arriva secondo non deve lasciare tracce nella cartella di un altro: ne'
+    un punto di ripresa, che direbbe ferma un'esecuzione viva, ne' righe nel
+    suo log.
+    """
+    import subprocess
+    import sys
+
+    from amplicon16s.io_layer.artifacts import NOME_BLOCCO
+
+    scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
+    # Una colonna assente: a blocco sciolto S0 si ferma con un arresto voluto.
+    config = _scrivi_config(scenario, tmp_path, meta__sample_id_column="Colonna Assente")
+    radice = Path(scenario.config.io.out_root)
+    (radice / "99_logs").mkdir(parents=True)
+    file_blocco = radice / "99_logs" / NOME_BLOCCO
+    altro = subprocess.Popen(
+        [sys.executable, "-c", _TIENI_IL_BLOCCO, str(file_blocco), forma],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert altro.stdout.readline().strip() == "preso"
+        prima = _istantanea(radice)
+        assert list(prima) == [f"99_logs/{NOME_BLOCCO}"]
+        for comando in ("run", "resume", "validate"):
+            assert main([comando, "--config", str(config)]) == 6
+            testo = capsys.readouterr().out
+            assert "E-RUN-01" in testo and str(radice) in testo
+            assert ("resume o validate) e' in corso" in testo) is (forma == "esclusivo")
+            assert ("un altro comando sta leggendo" in testo) is (forma == "condiviso")
+            assert _istantanea(radice) == prima
+        assert main(["validate", "--config", str(config), "--json"]) == 6
+        documento = _documento(capsys)
+        assert documento["valida"] is False and documento["codice_uscita"] == 6
+        assert [p["codice"] for p in documento["problemi"]] == ["E-RUN-01"]
+        assert documento["problemi"][0]["azione"] == CATALOGO["E-RUN-01"].azione
+        assert _istantanea(radice) == prima
+        # I comandi in sola lettura non chiedono il blocco.
+        main(["status", "--out", str(radice), "--json"])
+        assert _documento(capsys)["comando"] == "status"
+        assert _istantanea(radice) == prima
+    finally:
+        altro.stdin.close()
+        altro.wait(timeout=30)
+    # Il blocco si scioglie con il processo: run supera il controllo (la
+    # cartella con il solo file del blocco non e' un'esecuzione) e si ferma in S0.
+    assert main(["run", "--config", str(config)]) == 4
+    assert "E-S0-02" in capsys.readouterr().out
+    assert (radice / "99_logs" / "punto_di_ripresa.json").is_file()
+    chiudi()
+    assert main(["resume", "--config", str(config)]) == 4
+    capsys.readouterr()

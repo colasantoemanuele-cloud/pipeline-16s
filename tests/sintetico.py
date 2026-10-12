@@ -103,6 +103,41 @@ def _scrivi_fastq(percorso: Path, record: list[tuple[str, str, str]]) -> None:
             archivio.write(testo.encode())
 
 
+def _con_sfasamento(primer: str, sfasamento: int, senza_primer: float,
+                    caso: random.Random) -> str:
+    """Il primer preceduto da zero a ``sfasamento`` basi casuali; con
+    probabilita' ``senza_primer``, basi casuali al posto del primer.
+    """
+    if not sfasamento and not senza_primer:
+        return primer
+    distanziatore = "".join(caso.choice("ACGT") for _ in range(caso.randint(0, sfasamento)))
+    if caso.random() < senza_primer:
+        primer = "".join(caso.choice("ACGT") for _ in primer)
+    return distanziatore + primer
+
+
+def anteponi_primer(
+    origine: Path, destinazione: Path, primer: str, sfasamento: int, seme: int
+) -> None:
+    """Scrive in ``destinazione`` le letture del FASTQ ``origine`` con il primer
+    in testa, preceduto da zero a ``sfasamento`` basi casuali: come le leggerebbe
+    un protocollo con i distanziatori. Le basi aggiunte hanno qualita' alta; il
+    resto della lettura e' identico, cosi' che dopo il taglio del primer cercato
+    si ritrovino le letture di partenza.
+    """
+    iupac = {"N": "ACGT", "W": "AT", "R": "AG", "Y": "CT", "M": "AC", "K": "GT", "S": "CG",
+             "H": "ACT", "V": "ACG", "B": "CGT", "D": "AGT"}
+    caso = random.Random(seme)
+    with gzip.open(origine, "rt") as file:
+        righe = file.read().splitlines()
+    record = []
+    for i in range(0, len(righe), 4):
+        testa = "".join(caso.choice("ACGT") for _ in range(caso.randint(0, sfasamento)))
+        testa += "".join(caso.choice(iupac.get(b, b)) for b in primer)
+        record.append((righe[i][1:], testa + righe[i + 1], "I" * len(testa) + righe[i + 3]))
+    _scrivi_fastq(destinazione, record)
+
+
 def genera(
     cartella: Path,
     *,
@@ -115,6 +150,8 @@ def genera(
     con_tipo: bool = True,
     con_lotto: bool = False,
     qualita_raggruppate: bool = False,
+    sfasamento: int = 0,
+    senza_primer: float = 0.0,
     seme: int = 20,
 ) -> DatasetSintetico:
     """Genera il dataset nella cartella indicata e ne restituisce la descrizione.
@@ -122,9 +159,15 @@ def genera(
     ``negativi_vuoti`` controlli negativi hanno il file senza alcuna lettura.
     Con ``con_tipo`` falso la tabella non ha la colonna del tipo di campione, e
     non si generano controlli. Con ``primer`` ogni lettura comincia con quel
-    primer (le basi degenerate si risolvono a caso).
+    primer (le basi degenerate si risolvono a caso). Con ``sfasamento`` il
+    primer e' preceduto da un numero di basi casuali fra zero e quel valore,
+    come nei protocolli con i distanziatori; ``senza_primer`` e' la quota di
+    letture in cui al posto del primer ci sono basi casuali.
     """
     caso = random.Random(seme)
+    # Un generatore a parte per lo sfasamento: senza, le letture sono le stesse
+    # byte per byte.
+    caso_del_primer = random.Random(seme + 7919)
     riferimento = [sequenza for _, sequenza in sequenze_di_riferimento()]
     cartella.mkdir(parents=True, exist_ok=True)
     cartella_letture = cartella / "letture"
@@ -158,6 +201,7 @@ def genera(
             quante = letture if tipo == ETICHETTA_BIOLOGICO else letture_negativi
             for numero in range(quante):
                 testa = "".join(caso.choice(iupac.get(b, b)) for b in (primer or ""))
+                testa = _con_sfasamento(testa, sfasamento, senza_primer, caso_del_primer)
                 sequenza, qualita = _lettura(
                     testa + caso.choices(scelte, pesi)[0] + CODA, caso, qualita_raggruppate)
                 record.append((f"{chiave}.{numero + 1}", sequenza, qualita))
@@ -310,6 +354,8 @@ def genera_coppie(
     primer_reverse: str | None = None,
     marcatori: tuple[str, str] = ("_R1", "_R2"),
     intestazioni: str = "illumina",
+    sfasamento: int = 0,
+    senza_primer: float = 0.0,
     seme: int = 20,
 ) -> DatasetAppaiato:
     """Genera un dataset appaiato: per ogni campione due file, con le due
@@ -323,9 +369,13 @@ def genera_coppie(
     di una coppia si nominano: ``illumina`` (stesso identificativo, ``1:N:0:1``
     e ``2:N:0:1`` nel commento), ``barra`` (``/1`` e ``/2``), ``uguali`` (lo
     stesso nome) o ``numerate`` (numeri progressivi di un archivio: la reverse
-    della coppia k e' la lettura N + k).
+    della coppia k e' la lettura N + k). Con ``sfasamento`` ciascuno dei due
+    primer e' preceduto, nella sua lettura, da un numero di basi casuali fra
+    zero e quel valore; ``senza_primer`` e' la quota di letture in cui al posto
+    del primer ci sono basi casuali.
     """
     caso = random.Random(seme)
+    caso_del_primer = random.Random(seme + 7919)
     riferimento = [sequenza for _, sequenza in sequenze_di_riferimento()]
     cartella.mkdir(parents=True, exist_ok=True)
     cartella_letture = cartella / "letture"
@@ -350,8 +400,11 @@ def genera_coppie(
         quante = coppie if tipo == ETICHETTA_BIOLOGICO else coppie_negativi
         forward, reverse = [], []
         for numero in range(1, quante + 1):
-            frammento = (risolvi(primer) + caso.choices(scelte, pesi)[0] + CODA
-                         + complemento_inverso(risolvi(primer_reverse)))
+            in_testa, in_coda = risolvi(primer), risolvi(primer_reverse)
+            in_testa = _con_sfasamento(in_testa, sfasamento, senza_primer, caso_del_primer)
+            in_coda = _con_sfasamento(in_coda, sfasamento, senza_primer, caso_del_primer)
+            frammento = (in_testa + caso.choices(scelte, pesi)[0] + CODA
+                         + complemento_inverso(in_coda))
             prima, qualita_1 = _lettura(frammento[:lunghezza], caso)
             seconda, qualita_2 = _lettura(complemento_inverso(frammento)[:lunghezza], caso)
             if intestazioni == "illumina":

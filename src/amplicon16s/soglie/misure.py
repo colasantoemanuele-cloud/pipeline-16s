@@ -347,6 +347,21 @@ def _filtro(radice: Path) -> tuple[Misura, Misura]:
                          tolleranza=Fraction(1, 20_000))
 
 
+def _senza_primer(radice: Path) -> Misura:
+    relativo = f"{Fase.FILTERED.value}/{nome_manifesto_passo('S2')}"
+    metriche = _campo(_json(radice, relativo), relativo, "metriche")
+    statistica = ("quota di letture senza il primer cercato, sull'insieme dei campioni "
+                  "biologici e dei controlli positivi")
+    taglio = metriche.get("taglio_primer") or {}
+    if not taglio.get("letture_controllate"):
+        return Misura(None, statistica, relativo,
+                      assente="nessun campione biologico o controllo positivo con letture")
+    # Dai due conteggi, non dalla quota arrotondata: la misura e' esatta.
+    return Misura(
+        Fraction(int(taglio["senza_primer_controllate"]), int(taglio["letture_controllate"])),
+        statistica, relativo)
+
+
 def _varianti(radice: Path) -> Misura:
     relativo = f"{Fase.SEQTAB.value}/{RIEPILOGO_TABELLA}"
     return Misura(Fraction(int(_campo(_json(radice, relativo), relativo, "varianti"))),
@@ -460,8 +475,12 @@ def _leggi(radice: Path, valori: Mapping[str, Any]) -> dict[str, Misura]:
             "pair.min_merged_frac_warn": fusione,
             "pair.min_merged_frac_stop": fusione,
         }
+    del_taglio: dict[str, Misura] = {}
+    if valori.get("filter.primer_removal") == "search":
+        del_taglio = {"qc.max_frac_untrimmed": _senza_primer(radice)}
     return {
         **delle_coppie,
+        **del_taglio,
         "qc.max_primer_hit_frac": _primer(radice, valori),
         "qc.min_motif_frac": _motivo(radice, valori),
         "qc.max_frac_short_reads": _letture_corte(radice, valori),

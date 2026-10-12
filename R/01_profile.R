@@ -13,6 +13,12 @@
 #   riepilogo.json     lunghezza minima, massima e moda sull'intero insieme, e
 #                      per campione; profilo di qualita' aggregato
 #
+# Con il primer cercato lungo la lettura arriva anche taglio_primer (primer,
+# discordanze_massime, sfasamento_massimo, scarta): lunghezze e qualita' sono
+# allora quelle delle letture dopo il taglio (R/lib/primer.R), senza le letture
+# che il taglio scarta, perche' e' su quelle che il troncamento si misura. Il
+# conteggio delle letture resta quello delle letture grezze.
+#
 # Parametri: campioni (accession -> percorso del file), processi (quanti file
 # leggere in parallelo), blocco (letture per blocco di lettura); vuoti
 # (accession dei file senza letture, che non si leggono: zero letture e nessun
@@ -28,14 +34,14 @@
 # leggono con qualunque programma, e un dataset di molti campioni resta in
 # pochi file invece di alcuni per campione.
 
-for (f in c("io_json.R", "errors.R", "letture.R")) {
+for (f in c("io_json.R", "errors.R", "letture.R", "primer.R")) {
   source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
 }
 
 # Punteggi Phred possibili: da 0 a 93 nella codifica Sanger.
 PUNTEGGI <- 94L
 
-profila <- function(percorso, blocco) {
+profila <- function(percorso, blocco, taglio = NULL) {
   lettore <- ShortRead::FastqStreamer(percorso, n = blocco)
   on.exit(close(lettore))
 
@@ -45,6 +51,13 @@ profila <- function(percorso, blocco) {
 
   while (length(parte <- ShortRead::yield(lettore)) > 0L) {
     letture <- letture + length(parte)
+    if (!is.null(taglio)) {
+      # Il profilo e' quello delle letture che il filtro vedra': tagliate dopo
+      # il primer, e senza quelle che il taglio scarta.
+      dopo <- dopo_il_taglio(parte, inizio_dopo_il_primer(parte, taglio), isTRUE(taglio$scarta))
+      parte <- ShortRead::narrow(parte[dopo$resta], start = dopo$inizio[dopo$resta])
+      if (length(parte) == 0L) next
+    }
     larghezze <- Biostrings::width(ShortRead::sread(parte))
     conteggio <- tabulate(larghezze, nbins = max(larghezze))
     if (length(conteggio) > length(lunghezze)) {
@@ -111,7 +124,7 @@ esegui_fase(function(parametri, cartella) {
   }
 
   profili <- parallel::mclapply(
-    campioni, profila, blocco = blocco,
+    campioni, profila, blocco = blocco, taglio = facoltativo(parametri, "taglio_primer"),
     mc.cores = processi, mc.preschedule = FALSE
   )
   # Ogni processo tiene in memoria un blocco di letture con le sue qualita':
@@ -174,6 +187,14 @@ esegui_fase(function(parametri, cartella) {
     )
   }
   presenti <- which(totale_l > 0)
+  if (!length(presenti) && !is.null(facoltativo(parametri, "taglio_primer"))) {
+    errore_catalogo("E-S1-12", sprintf(
+      "nessuna delle %.0f letture%s porta il primer %s entro le prime %d basi con al piu' %d discordanze",
+      sum(conteggi), if (nzchar(suffisso)) " reverse" else "", parametri$taglio_primer$primer,
+      as.integer(parametri$taglio_primer$sfasamento_massimo) +
+        nchar(parametri$taglio_primer$primer),
+      as.integer(parametri$taglio_primer$discordanze_massime)))
+  }
   mediane <- vapply(seq_len(nrow(totale_q)), function(i) {
     quantile_istogramma(totale_q[i, ], 0.5)
   }, integer(1))

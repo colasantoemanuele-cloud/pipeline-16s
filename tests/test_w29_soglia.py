@@ -1462,7 +1462,17 @@ def test_le_configurazioni_pubblicate_puntano_al_riferimento_comune():
                     (DATI / "riferimento" / "impronte.md5").read_text(encoding="utf-8").splitlines())
     assert impronte == {nome: voce.md5 for nome, voce in scarica_riferimento.FILE.items()}
     fonti = {r["percorso"]: r["controllo"] for r in _tsv(DATI / "riferimento" / "FONTI.tsv")}
-    assert fonti == {nome: f"md5:{md5}" for nome, md5 in impronte.items()}
+    # I classificatori addestrati per IdTaxa hanno uno script proprio, e non
+    # stanno in impronte.md5: si scaricano solo se servono.
+    sys.path.insert(0, str(DATI / "riferimento"))
+    try:
+        import scarica_addestrato
+        addestrati = scarica_addestrato.FILE
+    finally:
+        sys.path.pop(0)
+    assert fonti == {
+        **{nome: f"md5:{md5}" for nome, md5 in impronte.items()},
+        **{nome: f"md5:{atteso.md5}" for nome, atteso in addestrati.values()}}
     assert not [r for r in _tsv(DATI / "osd734" / "FONTI.tsv") if "riferimento" in r["percorso"]]
 
     for dataset in ("osd734", "osd276"):

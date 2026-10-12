@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal
 
@@ -46,7 +47,9 @@ from amplicon16s.config import defaults as d
 __all__ = [
     "Config",
     "ErroreConfigurazione",
+    "INTESTAZIONE_CLASSIFICATORE",
     "INTESTAZIONE_COPPIE",
+    "INTESTAZIONE_TAGLIO",
     "INTESTAZIONE_MANCANTI",
     "PARAMETRI_DERIVATI",
     "obbligatori_mancanti",
@@ -387,6 +390,32 @@ class Filter(_Gruppo):
     rm_phix: StrictBool = Field(d.FILTER_RM_PHIX, description=(
         "Se scartare le letture del genoma di controllo PhiX (dada2::filterAndTrim, "
         "rm.phix)."))
+    # Come si toglie il primer. A posizione fissa e' l'assenza: dichiararlo
+    # fixed vale come ometterlo, e il valore si normalizza a nullo perche' le
+    # due forme siano la stessa configurazione, con lo stesso digest. Con il
+    # taglio a posizione fissa la chiave e i parametri del taglio cercato non
+    # compaiono nella configurazione risolta (Config._senza_le_modalita_assenti).
+    primer_removal: Literal["fixed", "search"] | None = Field(None, description=(
+        "Come si toglie il primer: fixed (le prime filter.trimLeft basi di ogni "
+        "lettura) oppure search (il primer si cerca nelle prime basi della lettura, "
+        "che si taglia dove finisce: per i protocolli che lo fanno precedere da un "
+        "numero variabile di basi). Omesso: fixed."))
+    primer_max_mismatch: InteroNonNegativo | None = Field(None, description=(
+        "Taglio cercato: discordanze ammesse fra il primer e la lettura (sole "
+        "sostituzioni; una N della lettura e' una discordanza)."))
+    primer_max_offset: InteroNonNegativo | None = Field(None, description=(
+        "Taglio cercato: quante basi possono precedere il primer. Zero: il primer "
+        "deve cominciare alla prima base."))
+    primer_untrimmed: Literal["discard", "keep"] | None = Field(None, description=(
+        "Taglio cercato: che cosa succede a una lettura in cui il primer non si "
+        "trova. discard: e' scartata (in modalita' appaiata con la sua compagna); "
+        "keep: resta intera."))
+
+    @field_validator("primer_removal", mode="after")
+    @classmethod
+    def _fisso_e_l_assenza(cls, valore: str | None) -> str | None:
+        """Porta ``fixed`` al valore nullo: e' il modo di chi non dichiara nulla."""
+        return None if valore == d.PRIMER_FISSO else valore
 
     @model_validator(mode="after")
     def _tolleranza_minore_del_troncamento(self) -> Filter:
@@ -482,9 +511,15 @@ class Tax(_Gruppo):
     un risultato non è riconducibile ai dati che l'hanno prodotto.
     """
 
-    ref_fasta: Path = Field(description=(
+    # Il riferimento FASTA, il suo MD5, tax.try_rc, tax.min_boot e
+    # tax.ref_bad_taxa sono del bayesiano ingenuo; i parametri idtaxa_* di
+    # IdTaxa. Quelli del classificatore non scelto sono respinti e non
+    # compaiono nella configurazione risolta (defaults.SOLO_DEL_BAYESIANO,
+    # defaults.PARAMETRI_DI_IDTAXA): senza valore sono nulli, e che siano
+    # dichiarati con il loro classificatore lo verifica la radice.
+    ref_fasta: Path | None = Field(None, description=(
         "Riferimento tassonomico nel formato dei training set di dada2."))
-    ref_md5: Md5 = Field(description=(
+    ref_md5: Md5 | None = Field(None, description=(
         "MD5 del file del riferimento, verificato a ogni avvio."))
     # Obbligatori e senza valore predefinito: ereditare in silenzio un
     # riferimento tassonomico renderebbe il risultato non riconducibile ai
@@ -493,15 +528,30 @@ class Tax(_Gruppo):
         "Nome del riferimento, come va riportato con i risultati."))
     ref_version: StringaNonVuota = Field(description=(
         "Versione del riferimento, come va riportata con i risultati."))
-    # Insieme chiuso: va esteso quando un altro classificatore viene realizzato.
-    classifier: Literal["naive_bayes"] = Field(d.TAX_CLASSIFIER, description=(
-        "Classificatore: il bayesiano ingenuo di dada2::assignTaxonomy."))
+    classifier: Literal["naive_bayes", "idtaxa"] = Field(d.TAX_CLASSIFIER, description=(
+        "Classificatore: naive_bayes (il bayesiano ingenuo di dada2::assignTaxonomy, "
+        "su un riferimento FASTA) oppure idtaxa (DECIPHER::IdTaxa, su un classificatore "
+        "addestrato). Omesso: naive_bayes."))
     min_boot: Annotated[int, Field(ge=0, le=100, strict=True)] = Field(
         d.TAX_MIN_BOOT, description=(
             "Bootstrap minimo per assegnare un rango (dada2::assignTaxonomy, minBoot)."))
-    try_rc: StrictBool = Field(description=(
+    try_rc: StrictBool | None = Field(None, description=(
         "Se provare anche il complemento inverso di ogni variante "
         "(dada2::assignTaxonomy, tryRC)."))
+    idtaxa_trained: Path | None = Field(None, description=(
+        "Classificatore addestrato nel formato di DECIPHER: un file .RData con "
+        "l'oggetto trainingSet prodotto da LearnTaxa (classificatore idtaxa)."))
+    idtaxa_trained_md5: Md5 | None = Field(None, description=(
+        "MD5 del file del classificatore addestrato, verificato a ogni avvio "
+        "(classificatore idtaxa)."))
+    idtaxa_threshold: Annotated[
+        float, Field(ge=0.0, le=100.0, allow_inf_nan=False), NonBooleano] | None = Field(
+        None, description=(
+            "Confidenza minima, da 0 a 100, per assegnare un rango (DECIPHER::IdTaxa, "
+            "threshold; classificatore idtaxa)."))
+    idtaxa_strand: Literal["both", "top", "bottom"] | None = Field(None, description=(
+        "Filamento su cui si classifica ogni variante: both (anche il complemento "
+        "inverso), top, bottom (DECIPHER::IdTaxa, strand; classificatore idtaxa)."))
     assign_species: StrictBool = Field(d.TAX_ASSIGN_SPECIES, description=(
         "Assegnazione della specie: non realizzata, il solo valore ammesso e' false."))
 
@@ -805,6 +855,9 @@ class Qc(_Gruppo):
     min_motif_frac: Frazione = Field(description=(
         "Frazione minima di letture che devono portare il motivo conservato, sulla "
         "mediana dei campioni biologici e dei controlli positivi (E-S0-16)."))
+    max_frac_untrimmed: Frazione | None = Field(None, description=(
+        "Taglio cercato: quota di letture senza il primer, sui campioni biologici e "
+        "sui controlli positivi, oltre la quale il filtro da' un avviso (E-S2-04)."))
     # Obbligatori: dipendono dalla regione amplificata. Il motivo puo' essere
     # nullo, per una regione senza un motivo noto: G10 verifica allora la sola
     # assenza del primer. Anche il primer puo' essere nullo, se non e' noto:
@@ -1146,6 +1199,11 @@ class Config(_Gruppo):
             for nome in getattr(self, gruppo).model_fields_set
         }
         mancanti = condizionali_mancanti(dichiarati)
+        if self.tax.try_rc is None and not self.idtaxa:
+            # Obbligatorio con il bayesiano ingenuo, il classificatore di chi
+            # non ne dichiara uno: il campo ammette il nullo solo perche' con
+            # IdTaxa non esiste.
+            mancanti = ["tax.try_rc", *mancanti]
         if mancanti:
             raise ValueError(_voce_mancanti(mancanti))
         return self
@@ -1181,21 +1239,121 @@ class Config(_Gruppo):
                     "resterebbe alcuna base da fondere")
         return self
 
+    @property
+    def taglio_cercato(self) -> bool:
+        """Vero se il primer si toglie cercandolo (``filter.primer_removal: search``)."""
+        return self.filter.primer_removal == d.PRIMER_CERCATO
+
+    @property
+    def idtaxa(self) -> bool:
+        """Vero se il classificatore e' IdTaxa (``tax.classifier: idtaxa``)."""
+        return self.tax.classifier == d.CLASSIFICATORE_IDTAXA
+
+    def chiavi_assenti(self) -> frozenset[str]:
+        """I parametri che con le modalita' di questa configurazione non
+        esistono: quelli del taglio cercato con il taglio a posizione fissa, e
+        quelli del classificatore non scelto. Non sono nella configurazione
+        risolta ne' nell'impronta di alcuna fase.
+        """
+        assenti: set[str] = set()
+        if not self.taglio_cercato:
+            assenti.update(("filter.primer_removal", *d.PARAMETRI_DEL_TAGLIO_CERCATO))
+        assenti.update(d.SOLO_DEL_BAYESIANO if self.idtaxa else d.PARAMETRI_DI_IDTAXA)
+        return frozenset(assenti)
+
+    @model_validator(mode="after")
+    def _modalita_coerenti(self) -> Config:
+        """Respinge i parametri di una modalita' non dichiarata, e le
+        combinazioni che il taglio cercato non ammette.
+
+        Un parametro del taglio cercato senza ``filter.primer_removal: search``,
+        o del classificatore non scelto, non avrebbe effetto: non puo' essere
+        accettato in silenzio, perche' non esiste nella configurazione risolta.
+        """
+        dichiarati = {
+            f"{gruppo}.{nome}"
+            for gruppo in ("filter", "qc", "tax", "pair")
+            for nome in getattr(self, gruppo).model_fields_set
+        }
+
+        def elenco(chiavi: Iterable[str]) -> str:
+            trovate = [c for c in chiavi if c in dichiarati]
+            return ", ".join(trovate) + (
+                " e' dichiarato" if len(trovate) == 1 else " sono dichiarati")
+
+        if not self.taglio_cercato:
+            if dichiarati & set(d.PARAMETRI_DEL_TAGLIO_CERCATO):
+                raise ValueError(
+                    f"{INTESTAZIONE_TAGLIO}: {elenco(d.PARAMETRI_DEL_TAGLIO_CERCATO)} ma "
+                    f"filter.primer_removal non e' {d.PRIMER_CERCATO}: valgono solo con il "
+                    "primer cercato lungo la lettura. Dichiara filter.primer_removal: "
+                    f"\"{d.PRIMER_CERCATO}\", oppure toglili")
+        else:
+            mancano = []
+            if self.filter.trimLeft != 0:
+                mancano.append(
+                    f"filter.trimLeft deve essere 0 (e' {self.filter.trimLeft}): il "
+                    "taglio lo fa la ricerca del primer")
+            if self.qc.primer_sequence is None:
+                mancano.append("qc.primer_sequence non puo' essere nullo: e' il primer da cercare")
+            if self.appaiata:
+                if self.pair.trimLeft_reverse not in (None, 0):
+                    mancano.append(
+                        f"pair.trimLeft_reverse deve essere 0 (e' {self.pair.trimLeft_reverse})")
+                if (self.pair.primer_sequence_reverse is None
+                        and "primer_sequence_reverse" in self.pair.model_fields_set):
+                    mancano.append(
+                        "pair.primer_sequence_reverse non puo' essere nullo: e' il primer "
+                        "da cercare nelle letture reverse")
+            lunghezze = [len(p) for p in (
+                self.qc.primer_sequence,
+                self.pair.primer_sequence_reverse if self.appaiata else None) if p]
+            if (lunghezze and self.filter.primer_max_mismatch is not None
+                    and self.filter.primer_max_mismatch >= min(lunghezze)):
+                mancano.append(
+                    f"filter.primer_max_mismatch ({self.filter.primer_max_mismatch}) deve "
+                    f"essere minore della lunghezza del primer ({min(lunghezze)}): altrimenti "
+                    "ogni lettura lo porterebbe")
+            if mancano:
+                raise ValueError(
+                    f"{INTESTAZIONE_TAGLIO}: con filter.primer_removal "
+                    f"{d.PRIMER_CERCATO} " + "; ".join(mancano))
+        if self.idtaxa:
+            # tax.min_boot ha un predefinito: conta se e' stato scritto.
+            if dichiarati & set(d.SOLO_DEL_BAYESIANO):
+                raise ValueError(
+                    f"{INTESTAZIONE_CLASSIFICATORE}: {elenco(d.SOLO_DEL_BAYESIANO)} ma "
+                    f"tax.classifier e' {d.CLASSIFICATORE_IDTAXA}: sono parametri di "
+                    f"{d.TAX_CLASSIFIER}. Toglili: IdTaxa usa tax.idtaxa_trained, "
+                    "tax.idtaxa_trained_md5, tax.idtaxa_threshold e tax.idtaxa_strand")
+        elif dichiarati & set(d.PARAMETRI_DI_IDTAXA):
+            raise ValueError(
+                f"{INTESTAZIONE_CLASSIFICATORE}: {elenco(d.PARAMETRI_DI_IDTAXA)} ma "
+                f"tax.classifier non e' {d.CLASSIFICATORE_IDTAXA}: valgono solo con "
+                f"IdTaxa. Dichiara tax.classifier: \"{d.CLASSIFICATORE_IDTAXA}\", oppure "
+                "toglili")
+        return self
+
     @model_serializer(mode="wrap")
-    def _senza_la_modalita_appaiata(self, serializza: Any) -> dict[str, Any]:
-        """La configurazione come mappa: in modalita' single-end senza la chiave
-        della modalita' e senza il gruppo ``pair``.
+    def _senza_le_modalita_assenti(self, serializza: Any) -> dict[str, Any]:
+        """La configurazione come mappa, senza cio' che con le sue modalita' non
+        esiste: in modalita' single-end la chiave della modalita' e il gruppo
+        ``pair``; con il taglio a posizione fissa la chiave del modo e i
+        parametri del taglio cercato; i parametri del classificatore non scelto.
 
         E' la forma su cui si calcolano il digest e le impronte delle fasi e
-        che finisce nella configurazione registrata: una configurazione
-        single-end ha esattamente le chiavi che aveva senza la modalita'
-        appaiata.
+        che finisce nella configurazione registrata: una configurazione che non
+        dichiara una modalita' ha esattamente le chiavi che aveva senza.
         """
         mappa = serializza(self)
         if not self.appaiata:
             mappa.pop("pair", None)
             if isinstance(mappa.get("io"), dict):
                 mappa["io"].pop("layout", None)
+        for chiave in self.chiavi_assenti():
+            gruppo, nome = chiave.split(".")
+            if isinstance(mappa.get(gruppo), dict):
+                mappa[gruppo].pop(nome, None)
         return mappa
 
 
@@ -1321,6 +1479,11 @@ def _descrivi(errore: dict[str, Any]) -> str:
 #: radice: G15 lo riconosce da qui per attribuirgli il proprio codice (E-G15-15).
 INTESTAZIONE_COPPIE: Final = "modalita' appaiata"
 
+#: Come iniziano i problemi del taglio dei primer cercati e del classificatore
+#: sollevati dalla radice: G15 li riconosce da qui (E-G15-16, E-G15-17).
+INTESTAZIONE_TAGLIO: Final = "taglio dei primer"
+INTESTAZIONE_CLASSIFICATORE: Final = "classificatore tassonomico"
+
 #: Come inizia il problema che elenca i parametri obbligatori non dichiarati:
 #: G15 lo riconosce da qui per attribuirgli il proprio codice (E-G15-10).
 INTESTAZIONE_MANCANTI: Final = "parametri obbligatori non dichiarati"
@@ -1343,9 +1506,10 @@ def condizionali_mancanti(valori: dict[str, Any]) -> list[str]:
     condizione si valuta sui parametri dichiarati: uno assente vale come la
     sua assenza, e cio' che ne dipende non e' richiesto.
     """
-    nulli_se_omessi = d.CONDIZIONALI_NULLI_SE_OMESSI | d.COPPIE_NULLE_SE_OMESSE
+    nulli_se_omessi = (
+        d.CONDIZIONALI_NULLI_SE_OMESSI | d.COPPIE_NULLE_SE_OMESSE | d.MODALITA_NULLE_SE_OMESSE)
     return [
-        chiave for chiave in (*d.CONDIZIONALI, *d.CONDIZIONALI_DELLE_COPPIE)
+        chiave for chiave in (*d.CONDIZIONALI, *d.CONDIZIONALI_RESPINTI)
         if d.condizione_vera(chiave, valori) and (
             chiave not in valori
             or (chiave in nulli_se_omessi and valori[chiave] is None)
@@ -1362,7 +1526,17 @@ def obbligatori_mancanti(dati: dict[str, Any]) -> list[str]:
     assenza, per i quali il nullo vale come l'omissione).
     """
     valori = _valori_dichiarati(dati)
-    return [c for c in d.OBBLIGATORI if c not in valori] + condizionali_mancanti(valori)
+    # Con IdTaxa i parametri del bayesiano ingenuo non si dichiarano.
+    non_chiesti = (
+        set(d.SOLO_DEL_BAYESIANO) if valori.get("tax.classifier") == d.CLASSIFICATORE_IDTAXA
+        else set())
+    # tax.try_rc ammette il nullo solo perche' con IdTaxa non esiste: con il
+    # bayesiano ingenuo il nullo vale come l'omissione.
+    def manca(chiave: str) -> bool:
+        return chiave not in valori or (chiave == "tax.try_rc" and valori[chiave] is None)
+
+    return [c for c in d.OBBLIGATORI if manca(c) and c not in non_chiesti] + (
+        condizionali_mancanti(valori))
 
 
 def _voce_mancanti(mancanti: list[str]) -> str:
@@ -1375,7 +1549,7 @@ def _voce_mancanti(mancanti: list[str]) -> str:
         "config/config.example.yaml"
     )
     condizionali = [
-        c for c in mancanti if c in d.CONDIZIONALI or c in d.CONDIZIONALI_DELLE_COPPIE]
+        c for c in mancanti if c in d.CONDIZIONALI or c in d.CONDIZIONALI_RESPINTI]
     if condizionali:
         voce += ". Richiesti da una condizione: " + "; ".join(
             f"{c} perche' {d.testo_condizione(c)}" for c in condizionali

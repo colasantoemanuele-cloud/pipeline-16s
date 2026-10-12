@@ -74,6 +74,9 @@ NOME_TASSONOMIA: Final = "tassonomia.tsv"
 NOME_COPERTURA: Final = "copertura_per_gruppo.tsv"
 NOME_DIFETTI: Final = "difetto_riferimento.tsv"
 NOME_RIEPILOGO: Final = "riepilogo.json"
+#: Solo con il classificatore IdTaxa: i ranghi del classificatore addestrato
+#: che non hanno una colonna nella tassonomia.
+NOME_RANGHI_SCARTATI: Final = "ranghi_scartati.json"
 #: Lo script che legge dalle librerie installate versione e correzione dei
 #: pacchetti R: lo stesso della regola rigorosa sulla provenienza.
 NOME_AMBIENTE: Final = "00_ambiente.R"
@@ -185,14 +188,30 @@ class AssegnazioneTassonomica(PipelineStep):
             raise RuntimeError(
                 "tax.assign_species vero non e' realizzato: S8 assegna fino al genere"
             )
-        dada2 = self._accerta_dada2(contesto)
+        # Gli artefatti propri dell'altro classificatore, se la fase era gia'
+        # stata calcolata con quello, non sono di questa esecuzione.
+        contesto.albero.dimentica(self.cartella, (
+            ("bootstrap.tsv", NOME_DIFETTI) if config.idtaxa
+            else ("confidenza.tsv", NOME_RANGHI_SCARTATI)))
+        # La correzione dei pareggi riguarda assignTaxonomy: con IdTaxa dada2
+        # non assegna nulla, e non c'e' nulla da accertare.
+        dada2 = None if config.idtaxa else self._accerta_dada2(contesto)
+        del_classificatore: dict[str, Any] = {
+            "idtaxa": {
+                "addestrato": str(tax.idtaxa_trained),
+                "soglia": tax.idtaxa_threshold,
+                "filamento": tax.idtaxa_strand,
+            },
+        } if config.idtaxa else {
+            "riferimento": str(tax.ref_fasta),
+            "min_boot": tax.min_boot,
+            "try_rc": tax.try_rc,
+        }
         esito = esegui_script(
             cartella_r() / NOME_SCRIPT,
             {
                 "tabella": str(contesto.albero.cartella(Fase.CHIMERA) / NOME_TABELLA_ASV),
-                "riferimento": str(tax.ref_fasta),
-                "min_boot": tax.min_boot,
-                "try_rc": tax.try_rc,
+                **del_classificatore,
                 "seme": config.run.seed,
                 "processi": thread_effettivi(config),
                 "gruppi": {c.accession: c.classe.value for c in contesto.inventario},
@@ -246,9 +265,27 @@ class AssegnazioneTassonomica(PipelineStep):
 
         # Il riepilogo si scrive prima del controllo: un arresto lascia le
         # misure che l'hanno causato.
+        if config.idtaxa:
+            scartati = json.loads(
+                (cartella / NOME_RANGHI_SCARTATI).read_text(encoding="utf-8"))["ranghi_scartati"]
+            del_metodo: dict[str, Any] = {
+                "riferimento": {"nome": tax.ref_name, "versione": tax.ref_version,
+                                "md5": tax.idtaxa_trained_md5},
+                "classificatore": tax.classifier, "soglia": tax.idtaxa_threshold,
+                "filamento": tax.idtaxa_strand,
+                # I ranghi che il classificatore nomina e che non hanno una
+                # colonna nella tassonomia: le loro assegnazioni non compaiono.
+                "ranghi_scartati": scartati,
+            }
+        else:
+            del_metodo = {
+                "riferimento": {
+                    "nome": tax.ref_name, "versione": tax.ref_version, "md5": tax.ref_md5},
+                "classificatore": tax.classifier, "min_boot": tax.min_boot,
+                "try_rc": tax.try_rc,
+            }
         riepilogo = {
-            "riferimento": {"nome": tax.ref_name, "versione": tax.ref_version, "md5": tax.ref_md5},
-            "classificatore": tax.classifier, "min_boot": tax.min_boot, "try_rc": tax.try_rc,
+            **del_metodo,
             "seme": config.run.seed,
             "ranghi": ranghi,
             "varianti": len(righe),
@@ -271,7 +308,11 @@ class AssegnazioneTassonomica(PipelineStep):
             "difetto_riferimento": {k: difetto[k] for k in ("varianti", "letture")},
             # Nelle metriche del manifesto, non in un artefatto: descrive
             # l'ambiente in cui la fase ha calcolato, non il suo risultato.
-            "dada2": dada2,
+            # Con IdTaxa dada2 non assegna: al suo posto il classificatore usato.
+            **({"dada2": dada2} if dada2 is not None else {
+                "classificatore": tax.classifier, "soglia": tax.idtaxa_threshold,
+                "filamento": tax.idtaxa_strand, "ranghi_scartati": del_metodo["ranghi_scartati"],
+            }),
         }
         return Produzione(tuple(artefatti), metriche)
 

@@ -32,5 +32,28 @@ messo da parte, non sovrascritto. I file scaricati sono esclusi da git (`.gitign
 - Elenco dei taxa difettosi: mikemc/dada2-reference-databases, licenza MIT, fissato al
   commit indicato in `FONTI.tsv`.
 
+## Il classificatore addestrato per IdTaxa
+
+Con `tax.classifier: idtaxa` la pipeline usa, al posto del riferimento FASTA, un
+classificatore addestrato nel formato di DECIPHER (GUIDA.md, 1.5):
+
+```bash
+python3 dati/riferimento/scarica_addestrato.py 138.2                 # SILVA SSU r138.2, circa 299 MB
+python3 dati/riferimento/scarica_addestrato.py 2019                  # SILVA SSU r138, circa 152 MB
+python3 dati/riferimento/scarica_addestrato.py 2019 --solo-verifica  # controlla e basta
+```
+
+| File | Classificatore | Quando | Byte | MD5 (`tax.idtaxa_trained_md5`) |
+|---|---|---|---|---|
+| `SILVA_SSU_r138_2_2024.RData` | SILVA SSU r138.2 | per un'analisi nuova | 298.719.756 | `4e272e39c2d71f5d3e7a31b00dbb1df4` |
+| `SILVA_SSU_r138_2019.RData` | SILVA SSU r138 | per confrontarsi con tabelle elaborate da NASA GeneLab con le versioni A e B della sua pipeline (GL-DPPD-7104) | 151.849.504 | `cb983b6a5e8cdb46f8c88b5afae21f66` |
+
+I due classificatori sono addestrati dagli autori di DECIPHER. Il sito di DECIPHER non
+serve il file del 2019 e non pubblica checksum: lo script scarica le copie archiviate su
+figshare dal gruppo di elaborazione dati di GeneLab (DOI 10.6084/m9.figshare.28550993 e
+10.6084/m9.figshare.25799980, licenza CC BY 4.0) e ne verifica la dimensione e l'MD5
+pubblicati da figshare. Che la copia del 2019 sia il file allora distribuito da DECIPHER
+lo dichiara chi l'ha archiviata. I file scaricati sono esclusi da git.
+
 Chi ha gia' i file nella collocazione precedente (`dati/osd734/riferimento/`) puo'
 spostarli qui: lo script li riconosce dall'MD5 e non li scarica di nuovo.

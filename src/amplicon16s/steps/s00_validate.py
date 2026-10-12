@@ -29,7 +29,7 @@ import csv
 import hashlib
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from io import StringIO
 from pathlib import Path
 from typing import Any, ClassVar, Final
@@ -37,12 +37,14 @@ from typing import Any, ClassVar, Final
 from amplicon16s.config.resolve import risolvi
 from amplicon16s.config.schema import Config
 from amplicon16s.errors.catalog import Categoria, voce
-from amplicon16s.gates.g01_g15 import Contesto, ErroreGate
+from amplicon16s.errors.exceptions import ErrorePipeline
+from amplicon16s.gates.g01_g15 import Contesto, ErroreGate, Violazione
 from amplicon16s.gates.registry import EsitoGate, esegui_gate, esegui_tutti
 from amplicon16s.io_layer.artifacts import AlberoOutput, Fase
 from amplicon16s.logging.logger import ottieni
 from amplicon16s.metadata.lettura_inventario import NOME_CROSSWALK
 from amplicon16s.metadata.models import Inventario
+from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext, StepResult
 
@@ -52,6 +54,9 @@ __all__ = [
     "esegui_s0",
     "impronta_dati_grezzi",
 ]
+
+#: Lo script che verifica il classificatore addestrato di IdTaxa.
+NOME_SCRIPT_CLASSIFICATORE: Final = "00_classificatore.R"
 
 NOME_ESITI: Final = "gates.json"
 NOME_INVENTARIO: Final = "inventario.json"
@@ -290,11 +295,22 @@ class ValidazioneIngressi(PipelineStep):
         "pair.max_primer_hit_frac_reverse",
     )
 
+    #: Con il primer cercato lungo la lettura: la regola di ricerca, con cui la
+    #: scansione conta il primer, cerca il motivo e misura le lunghezze.
+    parametri_taglio_cercato: ClassVar[tuple[str, ...]] = (
+        "filter.primer_max_mismatch", "filter.primer_max_offset", "filter.primer_untrimmed",
+    )
+
     def __init__(self, *, solleva: bool = True) -> None:
         self.solleva = solleva
         #: Gli esiti di G15 e G12, calcolati in :meth:`esegui` sulla
         #: configurazione completa e registrati da :meth:`calcola` fra gli altri gate.
         self._precondizioni: dict[str, EsitoGate] | None = None
+        #: Con il classificatore IdTaxa, il file addestrato da verificare:
+        #: letto in :meth:`esegui` dalla configurazione completa, come G12. Il
+        #: riferimento non e' fra i parametri della fase (entra in S8): cambiare
+        #: classificatore non rifa' la validazione ne' l'inferenza.
+        self._addestrato: Path | None = None
 
     def impronta_dati_esterni(self, config: Config) -> str | None:
         """L'impronta dei dati grezzi da nome, dimensione e istante di modifica dei
@@ -306,10 +322,45 @@ class ValidazioneIngressi(PipelineStep):
         """G15 e G12 sulla configurazione completa, poi la fase sulla sua vista."""
         completa = Contesto(contesto.config)
         self._precondizioni = {g: esegui_gate(g, completa) for g in ("G15", "G12")}
+        if contesto.config.idtaxa:
+            self._addestrato = Path(contesto.config.tax.idtaxa_trained)
         try:
             return super().esegui(contesto)
         finally:
             self._precondizioni = None
+            self._addestrato = None
+
+    def _classificatore_addestrato(
+        self, contesto: StepContext, esiti: tuple[EsitoGate, ...]
+    ) -> tuple[tuple[EsitoGate, ...], list[Any]]:
+        """Con il classificatore IdTaxa, e dopo che G12 ne ha verificato il
+        checksum: carica il file in R e verifica che contenga un classificatore
+        addestrato con la tabella dei ranghi. Se non lo contiene, l'esito di
+        G12 porta la violazione ``E-S0-28``. Restituisce gli esiti e gli
+        artefatti scritti.
+
+        Scoprirlo qui costa qualche secondo; all'assegnazione tassonomica
+        costerebbe l'intera inferenza delle varianti. Se il classificatore
+        cambia a validazione gia' conclusa, la stessa verifica la fa S8 quando
+        lo carica.
+        """
+        g12 = next(e for e in esiti if e.gate == "G12")
+        if not g12.superato:
+            return esiti, []
+        try:
+            esito = esegui_script(
+                cartella_r() / NOME_SCRIPT_CLASSIFICATORE,
+                {"addestrato": str(self._addestrato)},
+                contesto.albero, Fase.INPUT_VALIDATION, passo="S0_CLASSIFICATORE",
+                tempo_massimo_s=contesto.config.run.r_timeout_s, logger=contesto.logger,
+            )
+        except ErrorePipeline as guasto:
+            if guasto.codice != "E-S0-28":
+                raise
+            respinto = replace(g12, superato=False, violazioni=(
+                Violazione("E-S0-28", f"tax.idtaxa_trained: {guasto.dettaglio}"),))
+            return tuple(respinto if e.gate == "G12" else e for e in esiti), []
+        return esiti, list(esito.artefatti)
 
     def calcola(self, contesto: StepContext) -> Produzione:
         """Esegue i gate G15 e G01-G14 e scrive esiti, crosswalk, inventario e
@@ -325,6 +376,9 @@ class ValidazioneIngressi(PipelineStep):
                 "S0 si esegue con esegui(): G15 e G12 leggono la configurazione completa"
             )
         esiti = tuple(esegui_tutti(gate, self._precondizioni))
+        del_classificatore: list[Any] = []
+        if config.idtaxa:
+            esiti, del_classificatore = self._classificatore_addestrato(contesto, esiti)
         secondi = time.perf_counter() - inizio
 
         # L'inventario esiste solo se i gate che lo costruiscono sono passati.
@@ -339,7 +393,8 @@ class ValidazioneIngressi(PipelineStep):
         artefatti = [
             albero.scrivi_testo(
                 Fase.INPUT_VALIDATION, NOME_ESITI, _esiti_json(esiti)
-            )
+            ),
+            *del_classificatore,
         ]
         if inventario is not None:
             artefatti.append(
@@ -376,7 +431,7 @@ class ValidazioneIngressi(PipelineStep):
                 )
 
         # Gli avvisi di degradazione (E-S0-15 ed E-S0-19 da G08, E-S0-17 da G11,
-        # E-S0-18 ed E-S0-21 da G10, E-S0-20 da G13) non fermano la
+        # E-S0-18, E-S0-21 ed E-S0-29 da G10, E-S0-20 da G13) non fermano la
         # fase e finiscono nel suo manifesto; gli altri restano segnalazioni
         # nel log.
         for esito in esiti:

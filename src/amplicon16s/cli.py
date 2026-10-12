@@ -46,12 +46,17 @@ scheduler:
 * ``5``: una fase prevista dal grafo non esiste come codice. Con le quindici
   fasi realizzate non può presentarsi in un'esecuzione normale: resta come
   guardia, perché un grafo esteso prima della fase che lo realizza fermi
-  l'esecuzione con un codice proprio invece di un errore imprevisto.
+  l'esecuzione con un codice proprio invece di un errore imprevisto;
+* ``6``: la cartella di uscita e' tenuta da un altro processo (``E-RUN-01``):
+  ``validate``, ``run`` e ``resume`` prendono il blocco della cartella in forma
+  esclusiva e, se un altro lo tiene, si fermano senza leggere ne' scrivere
+  nulla: nessun punto di ripresa, nessuna riga nel log.
 """
 
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import logging
 import os
@@ -67,6 +72,12 @@ from amplicon16s.errors.catalog import voce
 from amplicon16s.gates.g01_g15 import _PER_CODICE, ErroreGate, Violazione, rifiuto_di_g15
 from amplicon16s import interfaccia
 from amplicon16s.config import defaults
+from amplicon16s.io_layer.artifacts import (
+    NOME_BLOCCO,
+    BloccoEsecuzione,
+    CartellaOccupata,
+    Fase,
+)
 from amplicon16s.logging.logger import SOLO_NEL_FILE, chiudi, configura, ottieni
 from amplicon16s.runner.executor import Conclusione, Esecutore, EsitoEsecuzione
 from amplicon16s.runner.graph import Passo
@@ -92,11 +103,13 @@ USCITA_ERRORE_IMPREVISTO: Final = 1
 USCITA_CONFIGURAZIONE: Final = 3
 USCITA_ARRESTO: Final = 4
 USCITA_FASE_NON_REALIZZATA: Final = 5
+#: La cartella di uscita e' tenuta da un altro processo: nulla e' stato scritto.
+USCITA_CARTELLA_OCCUPATA: Final = 6
 
 #: I parametri che sono percorsi di file o cartelle, per gruppo.
 _PERCORSI: Final = {
     "io": ("fastq_dir", "assay_table", "study_table", "out_root", "batch_table"),
-    "tax": ("ref_fasta", "ref_bad_taxa"),
+    "tax": ("ref_fasta", "ref_bad_taxa", "idtaxa_trained"),
 }
 
 
@@ -254,12 +267,33 @@ def _esegui(
     config: Config, percorso: Path, *, fino_a: Passo | None = None,
     programma: str = "amplicon16s",
 ) -> EsitoEsecuzione:
-    """Esegue il grafo fino alla fase indicata, o fino all'ultima realizzata."""
-    configura(config.io.out_root)
-    run = ProjectRun(config, passi=_passi(), logger=ottieni("run"))
-    esecutore = Esecutore(
-        run, comando_ripresa=_comando_ripresa(percorso, programma), fino_a=fino_a)
-    return esecutore.esegui()
+    """Esegue il grafo fino alla fase indicata, o fino all'ultima realizzata.
+
+    Prima di ogni altra cosa prende il blocco della cartella di uscita: se un
+    altro processo lo tiene solleva :class:`CartellaOccupata` senza aver aperto
+    il log ne' scritto alcun file, perche' in quella cartella sta scrivendo
+    qualcun altro.
+    """
+    blocco = BloccoEsecuzione(Path(config.io.out_root) / Fase.LOGS.value)
+    blocco.prendi()
+    try:
+        configura(config.io.out_root)
+        run = ProjectRun(config, passi=_passi(), logger=ottieni("run"))
+        esecutore = Esecutore(
+            run, comando_ripresa=_comando_ripresa(percorso, programma), fino_a=fino_a,
+            blocco=blocco)
+        return esecutore.esegui()
+    finally:
+        blocco.rilascia()
+
+
+def _cartella_occupata(occupata: CartellaOccupata, radice: Path) -> str:
+    """Il messaggio di ``E-RUN-01``: chi tiene la cartella e che cosa fare."""
+    v = voce("E-RUN-01")
+    chi = ("un'altra esecuzione (run, resume o validate) e' in corso"
+           if occupata.esclusivo else
+           "un altro comando sta leggendo la cartella e chiede che non cambi")
+    return (f"[{v.codice}] {v.sintesi}\n  cartella: {radice}\n  {chi}\n  {v.azione}")
 
 
 def _uscita(esito: EsitoEsecuzione) -> int:
@@ -357,8 +391,17 @@ def _valida(config: Config, percorso: Path, args: argparse.Namespace) -> int:
 
 
 def _cartella_usata(radice: Path) -> bool:
-    """Vero se la cartella di output esiste e contiene già almeno un elemento."""
-    return radice.exists() and any(radice.iterdir())
+    """Vero se la cartella di output esiste e contiene già almeno un elemento.
+
+    Il solo file del blocco, lasciato da un avvio che non ha scritto altro, non
+    conta: non e' un'esecuzione.
+    """
+    if not radice.exists():
+        return False
+    voci = list(itertools.islice(radice.iterdir(), 2))
+    if len(voci) == 1 and voci[0].name == Fase.LOGS.value and voci[0].is_dir():
+        return [p.name for p in itertools.islice(voci[0].iterdir(), 2)] != [NOME_BLOCCO]
+    return bool(voci)
 
 
 def _cmd_run(config: Config, percorso: Path, args: argparse.Namespace) -> int:
@@ -366,6 +409,12 @@ def _cmd_run(config: Config, percorso: Path, args: argparse.Namespace) -> int:
     """
     radice = Path(config.io.out_root)
     if _cartella_usata(radice):
+        if (radice / Fase.LOGS.value / NOME_BLOCCO).is_file():
+            # Se la sta usando un'esecuzione in corso lo si dice con il suo
+            # codice: il file esiste gia', aprirlo non scrive nulla.
+            blocco = BloccoEsecuzione(radice / Fase.LOGS.value)
+            blocco.prendi()
+            blocco.rilascia()
         _stampa(
             f"La cartella di output {radice} non e' vuota: contiene gia' "
             "un'esecuzione, o altri file. 'run' non sovrascrive, perche' ogni "
@@ -575,12 +624,13 @@ def main(argv: Sequence[str] | None = None, programma: str = "amplicon16s") -> i
     if hasattr(args, "senza_config"):
         return args.senza_config(args)
 
-    def rifiutata(violazioni: Sequence[Violazione]) -> None:
+    def rifiutata(violazioni: Sequence[Violazione], uscita: int = USCITA_CONFIGURAZIONE,
+                  origine: str = "G15") -> None:
         """Con ``--json`` il rifiuto della configurazione e' il documento."""
         if getattr(args, "json", False):
             _stampa_json(interfaccia.esito_validazione(
-                configurazione=args.config, codice_uscita=USCITA_CONFIGURAZIONE,
-                problemi=_problemi_di(violazioni, "G15")))
+                configurazione=args.config, codice_uscita=uscita,
+                problemi=_problemi_di(violazioni, origine)))
 
     try:
         config = _percorsi_assoluti(carica(args.config))
@@ -608,6 +658,16 @@ def main(argv: Sequence[str] | None = None, programma: str = "amplicon16s") -> i
 
     try:
         return args.func(config, args.config, args)
+    except CartellaOccupata as e:
+        # Fuori dal meccanismo di arresto: nessun punto di ripresa, nessuna
+        # riga nel log, nessun file toccato nella cartella di un altro.
+        radice = Path(config.io.out_root)
+        _stampa(_cartella_occupata(e, radice))
+        rifiutata([Violazione("E-RUN-01", f"{radice}: " + (
+            "un'altra esecuzione e' in corso" if e.esclusivo
+            else "un altro comando tiene la cartella"))],
+            USCITA_CARTELLA_OCCUPATA, "blocco della cartella")
+        return USCITA_CARTELLA_OCCUPATA
     except ErroreGate as e:
         # Solo G15 arriva fin qui: gli altri gate sono dentro S0, e un loro
         # fallimento e' un arresto con punto di ripresa.

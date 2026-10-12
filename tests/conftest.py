@@ -536,6 +536,19 @@ def chiavi_della_modalita_appaiata() -> frozenset[str]:
     return frozenset(c for c in chiavi_schema() if c.startswith("pair.")) | {"io.layout"}
 
 
+def chiavi_di_altre_modalita() -> frozenset[str]:
+    """Le chiavi dello schema che esistono solo con il primer cercato lungo la
+    lettura o con il classificatore IdTaxa: con il taglio a posizione fissa e
+    il bayesiano ingenuo non compaiono nella configurazione risolta ne' in
+    alcun artefatto.
+    """
+    from amplicon16s.config import defaults
+
+    return frozenset((
+        "filter.primer_removal", *defaults.PARAMETRI_DEL_TAGLIO_CERCATO,
+        *defaults.PARAMETRI_DI_IDTAXA))
+
+
 def codici_con_retry() -> frozenset[str]:
     """I codici che il catalogo ammette al retry automatico."""
     from amplicon16s.errors.catalog import CATALOGO
@@ -615,6 +628,12 @@ VARIABILE_ATTESA = "AMPLICON16S_ATTESA_CONDIVISA_S"
 ATTESA_MASSIMA_S = int(__import__("os").environ.get(VARIABILE_ATTESA, "7200"))
 
 
+#: La variabile che attiva le prove marcate ``lenta``: catene e prove di
+#: ripetibilita' in piu', che la suite ordinaria salta per restare nei tempi
+#: dell'integrazione continua.
+VARIABILE_PROVE_LENTE = "AMPLICON16S_PROVE_LENTE"
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
     """Mette tutti i test sul dataset completo (``dati_reali`` e ``riferimento``)
@@ -627,9 +646,13 @@ def pytest_collection_modifyitems(config, items):
     distribuiti, giravano in parallelo fra loro e saturavano la memoria. Il
     gruppo si aggiunge prima che pytest-xdist legga i gruppi (tryfirst).
     """
+    lente = __import__("os").environ.get(VARIABILE_PROVE_LENTE) == "1"
     for item in items:
         if any(item.get_closest_marker(m) is not None for m in MARCATORI_SUL_DATASET_COMPLETO):
             item.add_marker(pytest.mark.xdist_group(GRUPPO_DATI_REALI))
+        if not lente and item.get_closest_marker("lenta") is not None:
+            item.add_marker(pytest.mark.skip(
+                reason=f"prova lenta: si attiva con {VARIABILE_PROVE_LENTE}=1"))
 
 
 def _condivisa(tmp_path_factory, nome, calcola):

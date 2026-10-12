@@ -39,7 +39,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
-from typing import IO, Final
+from typing import IO, Any, Final
 
 __all__ = [
     "Abbinamento",
@@ -50,6 +50,13 @@ __all__ = [
     "RAPPORTO_MASSIMO_FRA_LE_PARTI",
     "SEGNALE_MINIMO_DI_UNA_PARTE",
     "TRATTI",
+    "FRAZIONE_DI_ERRORI",
+    "QUOTA_FUORI_POSIZIONE",
+    "SFASAMENTO_CERCATO",
+    "RicercaPrimer",
+    "discordanze_di_partenza",
+    "sonda_del_taglio_fisso",
+    "ricerca_del_primer",
     "SegnaleDiOrientamento",
     "Sincronia",
     "StatisticheFile",
@@ -90,6 +97,155 @@ def espandi_iupac(sequenza: str) -> str:
         raise ValueError(f"codice IUPAC sconosciuto: {guasto.args[0]!r}") from None
 
 
+#: Le basi che ciascun codice IUPAC del primer ammette nella lettura. Le basi
+#: della lettura si prendono alla lettera: una N della lettura non e' fra
+#: quelle ammesse da alcun codice, nemmeno dalla N del primer.
+_BASI_AMMESSE: Final[dict[str, str]] = {
+    codice: (classe.strip("[]") if codice != "N" else "ACGT")
+    for codice, classe in _IUPAC.items()
+}
+
+
+@dataclass(frozen=True)
+class RicercaPrimer:
+    """La ricerca del primer nelle prime basi di una lettura, per i protocolli
+    che lo fanno precedere da un numero variabile di basi.
+
+    Il primer (codici IUPAC) deve cominciare a uno sfasamento fra zero e
+    ``sfasamento_massimo`` e stare per intero nella lettura, con al piu'
+    ``discordanze_massime`` basi diverse: sole sostituzioni, nessuna inserzione
+    o delezione, e una N della lettura e' una discordanza. Fra piu'
+    corrispondenze vale quella con meno discordanze e, a parita', la piu' a
+    sinistra. E' la stessa regola di ``R/lib/primer.R``, che taglia i file
+    interi: qui serve a validazione, segnale di orientamento e ``init``.
+
+    Razionale sistemistico: senza inserzioni ne' delezioni la posizione del
+    taglio e' determinata senza ambiguita', e ogni lettura tagliata comincia
+    alla stessa base della regione amplificata.
+    """
+
+    primer: str
+    discordanze_massime: int
+    sfasamento_massimo: int
+    #: Vero se una lettura senza il primer viene scartata dal filtro.
+    scarta_senza_primer: bool = True
+
+    def __post_init__(self) -> None:
+        primer = self.primer.upper()
+        try:
+            ammesse = tuple(frozenset(_BASI_AMMESSE[c]) for c in primer)
+        except KeyError as guasto:
+            raise ValueError(f"codice IUPAC sconosciuto: {guasto.args[0]!r}") from None
+        object.__setattr__(self, "_ammesse", ammesse)
+        # La corrispondenza senza discordanze piu' a sinistra, in un passo solo:
+        # e' il caso di quasi tutte le letture.
+        object.__setattr__(self, "_esatta", re.compile(
+            ".{0,%d}?(%s)" % (
+                self.sfasamento_massimo,
+                "".join(f"[{_BASI_AMMESSE[c]}]" for c in primer))))
+
+    def trova(self, sequenza: str) -> tuple[int, int] | None:
+        """Sfasamento e discordanze della corrispondenza scelta, o ``None``.
+
+        Le basi si confrontano in maiuscolo, come le legge R: una lettura
+        scritta in minuscolo porta il primer quanto una in maiuscolo.
+        """
+        sequenza = sequenza.upper()
+        esatta = self._esatta.match(sequenza)
+        if esatta is not None:
+            return esatta.start(1), 0
+        if self.discordanze_massime == 0:
+            return None
+        ammesse = self._ammesse
+        lunghezza = len(ammesse)
+        migliore: tuple[int, int] | None = None
+        tetto = self.discordanze_massime
+        for sfasamento in range(min(self.sfasamento_massimo, len(sequenza) - lunghezza) + 1):
+            discordanze = 0
+            for base, classe in zip(sequenza[sfasamento:sfasamento + lunghezza], ammesse):
+                if base not in classe:
+                    discordanze += 1
+                    if discordanze > tetto:
+                        break
+            else:
+                # Solo una corrispondenza con meno discordanze sostituisce una
+                # piu' a sinistra.
+                migliore = (sfasamento, discordanze)
+                tetto = discordanze - 1
+                if tetto < 1:
+                    # Una senza discordanze l'avrebbe trovata la ricerca esatta.
+                    break
+        return migliore
+
+    def fine(self, sequenza: str) -> int | None:
+        """La posizione dopo l'ultima base del primer: dove la lettura si
+        taglia; ``None`` se il primer non c'e'.
+        """
+        trovata = self.trova(sequenza)
+        return None if trovata is None else trovata[0] + len(self.primer)
+
+
+#: Fino a quante basi di sfasamento si cerca un primer di cui non e' dichiarata
+#: la finestra (``init``, e la validazione con il taglio a posizione fissa): il doppio delle
+#: otto lunghezze, da zero a sette basi, dei distanziatori di Fadrosh et al.
+#: 2014 (Microbiome 2:6), cosi' che un protocollo con distanziatori piu' lunghi
+#: di quelli pubblicati si riconosca comunque.
+SFASAMENTO_CERCATO = 16
+
+#: La frazione di errori ammessa fra primer e lettura, da cui il numero di
+#: discordanze di partenza: il predefinito di cutadapt (``-e 0.1``,
+#: documentazione di cutadapt, «Error tolerance»), arrotondato per difetto
+#: sulla lunghezza del primer.
+FRAZIONE_DI_ERRORI = 0.1
+
+#: La quota di letture con il primer che deve portarlo a uno sfasamento diverso
+#: dal piu' frequente perche' il primer vada cercato: ``init`` propone allora la ricerca, e la
+#: validazione avvisa se e' dichiarato il taglio a posizione fissa. Un errore di
+#: inserzione o delezione sposta il primer in ben meno di una lettura su cento;
+#: un protocollo con distanziatori distribuisce le letture su piu' sfasamenti
+#: con quote di decine di punti.
+QUOTA_FUORI_POSIZIONE = 0.05
+
+def discordanze_di_partenza(*primer: str) -> int:
+    """Le discordanze ammesse di partenza per i primer dati: la frazione di
+    errori di cutadapt sulla lunghezza del piu' corto.
+    """
+    return int(FRAZIONE_DI_ERRORI * min(len(p) for p in primer))
+
+
+
+def sonda_del_taglio_fisso(primer: str | None, taglio: int) -> RicercaPrimer | None:
+    """La ricerca con cui la validazione verifica un taglio a posizione fissa:
+    il primer dichiarato, cercato lungo la lettura con i valori di partenza
+    della ricerca. ``None`` se la verifica non si applica: primer nullo, nessun
+    taglio, o un taglio piu' corto del primer (che non lo toglierebbe intero).
+
+    La posizione attesa del primer e' ``taglio`` meno la sua lunghezza; la
+    finestra arriva :data:`SFASAMENTO_CERCATO` basi oltre, cosi' che si veda un
+    primer sia prima sia dopo quella posizione.
+    """
+    if primer is None or taglio <= 0 or taglio < len(primer):
+        return None
+    return RicercaPrimer(
+        primer, discordanze_di_partenza(primer), taglio - len(primer) + SFASAMENTO_CERCATO)
+
+
+def ricerca_del_primer(config: Any, reverse: bool = False) -> RicercaPrimer | None:
+    """La ricerca del primer che la configurazione dichiara per le letture
+    forward, o per le reverse; ``None`` con il taglio a posizione fissa.
+
+    ``config`` e' la configurazione, o la vista che ne ha una fase: si leggono
+    il primer, i tre parametri del taglio cercato e, per le reverse, il primer
+    reverse.
+    """
+    if not config.taglio_cercato:
+        return None
+    primer = config.pair.primer_sequence_reverse if reverse else config.qc.primer_sequence
+    return RicercaPrimer(
+        primer, config.filter.primer_max_mismatch, config.filter.primer_max_offset,
+        scarta_senza_primer=config.filter.primer_untrimmed == "discard")
+
+
 @dataclass(frozen=True)
 class SegnaleDiOrientamento:
     """Che cosa distingue le letture dell'orientamento atteso in un file.
@@ -111,10 +267,26 @@ class SegnaleDiOrientamento:
     primer: str | None
     motivo: str | None
     taglio: int = 0
+    #: Con il primer cercato lungo la lettura: il segnale e' il primer trovato
+    #: con la regola di ricerca, in unione con il motivo dopo di esso.
+    ricerca: RicercaPrimer | None = None
+
+    def lo_porta(self, sequenza: str, in_testa: Any, dopo_il_taglio: Any) -> bool:
+        """Se la lettura porta il segnale; ``in_testa`` e ``dopo_il_taglio``
+        sono le espressioni compilate di ``primer`` e ``motivo``.
+        """
+        if self.ricerca is not None:
+            fine = self.ricerca.fine(sequenza)
+            return fine is not None or bool(
+                dopo_il_taglio is not None and dopo_il_taglio.match(sequenza))
+        return bool(
+            (dopo_il_taglio is not None and dopo_il_taglio.match(sequenza[self.taglio:]))
+            or (in_testa is not None and in_testa.match(sequenza)))
 
 
 def segnale_di_orientamento(
-    primer: str | None, motivo: str | None, taglio: int
+    primer: str | None, motivo: str | None, taglio: int,
+    ricerca: RicercaPrimer | None = None,
 ) -> SegnaleDiOrientamento | None:
     """Il segnale da cercare nelle letture, dati il primer (in codici IUPAC),
     il motivo conservato e le basi tolte in testa; ``None`` se non ce n'e'.
@@ -124,6 +296,11 @@ def segnale_di_orientamento(
     Senza motivo e senza un primer da cercare nelle basi tagliate non c'e'
     nulla che distingua un orientamento dall'altro.
     """
+    if ricerca is not None:
+        # Il primer cercato lungo la lettura e' esso stesso il segnale; il
+        # motivo, che si trova dopo il primer, vale per le letture in cui il
+        # primer non c'e' e la regione comincia alla prima base.
+        return SegnaleDiOrientamento(None, motivo, 0, ricerca)
     in_testa = espandi_iupac(primer) if primer is not None and taglio > 0 else None
     if in_testa is None and motivo is None:
         return None
@@ -237,6 +414,10 @@ class StatisticheFile:
     #: Le letture con il segnale dell'altro orientamento, quando la scansione lo
     #: ha cercato (modalita' appaiata); ``None`` altrimenti.
     con_altro_segnale: int | None = None
+    #: Con una sonda del primer: a quale sfasamento il primer e' stato trovato,
+    #: e in quante letture. Serve al giudizio della validazione sul taglio a
+    #: posizione fissa, e non compare in alcuna tabella.
+    sfasamenti_del_primer: tuple[tuple[int, int], ...] | None = None
 
     @property
     def con_segnale(self) -> int | None:
@@ -561,8 +742,20 @@ def scansiona_file(
     lunghezza_richiesta: int = 0,
     orientamento: SegnaleDiOrientamento | None = None,
     altro_orientamento: SegnaleDiOrientamento | None = None,
+    ricerca: RicercaPrimer | None = None,
+    sonda: RicercaPrimer | None = None,
 ) -> StatisticheFile:
     """Legge le prime ``head_reads`` letture e ne ricava tutte le statistiche.
+
+    Con ``sonda`` si registra soltanto a quale sfasamento il primer si trova
+    (:attr:`StatisticheFile.sfasamenti_del_primer`): nessun'altra statistica
+    cambia.
+
+    Con ``ricerca`` il primer si cerca lungo la lettura (``primer`` e
+    ``inizio_motivo`` non si usano): si contano le letture in cui si trova, il
+    motivo si cerca dopo il primer trovato (dalla prima base se non c'e'), e le
+    lunghezze sono quelle della lettura dopo il taglio; una lettura senza
+    primer che il filtro scartera' non entra nelle lunghezze.
 
     ``lunghezza_richiesta`` e' la lunghezza sotto la quale una lettura si conta
     fra le piu' corte (``filter.truncLen``); zero non ne conta nessuna.
@@ -603,6 +796,7 @@ def scansiona_file(
             re.compile(altro_orientamento.motivo) if altro_orientamento.motivo is not None
             else None)
     con_altro = 0
+    sfasamenti: Counter[int] = Counter()
 
     letture = con_primer = con_motivo = corte = 0
     prime = seconde = 0
@@ -676,13 +870,27 @@ def scansiona_file(
                 seconde += coppia == "2"
                 nomi[nome] += 1
                 compagne.aggiungi(intestazione, nome)
+                if sonda is not None:
+                    trovata = sonda.trova(sequenza)
+                    if trovata is not None:
+                        sfasamenti[trovata[0]] += 1
                 lunghezza = len(sequenza)
-                minima = lunghezza if minima is None else min(minima, lunghezza)
-                massima = lunghezza if massima is None else max(massima, lunghezza)
-                if lunghezza < lunghezza_richiesta:
-                    corte += 1
-                if espressione_primer is not None and espressione_primer.match(sequenza):
+                misurata = True
+                if ricerca is not None:
+                    fine = ricerca.fine(sequenza)
+                    if fine is not None:
+                        con_primer += 1
+                        lunghezza -= fine
+                    else:
+                        misurata = not ricerca.scarta_senza_primer
+                    inizio_motivo = fine or 0
+                elif espressione_primer is not None and espressione_primer.match(sequenza):
                     con_primer += 1
+                if misurata:
+                    minima = lunghezza if minima is None else min(minima, lunghezza)
+                    massima = lunghezza if massima is None else max(massima, lunghezza)
+                    if lunghezza < lunghezza_richiesta:
+                        corte += 1
                 # Sulla lettura tagliata, non dalla posizione del taglio: un
                 # motivo ancorato con ^ deve valere all'inizio di cio' che resta.
                 if espressione_motivo is not None and espressione_motivo.match(
@@ -690,15 +898,9 @@ def scansiona_file(
                 ):
                     con_motivo += 1
                 if orientamento is not None:
-                    con_segnale.append(bool(
-                        (dopo_il_taglio is not None
-                         and dopo_il_taglio.match(sequenza[orientamento.taglio:]))
-                        or (in_testa is not None and in_testa.match(sequenza))))
-                if altro_orientamento is not None and (
-                    (altro_dopo_il_taglio is not None
-                     and altro_dopo_il_taglio.match(sequenza[altro_orientamento.taglio:]))
-                    or (altro_in_testa is not None and altro_in_testa.match(sequenza))
-                ):
+                    con_segnale.append(orientamento.lo_porta(sequenza, in_testa, dopo_il_taglio))
+                if altro_orientamento is not None and altro_orientamento.lo_porta(
+                        sequenza, altro_in_testa, altro_dopo_il_taglio):
                     con_altro += 1
             else:
                 esaurito = False
@@ -736,6 +938,7 @@ def scansiona_file(
              (sum(con_segnale[1::2]), len(con_segnale[1::2])))
             if orientamento is not None else None),
         con_altro_segnale=con_altro if altro_orientamento is not None else None,
+        sfasamenti_del_primer=tuple(sorted(sfasamenti.items())) if sonda is not None else None,
     )
 
 
@@ -837,11 +1040,13 @@ def scansiona(
     motivo: str | None,
     inizio_motivo: int = 0,
     lunghezza_richiesta: int = 0,
+    ricerca: RicercaPrimer | None = None,
+    sonda: RicercaPrimer | None = None,
 ) -> dict[str, StatisticheFile]:
     """Scansiona i file indicati e restituisce le statistiche di ciascuno."""
     return {
         chiave: scansiona_file(percorso, head_reads, primer, motivo, inizio_motivo,
-                               lunghezza_richiesta)
+                               lunghezza_richiesta, ricerca=ricerca, sonda=sonda)
         for chiave, percorso in percorsi.items()
     }
 

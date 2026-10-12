@@ -77,7 +77,7 @@ from amplicon16s.io_layer.artifacts import (
     scrivi_atomico,
     togli_scritture_interrotte,
 )
-from amplicon16s.logging.logger import registra_errore
+from amplicon16s.logging.logger import SOLO_NEL_FILE, registra_errore
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import ProjectRun, StatoPasso, Valutazione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
@@ -243,10 +243,14 @@ class Esecutore:
         comando_ripresa: str = "amplicon16s resume --config <configurazione>",
         fino_a: Passo | None = None,
         logger: logging.Logger | None = None,
+        blocco: BloccoEsecuzione | None = None,
     ) -> None:
         self.run = run
         self.comando_ripresa = comando_ripresa
         self.fino_a = fino_a
+        #: Il blocco della cartella di uscita, se chi costruisce l'esecutore lo
+        #: ha gia' preso; altrimenti lo prende e lo scioglie esegui().
+        self._blocco = blocco
         self.log = logger or run.logger
         self.politica = PoliticaRetry.da_config(run.config)
         #: Il file di stato dell'esecuzione in corso; esiste solo dentro esegui().
@@ -310,8 +314,8 @@ class Esecutore:
             ("G14", _g14_risorse_disponibili,
              "Le risorse della macchina si verificano a ogni avvio, anche con S0 gia' conclusa."),
             ("G12", _g12_riferimento_verificato,
-             "Il riferimento tassonomico si verifica contro tax.ref_md5 a ogni avvio, "
-             "anche con S0 gia' conclusa."),
+             "Il riferimento tassonomico si verifica contro il checksum dichiarato a ogni "
+             "avvio, anche con S0 gia' conclusa."),
         ):
             # Dopo il primo controllo fallito gli altri non si eseguono, e
             # figurano come non eseguiti, non come superati.
@@ -430,12 +434,24 @@ class Esecutore:
         """Esegue le fasi da fare, fino alla fine, a un arresto o a ``fino_a``.
 
         Per la durata dell'esecuzione tiene in ``99_logs`` il file di stato che
-        ``status`` legge (:class:`StatoInCorso`) e il blocco con cui le
-        esecuzioni della stessa cartella si coordinano: se nessun'altra sta
-        scrivendo, toglie prima cio' che un'interruzione ha lasciato a meta'.
+        ``status`` legge (:class:`StatoInCorso`) e, in forma esclusiva, il
+        blocco della cartella di uscita: se un altro processo lo tiene solleva
+        :class:`CartellaOccupata` prima di leggere o scrivere altro. Chi ha
+        gia' preso il blocco lo consegna al costruttore (due aperture dello
+        stesso file si escludono anche nello stesso processo). Con il blocco
+        in mano toglie cio' che un'interruzione ha lasciato a meta'.
         """
-        blocco = BloccoEsecuzione(self.run.albero.cartella(Fase.LOGS))
-        blocco.prendi(self._togli_scritture_interrotte)
+        blocco = self._blocco or BloccoEsecuzione(self.run.albero.cartella(Fase.LOGS))
+        if not blocco.preso:
+            blocco.prendi()
+        if blocco.preso:
+            self._togli_scritture_interrotte()
+        else:
+            self.log.warning(
+                "il blocco della cartella di uscita non e' disponibile su questo "
+                "filesystem: l'esecuzione prosegue senza, e una seconda esecuzione "
+                "sulla stessa cartella non sarebbe rifiutata",
+                extra={SOLO_NEL_FILE: True})
         self._stato = StatoInCorso(self.run.albero.cartella(Fase.LOGS), self.comando_ripresa)
         try:
             self._stato.avvia()
@@ -446,7 +462,8 @@ class Esecutore:
         finally:
             self._stato.chiudi()
             self._stato = None
-            blocco.rilascia()
+            if self._blocco is None:
+                blocco.rilascia()
 
     def _togli_scritture_interrotte(self) -> None:
         """Toglie i file temporanei e le copie di lavoro lasciati da

@@ -16,6 +16,16 @@
 # Parametri: tabella (tabella_asv.rds di S7), riferimento, min_boot, try_rc,
 # seme, processi, gruppi (accession -> gruppo).
 #
+# Con il parametro idtaxa (addestrato, soglia, filamento) il classificatore e'
+# DECIPHER::IdTaxa (R/lib/idtaxa.R) invece di assignTaxonomy. tassonomia.tsv e
+# copertura_per_gruppo.tsv hanno la stessa forma; al posto di bootstrap.tsv si
+# scrive confidenza.tsv (la confidenza di ogni rango assegnato, 0-100, vuota
+# dove il rango non e' assegnato), tassonomia.rds porta confidenza al posto di
+# boot, e ranghi_scartati.json elenca i ranghi del classificatore che non hanno
+# una colonna. Il seme si imposta e DECIPHER si carica solo in questo ramo: lo
+# stato del generatore e i pacchetti caricati con assignTaxonomy non dipendono
+# da questo ramo.
+#
 # Riproducibilita'. Il bootstrap di assignTaxonomy estrae i k-meri con
 # runif di R, prima del calcolo parallelo: fissato il seme con set.seed, il
 # sottocampionamento non dipende dal numero di thread. Nella versione
@@ -27,12 +37,46 @@
 # (steps/s08_taxonomy.py): senza la correzione l'assegnazione nei pareggi fra
 # generi non e' ripetibile, e la fase lo dichiara (E-S8-03).
 
-for (f in c("io_json.R", "errors.R")) {
+# idtaxa.R definisce solo funzioni: non carica DECIPHER e non tocca il
+# generatore di numeri casuali.
+for (f in c("io_json.R", "errors.R", "idtaxa.R")) {
   source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
 }
 
+# Il ramo IdTaxa: la tassonomia nella stessa forma di assignTaxonomy, con la
+# confidenza al posto del bootstrap. Restituisce i nomi degli artefatti propri.
+assegna_con_idtaxa <- function(parametri, cartella, varianti) {
+  richiedi_pacchetti(c("DECIPHER", "Biostrings"))
+  idtaxa <- parametri$idtaxa
+  esito <- classifica_idtaxa(
+    # Lo stesso controllo della validazione: vale per un classificatore
+    # dichiarato dopo che la validazione era gia' conclusa.
+    varianti, tryCatch(
+      carica_addestrato(idtaxa$addestrato),
+      error = function(e) errore_catalogo("E-S0-28", conditionMessage(e))
+    ),
+    soglia = as.numeric(idtaxa$soglia), filamento = idtaxa$filamento,
+    seme = parametri$seme, processi = parametri$processi
+  )
+  ranghi <- colnames(esito$tax)
+  salva_rds(list(tax = esito$tax, confidenza = esito$confidenza),
+            file.path(cartella, "tassonomia.rds"))
+  # Due decimali: la confidenza e' una media su cento estrazioni.
+  scritta <- ifelse(is.na(esito$confidenza), "", sprintf("%.2f", esito$confidenza))
+  dim(scritta) <- dim(esito$confidenza)
+  scrivi_atomico(
+    c(paste(c("sequenza", ranghi), collapse = "\t"),
+      sprintf("%s\t%s", varianti, apply(scritta, 1, paste, collapse = "\t"))),
+    file.path(cartella, "confidenza.tsv")
+  )
+  scrivi_json(list(ranghi_scartati = as.list(esito$scartati)),
+              file.path(cartella, "ranghi_scartati.json"))
+  list(tax = esito$tax, artefatti = c("confidenza.tsv", "ranghi_scartati.json"))
+}
+
 esegui_fase(function(parametri, cartella) {
-  richiedi_pacchetti("dada2")
+  con_idtaxa <- !is.null(facoltativo(parametri, "idtaxa"))
+  if (!con_idtaxa) richiedi_pacchetti("dada2")
 
   tabella <- readRDS(parametri$tabella)
   varianti <- colnames(tabella)
@@ -40,6 +84,11 @@ esegui_fase(function(parametri, cartella) {
     stop("la tabella di S7 non ha varianti: S7 avrebbe dovuto fermarsi con E-S7-01")
   }
 
+  if (con_idtaxa) {
+    assegnata <- assegna_con_idtaxa(parametri, cartella, varianti)
+    tax <- assegnata$tax
+    ranghi <- colnames(tax)
+  } else {
   set.seed(as.integer(parametri$seme))
   esito <- dada2::assignTaxonomy(
     varianti, parametri$riferimento,
@@ -64,6 +113,7 @@ esegui_fase(function(parametri, cartella) {
       paste(ifelse(is.na(ranghi), "(senza nome)", ranghi), collapse = ", ")))
   }
   salva_rds(list(tax = tax, boot = boot), file.path(cartella, "tassonomia.rds"))
+  }
 
   letture <- colSums(tabella)
   vuoto <- function(x) ifelse(is.na(x), "", x)
@@ -73,11 +123,13 @@ esegui_fase(function(parametri, cartella) {
               apply(tax, 1, function(r) paste(vuoto(r), collapse = "\t")), letture)),
     file.path(cartella, "tassonomia.tsv")
   )
-  scrivi_atomico(
-    c(paste(c("sequenza", ranghi), collapse = "\t"),
-      sprintf("%s\t%s", varianti, apply(boot, 1, paste, collapse = "\t"))),
-    file.path(cartella, "bootstrap.tsv")
-  )
+  if (!con_idtaxa) {
+    scrivi_atomico(
+      c(paste(c("sequenza", ranghi), collapse = "\t"),
+        sprintf("%s\t%s", varianti, apply(boot, 1, paste, collapse = "\t"))),
+      file.path(cartella, "bootstrap.tsv")
+    )
+  }
 
   # La copertura per gruppo: le varianti presenti nei campioni del gruppo, e
   # le letture del gruppo, con e senza il phylum assegnato.
@@ -96,5 +148,9 @@ esegui_fase(function(parametri, cartella) {
     file.path(cartella, "copertura_per_gruppo.tsv")
   )
 
+  if (con_idtaxa) {
+    return(c("tassonomia.rds", "tassonomia.tsv", assegnata$artefatti,
+             "copertura_per_gruppo.tsv"))
+  }
   c("tassonomia.rds", "tassonomia.tsv", "bootstrap.tsv", "copertura_per_gruppo.tsv")
 })

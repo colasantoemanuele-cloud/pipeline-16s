@@ -15,9 +15,9 @@ Le fasi, nell'ordine:
 |---|---|
 | S0 | valida configurazione, metadati e file delle letture, prima di ogni calcolo |
 | S1 | profilo di qualità e di lunghezza di tutte le letture |
-| S2 | filtro e troncamento delle letture (`dada2::filterAndTrim`) |
+| S2 | taglio del primer, se cercato lungo la lettura; filtro e troncamento (`dada2::filterAndTrim`) |
 | S3-S7 | modello d'errore per corsa, inferenza delle varianti, in modalità appaiata fusione delle coppie (SM, `dada2::mergePairs`), tabella delle sequenze, rimozione delle chimere, selezione per lunghezza |
-| S8 | assegnazione tassonomica (`dada2::assignTaxonomy`) |
+| S8 | assegnazione tassonomica (`dada2::assignTaxonomy`, oppure `DECIPHER::IdTaxa`) |
 | S10 | oggetto integrato con tutti i campioni |
 | S11 | curva di calibrazione dai controlli positivi in diluizione (KatharoSeq) e soglia di profondità |
 | S12 | riconoscimento dei contaminanti dai controlli negativi (`decontam`) |
@@ -40,16 +40,16 @@ parametro.
 - Letture Illumina dell'amplicone 16S, in FASTQ compresso con gzip o no: **single-end**, un
   file per campione, o **appaiate** (`io.layout: paired-end`), due file per campione, fuse dopo
   l'inferenza. Un file con le due letture di ogni coppia insieme viene respinto (GUIDA.md, 1.2).
-- Letture **senza primer in testa**, oppure con il primer a posizione fissa, che si
-  toglie con `filter.trimLeft`.
+- Letture **senza primer**, con il primer a posizione fissa (`filter.trimLeft`), o con il primer dopo un
+  numero variabile di basi, cercato lungo la lettura (`filter.primer_removal: search`; GUIDA.md, 6.3).
 - Metadati in tabelle di testo UTF-8 separate da tabulazioni: una tabella dei campioni,
   oppure le tabelle di assay e di studio del formato ISA-Tab degli archivi OSDR.
 - Facoltativi: un file del lotto (piastra di estrazione e corsa di sequenziamento per
   campione), controlli negativi, controlli positivi in diluizione seriale. Senza di
   essi la pipeline procede e dichiara che cosa non ha potuto fare. Un controllo
   negativo senza alcuna lettura è ammesso e attraversa le fasi come tale.
-- Un riferimento tassonomico nel formato dei training set di dada2 (SILVA, RDP, GTDB,
-  Greengenes: da due a sette ranghi per sequenza), con il suo MD5, verificato a ogni avvio.
+- Un riferimento tassonomico con il suo MD5, verificato a ogni avvio: un training set di dada2 (SILVA, RDP, GTDB,
+  Greengenes) per `assignTaxonomy`, o un classificatore addestrato di DECIPHER per IdTaxa (`tax.classifier`; GUIDA.md, 1.5).
 
 File e metadati si agganciano con una chiave estratta dal nome di ogni file, unica per
 campione (`io.accession_regex`). Come preparare letture e tabelle è in GUIDA.md,
@@ -200,9 +200,9 @@ sezioni, nell'ordine:
 | 3 | configurazione non valida, `run` su una cartella già usata, o `init` che si rifiuta; nessuna fase è partita |
 | 4 | arresto con punto di ripresa, stampato e scritto in `99_logs/punto_di_ripresa.json` |
 | 5 | una fase prevista dal grafo non è realizzata; non si presenta con le fasi attuali |
+| 6 | la cartella di uscita è tenuta da un'altra esecuzione (`E-RUN-01`): nulla è stato scritto |
 
-Corretta la causa di un arresto, `resume` riparte da lì. Gli avvisi non fermano. Ogni messaggio
-porta un codice (`E-S11-02`, `E-G15-10`, ...), il dettaglio del caso e che cosa fare.
+Corretta la causa di un arresto, `resume` riparte da lì. Gli avvisi non fermano. Ogni messaggio porta un codice (`E-S11-02`, `E-G15-10`, ...), il dettaglio del caso e che cosa fare.
 
 ## Analisi ecologiche di base
 
@@ -270,9 +270,9 @@ misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in
   nome solo dove il contenuto non si può giudicare (GUIDA.md, 1.2); lo è un dataset le cui letture
   portano tutte il marcatore `/2`. In modalità appaiata i taxa con la regione più lunga di quanto
   le letture troncate coprono non si fondono, senza alcun errore (GUIDA.md, 6.7).
-- `init` riconosce il primer solo se è in un elenco di primer 16S comuni e sta in testa
-  alle letture; la chiave del campione solo se una colonna corrisponde uno a uno ai
-  file. Negli altri casi lascia la riga da scegliere, e lo dice.
+- `init` riconosce il primer solo se è in un elenco di primer 16S comuni; la chiave del campione solo se una
+  colonna corrisponde uno a uno ai file. Il primer cercato lungo la lettura ammette sole sostituzioni, non
+  inserzioni né delezioni, e non toglie il primer dell'altra estremità in coda alle letture (GUIDA.md, 6.3).
 - Con `filter.trimLeft` maggiore di zero `qc.conserved_motif` si cerca dopo le basi tagliate
   (un'espressione che guarda all'indietro non trova nulla) e il primer non si cerca: in
   `letture_ispezionate.tsv` la colonna `frazione_primer` vale 0.
@@ -280,9 +280,9 @@ misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in
   altri strumenti leggono il file.
 - Il testo generale «che cosa fare» di alcuni codici descrive solo il caso più frequente (quelli
   sui controlli negativi citano `decontam.min_blanks` anche se omesso): fa fede il dettaglio.
-- Un riferimento senza cloroplasti, mitocondri ed eucarioti (GTDB) non permette di toglierli
-  per nome (GUIDA.md, 6.4). La tassonomia arriva al rango più fine del riferimento; l'albero di S9 serve alle
-  distanze fra campioni, non come risultato filogenetico.
+- Un riferimento senza cloroplasti, mitocondri ed eucarioti (GTDB) non permette di toglierli per nome. La tassonomia
+  arriva al rango più fine del riferimento, con IdTaxa al genere. IdTaxa richiede un classificatore già addestrato, e può
+  lasciare vuoto un rango sopra ranghi assegnati (GUIDA.md, 6.4). L'albero di S9 serve alle distanze fra campioni.
 - Nelle analisi ecologiche una variabile è continua, e un disegno è a misure ripetute, solo se
   dichiarati (`design.continuous_variables`, `design.subject`: GUIDA.md, 4.1 e 4.2). Con una
   distanza non euclidea la PERMANOVA entro soggetto può non essere valutabile. Un'analisi respinta

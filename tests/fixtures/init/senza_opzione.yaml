@@ -262,8 +262,15 @@ tax:
   ## [DA SCEGLIERE] la versione del riferimento non si legge dal nome del file
   ## (riferimento.fa.gz)
   # ref_version:
-  ## Classificatore: il bayesiano ingenuo di dada2::assignTaxonomy.
-  ## [UNICA FORMA] la pipeline realizza questo solo valore
+  ## Classificatore: naive_bayes (il bayesiano ingenuo di
+  ## dada2::assignTaxonomy, su un riferimento FASTA) oppure idtaxa
+  ## (DECIPHER::IdTaxa, su un classificatore addestrato). Omesso: naive_bayes.
+  ## [MODALITA'] omesso vale naive_bayes. idtaxa e' disponibile: richiede un
+  ## classificatore addestrato nel formato di DECIPHER (tax.idtaxa_trained con
+  ## il suo MD5, tax.idtaxa_threshold, tax.idtaxa_strand) al posto del
+  ## riferimento FASTA. dati/riferimento/scarica_addestrato.py scarica quelli
+  ## di SILVA: 138.2 per un'analisi nuova, 2019 per confrontarsi con tabelle
+  ## elaborate con SILVA r138
   # classifier: "naive_bayes"
   ## Bootstrap minimo per assegnare un rango (dada2::assignTaxonomy, minBoot).
   ## [STANDARD] dada2::assignTaxonomy, minBoot = 50

@@ -973,9 +973,9 @@ def test_all_avvio_si_tolgono_i_resti_di_un_interruzione_solo_se_nessuno_sta_scr
     **Obiettivo**: Verificare che all'avvio di un'esecuzione i file
     ``.scrittura-*`` e la cartella delle copie di lavoro lasciati in qualunque
     cartella di fase da un'esecuzione interrotta siano tolti, e gli altri file
-    no; che il blocco dell'esecuzione sia tenuto in forma condivisa finche'
-    l'esecuzione dura e sciolto alla fine; e che, mentre un'altra esecuzione
-    tiene il blocco, un nuovo avvio non tocchi i file con quel prefisso.
+    no; che il blocco dell'esecuzione sia tenuto in forma esclusiva finche'
+    l'esecuzione dura e sciolto alla fine; e che, mentre un altro tiene il
+    blocco, un nuovo avvio si fermi senza toccare i file con quel prefisso.
 
     **Razionale scientifico e sistemistico**: Un file temporaneo e' il resto di
     un'interruzione solo se nessuno lo sta scrivendo: toglierlo a
@@ -986,7 +986,11 @@ def test_all_avvio_si_tolgono_i_resti_di_un_interruzione_solo_se_nessuno_sta_scr
 
     import sintetico
 
-    from amplicon16s.io_layer.artifacts import NOME_BLOCCO, BloccoEsecuzione
+    from amplicon16s.io_layer.artifacts import (
+        NOME_BLOCCO,
+        BloccoEsecuzione,
+        CartellaOccupata,
+    )
     from amplicon16s.runner.executor import Conclusione, Esecutore
     from amplicon16s.runner.graph import Passo
     from amplicon16s.runner.project import ProjectRun
@@ -1013,10 +1017,10 @@ def test_all_avvio_si_tolgono_i_resti_di_un_interruzione_solo_se_nessuno_sta_scr
     originale = type(fase).calcola
 
     def osserva(self, contesto):
-        # Durante l'esecuzione il blocco e' condiviso: uno esclusivo non si ottiene.
+        # Durante l'esecuzione il blocco e' esclusivo: nemmeno uno condiviso si ottiene.
         with open(radice / "99_logs" / NOME_BLOCCO, "rb") as file:
             try:
-                fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(file, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 visti.append(False)
             except BlockingIOError:
                 visti.append(True)
@@ -1033,19 +1037,24 @@ def test_all_avvio_si_tolgono_i_resti_di_un_interruzione_solo_se_nessuno_sta_scr
     with open(radice / "99_logs" / NOME_BLOCCO, "rb") as file:
         fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
-    # Un'altra esecuzione sta scrivendo: i suoi file temporanei non si toccano.
+    # Un'altra esecuzione sta scrivendo: il nuovo avvio si ferma e i file
+    # temporanei dell'altra non si toccano.
     resti = lascia_resti()
     altra = BloccoEsecuzione(radice / "99_logs")
-    assert altra.prendi(lambda: None) is True
+    assert altra.prendi() is True and altra.preso
     try:
-        seconda = BloccoEsecuzione(radice / "99_logs")
-        chiamate: list[int] = []
-        assert seconda.prendi(lambda: chiamate.append(1)) is False and chiamate == []
-        seconda.rilascia()
-        assert Esecutore(ProjectRun(config), fino_a=Passo.S0).esegui().conclusione is (
-            Conclusione.COMPLETATA)
-        chiudi()
+        with pytest.raises(CartellaOccupata) as occupata:
+            BloccoEsecuzione(radice / "99_logs").prendi()
+        assert occupata.value.esclusivo is True
+        with pytest.raises(CartellaOccupata):
+            Esecutore(ProjectRun(config), fino_a=Passo.S0).esegui()
         assert all(p.exists() for p in resti)
+        # Chi ha gia' il blocco lo consegna all'esecutore, che non lo riapre
+        # e non lo scioglie.
+        assert Esecutore(ProjectRun(config), fino_a=Passo.S0, blocco=altra).esegui(
+            ).conclusione is Conclusione.COMPLETATA
+        chiudi()
+        assert altra.preso and not any(p.exists() for p in resti[:2])
     finally:
         altra.rilascia()
 

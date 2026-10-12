@@ -181,7 +181,11 @@ def test_nessun_valore_del_dataset_di_riferimento_fa_da_predefinito():
         gruppo, nome = chiave.split(".")
         campo = Config.model_fields[gruppo].annotation.model_fields[nome]
         assert (campo.is_required() or chiave in defaults.STANDARD_DEL_METODO
-                or chiave in defaults.CONDIZIONALI), chiave
+                or chiave in defaults.CONDIZIONALI
+                # Senza predefinito: obbligatori con il classificatore di chi
+                # non ne dichiara uno.
+                or chiave in defaults.SOLO_DEL_BAYESIANO
+                or chiave in defaults.SCELTE_DI_MODALITA), chiave
     radice = TEST.parent
     sorgenti = [radice / "src" / "amplicon16s" / "config" / nome
                 for nome in ("defaults.py", "schema.py")]

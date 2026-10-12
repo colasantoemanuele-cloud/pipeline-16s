@@ -546,3 +546,29 @@ def test_artefatti_binari(albero):
     artefatto = albero.registra(Fase.SEQTAB, "seqtab.bin")
     assert artefatto.percorso.read_bytes() == dati
     assert artefatto.checksum == checksum_bytes(dati)
+
+
+def test_gli_artefatti_di_un_calcolo_precedente_si_possono_dimenticare(tmp_path):
+    """
+    **Obiettivo**: Verificare che ``AlberoOutput.dimentica`` tolga dalla
+    cartella di una fase e dal suo manifesto i soli artefatti indicati, lasci
+    intatti gli altri, e non riscriva il manifesto se nessuno di quelli
+    indicati esiste.
+
+    **Razionale scientifico e sistemistico**: Una fase rifatta in un'altra
+    modalita' non scrive piu' alcuni file della precedente: lasciati nella
+    cartella e nel manifesto sembrerebbero di questa esecuzione.
+    """
+    from amplicon16s.io_layer.artifacts import AlberoOutput, Fase
+
+    albero = AlberoOutput(tmp_path)
+    for nome in ("a.tsv", "b.tsv", "c.tsv"):
+        albero.scrivi_testo(Fase.TAXONOMY, nome, nome)
+    manifesto = albero.percorso_manifesto(Fase.TAXONOMY)
+    prima = manifesto.stat().st_mtime_ns, manifesto.read_bytes()
+    assert albero.dimentica(Fase.TAXONOMY, ("assente.tsv",)) == ()
+    assert (manifesto.stat().st_mtime_ns, manifesto.read_bytes()) == prima
+    assert albero.dimentica(Fase.TAXONOMY, ("b.tsv", "assente.tsv")) == ("b.tsv",)
+    assert sorted(albero.manifesto(Fase.TAXONOMY)) == ["a.tsv", "c.tsv"]
+    assert not (albero.cartella(Fase.TAXONOMY) / "b.tsv").exists()
+    assert not albero.non_integri(Fase.TAXONOMY)

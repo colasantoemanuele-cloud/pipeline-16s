@@ -7,8 +7,9 @@
 #                            (S9 disattivata)
 #   varianti.tsv             per variante: identificativo, sequenza, lunghezza,
 #                            letture nei biologici e in tutti i campioni
-#   varianti_accessorie.tsv  per variante: il bootstrap di ciascun rango (S8) e i
-#                            taxa col difetto noto del riferimento
+#   varianti_accessorie.tsv  per variante: il bootstrap di ciascun rango (S8; con
+#                            il classificatore IdTaxa la confidenza) e i taxa
+#                            col difetto noto del riferimento
 #   riepilogo.json           dimensioni, campioni senza letture, regola degli
 #                            identificativi e la variante ASV1
 #
@@ -38,7 +39,10 @@ esegui_fase(function(parametri, cartella) {
   tabella <- readRDS(parametri$tabella)
   tassonomia <- readRDS(parametri$tassonomia)
   tax <- tassonomia$tax
-  boot <- tassonomia$boot
+  # Con il classificatore IdTaxa la misura di ogni rango e' la confidenza, e le
+  # colonne della tabella accessoria ne portano il nome.
+  misura <- if (is.null(tassonomia$boot)) "confidenza" else "boot"
+  boot <- tassonomia[[misura]]
   sequenze <- colnames(tabella)
   if (!is.null(rownames(tabella)) && identical(rownames(tabella), rownames(tax)) &&
       all(colnames(tabella) %in% campioni)) {
@@ -162,10 +166,12 @@ esegui_fase(function(parametri, cartella) {
     }
   }
   scrivi_atomico(
-    c(paste(c("asv_id", paste0("boot_", colnames(boot)), "difetto_riferimento"),
+    c(paste(c("asv_id", paste0(misura, "_", colnames(boot)), "difetto_riferimento"),
             collapse = "\t"),
       sprintf("%s\t%s\t%s", ids,
-              apply(boot, 1, function(r) paste(sprintf("%d", as.integer(r)), collapse = "\t")),
+              apply(boot, 1, function(r) paste(
+                if (misura == "boot") sprintf("%d", as.integer(r))
+                else ifelse(is.na(r), "", sprintf("%.2f", r)), collapse = "\t")),
               unname(marcate[ordinate]))),
     file.path(cartella, "varianti_accessorie.tsv")
   )

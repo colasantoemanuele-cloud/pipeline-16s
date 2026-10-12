@@ -23,13 +23,18 @@ import sys
 import zlib
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from amplicon16s.gates.g01_g15 import PRIMER_IN_TESTA, _e_lettura_inversa
 from amplicon16s.init import vocabolario as v
 from amplicon16s.io_layer.reads import (
+    FRAZIONE_DI_ERRORI,
+    QUOTA_FUORI_POSIZIONE,
+    SFASAMENTO_CERCATO,
+    RicercaPrimer,
+    discordanze_di_partenza,
     MARCATORI_DI_FILE,
     StatisticheFile,
     abbina_file,
@@ -48,6 +53,7 @@ __all__ = [
     "Chiave",
     "Ispezione",
     "PrimerOsservato",
+    "PrimerSfasato",
     "LETTURE_PER_IL_MOTIVO",
     "SOGLIA_BASE_DEL_MOTIVO",
     "colonna_del_campione",
@@ -179,13 +185,19 @@ def lunghezza_dell_inserto(forward: str, reverse: str) -> int | None:
     return None
 
 
-def inserti_di_una_coppia_di_file(argomenti: tuple[str, str]) -> list[int | None]:
+def inserti_di_una_coppia_di_file(argomenti: tuple[Any, ...]) -> list[int | None]:
     """La lunghezza dell'inserto di ciascuna delle prime
     :data:`COPPIE_PER_L_INSERTO` coppie dei due file (``None`` dove le letture
     non si sovrappongono). Una sola tupla di argomenti: la funzione gira in un
     processo per campione.
+
+    Con due ricerche del primer in coda alla tupla (quella della forward e
+    quella della reverse) la lunghezza e' quella dell'inserto senza i primer e
+    senza le basi che li precedono: dal frammento misurato si toglie, per ogni
+    coppia, cio' che il taglio toglie alle due letture; una coppia in cui manca
+    un primer non si misura.
     """
-    forward, reverse = argomenti
+    forward, reverse, *ricerche = argomenti
     lunghezze: list[int | None] = []
     try:
         with apri_fastq(forward) as primo, apri_fastq(reverse) as secondo:
@@ -194,8 +206,14 @@ def inserti_di_una_coppia_di_file(argomenti: tuple[str, str]) -> list[int | None
                     continue
                 if len(lunghezze) >= COPPIE_PER_L_INSERTO:
                     break
-                lunghezze.append(lunghezza_dell_inserto(
-                    riga_1.strip().upper(), riga_2.strip().upper()))
+                prima, seconda = riga_1.strip().upper(), riga_2.strip().upper()
+                misurata = lunghezza_dell_inserto(prima, seconda)
+                if ricerche and misurata is not None:
+                    tagli = (ricerche[0].fine(prima), ricerche[1].fine(seconda))
+                    misurata = (
+                        None if None in tagli or misurata <= sum(tagli)  # type: ignore[arg-type]
+                        else misurata - sum(tagli))  # type: ignore[arg-type]
+                lunghezze.append(misurata)
     except (OSError, EOFError, zlib.error):
         pass
     return lunghezze
@@ -254,23 +272,50 @@ class Ispezione:
     basi: tuple[dict[str, int], ...]
     #: Quante letture sono entrate in ``basi``.
     letture_nel_consenso: int
+    #: Per ciascun primer cercato lungo la lettura, fra le letture entrate nel
+    #: consenso: a quale sfasamento si trova, e in quante letture.
+    sfasamenti: tuple[dict[int, int], ...] = ()
+    #: Per ciascuno di quei primer e per posizione dopo la sua fine, quante
+    #: letture portano ciascuna base.
+    basi_dopo: tuple[tuple[dict[str, int], ...], ...] = ()
+
+    def dopo_il_primer(self, indice: int) -> Ispezione:
+        """La stessa ispezione con, al posto delle basi in testa, quelle che
+        seguono il primer trovato: per il consenso del motivo.
+        """
+        return replace(self, basi=self.basi_dopo[indice])
 
 
-def ispeziona(argomenti: tuple[str, int | None, tuple[str, ...]]) -> Ispezione:
+#: La quota di letture con il primer sotto la quale uno sfasamento non conta
+#: per lo sfasamento massimo proposto: qualche lettura isolata non allarga la
+#: finestra.
+QUOTA_DI_UNO_SFASAMENTO = 0.01
+
+
+def ispeziona(argomenti: tuple[Any, ...]) -> Ispezione:
     """Legge un file di letture: i segni di coppia e la struttura con la
     scansione di S0 e S1, e le letture che iniziano con ciascun primer.
 
     ``argomenti`` e' la terna (percorso, letture da ispezionare o ``None`` per
     tutte, espressioni dei primer): una sola tupla, perche' la funzione gira in
-    un processo per file.
+    un processo per file. Un quarto elemento, le sequenze IUPAC degli stessi
+    primer, li fa cercare anche lungo la lettura
+    (:class:`~amplicon16s.io_layer.reads.RicercaPrimer`, fino a
+    :data:`SFASAMENTO_CERCATO` basi di sfasamento) nelle letture del consenso.
     """
-    percorso, quante, primer = argomenti
+    percorso, quante, primer, *resto = argomenti
     limite = sys.maxsize if quante is None else quante
     statistiche = scansiona_file(percorso, limite, None, None)
     espressioni = [re.compile(p) for p in primer]
     conteggi = [0] * len(espressioni)
     basi: list[Counter[str]] = [Counter() for _ in range(_BASI_IN_TESTA)]
     nel_consenso = 0
+    ricerche = [
+        RicercaPrimer(sequenza, discordanze_di_partenza(sequenza), SFASAMENTO_CERCATO)
+        for sequenza in (resto[0] if resto else ())]
+    sfasamenti: list[Counter[int]] = [Counter() for _ in ricerche]
+    dopo: list[list[Counter[str]]] = [
+        [Counter() for _ in range(_BASI_IN_TESTA)] for _ in ricerche]
     if statistiche.valido:
         with apri_fastq(percorso) as file:
             for numero, riga in enumerate(file):
@@ -286,7 +331,94 @@ def ispeziona(argomenti: tuple[str, int | None, tuple[str, ...]]) -> Ispezione:
                     nel_consenso += 1
                     for posizione, base in enumerate(riga[:_BASI_IN_TESTA].rstrip("\r\n")):
                         basi[posizione][base] += 1
-    return Ispezione(statistiche, tuple(conteggi), tuple(dict(b) for b in basi), nel_consenso)
+                    sequenza = riga.rstrip("\r\n")
+                    for indice, ricerca in enumerate(ricerche):
+                        trovata = ricerca.trova(sequenza)
+                        if trovata is None:
+                            continue
+                        sfasamenti[indice][trovata[0]] += 1
+                        fine = trovata[0] + len(ricerca.primer)
+                        for posizione, base in enumerate(
+                                sequenza[fine:fine + _BASI_IN_TESTA]):
+                            dopo[indice][posizione][base] += 1
+    return Ispezione(
+        statistiche, tuple(conteggi), tuple(dict(b) for b in basi), nel_consenso,
+        tuple(dict(s) for s in sfasamenti),
+        tuple(tuple(dict(b) for b in del_primer) for del_primer in dopo))
+
+
+@dataclass(frozen=True)
+class PrimerSfasato:
+    """Un primer dell'elenco trovato lungo le letture, con gli sfasamenti."""
+
+    primer: v.Primer
+    #: Il posto del primer nell'elenco: l'indice di ``Ispezione.basi_dopo``.
+    indice: int
+    #: Mediana, minimo e massimo fra i file della frazione di letture con il
+    #: primer entro :data:`SFASAMENTO_CERCATO` basi.
+    mediana: float
+    minima: float
+    massima: float
+    #: Sull'insieme dei file: sfasamento -> letture.
+    sfasamenti: dict[int, int]
+
+    @property
+    def fuori_posizione(self) -> float:
+        """La quota di letture con il primer a uno sfasamento diverso dal piu' frequente."""
+        totale = sum(self.sfasamenti.values())
+        return 1 - max(self.sfasamenti.values()) / totale if totale else 0.0
+
+    @property
+    def sfasamento_massimo(self) -> int:
+        """Il piu' grande sfasamento che porta almeno
+        :data:`QUOTA_DI_UNO_SFASAMENTO` delle letture con il primer.
+        """
+        totale = sum(self.sfasamenti.values())
+        return max(
+            (s for s, n in self.sfasamenti.items() if n >= QUOTA_DI_UNO_SFASAMENTO * totale),
+            default=0)
+
+    @property
+    def da_cercare(self) -> bool:
+        """Vero se il primer non sta a una posizione fissa: va cercato."""
+        return self.fuori_posizione > QUOTA_FUORI_POSIZIONE
+
+
+def primer_sfasato(
+    ispezioni: Mapping[str, Ispezione], elenco: Sequence[v.Primer],
+) -> PrimerSfasato | None:
+    """Il primer dell'elenco che le letture portano entro
+    :data:`SFASAMENTO_CERCATO` basi dall'inizio, se ce n'e' uno.
+
+    La regola e' quella di :func:`primer_nelle_letture`, con il primer cercato
+    lungo la lettura invece che in testa: la mediana fra i file della frazione
+    di letture che lo portano deve raggiungere ``PRIMER_IN_TESTA``; fra piu'
+    primer vale la mediana piu' alta, poi la forma meno degenerata, poi
+    l'ordine dell'elenco. Chi chiama guarda :attr:`PrimerSfasato.da_cercare`:
+    un primer che sta sempre allo stesso posto non richiede la ricerca.
+    """
+    import statistics
+
+    valide = {n: i for n, i in ispezioni.items()
+              if i.statistiche.valido and i.letture_nel_consenso and i.sfasamenti}
+    if not valide:
+        return None
+    frazioni = [
+        {n: sum(i.sfasamenti[k].values()) / i.letture_nel_consenso for n, i in valide.items()}
+        for k in range(len(elenco))
+    ]
+    mediane = [statistics.median(f.values()) for f in frazioni]
+    migliore = max(
+        range(len(mediane)),
+        key=lambda k: (mediane[k], -_degenerazione(elenco[k].sequenza), -k))
+    if mediane[migliore] < PRIMER_IN_TESTA:
+        return None
+    totali: Counter[int] = Counter()
+    for ispezione in valide.values():
+        totali.update(ispezione.sfasamenti[migliore])
+    return PrimerSfasato(
+        elenco[migliore], migliore, mediane[migliore], min(frazioni[migliore].values()),
+        max(frazioni[migliore].values()), dict(sorted(totali.items())))
 
 
 @dataclass(frozen=True)

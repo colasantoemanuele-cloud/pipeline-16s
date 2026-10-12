@@ -111,7 +111,7 @@ def togli_scritture_interrotte(radice: Path) -> list[Path]:
     """Toglie dalle cartelle delle fasi cio' che un'esecuzione interrotta ha
     lasciato a meta' (:data:`PREFISSO_SCRITTURA`), e restituisce cio' che ha
     tolto. Va chiamata solo quando nessun'altra esecuzione scrive nella
-    cartella (:class:`BloccoEsecuzione`).
+    cartella, cioe' tenendone il blocco (:class:`BloccoEsecuzione`).
 
     Si guardano le sole cartelle di :class:`Fase`, quelle in cui scrivono le
     esecuzioni che tengono il blocco. Il resto della cartella di uscita puo'
@@ -137,54 +137,82 @@ def togli_scritture_interrotte(radice: Path) -> list[Path]:
     return tolti
 
 
+class CartellaOccupata(Exception):
+    """Un altro processo tiene il blocco della cartella di uscita.
+
+    ``esclusivo`` dice in quale forma: esclusiva (un'altra esecuzione), o
+    condivisa (un comando che legge la cartella e chiede di non vederla
+    cambiare).
+    """
+
+    def __init__(self, percorso: Path, esclusivo: bool) -> None:
+        super().__init__(str(percorso))
+        self.percorso = percorso
+        self.esclusivo = esclusivo
+
+
 class BloccoEsecuzione:
-    """Il blocco con cui le esecuzioni di una stessa cartella di uscita si
-    coordinano, per la sola pulizia dei file lasciati da un'interruzione.
+    """Il blocco con cui una cartella di uscita ammette una sola esecuzione.
 
-    Ogni esecuzione tiene il blocco in forma condivisa finche' dura. All'avvio
-    prova a prenderlo in forma esclusiva: se ci riesce nessun'altra esecuzione
-    sta scrivendo nella cartella, e cio' che porta il prefisso delle scritture
-    in corso e' il resto di un'interruzione; se non ci riesce, quei file possono
-    essere di chi sta scrivendo, e non si toccano. Dove il filesystem non
-    realizza i blocchi non si blocca e non si pulisce.
+    Chi esegue le fasi lo prende in forma esclusiva e lo tiene finche' dura:
+    due esecuzioni insieme, magari con configurazioni diverse, mescolerebbero
+    gli artefatti. Chi lo trova gia' preso non aspetta e non scrive nulla
+    (:class:`CartellaOccupata`). Chi lo ottiene sa che nessun altro sta
+    scrivendo: cio' che porta il prefisso delle scritture in corso e' il resto
+    di un'interruzione. Dove il filesystem non realizza i blocchi non si blocca
+    e non si pulisce (:attr:`disponibile` falso).
 
-    Razionale sistemistico: il blocco e' del sistema operativo e si scioglie da
-    solo se il processo muore; non e' un file da cancellare a mano.
+    Razionale sistemistico: il blocco e' del sistema operativo (``flock``) e si
+    scioglie da solo quando il processo finisce, comunque finisca; non e' un
+    file da cancellare a mano. Il file non si tronca e non vi si scrive: il suo
+    contenuto non conta. Su un filesystem di rete il blocco puo' valere per il
+    solo nodo, o restare fino alla scadenza del lease dopo un guasto.
     """
 
     def __init__(self, cartella: Path) -> None:
         self._percorso = cartella / NOME_BLOCCO
         self._descrittore: int | None = None
+        #: Falso se il blocco non si e' potuto chiedere (filesystem senza
+        #: ``flock``, cartella non scrivibile): l'esecuzione prosegue senza.
+        self.disponibile = False
 
-    def prendi(self, se_da_soli: Callable[[], None]) -> bool:
-        """Prende il blocco; se nessun altro lo tiene esegue ``se_da_soli``
-        prima di condividerlo. Restituisce vero se era da solo.
+    @property
+    def preso(self) -> bool:
+        """Vero se questo oggetto tiene il blocco."""
+        return self._descrittore is not None and self.disponibile
+
+    def prendi(self) -> bool:
+        """Prende il blocco in forma esclusiva, senza aspettare. Restituisce
+        vero se lo tiene, falso se il filesystem non lo realizza; solleva
+        :class:`CartellaOccupata` se lo tiene un altro processo.
         """
         try:
             self._percorso.parent.mkdir(parents=True, exist_ok=True)
+            # Senza O_TRUNC: il file di un'esecuzione in corso non si tocca.
             self._descrittore = os.open(self._percorso, os.O_RDWR | os.O_CREAT, PERMESSI_DEI_FILE)
         except OSError:
             return False
         try:
             fcntl.flock(self._descrittore, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            # Un'altra esecuzione lo tiene: ci si accoda in forma condivisa.
-            self._condividi()
-            return False
+            esclusivo = self._tenuto_in_esclusiva()
+            self.rilascia()
+            raise CartellaOccupata(self._percorso, esclusivo) from None
         except OSError:
             self.rilascia()
             return False
-        try:
-            se_da_soli()
-        finally:
-            self._condividi()
+        self.disponibile = True
         return True
 
-    def _condividi(self) -> None:
+    def _tenuto_in_esclusiva(self) -> bool:
+        """Vero se chi tiene il blocco lo tiene in forma esclusiva: allora
+        nemmeno la forma condivisa si ottiene.
+        """
         try:
-            fcntl.flock(self._descrittore, fcntl.LOCK_SH)
+            fcntl.flock(self._descrittore, fcntl.LOCK_SH | fcntl.LOCK_NB)
         except OSError:
-            self.rilascia()
+            return True
+        return False
 
     def rilascia(self) -> None:
         """Scioglie il blocco."""
@@ -194,6 +222,7 @@ class BloccoEsecuzione:
             except OSError:
                 pass
             self._descrittore = None
+        self.disponibile = False
 
 
 def nome_manifesto_passo(passo: str) -> str:
@@ -426,6 +455,30 @@ class AlberoOutput:
             self.percorso_manifesto(artefatto.fase),
             json.dumps(documento, indent=2, ensure_ascii=False, sort_keys=False) + "\n",
         )
+
+    def dimentica(self, fase: Fase, nomi: Iterable[str]) -> tuple[str, ...]:
+        """Toglie dalla cartella di una fase, e dal suo manifesto, gli artefatti
+        indicati che un calcolo precedente vi ha lasciato e che quello in corso
+        non scrive piu' (un'altra modalita' della stessa fase). Restituisce
+        quelli che c'erano; se non ce n'e' nessuno non tocca nulla.
+
+        Senza, i file del calcolo precedente resterebbero accanto ai nuovi e
+        nel manifesto della cartella, come se fossero di questa esecuzione.
+        """
+        voci = self.manifesto(fase)
+        presenti = tuple(sorted(
+            n for n in nomi if n in voci or (self.cartella(fase) / n).is_file()))
+        if not presenti:
+            return ()
+        for nome in presenti:
+            (self.cartella(fase) / nome).unlink(missing_ok=True)
+            voci.pop(nome, None)
+        scrivi_atomico(
+            self.percorso_manifesto(fase),
+            json.dumps({"fase": fase.value, "artefatti": [voci[n] for n in sorted(voci)]},
+                       indent=2, ensure_ascii=False, sort_keys=False) + "\n",
+        )
+        return presenti
 
     # ----------------------------------------------------------------- #
     # Verifica                                                           #

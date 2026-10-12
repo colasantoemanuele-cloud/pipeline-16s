@@ -93,7 +93,13 @@ import copy
 from pathlib import Path
 
 import pytest
-from conftest import FORMATO, chiavi_della_modalita_appaiata, chiavi_schema, esegui_g15
+from conftest import (
+    FORMATO,
+    chiavi_della_modalita_appaiata,
+    chiavi_di_altre_modalita,
+    chiavi_schema,
+    esegui_g15,
+)
 import yaml
 
 from amplicon16s.errors.catalog import Categoria, voce
@@ -199,7 +205,7 @@ OBBLIGATORI = (
 #: (come si esegue e in che forma si scrive). Con ``defaults.STANDARD_DEL_METODO``
 #: e i nulli sono tutti i predefiniti ammessi.
 UNICA_FORMA = (
-    "tax.classifier", "tax.assign_species", "phylo.aligner", "phylo.model",
+    "tax.assign_species", "phylo.aligner", "phylo.model",
     "katharoseq.curve_model", "katharoseq.read_stage", "decontam.method",
     "out.serialization", "out.asv_id_scheme", "out.taxa_are_rows", "out.sample_id_source",
     "pair.trim_overhang",
@@ -213,8 +219,9 @@ DELLO_STRUMENTO = (
 NULLI = (
     "io.study_table", "io.batch_table", "meta.study_sample_id_column", "tax.ref_bad_taxa",
     "run.container", "run.threads", "run.r_timeout_s",
-    # La modalita' di lettura: l'assenza e' la modalita' single-end.
-    "io.layout",
+    # La modalita' di lettura: l'assenza e' la modalita' single-end. Il modo di
+    # togliere il primer: l'assenza e' il taglio a posizione fissa.
+    "io.layout", "filter.primer_removal",
 )
 
 
@@ -370,7 +377,8 @@ def test_nessuna_chiave_dello_schema_manca_nel_file():
     # Restano in commento anche la modalita' e i predefiniti del gruppo pair,
     # che in modalita' single-end non si dichiara.
     assert modello["commentate"] == {
-        "run.threads", "run.r_timeout_s", "io.layout", "pair.maxEE_reverse",
+        "run.threads", "run.r_timeout_s", "io.layout", "filter.primer_removal",
+        "pair.maxEE_reverse",
         "pair.min_overlap", "pair.max_mismatch", "pair.trim_overhang"}
 
 
@@ -437,7 +445,17 @@ def test_elenco_obbligatori_coincide_con_lo_schema():
         for campo, sotto in descrittore.annotation.model_fields.items()
         if sotto.is_required()
     }
-    assert dallo_schema == set(OBBLIGATORI)
+    # Il riferimento FASTA e tax.try_rc sono del classificatore naive_bayes: lo
+    # schema li ammette assenti perche' con idtaxa non esistono, e che siano
+    # dichiarati con naive_bayes lo verifica la radice della configurazione.
+    assert set(OBBLIGATORI) - dallo_schema == {"tax.ref_fasta", "tax.ref_md5", "tax.try_rc"}
+    assert dallo_schema <= set(OBBLIGATORI)
+    assert set(defaults.PARAMETRI_DEL_BAYESIANO) == {"tax.ref_fasta", "tax.ref_md5"}
+    for dati_tax in ({"try_rc": None}, {"ref_fasta": None}, {"ref_md5": None}):
+        dati = _esempio_compilato()
+        dati["tax"].update(dati_tax)
+        with pytest.raises(ErroreConfigurazione, match=f"tax.{next(iter(dati_tax))}"):
+            valida(dati)
 
 
 @pytest.mark.parametrize("chiave", OBBLIGATORI)
@@ -858,7 +876,15 @@ def test_ogni_predefinito_e_di_una_specie_ammessa():
     ammessi = set(defaults.STANDARD_DEL_METODO) | set(UNICA_FORMA) | set(DELLO_STRUMENTO) | set(NULLI)
     # Un condizionale non ha un predefinito ma un valore di assenza (nullo o
     # elenco vuoto), che non descrive alcun dataset.
-    assert set(con_predefinito) == ammessi | set(CONDIZIONALI) | set(DELLE_COPPIE)
+    # I parametri di una modalita' (primer cercato, uno dei due classificatori)
+    # valgono nullo senza la modalita'; il riferimento e tax.try_rc sono del
+    # bayesiano ingenuo, il classificatore di chi non ne dichiara uno.
+    di_modalita = set(defaults.CONDIZIONALI_DI_MODALITA) | {"tax.try_rc"}
+    assert all(con_predefinito[c] is None for c in di_modalita)
+    assert set(defaults.SCELTE_DI_MODALITA) == {"tax.classifier"}
+    assert set(con_predefinito) == (
+        ammessi | set(CONDIZIONALI) | set(DELLE_COPPIE) | di_modalita
+        | set(defaults.SCELTE_DI_MODALITA))
     assert all(con_predefinito[c] in (None, []) for c in CONDIZIONALI)
     assert all(con_predefinito[c] is None for c in DELLE_COPPIE)
     assert set(DELLE_COPPIE) == set(defaults.CONDIZIONALI_DELLE_COPPIE)
@@ -896,7 +922,9 @@ def test_i_marcatori_del_modello_coincidono_con_il_codice():
     """
     modello = _modello()
     assert modello["obbligatorie"] == set(defaults.OBBLIGATORI)
-    assert modello["condizionali"] == set(defaults.CONDIZIONALI) | set(DELLE_COPPIE)
+    assert modello["condizionali"] == (
+        set(defaults.CONDIZIONALI) | set(DELLE_COPPIE)
+        | set(defaults.PARAMETRI_DEL_TAGLIO_CERCATO) | set(defaults.PARAMETRI_DI_IDTAXA))
     assert modello["standard"] == set(defaults.STANDARD_DEL_METODO)
     scritti = yaml.safe_load(ESEMPIO.read_text(encoding="utf-8"))
     # Il gruppo pair e' tutto in commento: il modello, cosi' com'e', e' single-end.
@@ -1420,8 +1448,9 @@ def test_resolved_registra_tutti_i_parametri_dichiarati(dati_esempio, tmp_path):
     }
     # In modalita' single-end la configurazione registrata non ha alcuna
     # chiave della modalita' appaiata: ne' la modalita', ne' il gruppo pair.
-    assert chiavi_schema() - chiavi_della_modalita_appaiata() <= scritte
-    assert not chiavi_della_modalita_appaiata() & scritte
+    assert chiavi_schema() - chiavi_della_modalita_appaiata() - chiavi_di_altre_modalita() <= (
+        scritte)
+    assert not (chiavi_della_modalita_appaiata() | chiavi_di_altre_modalita()) & scritte
     assert "pair" not in documento["parametri"]
     assert set(PARAMETRI_DERIVATI) <= scritte
 

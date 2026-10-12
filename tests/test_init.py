@@ -166,7 +166,10 @@ def test_init_distingue_rilevato_proposto_e_da_scegliere(tmp_path, capsys):
     # La modalita' ha un predefinito (l'assenza, cioe' single-end) ed e' un
     # fatto rilevato sui nomi dei file: e' scritta attiva.
     assert not (set(attive) & con_predefinito) - {
-        "io.study_table", "io.batch_table", "io.layout"}
+        "io.study_table", "io.batch_table", "io.layout",
+        # Il riferimento indicato sulla riga di comando e il suo checksum:
+        # per lo schema possono mancare, perche' con IdTaxa non esistono.
+        "tax.ref_fasta", "tax.ref_md5"}
     assert attive["io.layout"] == '"single-end"'
     assert not any(chiave.startswith("pair.") for chiave in righe)
 
@@ -1218,3 +1221,53 @@ def test_un_file_che_non_inizia_come_gli_altri_esce_dal_consenso_del_motivo(tmp_
                  for p in sorted(meta.letture.glob("*.fq.gz"))}
     assert rilevamento.file_che_dissentono(ispezioni, 0, len(primer)) == []
     assert rilevamento.QUOTA_DI_DISSENSO == 0.5
+
+
+def test_init_non_propone_una_colonna_che_darebbe_ogni_campione_per_controllo(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare, su un dataset sintetico in cui ogni campione e'
+    descritto come «positive control», che ``init`` non proponga quella colonna
+    per ``ctrl.column``, con e senza ``--accetta-proposte``: la riga resta in
+    commento e senza valore, il commento dice che tutti i campioni
+    risulterebbero controlli e come dichiarare nullo il parametro; ``validate``
+    lo elenca fra i mancanti; dichiarato nullo, le tre etichette non sono
+    richieste. Con un solo campione che non e' un controllo la colonna torna a
+    essere proposta.
+
+    **Razionale scientifico e sistemistico**: Una comunita' a composizione nota
+    e' descritta nei metadati come controllo positivo, ma nello studio che la
+    sequenzia e' il campione da analizzare. Una classificazione che non lascia
+    campioni biologici non e' eseguibile, e accettarla in blocco porterebbe a
+    un rifiuto senza spiegazione: se i campioni siano controlli lo sa solo chi
+    conosce lo studio.
+    """
+    dataset = sintetico.genera(tmp_path / "dati", biologici=5, negativi=0, letture=60)
+    originale = dataset.tabella.read_text("utf-8")
+    dataset.tabella.write_text(originale.replace(
+        sintetico.ETICHETTA_BIOLOGICO, "mock community (positive control)"), "utf-8")
+    for nome, opzioni in (("senza.yaml", ()), ("con.yaml", ("--accetta-proposte",))):
+        assert _init(dataset, tmp_path / nome, *opzioni) == 0
+        testo = (tmp_path / nome).read_text("utf-8")
+        righe = righe_dei_parametri(testo)
+        assert righe["ctrl.column"] == (False, "")
+        for etichetta in ("blank_values", "positive_values", "biological_values"):
+            assert righe[f"ctrl.{etichetta}"][0] is False
+        prosa = " ".join(re.sub(r"^\s*#+ ?", "", riga) for riga in testo.splitlines())
+        assert "tutti i campioni risulterebbero controlli" in " ".join(prosa.split())
+        assert "scrivi ctrl.column: null" in " ".join(prosa.split())
+    assert "ctrl.column" in obbligatori_mancanti(yaml.safe_load(testo))
+    dichiarato = yaml.safe_load(completa(testo, {"ctrl.column": None}, accetta=set()))
+    mancanti = obbligatori_mancanti(dichiarato)
+    assert "ctrl.column" not in mancanti and not [m for m in mancanti if m.startswith("ctrl.")
+                                                  and m.endswith("_values")]
+
+    # Un campione che non e' un controllo basta: la colonna classifica.
+    righe_tabella = originale.replace(
+        sintetico.ETICHETTA_BIOLOGICO, "mock community (positive control)").splitlines()
+    righe_tabella[1] = righe_tabella[1].replace(
+        "mock community (positive control)", sintetico.ETICHETTA_BIOLOGICO)
+    dataset.tabella.write_text("\n".join(righe_tabella) + "\n", "utf-8")
+    assert _init(dataset, tmp_path / "misto.yaml") == 0
+    righe = righe_dei_parametri((tmp_path / "misto.yaml").read_text("utf-8"))
+    assert righe["ctrl.column"][1].strip('"') == sintetico.COLONNA_TIPO
+    capsys.readouterr()

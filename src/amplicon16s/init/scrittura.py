@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Final
 
+from amplicon16s.config import defaults
 from amplicon16s.config.schema import Config
 
 __all__ = ["SENZA_VALORE", "Specie", "Voce", "testo_yaml", "valore_yaml"]
@@ -162,7 +163,19 @@ _MARCATORI: Final = {
     "unica_forma": "[UNICA FORMA] la pipeline realizza questo solo valore",
     "facoltativo": "[FACOLTATIVO] il predefinito e' l'assenza",
     "strumento": "[STRUMENTO] governa come si esegue, non che cosa si conclude dai dati",
+    "modalita": (
+        "[MODALITA'] omesso vale naive_bayes. idtaxa e' disponibile: richiede un "
+        "classificatore addestrato nel formato di DECIPHER (tax.idtaxa_trained con il suo "
+        "MD5, tax.idtaxa_threshold, tax.idtaxa_strand) al posto del riferimento FASTA. "
+        "dati/riferimento/scarica_addestrato.py scarica quelli di SILVA: 138.2 per "
+        "un'analisi nuova, 2019 per confrontarsi con tabelle elaborate con SILVA r138"),
 }
+
+#: I parametri che esistono solo con una modalita' che init non ha proposto:
+#: non si scrivono, come il gruppo ``pair`` in un file single-end.
+_DI_UNA_MODALITA: Final = frozenset((
+    "filter.primer_removal", *defaults.PARAMETRI_DEL_TAGLIO_CERCATO,
+    *defaults.PARAMETRI_DI_IDTAXA))
 
 
 def _marcatori_dei_predefiniti() -> dict[str, str]:
@@ -175,7 +188,7 @@ def _marcatori_dei_predefiniti() -> dict[str, str]:
         p["nome"]: (f"[STANDARD] {p['fonte']}" if p["specie"] == "standard"
                     else _MARCATORI[p["specie"]])
         for p in schema()["parametri"]
-        if not p["obbligatorio"] and p["specie"] != "condizionale"
+        if not p["obbligatorio"] and p["specie"] not in ("condizionale", "obbligatorio")
     }
 
 
@@ -298,10 +311,12 @@ def testo_yaml(
         righe.append(f"{gruppo}:")
         for nome, campo in modello.model_fields.items():
             chiave = f"{gruppo}.{nome}"
-            righe += _commento(campo.description or "")
             voce = voci.get(chiave)
+            if voce is None and chiave in _DI_UNA_MODALITA:
+                continue
+            righe += _commento(campo.description or "")
             if voce is None:
-                if campo.is_required():
+                if campo.is_required() or chiave in defaults.PARAMETRI_DEL_BAYESIANO:
                     # Un percorso obbligatorio non indicato sulla riga di comando.
                     righe += _commento("[DA INDICARE] non indicato sulla riga di comando")
                     righe.append(f"  # {nome}:")

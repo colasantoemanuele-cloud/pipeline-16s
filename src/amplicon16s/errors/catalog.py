@@ -93,7 +93,8 @@ class VoceCatalogo:
     codice: str
     #: Fase a cui il codice appartiene: ``S0``…``S14`` per le fasi della
     #: pipeline, ``G15`` per il gate di coerenza della configurazione, ``R``
-    #: per il ponte che esegue gli script R, ``GRAFO`` per l'ordine delle fasi.
+    #: per il ponte che esegue gli script R, ``GRAFO`` per l'ordine delle fasi,
+    #: ``RUN`` per la cartella di uscita di un'esecuzione.
     fase: str
     #: Che cosa è andato storto, in una riga.
     sintesi: str
@@ -185,6 +186,28 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "assunzione metodologica, e il catalogo li classifica come tali; un "
         "codice assente dal catalogo e' un refuso. L'elenco puo' essere "
         "ristretto, non allargato.",
+        _UMANA,
+    ),
+    _v(
+        "E-G15-16", "G15",
+        "I parametri del taglio dei primer non sono coerenti con il modo dichiarato.",
+        "Con filter.primer_removal: \"search\" il primer si cerca nelle prime basi di "
+        "ogni lettura: filter.trimLeft deve essere 0 e qc.primer_sequence non puo' "
+        "essere nullo (in modalita' appaiata anche pair.trimLeft_reverse 0 e "
+        "pair.primer_sequence_reverse non nullo). Il dettaglio dice quale condizione "
+        "manca. filter.primer_max_mismatch, filter.primer_max_offset, "
+        "filter.primer_untrimmed e qc.max_frac_untrimmed valgono solo con il primer "
+        "cercato: con il taglio a posizione fissa vanno tolti.",
+        _UMANA,
+    ),
+    _v(
+        "E-G15-17", "G15",
+        "Sono dichiarati parametri di un classificatore tassonomico diverso da quello scelto.",
+        "Con tax.classifier: \"idtaxa\" valgono tax.idtaxa_trained, "
+        "tax.idtaxa_trained_md5, tax.idtaxa_threshold e tax.idtaxa_strand, e vanno "
+        "tolti tax.ref_fasta, tax.ref_md5, tax.try_rc, tax.min_boot e "
+        "tax.ref_bad_taxa; con naive_bayes il contrario. Il dettaglio elenca i "
+        "parametri da togliere.",
         _UMANA,
     ),
     _v(
@@ -466,9 +489,11 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S0-12", "S0",
         "Il database tassonomico non supera la verifica di integrita'.",
-        "Il checksum di tax.ref_fasta non corrisponde a tax.ref_md5: riscarica "
-        "il riferimento, oppure aggiorna tax.ref_md5 dopo aver verificato "
-        "l'origine del file.",
+        "Il checksum del riferimento non corrisponde a quello dichiarato "
+        "(tax.ref_fasta e tax.ref_md5; con il classificatore idtaxa, "
+        "tax.idtaxa_trained e tax.idtaxa_trained_md5), oppure il file manca: il "
+        "dettaglio dice quale. Riscarica il riferimento, oppure aggiorna il "
+        "checksum dichiarato dopo aver verificato l'origine del file.",
         _UMANA,
     ),
     _v(
@@ -562,6 +587,30 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         _UMANA,
     ),
     # ----------------------------------------------------------------- S1 ---
+    _v(
+        "E-S0-28", "S0",
+        "Il file di tax.idtaxa_trained non contiene un classificatore addestrato utilizzabile.",
+        "Con tax.classifier: \"idtaxa\" il file deve essere un .RData con un solo oggetto "
+        "prodotto da DECIPHER::LearnTaxa, addestrato con i nomi dei ranghi (argomento "
+        "rank): senza la tabella dei ranghi le assegnazioni non si possono riportare "
+        "alle colonne della tassonomia. Il dettaglio dice che cosa manca. I "
+        "classificatori addestrati pubblicati dagli autori di DECIPHER hanno questa "
+        "forma; un riferimento FASTA va invece usato con tax.classifier: "
+        "\"naive_bayes\".",
+        _UMANA,
+    ),
+    _v(
+        "E-S0-29", "S0",
+        "Con il taglio a posizione fissa il primer non sta alla posizione che il taglio presuppone.",
+        "La validazione prosegue e l'avviso e' registrato nel suo manifesto. Nelle "
+        "letture ispezionate il primer e' preceduto da un numero variabile di basi: "
+        "un taglio a posizione fissa (filter.trimLeft, pair.trimLeft_reverse) "
+        "lascerebbe residui del primer in testa a una parte delle letture, e lo "
+        "stesso taxon in piu' varianti. Dichiara filter.primer_removal: \"search\" "
+        "con filter.trimLeft 0 (GUIDA.md, 6.3); il dettaglio riporta le posizioni "
+        "trovate, da cui scegliere filter.primer_max_offset.",
+        _DEGRADA,
+    ),
     _v(
         "E-S1-01", "S1",
         "Lo scarto fra filter.truncLen e la lunghezza minima osservata supera "
@@ -707,6 +756,17 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     ),
     # ----------------------------------------------------------------- S2 ---
     _v(
+        "E-S1-12", "S1",
+        "Con il primer cercato lungo la lettura nessuna lettura porta il primer.",
+        "filter.primer_removal: \"search\" taglia ogni lettura dove il primer finisce: "
+        "se nessuna lo porta non resta nulla da filtrare. Verifica qc.primer_sequence "
+        "(e pair.primer_sequence_reverse) contro il protocollo, e che i file non "
+        "siano gia' stati privati dei primer: in quel caso il taglio cercato non "
+        "serve, e vale filter.primer_removal: \"fixed\" con filter.trimLeft 0. Se il "
+        "primer sta piu' avanti nelle letture, alza filter.primer_max_offset.",
+        _UMANA,
+    ),
+    _v(
         "E-S2-01", "S2",
         "Uno o piu' campioni non conservano alcuna lettura dopo il filtro.",
         "Allenta filter.maxEE o filter.truncLen, oppure escludi quei campioni "
@@ -731,6 +791,17 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         _RETRY,
     ),
     # ----------------------------------------------------------------- S3 ---
+    _v(
+        "E-S2-04", "S2",
+        "La quota di letture in cui il primer cercato non si trova supera qc.max_frac_untrimmed.",
+        "L'esecuzione prosegue e l'avviso e' registrato nel manifesto del filtro. "
+        "03_filtered/taglio_primer.tsv riporta per campione le letture con e senza il "
+        "primer, posizioni_primer.tsv a quale sfasamento e con quante discordanze e' "
+        "stato trovato: se il primer sta piu' avanti alza filter.primer_max_offset, se "
+        "le letture non lo portano affatto il taglio cercato non serve "
+        "(filter.primer_removal: \"fixed\").",
+        _DEGRADA,
+    ),
     _v(
         "E-S3-01", "S3",
         "Il modello d'errore non converge.",
@@ -885,9 +956,11 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "E-S8-02", "S8",
         "La copertura tassonomica e' insufficiente.",
         "In una classe controllata la frazione di varianti con il phylum assegnato "
-        "e' sotto qc.min_frac_phylum: verifica che tax.ref_fasta copra la regione "
-        "amplificata e che tax.min_boot non sia troppo alto; le misure per classe "
-        "sono in 08_taxonomy/riepilogo.json.",
+        "e' sotto qc.min_frac_phylum: verifica che il riferimento (tax.ref_fasta, o "
+        "tax.idtaxa_trained con il classificatore idtaxa) copra la regione "
+        "amplificata e che la soglia di assegnazione (tax.min_boot, o "
+        "tax.idtaxa_threshold) non sia troppo alta; le misure per classe sono in "
+        "08_taxonomy/riepilogo.json.",
         _UMANA,
     ),
     _v(
@@ -1170,6 +1243,16 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         _UMANA,
     ),
     # ------------------------------------------------------------------ R ---
+    _v(
+        "E-RUN-01", "RUN",
+        "La cartella di uscita e' tenuta da un altro processo: una cartella ammette una sola esecuzione per volta.",
+        "Nulla e' stato letto ne' scritto. Aspetta che l'altro comando finisca "
+        "(status --out CARTELLA dice a che punto e' un'esecuzione), poi rilancia; "
+        "per lavorare insieme a un'altra esecuzione indica in io.out_root una "
+        "cartella diversa. Il blocco e' del sistema operativo e si scioglie quando "
+        "il processo che lo tiene finisce: non c'e' un file da cancellare.",
+        _UMANA,
+    ),
     _v(
         "E-R-01", "R",
         "L'interprete R o gli script R della pipeline non sono disponibili.",

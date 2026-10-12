@@ -41,7 +41,7 @@ import tempfile
 from collections import Counter
 from collections.abc import Callable, Mapping
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Final
 
@@ -52,7 +52,12 @@ from amplicon16s.init import rilevamento as r
 from amplicon16s.init import vocabolario as v
 from amplicon16s.init.scrittura import SENZA_VALORE, Specie, Voce, testo_yaml
 from amplicon16s.io_layer.artifacts import AlberoOutput, Fase, scrivi_atomico
-from amplicon16s.io_layer.reads import MARCATORI_DI_FILE, abbina_file, espandi_iupac
+from amplicon16s.io_layer.reads import (
+    MARCATORI_DI_FILE,
+    RicercaPrimer,
+    abbina_file,
+    espandi_iupac,
+)
 from amplicon16s.metadata.models import ClasseCampione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.soglie.tabella import SOGLIE, non_eseguito, valore_esplorativo
@@ -229,8 +234,54 @@ def _due_cifre(valore: float) -> int:
 # --------------------------------------------------------------------------- #
 
 
+@dataclass(frozen=True)
+class TaglioCercato:
+    """Il taglio dei primer cercati che ``init`` propone: i primer trovati
+    lungo le letture (forward, e reverse in modalita' appaiata) e la regola di
+    ricerca di partenza.
+    """
+
+    forward: r.PrimerSfasato
+    reverse: r.PrimerSfasato | None
+
+    @property
+    def discordanze(self) -> int:
+        """Le discordanze di partenza, sul primer piu' corto."""
+        return r.discordanze_di_partenza(
+            *(p.primer.sequenza for p in (self.forward, self.reverse) if p is not None))
+
+    @property
+    def sfasamento(self) -> int:
+        """Lo sfasamento massimo proposto: il piu' grande osservato."""
+        return max(p.sfasamento_massimo for p in (self.forward, self.reverse) if p is not None)
+
+    def ricerca(self, reverse: bool = False) -> RicercaPrimer:
+        """La ricerca del primer di una delle due letture, con i valori proposti."""
+        primer = self.reverse if reverse else self.forward
+        assert primer is not None
+        return RicercaPrimer(primer.primer.sequenza, self.discordanze, self.sfasamento)
+
+    def per_lo_script(self, reverse: bool = False) -> dict[str, Any]:
+        """Il parametro ``taglio_primer`` di ``R/01_profile.R``."""
+        ricerca = self.ricerca(reverse)
+        return {"primer": ricerca.primer, "discordanze_massime": ricerca.discordanze_massime,
+                "sfasamento_massimo": ricerca.sfasamento_massimo, "scarta": True}
+
+
+def _descrivi_gli_sfasamenti(primer: r.PrimerSfasato) -> str:
+    """La distribuzione degli sfasamenti di un primer, per il commento."""
+    totale = sum(primer.sfasamenti.values())
+    quote = ", ".join(
+        f"{sfasamento}: {letture / totale:.0%}"
+        for sfasamento, letture in primer.sfasamenti.items()
+        if letture >= r.QUOTA_DI_UNO_SFASAMENTO * totale)
+    return (f"basi che precedono il primer {primer.primer.nome} e quota delle letture che lo "
+            f"portano ({quote})")
+
+
 def _profilo(
-    file_per_chiave: dict[str, Path], negativi: set[str], processi: int
+    file_per_chiave: dict[str, Path], negativi: set[str], processi: int,
+    taglio: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Il profilo delle letture con lo script di S1, e cio' che se ne ricava.
 
@@ -247,7 +298,9 @@ def _profilo(
             # una cartella delle letture indicata in forma relativa non vi si
             # troverebbe.
             {"campioni": {c: str(Path(p).resolve()) for c, p in file_per_chiave.items()},
-             "processi": processi},
+             "processi": processi,
+             # Con il primer cercato il profilo e' quello delle letture tagliate.
+             **({"taglio_primer": taglio} if taglio is not None else {})},
             albero, Fase.QC_PROFILES, passo="S1",
         )
         cartella = albero.cartella(Fase.QC_PROFILES)
@@ -295,6 +348,59 @@ def _profilo(
 
 
 # --------------------------------------------------------------------------- #
+# Primer cercato lungo la lettura                                              #
+# --------------------------------------------------------------------------- #
+
+def _voci_del_taglio_cercato(
+    metti: Callable[..., None], note: list[str], cercato: TaglioCercato, appaiata: bool
+) -> None:
+    """Le voci del taglio dei primer cercati, quando le letture portano il
+    primer preceduto da un numero variabile di basi: il modo, il primer
+    forward, il taglio fisso a zero e la regola di ricerca di partenza.
+    """
+    PROPOSTO, SCELTA = Specie.PROPOSTO, Specie.DA_SCEGLIERE
+    primer = cercato.forward
+    entrambi = [p for p in (cercato.forward, cercato.reverse) if p is not None]
+    variabile = max(entrambi, key=lambda p: p.fuori_posizione)
+    metti("filter.primer_removal", PROPOSTO, defaults.PRIMER_CERCATO,
+          f"il primer non sta a una posizione fissa: il {variabile.fuori_posizione:.0%} delle "
+          f"letture che portano il primer {variabile.primer.nome} lo ha a uno sfasamento "
+          f"diverso dal piu' frequente, oltre il {r.QUOTA_FUORI_POSIZIONE:.0%} che distingue "
+          "un protocollo con distanziatori dagli errori di sequenza",
+          *(_descrivi_gli_sfasamenti(p) for p in entrambi),
+          "un taglio a posizione fissa (filter.trimLeft) lascerebbe le letture sfasate, e "
+          "lo stesso taxon diviso in varianti diverse")
+    metti("qc.primer_sequence", PROPOSTO, primer.primer.sequenza,
+          f"primer {primer.primer.nome} ({primer.primer.fonte}), trovato lungo le letture: "
+          f"nella mediana dei file il {primer.mediana:.0%} delle letture lo porta entro "
+          f"{r.SFASAMENTO_CERCATO} basi dall'inizio (dal {primer.minima:.0%} al "
+          f"{primer.massima:.0%}), su non piu' di {r.LETTURE_PER_IL_MOTIVO} letture per file")
+    metti("filter.trimLeft", PROPOSTO, 0,
+          "zero: con filter.primer_removal search il primer lo toglie la ricerca, e "
+          "filter.truncLen e' la lunghezza della lettura dopo il taglio")
+    metti("filter.primer_max_mismatch", SCELTA, cercato.discordanze,
+          f"partenza: un decimo della lunghezza del primer piu' corto, la frazione di errori "
+          f"predefinita di cutadapt ({r.FRAZIONE_DI_ERRORI}), arrotondata per difetto",
+          "si contano le sole sostituzioni; una N della lettura e' una discordanza")
+    metti("filter.primer_max_offset", PROPOSTO, cercato.sfasamento,
+          "il piu' grande numero di basi che precedono il primer, fra quelli che portano "
+          f"almeno il {r.QUOTA_DI_UNO_SFASAMENTO:.0%} delle letture con il primer",
+          "se il protocollo dichiara distanziatori piu' lunghi, scrivi la loro lunghezza massima")
+    metti("filter.primer_untrimmed", SCELTA, defaults.SENZA_PRIMER_SCARTATA,
+          "partenza: una lettura senza il primer si scarta"
+          + (", con la sua compagna" if appaiata else "")
+          + " (come cutadapt con --discard-untrimmed): in una libreria che porta il primer "
+          "e' fuori bersaglio o danneggiata, e tenuta intera comincerebbe in un punto "
+          "diverso dalle altre")
+    metti("qc.max_frac_untrimmed", SCELTA, SENZA_VALORE,
+          "soglia di qualita' da fissare sui propri dati; misura da guardare: la quota di "
+          "letture senza il primer, in 03_filtered/taglio_primer.tsv")
+    note.append(
+        f"Il primer {variabile.primer.nome} e' preceduto da un numero variabile di basi: "
+        "proposto il taglio cercato lungo la lettura (filter.primer_removal: \"search\").")
+
+
+# --------------------------------------------------------------------------- #
 # Modalita' appaiata                                                           #
 # --------------------------------------------------------------------------- #
 
@@ -321,6 +427,7 @@ def _voci_delle_coppie(
     taglio_forward: int,
     primer_forward: v.Primer | None,
     profilo_forward: dict[str, Any] | None,
+    cercato: TaglioCercato | None = None,
 ) -> None:
     """Le voci del gruppo ``pair`` per un dataset appaiato, e i troncamenti
     delle due letture entro il vincolo della fusione.
@@ -343,7 +450,19 @@ def _voci_delle_coppie(
     r.primer_dai_metadati(tabelle, dai_metadati)
     primer_noto: str | None = None
     taglio = 0
-    if osservato is not None:
+    # Il primer reverse riconosciuto nelle letture, in testa o lungo la lettura.
+    primer_reverse = osservato.primer if osservato is not None else None
+    if cercato is not None:
+        assert cercato.reverse is not None
+        primer_reverse = cercato.reverse.primer
+        primer_noto = primer_reverse.sequenza
+        metti("pair.primer_sequence_reverse", PROPOSTO, primer_noto,
+              f"primer {primer_reverse.nome} ({primer_reverse.fonte}), trovato lungo le "
+              f"letture reverse: nella mediana dei file il {cercato.reverse.mediana:.0%} delle "
+              "letture lo porta", _descrivi_gli_sfasamenti(cercato.reverse))
+        metti("pair.trimLeft_reverse", PROPOSTO, 0,
+              "zero: con filter.primer_removal search il primer reverse lo toglie la ricerca")
+    elif osservato is not None:
         trovato = osservato.primer
         primer_noto, taglio = trovato.sequenza, len(trovato.sequenza)
         if osservato.in_ogni_file and args.head_reads is None:
@@ -412,9 +531,13 @@ def _voci_delle_coppie(
     motivo = None
     dissentono: list[str] = []
     if primer_noto is not None:
-        dissentono = r.file_che_dissentono(da_considerare, taglio, len(primer_noto))
+        del_consenso = da_considerare
+        if cercato is not None and cercato.reverse is not None:
+            del_consenso = {
+                n: i.dopo_il_primer(cercato.reverse.indice) for n, i in da_considerare.items()}
+        dissentono = r.file_che_dissentono(del_consenso, taglio, len(primer_noto))
         motivo = r.motivo_dal_consenso(
-            [i for n, i in da_considerare.items() if n not in dissentono],
+            [i for n, i in del_consenso.items() if n not in dissentono],
             taglio, len(primer_noto))
     if dissentono:
         elenco = ", ".join(reverse_di[n].name for n in dissentono[:5]) + (
@@ -426,7 +549,7 @@ def _voci_delle_coppie(
     if motivo is not None:
         metti("pair.conserved_motif_reverse", PROPOSTO, motivo,
               f"il consenso delle {len(primer_noto or '')} basi "
-              + ("che seguono il primer reverse" if taglio else
+              + ("che seguono il primer reverse" if taglio or cercato is not None else
                  "con cui iniziano le letture reverse")
               + f", su non piu' di {r.LETTURE_PER_IL_MOTIVO} letture per file: una base o "
               f"una coppia di basi dove copre almeno il {r.SOGLIA_BASE_DEL_MOTIVO:.0%} delle "
@@ -448,9 +571,12 @@ def _voci_delle_coppie(
     # ---- Lunghezza dell'inserto ---------------------------------------------------
     inserto = r.stima_dell_inserto(inserti)
     dei_primer = None
-    if primer_forward is not None and osservato is not None:
-        if primer_forward.posizione is not None and osservato.primer.posizione is not None:
-            dei_primer = osservato.primer.posizione - primer_forward.posizione + 1
+    if primer_forward is not None and primer_reverse is not None:
+        if primer_forward.posizione is not None and primer_reverse.posizione is not None:
+            dei_primer = primer_reverse.posizione - primer_forward.posizione + 1
+            if cercato is not None:
+                # L'inserto e' misurato senza i primer: lo e' anche l'atteso.
+                dei_primer -= len(primer_forward.sequenza) + len(primer_reverse.sequenza)
     tagli = taglio_forward + taglio
     if inserto is not None:
         confronto = ""
@@ -459,7 +585,7 @@ def _voci_delle_coppie(
                 SCARTO_DALL_ATTESA_DEI_PRIMER * dei_primer)
             confronto = (
                 f"dai primer riconosciuti nelle letture ({primer_forward.nome} e "
-                f"{osservato.primer.nome}) su Escherichia coli se ne attendono {dei_primer}: "
+                f"{primer_reverse.nome}) su Escherichia coli se ne attendono {dei_primer}: "
                 + ("concordano" if concordano else
                    "NON concordano, e vale la lunghezza misurata sulle letture"))
             if not concordano:
@@ -472,7 +598,9 @@ def _voci_delle_coppie(
             f"{inserto.coppie} campionate (le prime {r.COPPIE_PER_L_INSERTO} di ogni "
             f"campione): mediana {inserto.mediana}, dal {inserto.minima} al {inserto.massima} "
             "(percentili 0,5 e 99,5)"
-            + ("; comprende i primer, che le letture portano" if tagli else ""))
+            + ("; comprende i primer, che le letture portano" if tagli else "")
+            + ("; e' la lunghezza senza i primer e senza le basi che li precedono, tolte a "
+               "ogni coppia come le toglie il taglio" if cercato is not None else ""))
         metti("pair.expected_merged_len", PROPOSTO, inserto.mediana - tagli,
               "la mediana della lunghezza dell'inserto, tolte le basi dei due tagli", misura,
               confronto)
@@ -517,7 +645,9 @@ def _voci_delle_coppie(
             for n in nomi if ispezioni[n].statistiche.valido
         }
         try:
-            profilo = _profilo(leggibili, negativi, processi)
+            profilo = _profilo(
+                leggibili, negativi, processi,
+                cercato.per_lo_script(reverse=True) if cercato is not None else None)
         except ErrorePipeline as guasto:
             note.append(
                 f"Profilo di qualita' delle letture reverse non calcolato ({guasto.codice}: "
@@ -527,6 +657,12 @@ def _voci_delle_coppie(
         "vincolo della fusione: (filter.truncLen - filter.trimLeft) + (pair.truncLen_reverse "
         "- pair.trimLeft_reverse) deve superare la lunghezza della regione senza i primer di "
         f"almeno pair.min_overlap piu' {MARGINE_DI_SOVRAPPOSIZIONE} basi di margine")
+    if cercato is not None:
+        vincolo = (
+            "vincolo della fusione: con il primer cercato i troncamenti sono lunghezze dopo il "
+            "taglio, e filter.truncLen + pair.truncLen_reverse deve superare la lunghezza "
+            "dell'inserto senza i primer di almeno pair.min_overlap piu' "
+            f"{MARGINE_DI_SOVRAPPOSIZIONE} basi di margine")
     forward = profilo_forward["suggerito"] if profilo_forward else None
     della_reverse = profilo["suggerito"] if profilo else None
     proposti: tuple[int, int] | None = None
@@ -568,9 +704,11 @@ def _voci_delle_coppie(
                 "dal profilo di qualita' di questa lettura; non scarta alcuna lettura")
             metti("filter.truncLen", PROPOSTO, t_forward,
                   f"troncamento della lettura forward, {come}", conto, vincolo,
+                  "e' la lunghezza dopo il taglio del primer" if cercato is not None else
                   "comprende le basi di filter.trimLeft")
             metti("pair.truncLen_reverse", PROPOSTO, t_reverse,
                   f"troncamento della lettura reverse, {come}", conto, vincolo,
+                  "e' la lunghezza dopo il taglio del primer" if cercato is not None else
                   "comprende le basi di pair.trimLeft_reverse")
             for parametro, troncamento, massimo in (
                 ("filter.truncLen_shortfall_warn", t_forward, massimo_forward),
@@ -678,7 +816,9 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
     processi = args.threads or processori_disponibili()
     with ProcessPoolExecutor(max_workers=processi) as gruppo:
         ispezioni = dict(zip(nomi, gruppo.map(
-            r.ispeziona, [(str(p), args.head_reads, primer) for p in file])))
+            r.ispeziona,
+            [(str(p), args.head_reads, primer, tuple(x.sequenza for x in cercati))
+             for p in file])))
         # In modalita' appaiata: le letture reverse, con i primer reverse, e la
         # lunghezza dell'inserto su un campione di coppie di ogni campione.
         cercati_reverse = v.PRIMER_16S_REVERSE
@@ -692,10 +832,23 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
             primer_reverse = tuple(espandi_iupac(p.sequenza) for p in cercati_reverse)
             ispezioni_reverse = dict(zip(nomi, gruppo.map(
                 r.ispeziona,
-                [(str(reverse_di[n]), args.head_reads, primer_reverse) for n in nomi])))
+                [(str(reverse_di[n]), args.head_reads, primer_reverse,
+                  tuple(x.sequenza for x in cercati_reverse)) for n in nomi])))
+        # Il primer preceduto da un numero variabile di basi: se lo e' in una
+        # delle due letture il taglio cercato vale per entrambe, purche' la
+        # ricerca trovi il primer di ciascuna.
+        cercato: TaglioCercato | None = None
+        sfasato = r.primer_sfasato(ispezioni, cercati)
+        sfasato_reverse = r.primer_sfasato(ispezioni_reverse, cercati_reverse)
+        if sfasato is not None and (not reverse_di or sfasato_reverse is not None) and (
+                sfasato.da_cercare or (sfasato_reverse is not None and sfasato_reverse.da_cercare)):
+            cercato = TaglioCercato(sfasato, sfasato_reverse if reverse_di else None)
+        if reverse_di:
+            # Con il taglio cercato l'inserto si misura senza i primer.
+            ricerche = () if cercato is None else (cercato.ricerca(), cercato.ricerca(True))
             inserti = list(gruppo.map(
                 r.inserti_di_una_coppia_di_file,
-                [(str(p), str(reverse_di[p.name])) for p in file]))
+                [(str(p), str(reverse_di[p.name]), *ricerche) for p in file]))
     if reverse_di:
         # Un file con i segni di entrambe le letture contiene le coppie intere;
         # il marcatore dell'altra lettura dice una corsa con i file scambiati,
@@ -904,7 +1057,28 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
     tipi = r.colonne_del_tipo(righe_classe, [c for c in colonne_classe if c not in escluse])
     negativi_proposti: set[str] = set()
     con_positivi = False
-    if tipi:
+    if tipi and tipi[0].da == "parole" and not tipi[0].biologici:
+        # Ogni valore della colonna porta una parola dei controlli: accettarla
+        # classificherebbe come controllo ogni campione, e non ne resterebbe
+        # nessuno da analizzare. Succede quando i campioni sono essi stessi lo
+        # standard (una comunita' a composizione nota descritta come «controllo
+        # positivo»): se lo siano lo sa solo chi conosce lo studio.
+        tipo = tipi[0]
+        metti("ctrl.column", SCELTA, SENZA_VALORE,
+              f"non proposta: con la colonna {tipo.colonna!r} tutti i campioni "
+              "risulterebbero controlli (ogni suo valore ha una parola dei controlli: "
+              + ", ".join(map(repr, (tipo.negativi + tipo.positivi + tipo.non_attribuiti)[:5]))
+              + ") e non ne resterebbe nessuno da analizzare",
+              "se i campioni sono lo standard da analizzare, e non i controlli di altri "
+              "campioni, scrivi ctrl.column: null (nessun controllo, ogni campione e' "
+              "biologico) e lascia in commento le tre etichette",
+              "se invece una colonna distingue i campioni dai controlli, scrivi qui il suo "
+              "nome e nelle tre etichette i suoi valori")
+        for nome in ("blank_values", "positive_values", "biological_values"):
+            metti(f"ctrl.{nome}", SCELTA, SENZA_VALORE, "si sceglie insieme a ctrl.column")
+        non_indovinati.append(
+            "ctrl.column: la colonna trovata darebbe tutti i campioni per controlli.")
+    elif tipi:
         tipo = tipi[0]
         altre = ("altre colonne candidate: " + ", ".join(repr(t.colonna) for t in tipi[1:5])
                  ) if tipi[1:] else ""
@@ -1023,7 +1197,11 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
         [righe_assay] + ([righe_studio] if righe_studio is not None else []))
     primer_noto: str | None = None
     taglio = 0
-    if osservato is not None:
+    if cercato is not None:
+        trovato = cercato.forward.primer
+        primer_noto = trovato.sequenza
+        _voci_del_taglio_cercato(metti, note, cercato, bool(reverse_di))
+    elif osservato is not None:
         trovato = osservato.primer
         primer_noto, taglio = trovato.sequenza, len(trovato.sequenza)
         dove = (f"in testa alle letture di ogni file: dal {osservato.minima:.0%} al "
@@ -1102,12 +1280,16 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
     if primer_noto is not None:
         # I file che non iniziano come la maggioranza escono dal consenso: un
         # file di letture inverse lo allargherebbe fino a comprendere se stesso.
-        dissentono = r.file_che_dissentono(
-            {n: i for n, i in ispezioni.items() if any(i is c for c in da_considerare)},
-            taglio, len(primer_noto))
+        del_consenso = {
+            n: i for n, i in ispezioni.items() if any(i is c for c in da_considerare)}
+        if cercato is not None:
+            # Con il primer cercato il consenso e' quello delle basi che
+            # seguono il primer trovato in ciascuna lettura.
+            del_consenso = {
+                n: i.dopo_il_primer(cercato.forward.indice) for n, i in del_consenso.items()}
+        dissentono = r.file_che_dissentono(del_consenso, taglio, len(primer_noto))
         motivo = r.motivo_dal_consenso(
-            [i for n, i in ispezioni.items()
-             if any(i is c for c in da_considerare) and n not in dissentono],
+            [i for n, i in del_consenso.items() if n not in dissentono],
             taglio, len(primer_noto))
     elenco_diversi = ", ".join(dissentono[:5]) + ("..." if len(dissentono) > 5 else "")
     quanti_diversi = (
@@ -1125,7 +1307,8 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
     if motivo is not None:
         metti("qc.conserved_motif", PROPOSTO, motivo,
               f"il consenso delle {len(primer_noto or '')} basi "
-              + ("che seguono il primer" if taglio else "con cui iniziano le letture")
+              + ("che seguono il primer" if taglio or cercato is not None
+                 else "con cui iniziano le letture")
               + f", su non piu' di {r.LETTURE_PER_IL_MOTIVO} letture per file: una base o "
               f"una coppia di basi dove copre almeno il {r.SOGLIA_BASE_DEL_MOTIVO:.0%} delle letture",
               "validate ne misura la frequenza con qc.min_motif_frac", senza_negativi, diversi)
@@ -1151,7 +1334,9 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
             for n, p in zip(nomi, file) if ispezioni[n].statistiche.valido
         }
         try:
-            profilo = _profilo(leggibili, negativi_proposti, processi)
+            profilo = _profilo(
+                leggibili, negativi_proposti, processi,
+                cercato.per_lo_script() if cercato is not None else None)
             motivo_senza_profilo = ""
         except ErrorePipeline as guasto:
             motivo_senza_profilo = (
@@ -1170,7 +1355,9 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
               f"lunghezze osservate: da {profilo['minima']} a {profilo['massima']}, moda "
               f"{profilo['moda']}; troncando alla moda si scarterebbe il "
               f"{profilo['perdita_alla_moda']:.2%} delle letture",
-              "comprende le basi di filter.trimLeft", senza_negativi)
+              ("e' la lunghezza della lettura dopo il taglio del primer: le lunghezze sono "
+               "misurate sulle letture tagliate" if cercato is not None else
+               "comprende le basi di filter.trimLeft"), senza_negativi)
         scarto = max(int(s["senza_perdite"]) - int(suggerito), 0)
         metti("filter.truncLen_shortfall_warn", SCELTA, min(scarto, int(suggerito) - 1),
               "partenza: lo scarto fra la lettura piu' corta e il troncamento proposto; con "
@@ -1200,8 +1387,10 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
             negativi=negativi_proposti, ispezioni=ispezioni_reverse, cercati=cercati_reverse,
             inserti=inserti, quante=quante, processi=processi,
             tabelle=[righe_assay] + ([righe_studio] if righe_studio is not None else []),
-            taglio_forward=taglio, primer_forward=osservato.primer if osservato else None,
-            profilo_forward=profilo,
+            taglio_forward=taglio,
+            primer_forward=(cercato.forward.primer if cercato is not None
+                            else osservato.primer if osservato else None),
+            profilo_forward=profilo, cercato=cercato,
         )
 
     # ---- Riferimento ---------------------------------------------------------------

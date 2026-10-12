@@ -52,6 +52,7 @@ __all__ = [
     "SOGLIA_SENZA_LIMITE_AMMESSO",
     "SOGLIE",
     "SOGLIE_DELLE_COPPIE",
+    "SOGLIE_DEL_TAGLIO_CERCATO",
     "SOGLIE_SENZA_LIMITE_AMMESSO",
     "TRONCAMENTO_DELLO_SCARTO",
     "ControlloSpento",
@@ -162,6 +163,7 @@ SOGLIE: Final[tuple[Soglia, ...]] = (
     Soglia("qc.max_zeroed_samples", _MASSIMA, Unita.CONTEGGIO, ("E-S2-01",), True,
            MARGINE_AZZERATI),
     Soglia("qc.max_frac_lost_filter", _MASSIMA, _FRAZIONE, ("E-S2-02",), True, MARGINE_FRAZIONE),
+    Soglia("qc.max_frac_untrimmed", _MASSIMA, _FRAZIONE, ("E-S2-04",), False, MARGINE_FRAZIONE),
     # La quota di coppie fuse: come per le chimere, l'arresto ha il margine
     # doppio dell'avviso, cosi' che fra i due resti una fascia.
     Soglia("pair.min_merged_frac_warn", _MINIMA, _FRAZIONE, ("E-SM-02",), False,
@@ -204,13 +206,21 @@ SOGLIE_DELLE_COPPIE: Final = frozenset(
     s.chiave for s in SOGLIE if s.chiave.startswith("pair."))
 
 
+#: Le soglie che esistono solo con il primer cercato lungo la lettura.
+SOGLIE_DEL_TAGLIO_CERCATO: Final = frozenset({"qc.max_frac_untrimmed"})
+
+
 def soglie_di(valori: Mapping[str, Any]) -> tuple[Soglia, ...]:
     """Le soglie di cui si parla con questa configurazione, nell'ordine della
-    tabella: quelle della modalita' appaiata solo se la configurazione la
-    dichiara.
+    tabella: quelle della modalita' appaiata e quella del taglio dei primer
+    cercati solo se la configurazione dichiara la modalita'.
     """
     appaiata = valori.get("io.layout") == defaults.LAYOUT_APPAIATO
-    return tuple(s for s in SOGLIE if appaiata or s.chiave not in SOGLIE_DELLE_COPPIE)
+    cercato = valori.get("filter.primer_removal") == defaults.PRIMER_CERCATO
+    return tuple(
+        s for s in SOGLIE
+        if (appaiata or s.chiave not in SOGLIE_DELLE_COPPIE)
+        and (cercato or s.chiave not in SOGLIE_DEL_TAGLIO_CERCATO))
 
 
 def soglia(chiave: str) -> Soglia:
@@ -237,6 +247,10 @@ def non_eseguito(voce: Soglia, valori: Mapping[str, Any]) -> str | None:
         # Dichiarato comunque, ma la condizione che lo rende pertinente e' falsa.
         return (f"serve solo se {defaults.testo_condizione(voce.chiave)}: dichiarato senza "
                 "che la condizione sia vera, non ha effetto")
+    cercato = valori.get("filter.primer_removal") == defaults.PRIMER_CERCATO
+    if cercato and voce.chiave in ("qc.max_primer_hit_frac", "pair.max_primer_hit_frac_reverse"):
+        return ("con filter.primer_removal search il primer deve essere presente, e lo toglie "
+                "il filtro: la soglia non ha effetto")
     if voce.chiave == "qc.max_primer_hit_frac" and (valori.get("filter.trimLeft") or 0) > 0:
         return ("con filter.trimLeft maggiore di zero la validazione non cerca il primer in "
                 "testa alle letture: la soglia non ha effetto")

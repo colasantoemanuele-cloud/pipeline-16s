@@ -111,8 +111,9 @@ class VistaConfig:
     def __getattr__(self, nome: str) -> Any:
         if nome.startswith("_"):
             raise AttributeError(nome)
-        if nome == "appaiata":
-            return self._config.appaiata
+        if nome in ("appaiata", "taglio_cercato", "idtaxa"):
+            # Le modalita' della configurazione: dicono quali parametri esistono.
+            return getattr(self._config, nome)
         if nome not in Config.model_fields:
             # Anche model_dump e simili: l'intera configurazione non si legge.
             raise ParametroNonDichiarato(

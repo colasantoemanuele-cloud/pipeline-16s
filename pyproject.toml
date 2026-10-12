@@ -73,4 +73,5 @@ addopts = "-ra -n 4 --dist loadgroup"
 markers = [
     "dati_reali: richiede il dataset di riferimento sul filesystem; si salta quando non c'e'",
     "riferimento: confronta la catena sul dataset di riferimento con i checksum pubblicati; non verifica un comportamento, ma l'identita' con l'esecuzione pubblicata",
+    "lenta: una catena o una prova di ripetibilita' in piu', fuori dalla suite ordinaria per la sua durata; si attiva con AMPLICON16S_PROVE_LENTE=1",
 ]

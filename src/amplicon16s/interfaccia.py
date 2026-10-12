@@ -243,10 +243,12 @@ def _specie(chiave: str, obbligatorio: bool, predefinito: Any, ammessi: list[Any
     """Di che specie e' un parametro, con le stesse parole del modello."""
     if chiave in defaults.OBBLIGATORI:
         return "obbligatorio"
-    if chiave in defaults.CONDIZIONALI or chiave in defaults.CONDIZIONALI_DELLE_COPPIE:
+    if chiave in defaults.CONDIZIONALI or chiave in defaults.CONDIZIONALI_RESPINTI:
         return "condizionale"
     if obbligatorio:
         return "percorso"
+    if chiave in defaults.SCELTE_DI_MODALITA:
+        return "modalita"
     if chiave in defaults.STANDARD_DEL_METODO:
         return "standard"
     if (ammessi is not None and len(ammessi) == 1) or chiave in _UNICA_FORMA_LOGICA:
@@ -315,6 +317,15 @@ def documento_schema(strumento: str, versione: str, radice: Any,
     }
 
 
+#: Il valore che rende vera la condizione di una modalita'.
+_VALORE_DELLA_MODALITA: Final = {
+    defaults.APPAIATA: defaults.LAYOUT_APPAIATO,
+    defaults.CERCATO: defaults.PRIMER_CERCATO,
+    defaults.IDTAXA: defaults.CLASSIFICATORE_IDTAXA,
+    defaults.BAYESIANO: defaults.TAX_CLASSIFIER,
+}
+
+
 def schema() -> dict[str, Any]:
     """Lo schema della configurazione della pipeline, per un programma esterno."""
     parametri = descrivi_parametri(Config)
@@ -323,19 +334,20 @@ def schema() -> dict[str, Any]:
             voce["nome"], voce["obbligatorio"], voce.get("predefinito"), voce["valori_ammessi"])
         if voce["nome"] in defaults.STANDARD_DEL_METODO:
             voce["fonte"] = defaults.STANDARD_DEL_METODO[voce["nome"]]
-        condizioni = {**defaults.CONDIZIONALI, **defaults.CONDIZIONALI_DELLE_COPPIE}
+        condizioni = {**defaults.CONDIZIONALI, **defaults.CONDIZIONALI_RESPINTI}
         if voce["nome"] in condizioni:
             # Obbligatorio se la condizione e' vera, omissibile altrimenti (e,
             # dichiarato comunque, validato come ogni valore ma senza effetto
             # sui risultati). La condizione puo' avere piu' alternative, di cui
             # ne basta una: la prima e' richiesto_da, le altre il suo "oppure".
-            # I parametri della modalita' appaiata (condizione "appaiata") con
-            # la condizione falsa non si dichiarano: sono respinti.
+            # I parametri di una modalita' (appaiata, primer cercato, uno dei
+            # due classificatori) con la condizione falsa non si dichiarano:
+            # sono respinti.
             prima, *altre = [
                 {"parametro": parametro, "condizione": forma,
                  **({"valori": [True]} if forma == defaults.VERO else {}),
-                 **({"valori": [defaults.LAYOUT_APPAIATO]}
-                    if forma == defaults.APPAIATA else {})}
+                 **({"valori": [_VALORE_DELLA_MODALITA[forma]]}
+                    if forma in _VALORE_DELLA_MODALITA else {})}
                 for parametro, forma in condizioni[voce["nome"]]
             ]
             voce["richiesto_da"] = {**prima, **({"oppure": altre} if altre else {})}

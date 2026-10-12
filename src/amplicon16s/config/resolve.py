@@ -210,6 +210,9 @@ def parametri_dichiarati(config: Config) -> tuple[str, ...]:
         # La modalita' single-end dichiarata vale come omessa: non e' fra i
         # parametri della configurazione registrata.
         dichiarati = [chiave for chiave in dichiarati if chiave != "io.layout"]
+    if not config.taglio_cercato:
+        # Lo stesso per il taglio a posizione fissa dichiarato.
+        dichiarati = [chiave for chiave in dichiarati if chiave != "filter.primer_removal"]
     return tuple(dichiarati)
 
 

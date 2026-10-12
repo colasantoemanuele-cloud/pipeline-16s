@@ -112,9 +112,11 @@ CODICI_DI_FASE = (
     "E-S0-08", "E-S0-09", "E-S0-10", "E-S0-11", "E-S0-12",
     "E-S0-13", "E-S0-14", "E-S0-15", "E-S0-16", "E-S0-17", "E-S0-18",
     "E-S0-19", "E-S0-20", "E-S0-21", "E-S0-22", "E-S0-23", "E-S0-24", "E-S0-25", "E-S0-26", "E-S0-27",
+    "E-S0-28", "E-S0-29",
     "E-S1-01", "E-S1-02", "E-S1-03", "E-S1-04", "E-S1-05", "E-S1-06", "E-S1-07",
     "E-S1-08", "E-S1-09", "E-S1-10", "E-S1-11",
-    "E-S2-01", "E-S2-02", "E-S2-03",
+    "E-S1-12",
+    "E-S2-01", "E-S2-02", "E-S2-03", "E-S2-04",
     "E-S3-01", "E-S3-02", "E-S3-03", "E-S3-04", "E-S3-05",
     "E-S4-02",
     "E-SM-01", "E-SM-02", "E-SM-03",
@@ -138,6 +140,9 @@ CODICI_DEL_GRAFO = ("E-GRAFO-01",)
 
 #: Codici della regola rigorosa sulla provenienza, controllo di avvio.
 CODICI_DELLA_PROVENIENZA = ("E-PROV-01", "E-PROV-02", "E-PROV-03")
+
+#: Il codice della cartella di uscita tenuta da un altro processo.
+CODICI_DELLA_CARTELLA = ("E-RUN-01",)
 
 #: Elenco chiuso dei 4 soli codici ammessi al retry automatico nella pipeline.
 AMMESSI_AL_RETRY = ("E-S2-03", "E-S4-02")
@@ -188,6 +193,7 @@ def test_il_messaggio_dice_anche_cosa_fare(codice):
 
 @pytest.mark.parametrize(
     "codice", CODICI_DI_FASE + CODICI_DEL_PONTE + CODICI_DEL_GRAFO + CODICI_DELLA_PROVENIENZA
+    + CODICI_DELLA_CARTELLA
 )
 def test_tutti_i_codici_previsti_sono_catalogati(codice):
     """
@@ -228,7 +234,7 @@ def test_nessun_codice_inatteso_nel_catalogo():
     dai_gate = {c.codice for c in CONTROLLI}
     assert set(CATALOGO) == (
         set(CODICI_DI_FASE) | set(CODICI_DEL_PONTE) | set(CODICI_DEL_GRAFO)
-        | set(CODICI_DELLA_PROVENIENZA) | dai_gate
+        | set(CODICI_DELLA_PROVENIENZA) | set(CODICI_DELLA_CARTELLA) | dai_gate
     )
 
 
@@ -481,6 +487,10 @@ DEGRADAZIONI = (
     # la fusione delle coppie: quota sotto la soglia d'avviso, lunghezza
     # mediana lontana dall'attesa
     "E-SM-02", "E-SM-03",
+    # il taglio dei primer cercati: troppe letture senza il primer
+    "E-S2-04",
+    # il taglio a posizione fissa su letture con il primer a posizione variabile
+    "E-S0-29",
 )
 
 

@@ -497,10 +497,19 @@ def test_lo_schema_esportato_riporta_la_specie_e_la_condizione():
         assert per_nome[chiave]["richiesto_da"] == {
             "parametro": "io.layout", "condizione": "appaiata", "valori": ["paired-end"]}
     assert {n for n, p in per_nome.items() if "richiesto_da" in p} == (
-        set(defaults.CONDIZIONALI) | set(defaults.CONDIZIONALI_DELLE_COPPIE))
+        set(defaults.CONDIZIONALI) | set(defaults.CONDIZIONALI_RESPINTI))
+    # I parametri di una modalita' dicono quale valore la sceglie.
+    assert per_nome["filter.primer_max_offset"]["richiesto_da"] == {
+        "parametro": "filter.primer_removal", "condizione": "cercato", "valori": ["search"]}
+    assert per_nome["tax.idtaxa_trained"]["richiesto_da"] == {
+        "parametro": "tax.classifier", "condizione": "idtaxa", "valori": ["idtaxa"]}
+    assert per_nome["tax.ref_fasta"]["richiesto_da"] == {
+        "parametro": "tax.classifier", "condizione": "bayesiano", "valori": ["naive_bayes"]}
+    assert per_nome["tax.classifier"]["specie"] == "modalita"
+    assert per_nome["tax.classifier"]["valori_ammessi"] == ["naive_bayes", "idtaxa"]
     assert {p["specie"] for p in documento["parametri"]} == {
         "obbligatorio", "condizionale", "percorso", "standard", "unica_forma", "facoltativo",
-        "strumento"}
+        "strumento", "modalita"}
     json.dumps(documento)
 
 

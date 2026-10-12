@@ -40,14 +40,18 @@ import re
 import shutil
 import statistics
 import zlib
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from amplicon16s.config import defaults
 from amplicon16s.config.resolve import ConfigRisolta, risolvi
 from amplicon16s.config.schema import (
+    INTESTAZIONE_CLASSIFICATORE,
     INTESTAZIONE_COPPIE,
+    INTESTAZIONE_TAGLIO,
     INTESTAZIONE_MANCANTI,
     Config,
     ErroreConfigurazione,
@@ -56,6 +60,7 @@ from amplicon16s.config.schema import (
 )
 from amplicon16s.errors.catalog import CATALOGO, Categoria, VoceCatalogo, voce
 from amplicon16s.errors.exceptions import ErrorePipeline
+from amplicon16s.logging.logger import SOLO_NEL_FILE, ottieni
 from amplicon16s.io_layer.reads import (
     LETTURE_MINIME_PER_UN_NOME_SOSPETTO,
     NOME_DI_LETTURA_INVERSA,
@@ -63,7 +68,11 @@ from amplicon16s.io_layer.reads import (
     StatisticheFile,
     apri_fastq,
     espandi_iupac,
+    QUOTA_FUORI_POSIZIONE,
+    SEGNALE_MINIMO_DI_UNA_PARTE,
+    ricerca_del_primer,
     scansiona,
+    sonda_del_taglio_fisso,
     segnale_di_orientamento,
 )
 from amplicon16s.metadata.crosswalk import Analisi, analizza
@@ -196,6 +205,18 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
         "schema",
     ),
     Controllo(
+        "E-G15-16",
+        ("filter.primer_removal", "filter.trimLeft", "qc.primer_sequence",
+         "pair.trimLeft_reverse", "pair.primer_sequence_reverse",
+         *defaults.PARAMETRI_DEL_TAGLIO_CERCATO),
+        "schema",
+    ),
+    Controllo(
+        "E-G15-17",
+        ("tax.classifier", *defaults.SOLO_DEL_BAYESIANO, *defaults.PARAMETRI_DI_IDTAXA),
+        "schema",
+    ),
+    Controllo(
         "E-G15-99",
         (),
         "schema",
@@ -317,6 +338,10 @@ def _codice_per_problema(problema: str) -> str:
     # suo intervallo (pair.<chiave>: ...) resta un problema di schema.
     if INTESTAZIONE_COPPIE in problema or problema.startswith("pair:"):
         return "E-G15-15"
+    if INTESTAZIONE_TAGLIO in problema:
+        return "E-G15-16"
+    if INTESTAZIONE_CLASSIFICATORE in problema:
+        return "E-G15-17"
     # La regola di riclassificazione senza la sua colonna: lo schema la respinge
     # da se', e il rifiuto e' quello del controllo sulle dipendenze fra parametri.
     if problema.startswith("ctrl:") and "blank_override_column e' nullo" in problema:
@@ -342,7 +367,7 @@ def _violazione_da_schema(problema: str) -> Violazione:
     codice = _codice_per_problema(problema)
     controllo = _PER_CODICE[codice]
 
-    if not controllo.parametri or codice in ("E-G15-14", "E-G15-15"):
+    if not controllo.parametri or codice in ("E-G15-14", "E-G15-15", "E-G15-16", "E-G15-17"):
         return Violazione(codice, problema)
 
     return Violazione(
@@ -828,6 +853,11 @@ class Contesto:
                 motivo=self.config.qc.conserved_motif,
                 inizio_motivo=taglio,
                 lunghezza_richiesta=self.config.filter.truncLen,
+                # Con il primer cercato lungo la lettura: primer contato dove si
+                # trova, motivo dopo di esso, lunghezze dopo il taglio.
+                ricerca=ricerca_del_primer(self.config),
+                # Con il taglio a posizione fissa: dove sta davvero il primer.
+                sonda=None if self.config.taglio_cercato else sonda_del_taglio_fisso(primer, taglio),
             )
         return self._scansione
 
@@ -852,6 +882,9 @@ class Contesto:
                     motivo=coppie.conserved_motif_reverse,
                     inizio_motivo=coppie.trimLeft_reverse,
                     lunghezza_richiesta=coppie.truncLen_reverse,
+                    ricerca=ricerca_del_primer(self.config, reverse=True),
+                    sonda=None if self.config.taglio_cercato else sonda_del_taglio_fisso(
+                        primer, coppie.trimLeft_reverse or 0),
                 )
         return self._scansione_reverse
 
@@ -1223,7 +1256,8 @@ def _giudicabile_dal_contenuto(contesto: Contesto, nome: str) -> bool:
     """
     config = contesto.config
     if segnale_di_orientamento(
-        config.qc.primer_sequence, config.qc.conserved_motif, config.filter.trimLeft
+        config.qc.primer_sequence, config.qc.conserved_motif, config.filter.trimLeft,
+        ricerca_del_primer(config),
     ) is None:
         return False
     accession = next(
@@ -1281,6 +1315,33 @@ def _g07_layout_appaiato(contesto: Contesto) -> tuple[list[Violazione], list[Avv
     return violazioni, []
 
 
+def _checksum_dichiarato(
+    percorso: Path, dichiarato: str, parametro: str, parametro_md5: str
+) -> Violazione | None:
+    """La violazione ``E-S0-12`` se il file non esiste, non si legge o non ha
+    l'MD5 dichiarato; ``None`` se corrisponde.
+    """
+    if not percorso.is_file():
+        return Violazione("E-S0-12", f"{parametro}: {percorso} non esiste")
+
+    impronta = hashlib.md5()
+    try:
+        with open(percorso, "rb") as file:
+            while blocco := file.read(1024 * 1024):
+                impronta.update(blocco)
+    except OSError as e:
+        return Violazione("E-S0-12", f"{parametro}: {percorso} non e' leggibile: {e}")
+    ottenuto = impronta.hexdigest()
+
+    if ottenuto.lower() != dichiarato.lower():
+        return Violazione(
+            "E-S0-12",
+            f"il checksum di {percorso.name} e' {ottenuto}, mentre {parametro_md5} "
+            f"dichiara {dichiarato}",
+        )
+    return None
+
+
 def _g12_riferimento_verificato(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
     """Il database tassonomico esiste e il suo checksum e' quello dichiarato.
 
@@ -1290,6 +1351,14 @@ def _g12_riferimento_verificato(contesto: Contesto) -> tuple[list[Violazione], l
     tassonomica costerebbe la fase piu' lunga dopo l'inferenza.
     """
     config = contesto.config
+    if config.idtaxa:
+        # Il classificatore addestrato di IdTaxa: esiste, e il suo checksum e'
+        # quello dichiarato. Che contenga un classificatore lo verifica S0
+        # caricandolo; i controlli sul FASTA valgono per il bayesiano ingenuo.
+        violazione = _checksum_dichiarato(
+            Path(config.tax.idtaxa_trained), config.tax.idtaxa_trained_md5,
+            "tax.idtaxa_trained", "tax.idtaxa_trained_md5")
+        return ([violazione] if violazione is not None else []), []
     elenco = config.tax.ref_bad_taxa
     if elenco is not None:
         if not Path(elenco).is_file():
@@ -1312,27 +1381,9 @@ def _g12_riferimento_verificato(contesto: Contesto) -> tuple[list[Violazione], l
                 "una tabella CSV, con le virgole, in cui name e' il nome del taxon e rank "
                 "il rango a cui appartiene")], []
     percorso = Path(config.tax.ref_fasta)
-
-    if not percorso.is_file():
-        return [Violazione("E-S0-12", f"tax.ref_fasta: {percorso} non esiste")], []
-
-    impronta = hashlib.md5()
-    try:
-        with open(percorso, "rb") as file:
-            while blocco := file.read(1024 * 1024):
-                impronta.update(blocco)
-    except OSError as e:
-        return [Violazione("E-S0-12", f"tax.ref_fasta: {percorso} non e' leggibile: {e}")], []
-    ottenuto = impronta.hexdigest()
-
-    if ottenuto.lower() != config.tax.ref_md5.lower():
-        return [
-            Violazione(
-                "E-S0-12",
-                f"il checksum di {percorso.name} e' {ottenuto}, mentre tax.ref_md5 "
-                f"dichiara {config.tax.ref_md5}",
-            )
-        ], []
+    violazione = _checksum_dichiarato(percorso, config.tax.ref_md5, "tax.ref_fasta", "tax.ref_md5")
+    if violazione is not None:
+        return [violazione], []
     try:
         difetto = ranghi_non_individuabili(percorso)
     except (OSError, EOFError, zlib.error, UnicodeDecodeError) as e:
@@ -1575,7 +1626,9 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
         if accession in controllati
         and s.valido and s.frazione_primer > config.qc.max_primer_hit_frac
     }
-    if col_primer and taglio == 0:
+    # Con il primer cercato lungo la lettura il primer deve esserci, e lo
+    # toglie il filtro: la sua presenza non e' un difetto.
+    if col_primer and taglio == 0 and not config.taglio_cercato:
         peggiori = sorted(
             col_primer.items(), key=lambda voce: -voce[1].frazione_primer
         )
@@ -1608,6 +1661,14 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
     if violazioni:
         return violazioni, avvisi
 
+    if not config.taglio_cercato:
+        avvisi += _primer_fuori_dal_taglio_fisso(
+            contesto.scansione, controllati, config.qc.primer_sequence, taglio,
+            "filter.trimLeft", "")
+        if config.appaiata:
+            avvisi += _primer_fuori_dal_taglio_fisso(
+                contesto.scansione_reverse, controllati, config.pair.primer_sequence_reverse,
+                config.pair.trimLeft_reverse or 0, "pair.trimLeft_reverse", " reverse")
     if config.qc.primer_sequence is None:
         avvisi.append(
             Avviso(
@@ -1622,7 +1683,7 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
                 "E-S0-18",
                 "qc.conserved_motif e' nullo: la presenza della regione amplificata non e' "
                 "verificata"
-                if config.qc.primer_sequence is None else
+                if config.qc.primer_sequence is None or config.taglio_cercato else
                 "qc.conserved_motif e' nullo: verificata la sola assenza del primer in "
                 "testa alle letture, non la presenza della regione amplificata",
             )
@@ -1651,6 +1712,9 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
         dove = "all'inizio delle letture" if taglio == 0 else (
             f"alla posizione {taglio} delle letture (filter.trimLeft)"
         )
+        if config.taglio_cercato:
+            dove = ("dopo il primer, nelle letture in cui si trova, e all'inizio delle altre "
+                    "(filter.primer_removal search)")
         violazioni.append(
             Violazione(
                 "E-S0-16",
@@ -1659,11 +1723,64 @@ def _g10_primer_assente(contesto: Contesto) -> tuple[list[Violazione], list[Avvi
                 f"{len(con_segnale)} campioni da cui ci si attende il segnale del "
                 f"bersaglio, sotto il {config.qc.min_motif_frac:.0%} di "
                 f"qc.min_motif_frac: i file potrebbero non contenere la regione "
-                f"dichiarata, oppure filter.trimLeft non corrisponde a cio' che precede "
-                f"il motivo",
+                f"dichiarata, oppure " + (
+                    "il primer non si trova in molte letture: guarda frazione_primer in "
+                    "letture_ispezionate.tsv e, se e' bassa, verifica qc.primer_sequence e "
+                    "se filter.primer_max_offset copre le basi che precedono il primer"
+                    if config.taglio_cercato else
+                    "filter.trimLeft non corrisponde a cio' che precede il motivo"),
             )
         )
     return violazioni, avvisi
+
+
+def _primer_fuori_dal_taglio_fisso(
+    scansione: Mapping[str, StatisticheFile], controllati: set[str], primer: str | None,
+    taglio: int, parametro: str, quali: str,
+) -> list[Avviso]:
+    """L'avviso ``E-S0-29`` se, con il taglio a posizione fissa, il primer non
+    sta alla posizione che il taglio presuppone.
+
+    Il taglio fisso toglie le prime ``taglio`` basi: va bene se il primer
+    finisce li' in ogni lettura. Con un protocollo che lo fa precedere da un
+    numero variabile di basi il taglio lascerebbe residui del primer in testa a
+    una parte delle letture, e lo stesso taxon in piu' varianti. Sulle letture
+    ispezionate dei campioni biologici e dei controlli positivi il primer si
+    cerca lungo la lettura (:func:`sonda_del_taglio_fisso`); fra quelle in cui
+    si trova, la quota con il primer fuori dalla posizione attesa non deve
+    superare :data:`QUOTA_FUORI_POSIZIONE`, la stessa con cui ``init`` propone
+    la ricerca. Con meno di :data:`SEGNALE_MINIMO_DI_UNA_PARTE` letture con il
+    primer la quota non si giudica, e lo si dichiara nel log. Non scrive nulla
+    quando non scatta.
+    """
+    if sonda_del_taglio_fisso(primer, taglio) is None:
+        return []
+    assert primer is not None
+    posizioni: Counter[int] = Counter()
+    for accession, statistiche in scansione.items():
+        if accession in controllati and statistiche.valido:
+            posizioni.update(dict(statistiche.sfasamenti_del_primer or ()))
+    trovate = sum(posizioni.values())
+    if trovate < SEGNALE_MINIMO_DI_UNA_PARTE:
+        ottieni("run").info(
+            f"posizione del primer{quali} non valutabile: trovato in {trovate} letture "
+            f"ispezionate, meno di {SEGNALE_MINIMO_DI_UNA_PARTE}; il taglio a posizione fissa "
+            f"({parametro}) non e' verificato sulle letture",
+            extra={"gate": "G10", SOLO_NEL_FILE: True})
+        return []
+    attesa = taglio - len(primer)
+    fuori = trovate - posizioni.get(attesa, 0)
+    if fuori <= QUOTA_FUORI_POSIZIONE * trovate:
+        return []
+    elenco = ", ".join(
+        f"{posizione}: {letture / trovate:.0%}" for posizione, letture in sorted(posizioni.items()))
+    return [Avviso(
+        "E-S0-29",
+        f"con {parametro} {taglio} il primer{quali} {primer} dovrebbe cominciare dopo {attesa} "
+        f"basi, ma il {fuori / trovate:.1%} delle {trovate} letture{quali} ispezionate che lo "
+        f"portano lo ha in un'altra posizione, oltre il {QUOTA_FUORI_POSIZIONE:.0%} "
+        f"(basi che lo precedono e quota delle letture: {elenco}). Un taglio a posizione "
+        "fissa lascia le letture sfasate: dichiara filter.primer_removal: \"search\"")]
 
 
 def _primer_reverse_in_testa(contesto: Contesto, controllati: set[str]) -> list[Violazione]:
@@ -1674,7 +1791,7 @@ def _primer_reverse_in_testa(contesto: Contesto, controllati: set[str]) -> list[
     conta il primer solo con ``pair.trimLeft_reverse`` zero e il primer noto.
     """
     config = contesto.config
-    if not config.appaiata or config.pair.trimLeft_reverse != 0:
+    if not config.appaiata or config.pair.trimLeft_reverse != 0 or config.taglio_cercato:
         return []
     if config.pair.primer_sequence_reverse is None:
         return []

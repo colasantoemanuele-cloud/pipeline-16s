@@ -807,11 +807,14 @@ def _sezione_provenienza(esecuzione: _Esecuzione) -> tuple[_Sezione, list[tuple[
         righe,
     ))
 
-    sezione.sottotitolo("dada2 e correzione dei pareggi di assignTaxonomy")
+    tassonomia = esecuzione.manifesti.get(Passo.S8)
+    con_idtaxa = tassonomia is not None and tassonomia.metriche.get("classificatore") == "idtaxa"
+    sezione.sottotitolo(
+        "Classificatore tassonomico: IdTaxa" if con_idtaxa else
+        "dada2 e correzione dei pareggi di assignTaxonomy")
     # Cio' che R ha caricato in S8, letto dalle librerie installate a ogni
     # esecuzione della fase: e' la misura. Il file di blocco, piu' sotto, e'
     # la dichiarazione.
-    tassonomia = esecuzione.manifesti.get(Passo.S8)
     caricato = (tassonomia.metriche.get("dada2") if tassonomia is not None else None) or None
     if caricato is not None:
         correzione_caricata = caricato.get("correzione") or {}
@@ -833,6 +836,22 @@ def _sezione_provenienza(esecuzione: _Esecuzione) -> tuple[_Sezione, list[tuple[
                 str(Passo.S8),
                 "dada2 caricato senza la correzione dei pareggi di assignTaxonomy (E-S8-03)",
             ))
+    elif con_idtaxa:
+        metriche = tassonomia.metriche
+        sezione.sintesi((
+            ("confidenza minima (tax.idtaxa_threshold)", metriche.get("soglia")),
+            ("filamento (tax.idtaxa_strand)", metriche.get("filamento")),
+            ("varianti con il phylum assegnato",
+             f"{metriche.get('varianti_con_phylum')} su {metriche.get('varianti')}"),
+            ("ranghi del classificatore senza una colonna, non riportati",
+             ", ".join(metriche.get("ranghi_scartati") or []) or "nessuno"),
+        ))
+        sezione.testo(
+            "La tassonomia è assegnata da <code>DECIPHER::IdTaxa</code> "
+            "(<code>tax.classifier: idtaxa</code>): <code>assignTaxonomy</code> di dada2 non "
+            "è usato, e la correzione dei suoi pareggi non riguarda questa esecuzione. Il "
+            "campionamento di IdTaxa usa il seme <code>run.seed</code>.", "nota",
+        )
     else:
         sezione.testo(
             "S8 non ha registrato la versione di dada2 caricata da R: la fase non è "

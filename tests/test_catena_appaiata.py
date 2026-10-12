@@ -127,17 +127,24 @@ class Ripresa:
         return {p for p, testo in self.manifesti_dopo.items() if testo != self.manifesti_prima[p]}
 
 
-def _rifai_la_fusione(uscita: Path, config: Path) -> Ripresa:
-    """Toglie il manifesto della fusione e riprende l'esecuzione."""
+def _rifai_la_fusione(uscita: Path, config: Path, riprendi: bool = True) -> Ripresa:
+    """Toglie il manifesto della fusione e riprende l'esecuzione. Con
+    ``riprendi`` falso valuta soltanto che cosa la ripresa rifarebbe, e rimette
+    il manifesto dov'era: la cartella resta com'era.
+    """
     impronte = _impronte(uscita)
     manifesti = {p: m.read_bytes() for p, m in _manifesti(uscita).items()}
-    _manifesti(uscita)["SM"].unlink()
+    della_fusione = _manifesti(uscita)["SM"]
+    della_fusione.unlink()
     chiudi()
     situazioni = ProjectRun(carica(config)).valuta().situazioni
     da_eseguire = tuple(
         str(p) for p, s in situazioni.items() if s.stato is StatoPasso.DA_ESEGUIRE)
     assert "SM" in [
         f["passo"] for f in interfaccia.stato(uscita)["fasi"] if f["stato"] == "da_eseguire"]
+    if not riprendi:
+        della_fusione.write_bytes(manifesti["SM"])
+        return Ripresa(uscita, da_eseguire, impronte, impronte, manifesti, manifesti)
     assert cli.main(["resume", "--config", str(config)]) == 0
     chiudi()
     return Ripresa(
@@ -152,7 +159,6 @@ class Esecuzioni:
     """
 
     prima: Path
-    seconda: Path
     senza_filtrate: Path
     impronte: dict[str, dict[str, str]]
     ripresa: Ripresa
@@ -161,9 +167,11 @@ class Esecuzioni:
 
 @pytest.fixture(scope="module")
 def esecuzioni(tmp_path_factory) -> Esecuzioni:
-    """Tre esecuzioni della catena con la configurazione della fixture: due
-    uguali, e una che toglie le letture filtrate a catena conclusa; poi, sulla
-    seconda e sulla terza, una ripresa che rifa' la fusione.
+    """Due esecuzioni della catena con la configurazione della fixture, in
+    cartelle diverse: una tiene le letture filtrate, l'altra le toglie a catena
+    conclusa; poi, tolto il manifesto della fusione, sulla prima si valuta che
+    cosa la ripresa rifarebbe e sulla seconda la si esegue. Le impronte sono
+    prese prima.
     """
     if _sonda() is not None:
         if os.environ.get("AMPLICON16S_RICHIEDI_BIOC") == "1":
@@ -171,14 +179,15 @@ def esecuzioni(tmp_path_factory) -> Esecuzioni:
         pytest.skip(_sonda())
     radice = tmp_path_factory.mktemp("osd276_appaiato")
     prima = _esegui(_dati(), radice, "prima")
-    seconda = _esegui(_dati(), radice, "seconda", report=False)
     dati = _dati()
     dati["run"]["keep_filtered_fastq"] = False
     senza = _esegui(dati, radice, "senza_filtrate", report=False)
-    impronte = {u.name: _impronte(u) for u in (prima, seconda, senza)}
+    impronte = {u.name: _impronte(u) for u in (prima, senza)}
     return Esecuzioni(
-        prima, seconda, senza, impronte,
-        _rifai_la_fusione(seconda, radice / "seconda.yaml"),
+        prima, senza, impronte,
+        # Sulla prima basta la valutazione: la ripresa vera si esegue sulla
+        # seconda, che rifa' anche il filtro e l'inferenza.
+        _rifai_la_fusione(prima, radice / "prima.yaml", riprendi=False),
         _rifai_la_fusione(senza, radice / "senza_filtrate.yaml"))
 
 
@@ -459,21 +468,18 @@ def test_le_varianti_e_la_fusione_sono_quelle_di_dada2(esecuzioni):
 
 def test_due_esecuzioni_danno_gli_stessi_byte(esecuzioni):
     """
-    **Obiettivo**: Verificare che due esecuzioni della stessa configurazione
-    in cartelle diverse diano, per ogni artefatto di ogni fase, lo stesso
-    sha256, salvo la configurazione registrata (che riporta la cartella di
-    uscita), e che l'esecuzione che toglie le letture filtrate dia gli stessi
-    artefatti di quella che le tiene.
+    **Obiettivo**: Verificare che due esecuzioni in cartelle diverse, una che
+    tiene le letture filtrate e una che le toglie a catena conclusa, diano per
+    ogni artefatto di ogni fase lo stesso sha256, salvo la configurazione
+    registrata (che riporta la cartella di uscita e il parametro diverso).
 
     **Razionale scientifico e sistemistico**: La riproducibilita' vale per la
     modalita' appaiata come per l'altra; e ``run.keep_filtered_fastq`` governa
     lo spazio su disco, non il risultato.
     """
-    prima, seconda, senza = (esecuzioni.impronte[n] for n in ("prima", "seconda", "senza_filtrate"))
+    prima, senza = (esecuzioni.impronte[n] for n in ("prima", "senza_filtrate"))
     assert len(prima) > 80
     configurazione = {k for k in prima if k.startswith("00_config/")}
-    assert {k: v for k, v in prima.items() if k not in configurazione} == {
-        k: v for k, v in seconda.items() if k not in configurazione}
     assert {k: v for k, v in prima.items() if k not in configurazione} == {
         k: v for k, v in senza.items() if k not in configurazione}
     rimossi = json.loads(
@@ -487,8 +493,8 @@ def test_la_fusione_si_rifa_senza_rifare_l_inferenza(esecuzioni):
     **Obiettivo**: Verificare che, tolto il manifesto della fusione da
     un'esecuzione conclusa che ha tenuto le letture filtrate, risultino da
     eseguire la fusione e le fasi che ne dipendono e nessuna di quelle che la
-    precedono; che la ripresa non riscriva i manifesti fino
-    all'inferenza; e che ogni artefatto abbia lo stesso sha256 di prima.
+    precedono: la ripresa non toccherebbe filtro, modelli d'errore ne'
+    inferenza.
 
     **Razionale scientifico e sistemistico**: L'inferenza delle due letture e'
     la parte lunga della catena: cambiare la sovrapposizione minima o
@@ -497,9 +503,9 @@ def test_la_fusione_si_rifa_senza_rifare_l_inferenza(esecuzioni):
     ripresa = esecuzioni.ripresa
     assert ripresa.da_eseguire[0] == "SM" and "S5" in ripresa.da_eseguire
     assert not set(ripresa.da_eseguire) & set(FINO_ALL_INFERENZA)
-    assert not ripresa.rifatte & set(FINO_ALL_INFERENZA)
-    assert ripresa.rifatte == set(ripresa.manifesti_prima) - set(FINO_ALL_INFERENZA)
-    assert ripresa.impronte_dopo == ripresa.impronte_prima
+    assert set(ripresa.da_eseguire) == set(ripresa.manifesti_prima) - set(FINO_ALL_INFERENZA)
+    # La valutazione non ha cambiato la cartella.
+    assert _impronte(esecuzioni.prima) == ripresa.impronte_prima
 
 
 def test_la_fusione_si_rifa_dopo_che_le_letture_filtrate_sono_state_tolte(esecuzioni):

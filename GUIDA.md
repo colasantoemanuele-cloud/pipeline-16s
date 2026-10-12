@@ -21,6 +21,12 @@ lanciano dalla radice di un clone del repository.
 - Un file può chiudersi con righe vuote. Una riga finale di soli spazi è un difetto del
   file: la validazione la respinge (`E-S0-13`) se cade fra le letture che ispeziona,
   altrimenti la respinge S1 (`E-S1-05`).
+- Le letture possono portare ancora il primer di amplificazione. Se comincia alla prima
+  base di ogni lettura lo toglie un taglio a posizione fissa (`filter.trimLeft`); se è
+  preceduto da un numero variabile di basi (i distanziatori di alcuni protocolli, che
+  sfasano le letture per migliorare la qualità della corsa) va cercato lungo la lettura
+  (`filter.primer_removal: search`). I due modi sono descritti nella sezione 6.3;
+  `init` riconosce quale serve.
 
 ### 1.2 Letture appaiate
 
@@ -45,6 +51,13 @@ di corrispondere (un file filtrato o troncato senza l'altro). La verifica vale q
 nomi: se ogni lettura di un file ha lo stesso nome, non distingue nulla. Un file che contiene
 entrambe le letture di ogni coppia (`E-S0-27`, `E-S1-11`) va separato in due:
 `dati/osd276/scarica_letture.py --coppie` mostra come, per un dataset pubblico.
+
+**I primer, in modalità appaiata.** Il primer forward sta nelle letture forward e il
+reverse nelle reverse. Con il taglio a posizione fissa ogni lettura ha il suo
+(`filter.trimLeft`, `pair.trimLeft_reverse`); con il primer cercato
+(`filter.primer_removal: search`) ciascun primer si cerca nella sua lettura, e una
+coppia in cui a una delle due letture manca il primer si scarta per intero, così che i
+due file restino con le stesse coppie nello stesso ordine (sezione 6.3).
 
 **Quale file è il forward.** Il file forward è quello le cui letture partono dal primer
 forward, non necessariamente quello che il deposito chiama R1 o `_1`: in alcuni
@@ -139,7 +152,12 @@ solo modello d'errore e non distingue le piastre.
 
 ### 1.5 Il riferimento tassonomico
 
-Un file nel formato dei training set di dada2 (`assignTaxonomy`). Quello usato per i
+I classificatori sono due, e ciascuno vuole il riferimento nella propria forma
+(`tax.classifier`, sezione 6.4): il bayesiano ingenuo di dada2 (`naive_bayes`, quello
+di chi non ne dichiara uno) un file FASTA; IdTaxa di DECIPHER (`idtaxa`) un
+classificatore già addestrato.
+
+**Per `naive_bayes`.** Un file nel formato dei training set di dada2 (`assignTaxonomy`). Quello usato per i
 dataset del repository si scarica con `python3 dati/riferimento/scarica_riferimento.py`.
 Se il riferimento ha un elenco di taxa con un difetto noto (`tax.ref_bad_taxa`), il
 file è una tabella CSV con le colonne `name` e `rank`: la validazione lo verifica a
@@ -153,6 +171,36 @@ phylum è il secondo. Servono da due a sette ranghi; la validazione respinge
 (`E-S0-22`) un riferimento in cui ogni sequenza ne ha uno solo, o in cui una ne ha più
 di sette. Vanno bene i training set di SILVA, RDP, GTDB e Greengenes per dada2; come
 scrivere i filtri tassonomici per ciascuno è nella sezione 6.4.
+
+**Per `idtaxa`.** Un file `.RData` con l'oggetto `trainingSet` prodotto da
+`DECIPHER::LearnTaxa`, addestrato con i nomi dei ranghi: è la forma dei classificatori
+che gli autori di DECIPHER pubblicano (SILVA, GTDB, RDP).
+`python3 dati/riferimento/scarica_addestrato.py 138.2` (oppure `2019`) scarica uno dei
+due classificatori di SILVA addestrati dagli autori di DECIPHER, ne verifica dimensione
+e MD5 e stampa i due valori da dichiarare in `tax.idtaxa_trained` e
+`tax.idtaxa_trained_md5`:
+
+- `138.2` (`SILVA_SSU_r138_2_2024.RData`, SILVA SSU r138.2): per un'analisi nuova;
+- `2019` (`SILVA_SSU_r138_2019.RData`, SILVA SSU r138): per confrontarsi con tabelle
+  elaborate da NASA GeneLab con le versioni A e B della sua pipeline (GL-DPPD-7104), che
+  usano questo file.
+
+Il sito di DECIPHER non distribuisce il file del 2019 e non pubblica checksum: lo script
+scarica le copie archiviate su figshare dal gruppo di elaborazione dati di GeneLab
+(licenza CC BY 4.0; i DOI sono in `dati/riferimento/FONTI.tsv`), con la dimensione e
+l'MD5 pubblicati da figshare. Un altro classificatore nel formato di DECIPHER (GTDB,
+RDP) si dichiara allo stesso modo, con l'MD5 di `md5sum FILE`.
+A ogni avvio si verifica l'MD5 del file (`E-S0-12`); la validazione lo carica, quando
+si esegue, per verificare che contenga un classificatore addestrato con la tabella dei
+ranghi, e scrive che cosa vi ha trovato in
+`01_input_validation/classificatore_addestrato.json`. Se il classificatore si dichiara
+su un'esecuzione già validata, lo stesso controllo lo fa l'assegnazione tassonomica
+quando lo carica, con lo stesso codice
+(`E-S0-28`): un riferimento FASTA qui non va. I ranghi si riconoscono dal loro nome
+(`domain` o `kingdom`, `phylum`, `class`, `order`, `family`, `genus`), non dalla
+posizione; la radice dell'albero dei taxa (`Root`) non è un'assegnazione, e un rango
+che la tassonomia della pipeline non ha (`species`, `subclass`) non è riportato:
+`08_taxonomy/riepilogo.json` elenca quelli scartati.
 
 
 ## 2. Scrivere la configurazione con `init`
@@ -509,6 +557,20 @@ uscita nuova o vuota: dopo un `validate` nella stessa cartella si rifiuta e indi
   con il codice e che cosa fare.
 - `run` non sovrascrive: se la cartella di uscita non è vuota si rifiuta.
 - `status` legge soltanto: si può lanciare da un altro terminale durante `run`.
+- Una cartella di uscita ammette una sola esecuzione per volta. `validate`, `run` e
+  `resume` prendono un blocco sulla cartella (`99_logs/esecuzione.blocco`) e lo tengono
+  finché durano; se un'altra esecuzione lo tiene si fermano subito con `E-RUN-01` e il
+  codice di uscita 6, senza leggere né scrivere nulla nella cartella: nessun punto di
+  ripresa, nessuna riga nel log. Che cosa fare: aspettare che l'altra finisca (`status`
+  dice a che punto è) e rilanciare, oppure indicare in `io.out_root` un'altra cartella.
+  Il blocco è del sistema operativo e si scioglie quando il processo finisce, anche per
+  un arresto o un'interruzione: non c'è un file da cancellare. `report` e `soglie` non
+  chiedono il blocco: durante un'esecuzione `report` scrive il report di ciò che è
+  concluso fino a quel momento, e `soglie` si rifiuta (uscita 3) perché l'esecuzione
+  non è conclusa. Su un filesystem di rete (NFS, Lustre) il blocco può valere per il
+  solo nodo, o restare preso fino alla scadenza del lease dopo un guasto del nodo; su un
+  filesystem che non realizza i blocchi l'esecuzione prosegue senza, e lo scrive nel log:
+  lì due esecuzioni sulla stessa cartella non sono rifiutate.
 - Un arresto (codice di uscita 4) dichiara la fase, il codice, che cosa fare e il
   comando per ripartire; corretta la causa, `resume` riparte da lì.
 - La prima esecuzione serve anche a fissare le soglie: `soglie` le propone dalle
@@ -965,6 +1027,10 @@ Senza file del lotto questi parametri sono rilevati nulli o vuoti.
 | `filter.truncLen` | lunghezza a cui si troncano le letture; le più corte sono scartate | dal profilo di lunghezze e qualità | proposta: la più lunga che non scarta letture e precede il calo di qualità (profilo di S1) | report, «Troncamento suggerito dalle letture» |
 | `filter.truncLen_shortfall_warn` | di quante basi il troncamento può stare sotto la lettura più corta prima di un avviso | dalla variabilità delle lunghezze | lo scarto fra lettura più corta e troncamento proposto (dai dati) | segnalazione `E-S1-01` |
 | `filter.trimLeft` | basi tolte in testa: la lunghezza del primer se è nelle letture, altrimenti 0 | dal primer | rilevato se un primer dell'elenco è nelle letture; altrimenti proposto 0 | S0, gate G10 |
+| `filter.primer_removal` | come si toglie il primer: `fixed` (le prime `filter.trimLeft` basi; vale anche omesso) o `search` (cercato lungo la lettura) | dal protocollo: `search` se il primer è preceduto da un numero variabile di basi (vedi sotto) | proposto `search` se più del 5% delle letture con il primer lo porta a uno sfasamento diverso dal più frequente; altrimenti non compare | `03_filtered/posizioni_primer.tsv` |
+| `filter.primer_max_mismatch` | discordanze ammesse fra primer e lettura; solo con `search` | un decimo della lunghezza del primer | la parte intera di 0,1 per la lunghezza del primer più corto (la frazione di errori predefinita di cutadapt) | `posizioni_primer.tsv`, colonna `discordanze` |
+| `filter.primer_max_offset` | quante basi possono precedere il primer; solo con `search` | la lunghezza del distanziatore più lungo del protocollo | proposto: il più grande sfasamento che porta almeno l'1% delle letture con il primer | `posizioni_primer.tsv`, colonna `sfasamento` |
+| `filter.primer_untrimmed` | che cosa succede a una lettura senza primer: `discard` o `keep`; solo con `search` | `discard`, salvo voler tenere le letture senza primer | `discard` (come cutadapt con `--discard-untrimmed`) | `03_filtered/taglio_primer.tsv` |
 | `qc.primer_sequence` | primer forward, in codici IUPAC; nullo se non è noto | dal protocollo di amplificazione (vedi sotto) | rilevato nelle letture; proposto dai metadati; indicato con `--primer`; altrimenti nullo | `01_input_validation/letture_ispezionate.tsv`, `frazione_primer` |
 | `qc.conserved_motif` | espressione del motivo con cui inizia la regione amplificata; nullo | dal consenso delle prime basi (vedi sotto) | proposto se il primer è noto; altrimenti nullo | `letture_ispezionate.tsv`, `frazione_motivo` |
 | `qc.max_primer_hit_frac` | frazione di letture con il primer in testa oltre la quale è considerato presente | bassa: il primer o c'è o non c'è | nessuno | `frazione_primer` per file |
@@ -998,6 +1064,61 @@ deposito), o persino il primer di un'altra regione: `init` propone allora la seq
 metadati dicendo che non è nelle letture, e `filter.trimLeft: 0`. La validazione ne
 verifica la sola assenza; quale regione le letture coprano davvero lo dice il motivo.
 
+**Il primer cercato lungo la lettura.** Alcuni protocolli mettono fra l'adattatore e il
+primer un distanziatore di lunghezza variabile, da zero a qualche base, perché le
+letture non comincino tutte con le stesse basi. Il primer sta allora in un punto
+diverso da lettura a lettura: un taglio a posizione fissa lascerebbe le letture sfasate
+di qualche base, e lo stesso taxon diviso in tante varianti quanti sono gli sfasamenti.
+Con `filter.primer_removal: search`:
+
+- il primer (`qc.primer_sequence`, in modalità appaiata anche
+  `pair.primer_sequence_reverse` nelle letture reverse) si cerca nelle prime basi di
+  ogni lettura: deve cominciare dopo non più di `filter.primer_max_offset` basi e stare
+  per intero nella lettura, con non più di `filter.primer_max_mismatch` basi diverse. I
+  codici degenerati del primer valgono le basi che indicano; le basi della lettura si
+  prendono alla lettera, e una `N` della lettura è una discordanza. Fra più
+  corrispondenze vale quella con meno discordanze e, a parità, la prima;
+- si contano le sole sostituzioni, non le inserzioni né le delezioni. È una differenza
+  da cutadapt, che ammette anche quelle entro la sua frazione di errori: una lettura con
+  una base in più o in meno dentro il primer qui risulta senza primer;
+- la lettura si taglia dopo l'ultima base del primer. `filter.trimLeft` (e
+  `pair.trimLeft_reverse`) deve essere 0 e il primer non può essere nullo, altrimenti la
+  configurazione è respinta (`E-G15-16`);
+- **`filter.truncLen` è la lunghezza della lettura dopo il taglio del primer** (così
+  `pair.truncLen_reverse`): ogni sequenza ha la stessa lunghezza qualunque fosse lo
+  sfasamento. Nella stessa misura sono il profilo di S1, il troncamento suggerito, i
+  controlli sul troncamento (`E-S0-09`, `E-S1-01`, `E-S1-02`) e il vincolo della fusione
+  (sezione 6.7). Passando dal taglio fisso a quello cercato il troncamento si riduce
+  della lunghezza del primer;
+- una lettura in cui il primer non si trova è scartata (`filter.primer_untrimmed:
+  discard`; in modalità appaiata con la sua compagna) oppure tenuta intera (`keep`).
+  Tenuta intera comincia in un punto diverso dalle altre: ha senso solo se una parte
+  delle letture è stata privata del primer prima del deposito. Se nessuna lettura lo
+  porta S1 si ferma (`E-S1-12`); se la quota di letture senza primer supera
+  `qc.max_frac_untrimmed` il filtro dà un avviso (`E-S2-04`, sezione 6.6);
+- il primer deve essere presente, quindi `qc.max_primer_hit_frac` (e
+  `pair.max_primer_hit_frac_reverse`) non si applica; il motivo conservato si cerca dopo
+  il primer trovato; il verso delle letture (sezione 1.2) si giudica dal primer trovato.
+
+Con il taglio a posizione fissa la validazione verifica che il primer stia davvero dove
+il taglio lo presuppone. Se `filter.trimLeft` è almeno la lunghezza di
+`qc.primer_sequence`, cerca il primer lungo le letture ispezionate dei campioni
+biologici e dei controlli positivi, con una discordanza ogni dieci basi del primer e
+fino a 16 basi oltre la posizione attesa (`filter.trimLeft` meno la lunghezza del
+primer); se più del 5% delle letture che lo portano lo ha in un'altra posizione dà
+l'avviso `E-S0-29`, con le posizioni trovate, e la scelta giusta è `search`. Lo stesso
+per la lettura reverse. Il controllo non si applica con il primer nullo, senza taglio, o
+con un taglio più corto del primer; con meno di 30 letture con il primer non giudica, e
+lo scrive nel log.
+
+Il filtro scrive in `03_filtered/` `taglio_primer.tsv` (per campione: letture, quante
+con il primer, in quante manca, quante restano) e `posizioni_primer.tsv` (a quale
+sfasamento e con quante discordanze il primer è stato trovato), e il tracciamento delle
+letture ha una colonna in più, `taglio_primer`, fra l'ingresso e il filtro. Con letture
+più lunghe della regione amplificata la coda può arrivare al primer dell'altra
+estremità: la ricerca non lo toglie; lo toglie il troncamento, o in modalità appaiata la
+fusione, che scarta le code oltre l'inizio dell'altra lettura.
+
 **Il motivo conservato.** È un'espressione regolare sulle prime basi della regione
 amplificata, quelle che seguono il primer: una base dove quasi tutte le letture
 concordano, una classe (`[AG]`) dove ne compaiono due, un punto dove variano. `init` lo
@@ -1015,6 +1136,10 @@ scriverle in maiuscolo.
 | `err.randomize` | se scegliere a caso i campioni per il modello d'errore | vero se l'ordine dei file segue piastre o gruppi | falso (`dada2::learnErrors`) | `04_error_models/`: campioni usati |
 | `dada.pool` | come i campioni condividono l'informazione: `false`, `true`, `pseudo` | `pseudo` se contano le varianti rare presenti in più campioni | falso (`dada2::dada`) | report: varianti e letture dopo l'inferenza |
 | `chimera.min_fold_parent_over_abundance` | quanto un genitore deve superare una variante perché sia chimerica | il valore del metodo, salvo ragioni | 1,5 (`dada2::isBimeraDenovoTable`) | report: frazione di letture chimeriche |
+| `tax.classifier` | il classificatore: `naive_bayes` (`dada2::assignTaxonomy`; vale anche omesso) o `idtaxa` (`DECIPHER::IdTaxa`) | vedi sotto, «I due classificatori» | `naive_bayes` | `08_taxonomy/riepilogo.json`, `classificatore` |
+| `tax.idtaxa_trained`, `tax.idtaxa_trained_md5` | il classificatore addestrato (`.RData`) e il suo MD5; solo con `idtaxa` | sezione 1.5 | nessuno | `01_input_validation/classificatore_addestrato.json` (scritto dalla validazione, quando si esegue) |
+| `tax.idtaxa_threshold` | confidenza minima, da 0 a 100, per assegnare un rango; solo con `idtaxa` | 60 è il valore degli autori; 50 assegna di più con più errori, 70 il contrario | 60 (`DECIPHER::IdTaxa`, `threshold`) | `08_taxonomy/confidenza.tsv` |
+| `tax.idtaxa_strand` | filamento su cui si classifica: `both`, `top`, `bottom`; solo con `idtaxa` | `both` se le varianti possono essere nell'altro orientamento (è l'analogo di `tax.try_rc`); `top` dimezza il tempo | `both` | frazione di varianti con il phylum |
 | `filt.remove_na_phylum` | se togliere le varianti senza phylum | vero se ciò che il riferimento non riconosce è fuori bersaglio | nessuno | report, «Risultato finale»: varianti rimosse |
 | `filt.exclude_taxa` | taxa da togliere, a qualunque rango, come li scrive il riferimento; `[]` | ciò che il gene cattura senza essere l'oggetto dello studio: di solito cloroplasti, mitocondri ed eucarioti (vedi sotto) | nessuno | `12_final/intermedi/varianti_rimosse.tsv` |
 | `phylo.enabled` | se costruire l'albero delle varianti finali | vero se servono distanze filogenetiche | falso (fase facoltativa) | `09_phylogeny/` |
@@ -1038,6 +1163,71 @@ prima dell'esecuzione. Se non c'è un valore da cui partire si può dichiarare 0
 campione escluso), guardare nel report della prima esecuzione le letture per campione,
 e poi alzarlo: è una nuova scelta di analisi, da dichiarare come tale, e la ripresa
 rifà i filtri finali.
+
+**I due classificatori.** `naive_bayes` è il bayesiano ingenuo di
+`dada2::assignTaxonomy`: lavora su un riferimento FASTA (`tax.ref_fasta`, `tax.ref_md5`,
+`tax.try_rc`, `tax.min_boot`, `tax.ref_bad_taxa`) e assegna ogni rango il cui bootstrap
+raggiunge `tax.min_boot`. `idtaxa` è `DECIPHER::IdTaxa`: lavora su un classificatore
+addestrato (`tax.idtaxa_trained` e il suo MD5) e assegna ogni rango la cui confidenza
+raggiunge `tax.idtaxa_threshold`. I parametri di un classificatore non si dichiarano con
+l'altro: la configurazione è respinta (`E-G15-17`). Come scegliere:
+
+- IdTaxa è più prudente: a parità di riferimento lascia senza assegnazione più varianti
+  ai ranghi fini, e ne assegna meno al taxon sbagliato; conviene quando un'assegnazione
+  errata costa più di una mancata. Con letture corte la quota di varianti senza genere
+  può essere alta: si vede in `08_taxonomy/riepilogo.json` e va confrontata con
+  `qc.min_frac_phylum` prima di fissare la soglia;
+- il bayesiano ingenuo è più rapido e ha bisogno solo di un file FASTA, che si può
+  costruire per qualunque riferimento; per IdTaxa serve un classificatore già addestrato;
+- per confrontare i risultati con quelli di un'altra pipeline conta usare lo stesso
+  classificatore e lo stesso riferimento. Lo stesso riferimento non vuol dire però lo
+  stesso algoritmo: IdTaxa è cambiato fra le versioni di DECIPHER, e un classificatore
+  addestrato con una versione precedente si carica ma può dare confidenze diverse da
+  quelle ottenute con la versione con cui è stato pubblicato. La versione di DECIPHER
+  dell'immagine è in `renv.lock`.
+
+Per passare a IdTaxa una configurazione scritta per il bayesiano ingenuo, nel gruppo
+`tax` si tolgono `ref_fasta`, `ref_md5`, `try_rc` (e `min_boot`, `ref_bad_taxa`, se
+dichiarati) e si scrivono:
+
+```yaml
+tax:
+  ref_name: "SILVA"
+  ref_version: "138.2"
+  classifier: idtaxa
+  idtaxa_trained: /percorso/a/SILVA_SSU_r138_2_2024.RData
+  idtaxa_trained_md5: "4e272e39c2d71f5d3e7a31b00dbb1df4"
+  idtaxa_threshold: 60
+  idtaxa_strand: both
+```
+
+Percorso e MD5 sono quelli che stampa `dati/riferimento/scarica_addestrato.py` (sezione
+1.5). `init` scrive sempre `naive_bayes`: il passaggio si fa a mano. Su un'esecuzione
+già conclusa `resume` rifà l'assegnazione tassonomica e le fasi che ne dipendono, non
+la validazione né l'inferenza delle varianti; gli artefatti del classificatore di prima
+(`bootstrap.tsv`) escono da `08_taxonomy/`. Con un altro riferimento cambiano i nomi dei
+taxa: `katharoseq.target_taxon` e `filt.exclude_taxa` vanno riscritti come li scrive il
+nuovo. La soglia `qc.min_frac_phylum` fissata con
+un classificatore non vale per l'altro: va riportata al valore che non ferma e proposta
+di nuovo da `soglie` (sezione 6.6).
+
+Con IdTaxa la tassonomia ha le stesse sei colonne, da `Kingdom` a `Genus`;
+`08_taxonomy/confidenza.tsv` riporta la confidenza di ogni rango assegnato (al posto di
+`bootstrap.tsv`), e le colonne accessorie dell'oggetto integrato si chiamano
+`confidenza_`. Due differenze nella forma della tassonomia:
+
+- un lignaggio del riferimento può non avere un rango intermedio (SILVA ne salta in
+  alcuni lignaggi): la colonna di quel rango è vuota e quelle sotto sono assegnate. Con
+  il bayesiano ingenuo sotto un rango vuoto non c'è mai nulla. Ogni conto per rango
+  guarda la colonna di quel rango: una variante con l'ordine vuoto e il genere assegnato
+  è «non assegnata» all'ordine e assegnata al genere, nei filtri, nella copertura del
+  phylum e nella composizione delle analisi ecologiche (dove il suo lignaggio porta
+  `NA` al posto del rango che manca);
+- le etichette `unclassified_...` con cui IdTaxa chiude una classificazione troncata
+  non sono taxa: la colonna resta vuota.
+
+L'esecuzione è ripetibile: il campionamento di IdTaxa usa il seme `run.seed`, e il
+risultato non dipende da `run.threads`.
 
 **Che cosa togliere con i filtri tassonomici.** I filtri tolgono soltanto ciò che si
 dichiara. I primer del 16S amplificano anche il 16S dei cloroplasti e dei mitocondri e,
@@ -1151,6 +1341,7 @@ report lo segnalano. `init --accetta-proposte` scrive il valore che non ferma
 | `filter.truncLen_shortfall_warn` | di quante basi il troncamento può stare sotto la lettura più corta | lo scarto la supera (avviso `E-S1-01`) | `filter.truncLen` meno 1, il massimo ammesso | lo scarto del troncamento proposto |
 | `qc.max_zeroed_samples` | campioni che il filtro può lasciare senza letture | i campioni biologici e i controlli positivi azzerati sono di più (`E-S2-01`) | il numero dei campioni biologici e dei controlli positivi | 0 |
 | `qc.max_frac_lost_filter` | perdita media massima di letture nel filtro | la perdita media la supera (`E-S2-02`) | 1 | nessuna |
+| `qc.max_frac_untrimmed` | solo con `filter.primer_removal: search`: quota massima di letture senza il primer cercato | la quota sull'insieme dei campioni biologici e dei controlli positivi la supera (avviso `E-S2-04`); in modalità appaiata conta le coppie in cui manca almeno un primer | 1 | nessuna |
 | `qc.warn_frac_chimeric` | frazione di letture chimeriche che dà un avviso | la frazione chimerica la supera (avviso `E-S6-02`) | 1 | nessuna |
 | `qc.stop_frac_chimeric` | frazione di letture chimeriche che ferma | la frazione chimerica la supera (`E-S6-01`) | 1 | nessuna |
 | `qc.min_frac_phylum` | frazione minima di varianti con il phylum assegnato | la frazione di una classe le sta sotto (`E-S8-02`) | 0 | nessuna |
@@ -1259,6 +1450,16 @@ lunghezza della regione amplificata senza i primer, deve valere
 
     (filter.truncLen - filter.trimLeft) + (pair.truncLen_reverse - pair.trimLeft_reverse)
         >= L + pair.min_overlap
+
+Con il primer cercato lungo la lettura (`filter.primer_removal: search`, sezione 6.3) i
+due troncamenti sono già lunghezze dopo il taglio del primer e i tagli fissi valgono
+zero, quindi il vincolo si scrive
+
+    filter.truncLen + pair.truncLen_reverse >= L + pair.min_overlap
+
+con la stessa L: `init` misura allora l'inserto senza i primer e senza le basi che li
+precedono, togliendo a ogni coppia ciò che il taglio toglie alle sue due letture, e
+`pair.expected_merged_len`, `pair.len_min` e `pair.len_max` sono in quella misura.
 
 **L'intervallo delle lunghezze.** `init` propone `pair.len_min` e `pair.len_max` dai
 percentili dell'inserto misurato: descrivono le coppie del dataset, non la regione. Se

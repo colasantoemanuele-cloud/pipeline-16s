@@ -377,7 +377,9 @@ def test_un_parametro_obbligatorio_dichiarato_nullo_o_vuoto_e_dichiarato(tmp_pat
     for chiave in defaults.OBBLIGATORI:
         gruppo, nome = chiave.split(".")
         campo = Config.model_fields[gruppo].annotation.model_fields[nome]
-        assert campo.is_required(), chiave
+        # tax.try_rc ammette l'assenza nello schema perche' con IdTaxa non
+        # esiste: con il classificatore predefinito lo richiede la radice.
+        assert campo.is_required() or chiave == "tax.try_rc", chiave
     assert not set(defaults.OBBLIGATORI) & set(defaults.STANDARD_DEL_METODO)
 
 
@@ -1247,7 +1249,9 @@ def test_g10_non_cerca_il_primer_nei_controlli_negativi(tmp_path):
 
 
 @pytest.mark.parametrize("gruppo, attesi", [
-    ("tax", {"tax.ref_fasta", "tax.ref_md5"}),
+    # Il riferimento e il suo checksum sono richiesti dal classificatore
+    # predefinito: stanno nella voce che riunisce i mancanti.
+    ("tax", set()),
     ("io", {"io.fastq_dir", "io.assay_table", "io.out_root"}),
 ])
 def test_un_gruppo_mancante_elenca_tutti_i_suoi_parametri_senza_predefinito(tmp_path, gruppo, attesi):
@@ -1272,6 +1276,8 @@ def test_un_gruppo_mancante_elenca_tutti_i_suoi_parametri_senza_predefinito(tmp_
     obbligatori = {c for c in defaults.OBBLIGATORI if c.startswith(f"{gruppo}.")}
     assert problemi[0].startswith(INTESTAZIONE_MANCANTI)
     assert all(c in problemi[0] for c in obbligatori)
+    if gruppo == "tax":
+        assert "tax.ref_fasta" in problemi[0] and "tax.ref_md5" in problemi[0]
     singoli = {p.split(":")[0] for p in problemi[1:]}
     assert singoli == attesi and not singoli & obbligatori
     assert all("parametro obbligatorio mancante" in p for p in problemi[1:])

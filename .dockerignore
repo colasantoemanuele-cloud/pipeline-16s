@@ -36,6 +36,7 @@ dati/osd734/riferimento/
 # Il riferimento tassonomico comune scaricato in dati/riferimento/.
 dati/riferimento/silva_*
 dati/riferimento/SILVA_LICENSE.txt
+dati/riferimento/*.RData
 dati/osd734/lotto/
 # Le letture di OSD-276 scaricate in dati/osd276/.
 dati/osd276/ena/

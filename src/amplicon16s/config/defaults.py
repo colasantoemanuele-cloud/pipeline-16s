@@ -268,6 +268,12 @@ NON_NULLO: Final = "non_nullo"
 NON_VUOTO: Final = "non_vuoto"
 VERO: Final = "vero"
 APPAIATA: Final = "appaiata"
+#: Le forme delle condizioni di modalita': il primer si toglie cercandolo
+#: (filter.primer_removal), il classificatore e' IdTaxa, oppure e' il
+#: bayesiano ingenuo (anche non dichiarato: e' il predefinito).
+CERCATO: Final = "cercato"
+IDTAXA: Final = "idtaxa"
+BAYESIANO: Final = "bayesiano"
 
 #: La condizione dei parametri della modalita' appaiata.
 _CON_LE_COPPIE: Final = (("io.layout", APPAIATA),)
@@ -356,8 +362,82 @@ COPPIE_NULLE_SE_OMESSE: Final[frozenset[str]] = frozenset(
     c for c in PARAMETRI_DELLE_COPPIE if c not in PARAMETRI_DELLE_COPPIE_ANCHE_NULLI
 )
 
+# --------------------------------------------------------------------------- #
+# Come si toglie il primer                                                     #
+# --------------------------------------------------------------------------- #
+
+#: I due modi di togliere il primer. Quello a posizione fissa (filter.trimLeft)
+#: e' l'assenza: una configurazione che non dichiara filter.primer_removal, o lo
+#: dichiara fixed, e' la stessa.
+PRIMER_FISSO: Final = "fixed"
+PRIMER_CERCATO: Final = "search"
+
+#: Che cosa succede a una lettura in cui il primer cercato non si trova.
+SENZA_PRIMER_SCARTATA: Final = "discard"
+SENZA_PRIMER_TENUTA: Final = "keep"
+
+#: I parametri del taglio cercato: obbligatori con filter.primer_removal search,
+#: respinti altrimenti, e assenti dalla configurazione risolta.
+PARAMETRI_DEL_TAGLIO_CERCATO: Final[tuple[str, ...]] = (
+    "filter.primer_max_mismatch",
+    "filter.primer_max_offset",
+    "filter.primer_untrimmed",
+    "qc.max_frac_untrimmed",
+)
+
+# --------------------------------------------------------------------------- #
+# Il classificatore tassonomico                                                #
+# --------------------------------------------------------------------------- #
+
+CLASSIFICATORE_IDTAXA: Final = "idtaxa"
+
+#: I parametri propri di IdTaxa: obbligatori con tax.classifier idtaxa, respinti
+#: altrimenti, e assenti dalla configurazione risolta.
+PARAMETRI_DI_IDTAXA: Final[tuple[str, ...]] = (
+    "tax.idtaxa_trained",
+    "tax.idtaxa_trained_md5",
+    "tax.idtaxa_threshold",
+    "tax.idtaxa_strand",
+)
+
+#: Il riferimento del bayesiano ingenuo: il file e il suo checksum, richiesti
+#: con quel classificatore.
+PARAMETRI_DEL_BAYESIANO: Final[tuple[str, ...]] = (
+    "tax.ref_fasta",
+    "tax.ref_md5",
+)
+
+#: Tutti i parametri propri del bayesiano ingenuo: il riferimento,
+#: l'obbligatorio tax.try_rc (che con IdTaxa non si chiede) e quelli con un
+#: predefinito. Con tax.classifier idtaxa sono respinti, e assenti dalla
+#: configurazione risolta.
+SOLO_DEL_BAYESIANO: Final[tuple[str, ...]] = (
+    *PARAMETRI_DEL_BAYESIANO, "tax.try_rc", "tax.min_boot", "tax.ref_bad_taxa",
+)
+
+#: Le chiavi che scelgono una modalita' e hanno per predefinito il
+#: comportamento senza di essa.
+SCELTE_DI_MODALITA: Final[tuple[str, ...]] = ("tax.classifier",)
+
+#: I condizionali di una modalita' diversa dalla appaiata, con la condizione:
+#: come quelli delle coppie, con la condizione falsa non sono omissibili ma
+#: respinti.
+CONDIZIONALI_DI_MODALITA: Final[Mapping[str, tuple[tuple[str, str], ...]]] = MappingProxyType({
+    **{chiave: (("filter.primer_removal", CERCATO),) for chiave in PARAMETRI_DEL_TAGLIO_CERCATO},
+    **{chiave: (("tax.classifier", IDTAXA),) for chiave in PARAMETRI_DI_IDTAXA},
+    **{chiave: (("tax.classifier", BAYESIANO),) for chiave in PARAMETRI_DEL_BAYESIANO},
+})
+
+#: Ogni condizionale che con la condizione falsa e' respinto.
+CONDIZIONALI_RESPINTI: Final[Mapping[str, tuple[tuple[str, str], ...]]] = MappingProxyType({
+    **CONDIZIONALI_DELLE_COPPIE, **CONDIZIONALI_DI_MODALITA,
+})
+
+#: Per tutti quelli di modalita' il nullo scritto a mano vale come l'omissione.
+MODALITA_NULLE_SE_OMESSE: Final[frozenset[str]] = frozenset(CONDIZIONALI_DI_MODALITA)
+
 _OGNI_CONDIZIONE: Final[Mapping[str, tuple[tuple[str, str], ...]]] = MappingProxyType({
-    **CONDIZIONALI, **CONDIZIONALI_DELLE_COPPIE,
+    **CONDIZIONALI, **CONDIZIONALI_RESPINTI,
 })
 
 #: I condizionali che, omessi, non hanno un valore che significhi "assente"
@@ -398,6 +478,9 @@ _TESTO_FORMA: Final[Mapping[str, str]] = MappingProxyType({
     NON_VUOTO: "non e' vuoto",
     VERO: "e' vero",
     APPAIATA: f"e' {LAYOUT_APPAIATO}",
+    CERCATO: f"e' {PRIMER_CERCATO}",
+    IDTAXA: f"e' {CLASSIFICATORE_IDTAXA}",
+    BAYESIANO: f"e' {TAX_CLASSIFIER}",
 })
 
 
@@ -417,6 +500,12 @@ def _alternativa_vera(parametro: str, forma: str, valore_di: Mapping[str, object
         return bool(valore)
     if forma == APPAIATA:
         return valore == LAYOUT_APPAIATO
+    if forma == CERCATO:
+        return valore == PRIMER_CERCATO
+    if forma == IDTAXA:
+        return valore == CLASSIFICATORE_IDTAXA
+    if forma == BAYESIANO:
+        return valore != CLASSIFICATORE_IDTAXA
     return valore is True
 
 

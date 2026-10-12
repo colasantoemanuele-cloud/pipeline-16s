@@ -40,9 +40,13 @@
 # [UNICA FORMA]   La pipeline realizza un solo valore: si puo' omettere.
 # [STRUMENTO]     Governa come si esegue o in che forma si scrive, non che cosa
 #                 si conclude dai dati: si puo' omettere.
-# [MODALITA']     La modalita' di lettura: omessa vale single-end. I parametri
-#                 del gruppo pair valgono solo in modalita' appaiata, e in
-#                 single-end non si dichiarano (sono respinti, E-G15-15).
+# [MODALITA']     La scelta di una modalita': omessa vale il valore scritto
+#                 accanto. La modalita' di lettura (io.layout, single-end): i
+#                 parametri del gruppo pair valgono solo in modalita' appaiata.
+#                 Il modo di togliere il primer (filter.primer_removal, fixed)
+#                 e il classificatore (tax.classifier, naive_bayes): i
+#                 parametri di una modalita' non scelta non si dichiarano (sono
+#                 respinti: E-G15-15, E-G15-16, E-G15-17).
 #
 # Il report di ogni esecuzione dice, per ciascun parametro, se il valore e'
 # stato dichiarato o preso dal predefinito, e quali condizionali non sono
@@ -138,6 +142,22 @@ filter:
   # lo contengono ancora, zero se e' gia' stato rimosso: G10 lo verifica con
   # qc.primer_sequence.
   # trimLeft:                                         # [OBBLIGATORIO]
+  # Come si toglie il primer. fixed: le prime trimLeft basi di ogni lettura.
+  # search: il primer (qc.primer_sequence) si cerca nelle prime basi di ogni
+  # lettura, che si taglia dove finisce; serve ai protocolli che fanno precedere
+  # il primer da un numero variabile di basi (distanziatori), dove un taglio a
+  # posizione fissa lascerebbe le letture sfasate. Con search trimLeft deve
+  # essere 0 e truncLen e' la lunghezza della lettura dopo il taglio.
+  # primer_removal: fixed                             # [MODALITA']
+  # Discordanze ammesse fra primer e lettura (sole sostituzioni; una N della
+  # lettura e' una discordanza). Di solito un decimo della lunghezza del primer.
+  # primer_max_mismatch:                              # [CONDIZIONALE] se filter.primer_removal e' search
+  # Quante basi possono precedere il primer: la lunghezza del distanziatore
+  # piu' lungo del protocollo.
+  # primer_max_offset:                                # [CONDIZIONALE] se filter.primer_removal e' search
+  # Che cosa succede a una lettura senza il primer: discard (scartata; in
+  # modalita' appaiata con la sua compagna) oppure keep (tenuta intera).
+  # primer_untrimmed:                                 # [CONDIZIONALE] se filter.primer_removal e' search
   maxEE: 2        # [STANDARD] tutorial di dada2, "standard filtering parameters"
   truncQ: 2       # [STANDARD] dada2::filterAndTrim
   maxN: 0         # [STANDARD] dada2::filterAndTrim
@@ -201,13 +221,27 @@ asv:
 # tax: assegnazione tassonomica e riferimento impiegato                       #
 # --------------------------------------------------------------------------- #
 tax:
-  # Il riferimento nel formato dei training set di dada2, e il suo MD5.
+  # Il riferimento nel formato dei training set di dada2, e il suo MD5: servono
+  # al classificatore naive_bayes, e con idtaxa non si dichiarano.
   ref_fasta: /percorso/al/riferimento.fa.gz           # [PERCORSO]
   ref_md5: "00000000000000000000000000000000"         # [PERCORSO] md5 reale del file
   # Nome e versione del riferimento, come vanno riportati con i risultati.
   # ref_name:                                         # [OBBLIGATORIO]
   # ref_version:                                      # [OBBLIGATORIO]
-  classifier: naive_bayes   # [UNICA FORMA] dada2::assignTaxonomy
+  # Il classificatore: naive_bayes (dada2::assignTaxonomy, sul riferimento
+  # FASTA) oppure idtaxa (DECIPHER::IdTaxa, su un classificatore addestrato).
+  # Con idtaxa non si dichiarano ref_fasta, ref_md5, min_boot, try_rc e
+  # ref_bad_taxa, e servono i quattro parametri idtaxa_*.
+  classifier: naive_bayes   # [MODALITA']
+  # Con idtaxa: il file .RData del classificatore addestrato (l'oggetto
+  # trainingSet di DECIPHER::LearnTaxa) e il suo MD5; la confidenza minima per
+  # assegnare un rango, da 0 a 100 (il predefinito di DECIPHER::IdTaxa e' 60);
+  # il filamento su cui si classifica: both (anche il complemento inverso), top
+  # o bottom.
+  # idtaxa_trained:                                   # [CONDIZIONALE] se tax.classifier e' idtaxa
+  # idtaxa_trained_md5:                               # [CONDIZIONALE] se tax.classifier e' idtaxa
+  # idtaxa_threshold:                                 # [CONDIZIONALE] se tax.classifier e' idtaxa
+  # idtaxa_strand:                                    # [CONDIZIONALE] se tax.classifier e' idtaxa
   # Bootstrap minimo per assegnare un rango. Su letture che coprono solo una
   # parte dell'amplicone il bootstrap e' piu' basso a parita' di correttezza.
   min_boot: 50              # [STANDARD] dada2::assignTaxonomy
@@ -375,6 +409,10 @@ qc:
   # letture nel filtro (E-S2-02), sui biologici e sui controlli positivi.
   # max_zeroed_samples:                               # [OBBLIGATORIO]
   # max_frac_lost_filter:                             # [OBBLIGATORIO]
+  # Con il primer cercato lungo la lettura: quota di letture senza il primer,
+  # sui biologici e sui controlli positivi, oltre la quale il filtro avvisa
+  # (E-S2-04).
+  # max_frac_untrimmed:                               # [CONDIZIONALE] se filter.primer_removal e' search
   # Varianti distinte oltre le quali S5 si ferma (E-S5-01): secondo la memoria
   # disponibile.
   # max_asv_count:                                    # [OBBLIGATORIO]

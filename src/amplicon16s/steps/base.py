@@ -122,6 +122,10 @@ def impronta_parametri(
             if gruppo == "pair" and chiave and chiave not in type(risolta.config.pair).model_fields:
                 raise KeyError(f"parametro inesistente: {nome}")
             continue
+        if nome in risolta.config.chiavi_assenti():
+            # Lo stesso per i parametri di una modalita' non dichiarata (il
+            # taglio cercato, il classificatore non scelto).
+            continue
         if gruppo not in mappa or (chiave and chiave not in mappa[gruppo]):
             raise KeyError(f"parametro inesistente: {nome}")
         scelti[nome] = mappa[gruppo][chiave] if chiave else mappa[gruppo]
@@ -263,6 +267,13 @@ class PipelineStep(ABC):
     #: modalita' single-end non esistono, e l'elenco dichiarato resta
     #: ``parametri``: l'impronta e il manifesto della fase non cambiano.
     parametri_appaiata: ClassVar[tuple[str, ...]] = ()
+    #: I parametri che la fase dichiara in piu' con il primer cercato lungo la
+    #: lettura (``filter.primer_removal: search``), e quelli propri di ciascun
+    #: classificatore tassonomico. Fuori dalla loro modalita' non esistono, e
+    #: l'impronta e il manifesto della fase non cambiano.
+    parametri_taglio_cercato: ClassVar[tuple[str, ...]] = ()
+    parametri_bayesiano: ClassVar[tuple[str, ...]] = ()
+    parametri_idtaxa: ClassVar[tuple[str, ...]] = ()
     #: Il grafo di riferimento.
     grafo: ClassVar[Grafo] = GRAFO
     #: L'azione correttiva per ciascun codice ripetibile che la fase puo'
@@ -275,6 +286,9 @@ class PipelineStep(ABC):
     passi_tracciamento: ClassVar[tuple[str, ...]] = ()
     #: I passi che la fase registra in piu' in modalita' appaiata, dopo i suoi.
     passi_tracciamento_appaiata: ClassVar[tuple[str, ...]] = ()
+    #: I passi che la fase registra solo in una modalita' diversa dalla
+    #: appaiata, ciascuno con il passo dopo il quale viene: (passo, precedente).
+    passi_tracciamento_di_modalita: ClassVar[tuple[tuple[str, str], ...]] = ()
     #: La versione del calcolo, che entra nell'impronta: si incrementa quando
     #: cambia cio' che la fase calcola (metodo, script R, forma di un
     #: artefatto), e la ripresa rifa' allora la fase e le successive. Ogni fase
@@ -343,11 +357,21 @@ class PipelineStep(ABC):
     def parametri_per(self, config: Config) -> tuple[str, ...] | None:
         """I parametri da cui la fase dipende con questa configurazione: quelli
         dichiarati, e in modalita' appaiata la modalita' stessa (per ogni fase:
-        i suoi ingressi sono altri) e i parametri di :attr:`parametri_appaiata`.
+        i suoi ingressi sono altri) e i parametri di :attr:`parametri_appaiata`;
+        con il primer cercato quelli di :attr:`parametri_taglio_cercato`; e
+        quelli del classificatore tassonomico scelto.
         """
-        if self.parametri is None or not config.appaiata:
-            return self.parametri
-        return (*self.parametri, "io.layout", *self.parametri_appaiata)
+        if self.parametri is None:
+            return None
+        parametri = self.parametri
+        if config.appaiata:
+            parametri = (*parametri, "io.layout", *self.parametri_appaiata)
+        if config.taglio_cercato and self.parametri_taglio_cercato:
+            parametri = (*parametri, "filter.primer_removal", *self.parametri_taglio_cercato)
+        if self.parametri_bayesiano or self.parametri_idtaxa:
+            parametri = (*parametri, *(
+                self.parametri_idtaxa if config.idtaxa else self.parametri_bayesiano))
+        return parametri
 
     def calcolata_su(
         self, risolta: ConfigRisolta, a_monte: Mapping[Passo, str | None]

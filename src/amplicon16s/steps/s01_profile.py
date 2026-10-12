@@ -109,6 +109,7 @@ from amplicon16s.io_layer.reads import (
     conta_coppie,
     corsa_invertita,
     nome_da_seconda_lettura,
+    ricerca_del_primer,
     segnale_di_orientamento,
     senza_righe_vuote_finali,
     verifica_sincronia,
@@ -191,6 +192,13 @@ def _descrivi_il_segnale(config: Any) -> str:
     """Il segnale di una lettura forward con questa configurazione, a parole."""
     taglio = config.filter.trimLeft
     parti = []
+    if config.taglio_cercato:
+        parti.append(
+            f"il primer {config.qc.primer_sequence} entro le prime "
+            f"{config.filter.primer_max_offset + len(config.qc.primer_sequence)} basi")
+        if config.qc.conserved_motif is not None:
+            parti.append(f"il motivo {config.qc.conserved_motif!r} all'inizio della lettura")
+        return " oppure ".join(parti)
     if config.qc.conserved_motif is not None:
         parti.append(
             f"il motivo {config.qc.conserved_motif!r} "
@@ -242,6 +250,11 @@ class ProfiloLetture(PipelineStep):
         "pair.primer_sequence_reverse", "pair.conserved_motif_reverse",
         "pair.trimLeft_reverse",
     )
+    #: Con il primer cercato: la regola di ricerca, con cui si misurano le
+    #: lunghezze dopo il taglio e si riconosce l'orientamento.
+    parametri_taglio_cercato: ClassVar[tuple[str, ...]] = (
+        "filter.primer_max_mismatch", "filter.primer_max_offset", "filter.primer_untrimmed",
+    )
 
     def calcola(self, contesto: StepContext) -> Produzione:
         """Esegue ``R/01_profile.R`` sui file dell'inventario e confronta
@@ -256,7 +269,7 @@ class ProfiloLetture(PipelineStep):
         processi = thread_effettivi(contesto.config)
         segnale = segnale_di_orientamento(
             contesto.config.qc.primer_sequence, contesto.config.qc.conserved_motif,
-            contesto.config.filter.trimLeft)
+            contesto.config.filter.trimLeft, ricerca_del_primer(contesto.config))
         if segnale is None:
             contesto.logger.warning(
                 "il controllo sulle letture inverse prese per forward non si applica: "
@@ -276,7 +289,7 @@ class ProfiloLetture(PipelineStep):
             delle_coppie = contesto.config.pair
             segnale_reverse = segnale_di_orientamento(
                 delle_coppie.primer_sequence_reverse, delle_coppie.conserved_motif_reverse,
-                delle_coppie.trimLeft_reverse)
+                delle_coppie.trimLeft_reverse, ricerca_del_primer(contesto.config, reverse=True))
             if segnale_reverse is None:
                 contesto.logger.warning(
                     "il controllo sull'orientamento delle letture reverse non si applica: "
@@ -384,6 +397,22 @@ class ProfiloLetture(PipelineStep):
             contesto, campioni, coppie, classi, vuoti, processi)
         return Produzione((tabella, *esito), metriche)
 
+    @staticmethod
+    def _taglio(config: Any, reverse: bool) -> dict[str, Any]:
+        """Con il primer cercato lungo la lettura, il parametro con cui lo
+        script profila le letture dopo il taglio: e' su quelle che il
+        troncamento si misura.
+        """
+        ricerca = ricerca_del_primer(config, reverse)
+        if ricerca is None:
+            return {}
+        return {"taglio_primer": {
+            "primer": ricerca.primer,
+            "discordanze_massime": ricerca.discordanze_massime,
+            "sfasamento_massimo": ricerca.sfasamento_massimo,
+            "scarta": ricerca.scarta_senza_primer,
+        }}
+
     def _profilo_e_lunghezze(
         self,
         contesto: StepContext,
@@ -439,6 +468,7 @@ class ProfiloLetture(PipelineStep):
                     "ordine": list(campioni),
                     "processi": processi,
                     **({"suffisso": SUFFISSO_REVERSE} if reverse else {}),
+                    **self._taglio(config, reverse),
                 },
                 contesto.albero,
                 self.cartella,

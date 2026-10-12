@@ -39,8 +39,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, ClassVar, Final
 
+from amplicon16s.config import defaults
 from amplicon16s.config.schema import Config, Qc, thread_effettivi
-from amplicon16s.errors.exceptions import errore
+from amplicon16s.errors.exceptions import ErrorePipeline, errore
 from amplicon16s.io_layer.artifacts import Fase, ManifestoPasso
 from amplicon16s.io_layer.conteggi import leggi_conteggi
 from amplicon16s.io_layer.reads import senza_righe_vuote_finali
@@ -61,6 +62,12 @@ NOME_SCRIPT: Final = "02_filter.R"
 
 NOME_PREFILTRO: Final = "letture_prefiltro.tsv"
 NOME_FILTRATE: Final = "letture_filtrate.tsv"
+#: Solo con il primer cercato lungo la lettura: per campione, le letture (o le
+#: coppie) in ingresso, quelle con il primer, quelle senza, quelle rimaste.
+NOME_TAGLIO: Final = "taglio_primer.tsv"
+#: La cartella di lavoro delle letture tagliate: porta il prefisso delle
+#: scritture in corso, e a fine fase non esiste piu'.
+CARTELLA_DEL_TAGLIO: Final = ".scrittura-taglio"
 #: Le letture filtrate di un campione: ``<accession>_filt.fastq.gz``.
 SUFFISSO_FILTRATI: Final = "_filt.fastq.gz"
 #: In modalita' appaiata, le letture reverse filtrate dello stesso campione.
@@ -149,6 +156,60 @@ def controlla_filtro(
     return metriche
 
 
+def taglio_del_primer(config: Any, cartella: Path) -> dict[str, Any] | None:
+    """I parametri del taglio dei primer cercati per ``R/02_filter.R``;
+    ``None`` con il taglio a posizione fissa.
+    """
+    if not config.taglio_cercato:
+        return None
+    filtro = config.filter
+    taglio = {
+        "primer": config.qc.primer_sequence,
+        "discordanze_massime": filtro.primer_max_mismatch,
+        "sfasamento_massimo": filtro.primer_max_offset,
+        "scarta": filtro.primer_untrimmed == defaults.SENZA_PRIMER_SCARTATA,
+        "lavoro": str(cartella / CARTELLA_DEL_TAGLIO),
+    }
+    if config.appaiata:
+        taglio["primer_reverse"] = config.pair.primer_sequence_reverse
+    return taglio
+
+
+def controlla_taglio(
+    percorso: Path, classi: dict[str, ClasseCampione], massima: float
+) -> tuple[dict[str, Any], str | None]:
+    """Le metriche del taglio dei primer cercati e, se la quota di letture
+    senza primer supera ``qc.max_frac_untrimmed``, il testo dell'avviso
+    (``E-S2-04``).
+
+    La quota e' sull'insieme delle letture dei campioni biologici e dei
+    controlli positivi (in modalita' appaiata: le coppie in cui manca almeno un
+    primer): i controlli negativi amplificano poco, e le loro letture senza
+    primer non dicono nulla del protocollo. Il confronto e' stretto.
+    """
+    with open(percorso, encoding="utf-8", newline="") as file:
+        righe = list(csv.DictReader(file, delimiter="\t"))
+    controllate = [r for r in righe if classi[r["campione"]] in CLASSI_CONTROLLATE]
+    letture = sum(int(r["letture"]) for r in controllate)
+    senza = sum(int(r["senza_primer"]) for r in controllate)
+    metriche: dict[str, Any] = {
+        "letture": sum(int(r["letture"]) for r in righe),
+        "senza_primer": sum(int(r["senza_primer"]) for r in righe),
+        "rimaste": sum(int(r["rimaste"]) for r in righe),
+        "letture_controllate": letture,
+        "senza_primer_controllate": senza,
+    }
+    if not letture:
+        return metriche, None
+    metriche["quota_senza_primer_controllata"] = round(senza / letture, 6)
+    if senza > massima * letture:
+        return metriche, (
+            f"il primer non si trova nel {senza / letture:.1%} delle letture dei campioni "
+            f"biologici e dei controlli positivi ({senza} su {letture}), oltre il "
+            f"{massima:.1%} di qc.max_frac_untrimmed")
+    return metriche, None
+
+
 def _letture_verificate(profili: Path) -> dict[str, tuple[int, int]]:
     """Per campione, le letture che S1 ha contato nel file forward e nel
     reverse dopo averne verificato la sincronia.
@@ -174,6 +235,10 @@ class FiltroLetture(PipelineStep):
     versione: ClassVar[int] = 4
     script_r: ClassVar[str | None] = NOME_SCRIPT
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("prefiltro", "filtrate")
+    #: Con il primer cercato, fra l'ingresso e il filtro: le letture che
+    #: restano dopo il taglio.
+    passi_tracciamento_di_modalita: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("taglio_primer", "prefiltro"),)
     #: Tutto il gruppo filter e le due soglie dei controlli sul risultato.
     #: run.batch_size, i file passati insieme al filtro, non vi entra: ogni file
     #: si filtra da solo. Variare filter.maxEE o qc.max_frac_lost_filter
@@ -185,6 +250,13 @@ class FiltroLetture(PipelineStep):
     #: Troncamento, taglio ed errori attesi della lettura reverse.
     parametri_appaiata: ClassVar[tuple[str, ...]] = (
         "pair.truncLen_reverse", "pair.trimLeft_reverse", "pair.maxEE_reverse",
+    )
+    #: Con il primer cercato: il primer (quello della reverse in modalita'
+    #: appaiata) e la soglia sulla quota di letture senza primer; modo,
+    #: discordanze, sfasamento e destino delle letture senza primer sono nel
+    #: gruppo filter.
+    parametri_taglio_cercato: ClassVar[tuple[str, ...]] = (
+        "qc.primer_sequence", "pair.primer_sequence_reverse", "qc.max_frac_untrimmed",
     )
     aggiustamenti: ClassVar[dict[str, Aggiustamento]] = {
         "E-S2-03": senza_modifiche(
@@ -254,6 +326,7 @@ class FiltroLetture(PipelineStep):
                     "rm_phix": filtro.rm_phix,
                     "processi": thread_effettivi(config),
                     "lotto": config.run.batch_size,
+                    **self._taglio(contesto),
                 },
                 contesto.albero,
                 self.cartella,
@@ -261,13 +334,8 @@ class FiltroLetture(PipelineStep):
                 tempo_massimo_s=contesto.config.run.r_timeout_s,
                 logger=contesto.logger,
             )
-        cartella = contesto.albero.cartella(self.cartella)
-        metriche = controlla_filtro(
-            leggi_conteggi(cartella / NOME_PREFILTRO),
-            leggi_conteggi(cartella / NOME_FILTRATE),
-            {c.accession: c.classe for c in contesto.inventario},
-            config.qc,
-        )
+        metriche = self._controlla(contesto)
+        self._giudica_il_taglio(contesto, metriche)
         negativi = metriche["azzerati"][ClasseCampione.CONTROLLO_NEGATIVO.value]
         if negativi:
             contesto.logger.info(
@@ -275,6 +343,54 @@ class FiltroLetture(PipelineStep):
                 extra={"passo": "S2", "campioni": negativi},
             )
         return Produzione(esito.artefatti, metriche)
+
+    def _taglio(self, contesto: StepContext) -> dict[str, Any]:
+        """Il parametro ``taglio_primer`` dello script, solo con il primer cercato."""
+        taglio = taglio_del_primer(contesto.config, contesto.albero.cartella(self.cartella))
+        return {} if taglio is None else {"taglio_primer": taglio}
+
+    def _controlla(self, contesto: StepContext) -> dict[str, Any]:
+        """I controlli sul risultato del filtro. Con il primer cercato un
+        arresto dice anche quante letture ha tolto il taglio del primer: la
+        perdita e' quella dell'intera fase, e la causa puo' essere li'.
+        """
+        assert contesto.inventario is not None
+        cartella = contesto.albero.cartella(self.cartella)
+        classi = {c.accession: c.classe for c in contesto.inventario}
+        try:
+            return controlla_filtro(
+                leggi_conteggi(cartella / NOME_PREFILTRO), leggi_conteggi(cartella / NOME_FILTRATE),
+                classi, contesto.config.qc)
+        except ErrorePipeline as guasto:
+            if not contesto.config.taglio_cercato:
+                raise
+            del_taglio, _ = controlla_taglio(cartella / NOME_TAGLIO, classi, 1.0)
+            raise errore(
+                guasto.codice,
+                f"{guasto.dettaglio}. Con filter.primer_removal search la perdita comprende le "
+                f"letture senza il primer: {del_taglio['senza_primer_controllate']} su "
+                f"{del_taglio['letture_controllate']} nei campioni biologici e nei controlli "
+                f"positivi ({NOME_TAGLIO}, posizioni_primer.tsv). Se sono molte, verifica "
+                "qc.primer_sequence e se filter.primer_max_offset copre le basi che "
+                "precedono il primer",
+                **guasto.contesto) from guasto
+
+    def _giudica_il_taglio(self, contesto: StepContext, metriche: dict[str, Any]) -> None:
+        """Con il primer cercato aggiunge alle metriche quelle del taglio, e
+        registra l'avviso se troppe letture non portano il primer.
+        """
+        config = contesto.config
+        if not config.taglio_cercato:
+            return
+        assert contesto.inventario is not None
+        del_taglio, avviso = controlla_taglio(
+            contesto.albero.cartella(self.cartella) / NOME_TAGLIO,
+            {c.accession: c.classe for c in contesto.inventario},
+            config.qc.max_frac_untrimmed)
+        metriche["taglio_primer"] = del_taglio
+        if avviso is not None:
+            contesto.degrada(
+                "E-S2-04", avviso, quota=del_taglio["quota_senza_primer_controllata"])
 
     def _appaiata(
         self,
@@ -332,6 +448,7 @@ class FiltroLetture(PipelineStep):
                     "rm_phix": filtro.rm_phix,
                     "processi": thread_effettivi(config),
                     "lotto": config.run.batch_size,
+                    **self._taglio(contesto),
                 },
                 contesto.albero,
                 self.cartella,
@@ -339,12 +456,8 @@ class FiltroLetture(PipelineStep):
                 tempo_massimo_s=contesto.config.run.r_timeout_s,
                 logger=contesto.logger,
             )
-        metriche = controlla_filtro(
-            leggi_conteggi(cartella / NOME_PREFILTRO),
-            leggi_conteggi(cartella / NOME_FILTRATE),
-            {c.accession: c.classe for c in contesto.inventario},
-            config.qc,
-        )
+        metriche = self._controlla(contesto)
+        self._giudica_il_taglio(contesto, metriche)
         negativi = metriche["azzerati"][ClasseCampione.CONTROLLO_NEGATIVO.value]
         if negativi:
             contesto.logger.info(
