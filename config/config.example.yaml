@@ -37,6 +37,8 @@
 # [STANDARD]      Il valore predefinito e' quello del pacchetto che realizza il
 #                 calcolo, o una raccomandazione dei suoi autori; la fonte e'
 #                 indicata. Si puo' omettere; va cambiato solo con una ragione.
+# [FACOLTATIVO]   Omesso, la funzione che governa non si applica, e il
+#                 parametro non compare nella configurazione registrata.
 # [UNICA FORMA]   La pipeline realizza un solo valore: si puo' omettere.
 # [STRUMENTO]     Governa come si esegue o in che forma si scrive, non che cosa
 #                 si conclude dai dati: si puo' omettere.
@@ -102,6 +104,13 @@ meta:
   # Colonna del nome del campione nella tabella di studio, se si chiama
   # diversamente da quella della tabella di assay; null: lo stesso nome.
   study_sample_id_column: null
+  # Le righe della tabella di assay da tenere, quando la tabella descrive anche
+  # campioni che questa analisi non tratta (un altro amplicone dello stesso
+  # studio): la colonna che li distingue e i valori delle righe da tenere. Si
+  # dichiarano insieme; le righe escluse sono elencate da un avviso (E-S0-31).
+  # Omessi: ogni riga della tabella e' un campione.
+  # assay_keep_column:                                # [FACOLTATIVO]
+  # assay_keep_values:                                # [FACOLTATIVO]
   # Se derivare il modulo (il gruppo di posizioni a cui il campione appartiene)
   # dalla posizione dichiarata, con module_regex, quando il file del lotto non
   # lo dichiara. true se le posizioni hanno un prefisso che identifica il
@@ -214,7 +223,8 @@ chimera:
 # --------------------------------------------------------------------------- #
 asv:
   # Tolleranza sulla lunghezza delle varianti: le letture sono troncate tutte
-  # alla stessa lunghezza, quindi ogni variante ha quella lunghezza.
+  # alla stessa lunghezza, quindi ogni variante ha quella lunghezza. In
+  # modalita' appaiata non ha effetto: vale l'intervallo del gruppo pair.
   len_tol: 0              # [STRUMENTO]
 
 # --------------------------------------------------------------------------- #
@@ -492,6 +502,10 @@ pair:
   # non puo' stare sotto l'arresto; al valore 0 il controllo e' spento.
   # min_merged_frac_warn:                             # [CONDIZIONALE] se io.layout e' paired-end
   # min_merged_frac_stop:                             # [CONDIZIONALE] se io.layout e' paired-end
+  # Quota di coppie fuse di un singolo campione biologico o controllo positivo
+  # sotto la quale la fusione avvisa, nominando i campioni (E-SM-04). Omessa:
+  # nessun controllo per campione; al valore 0 il controllo e' spento.
+  # min_merged_frac_sample_warn:                      # [FACOLTATIVO]
   # Intervallo ammesso della lunghezza delle sequenze fuse: e' quello della
   # regione amplificata, tolte le basi iniziali delle due letture, con la sua
   # variabilita' fra i taxa. Sostituisce asv.len_tol, che vale per le letture

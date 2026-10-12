@@ -69,6 +69,7 @@ from amplicon16s.gates.g01_g15 import (
     controlla_coerenza,
     _g12_riferimento_verificato,
     _g14_risorse_disponibili,
+    taxa_assenti_dal_riferimento,
 )
 from amplicon16s.interfaccia import StatoInCorso
 from amplicon16s.io_layer.artifacts import (
@@ -324,6 +325,13 @@ class Esecutore:
                 continue
             violazioni, _ = controllo(completa)
             registra(gate, violazioni)
+            if gate == "G12" and not violazioni:
+                # Un taxon nominato nella configurazione che il riferimento non
+                # contiene non ha effetto, e nulla lo direbbe: si segnala a ogni
+                # avvio, con la configurazione di quel momento.
+                for avviso in taxa_assenti_dal_riferimento(self.config):
+                    self.log.warning(
+                        avviso.dettaglio, extra={"gate": gate, "codice": avviso.codice})
             if violazioni:
                 prima = violazioni[0]
                 v = voce(prima.codice)

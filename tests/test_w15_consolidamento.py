@@ -490,6 +490,10 @@ COPERTURA: dict[str, str] = {
     "E-SM-01": "test_catena_appaiata.py::test_una_quota_di_coppie_fuse_sotto_la_soglia_ferma_la_fusione",
     "E-SM-02": "test_catena_appaiata.py::test_gli_avvisi_della_fusione_restano_nel_manifesto",
     "E-SM-03": "test_catena_appaiata.py::test_gli_avvisi_della_fusione_restano_nel_manifesto",
+    "E-SM-04": "test_catena_appaiata.py::test_gli_avvisi_della_fusione_restano_nel_manifesto",
+    "E-S0-30": "test_righe_e_file.py::test_una_riga_collegata_al_file_di_un_altro_amplicone_ferma_la_validazione",
+    "E-S0-31": "test_righe_e_file.py::test_le_righe_da_tenere_si_dichiarano_e_le_altre_sono_escluse_con_un_avviso",
+    "E-S0-32": "test_idtaxa.py::test_un_taxon_nominato_che_il_riferimento_non_contiene_si_segnala_all_avvio",
 }
 
 _RADICE = Path(__file__).resolve().parents[1]

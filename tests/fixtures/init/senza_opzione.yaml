@@ -242,7 +242,8 @@ chimera:
 # Selezione delle sequenze varianti.
 asv:
   ## Tolleranza sulla lunghezza delle varianti rispetto a quella attesa
-  ## (filter.truncLen meno filter.trimLeft).
+  ## (filter.truncLen meno filter.trimLeft). In modalita' appaiata non ha
+  ## effetto: l'intervallo ammesso e' quello di pair.len_min e pair.len_max.
   ## [STRUMENTO] governa come si esegue, non che cosa si conclude dai dati
   # len_tol: 0
 
@@ -328,6 +329,10 @@ ctrl:
   ## che tipo e' il campione. Nullo: il dataset non ha controlli e ogni
   ## campione e' biologico; le tre etichette si dichiarano allora vuote.
   ## [PROPOSTO] colonna proposta perche' ha valori con le parole dei controlli
+  ## la proposta guarda le parole dei valori e puo' sbagliare: controlla quali
+  ## campioni porta ogni valore, qui e nelle altre candidate
+  ## valori di 'tipo' e campioni che li portano: 'bianco di estrazione
+  ## (blank)': B06, B07; 'tampone': T01, T02, T03, T04, T05
   # column: "tipo"
   ## Valori di ctrl.column per i controlli negativi. Elenco vuoto: nessuno.
   ## [PROPOSTO] i valori con una parola dei controlli negativi (blank,

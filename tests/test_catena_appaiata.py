@@ -275,6 +275,36 @@ def test_ogni_fase_ha_il_manifesto_e_ogni_artefatto_corrisponde(esecuzioni):
     assert passi.index("SM") == passi.index("S4") + 1 == passi.index("S5") - 1
 
 
+def test_il_report_descrive_la_modalita_appaiata(esecuzioni):
+    """
+    **Obiettivo**: Verificare che il report di un'esecuzione appaiata si
+    intitoli alla modalita' appaiata e non a quella single-end, dia il
+    troncamento suggerito e quello dichiarato per ciascuna delle due letture,
+    con i parametri di ciascuna, e dica quale unita' contano i passi del
+    tracciamento.
+
+    **Razionale scientifico e sistemistico**: Il report e' il documento con cui
+    si giudica l'esecuzione: un titolo che nomina l'altra modalita', un solo
+    troncamento per due letture o conteggi di coppie presentati come letture
+    descrivono un'esecuzione diversa da quella fatta.
+    """
+    uscita = esecuzioni.prima
+    report = (uscita / "report" / "report.html").read_text(encoding="utf-8")
+    titolo = report.split("<title>")[1].split("</title>")[0]
+    assert "appaiata" in titolo and "paired-end" in titolo and "single-end" not in titolo
+    assert f"<h1>{titolo}</h1>" in report
+    config = valida(_dati())
+    for lettura, chiave, valore in (
+        ("forward", "filter.truncLen", config.filter.truncLen),
+        ("reverse", "pair.truncLen_reverse", config.pair.truncLen_reverse),
+    ):
+        assert f"Troncamento suggerito dalle letture {lettura} (S1)" in report
+        assert f"<dt>troncamento dichiarato ({chiave})</dt><dd>{valore}</dd>" in report
+    assert "Troncamento suggerito dalle letture (S1)" not in report
+    assert "l'unità contata cambia lungo la catena" in report
+    assert "le letture contate dopo la fusione sono coppie fuse" in report
+
+
 def test_le_due_letture_si_filtrano_e_si_modellano_separatamente(esecuzioni):
     """
     **Obiettivo**: Verificare che ogni campione abbia i due file filtrati con
@@ -576,24 +606,38 @@ def test_una_quota_di_coppie_fuse_sotto_la_soglia_ferma_la_fusione(esecuzioni, t
 def test_gli_avvisi_della_fusione_restano_nel_manifesto(esecuzioni, tmp_path):
     """
     **Obiettivo**: Verificare che, con la soglia d'avviso sopra la quota
-    misurata e una lunghezza attesa lontana dalla mediana, la ripresa si
-    concluda (uscita 0) rifacendo la fusione e le fasi successive ma non
-    l'inferenza, che il manifesto della fusione registri ``E-SM-02`` ed
-    ``E-SM-03``, e che i file consegnati siano gli stessi byte.
+    misurata, una lunghezza attesa lontana dalla mediana e la soglia per
+    campione sopra la quota di almeno un campione, la ripresa si concluda
+    (uscita 0) rifacendo la fusione e le fasi successive ma non l'inferenza,
+    che il manifesto della fusione registri ``E-SM-02``, ``E-SM-03`` ed
+    ``E-SM-04`` (quest'ultimo con i campioni sotto la soglia nominati), che il
+    riepilogo della fusione non porti alcun campo della soglia per campione, e
+    che i file consegnati siano gli stessi byte.
 
-    **Razionale scientifico e sistemistico**: I due avvisi non cambiano il
-    risultato: dicono che i troncamenti o la regione dichiarata vanno
-    riguardati. Devono restare negli artefatti, dove li trova chi legge il
+    **Razionale scientifico e sistemistico**: I tre avvisi non cambiano il
+    risultato: dicono che i troncamenti, la regione dichiarata o un campione
+    vanno riguardati. Devono restare nel manifesto, dove li trova chi legge il
     report, e non soltanto nel log.
     """
+    # La lunghezza attesa al limite inferiore dell'intervallo: ammessa dalla
+    # configurazione, e lontana dalla mediana delle sequenze fuse piu' del 5%.
+    attesa = _dati()["pair"]["len_min"]
     uscita, config = _copia_con_altre_soglie(
-        esecuzioni, tmp_path, min_merged_frac_warn=0.999, expected_merged_len=400)
+        esecuzioni, tmp_path, min_merged_frac_warn=0.999, expected_merged_len=attesa,
+        min_merged_frac_sample_warn=1.0)
     inferenza = _manifesti(uscita)["S4"].read_bytes()
+    prima = json.loads((esecuzioni.prima / "05_pair_merge" / "fusione.json").read_text())
+    assert abs(prima["lunghezza_mediana"] - attesa) > 0.05 * attesa
     chiudi()
     assert cli.main(["resume", "--config", str(config)]) == 0
     chiudi()
     manifesto = json.loads(_manifesti(uscita)["SM"].read_text(encoding="utf-8"))
-    assert sorted(d["codice"] for d in manifesto["degradazioni"]) == ["E-SM-02", "E-SM-03"]
+    assert sorted(d["codice"] for d in manifesto["degradazioni"]) == [
+        "E-SM-02", "E-SM-03", "E-SM-04"]
+    per_campione = next(d for d in manifesto["degradazioni"] if d["codice"] == "E-SM-04")
+    assert "pair.min_merged_frac_sample_warn" in per_campione["dettaglio"]
+    dopo = json.loads((uscita / "05_pair_merge" / "fusione.json").read_text())
+    assert set(dopo) == set(prima) and "sample" not in json.dumps(dopo)
     assert _manifesti(uscita)["S4"].read_bytes() == inferenza
     for nome in FINALI:
         assert (uscita / "12_final" / nome).read_bytes() == (
@@ -605,9 +649,11 @@ def test_un_intervallo_di_lunghezze_senza_sequenze_fuse_ferma_il_filtro_di_lungh
 ):
     """
     **Obiettivo**: Verificare che, dichiarato un intervallo di lunghezze in cui
-    non cade alcuna sequenza fusa, la ripresa rifaccia il solo filtro di
-    lunghezza e si fermi con ``E-S7-02`` (uscita 4), il codice della modalita'
-    appaiata, il cui testo rimanda a ``pair.len_min`` e ``pair.len_max``.
+    non cade alcuna sequenza fusa (con la lunghezza attesa al suo interno, come
+    la configurazione richiede), la ripresa non rifaccia l'inferenza e si fermi
+    al filtro di lunghezza con ``E-S7-02`` (uscita 4), il codice della
+    modalita' appaiata, il cui testo rimanda a ``pair.len_min`` e
+    ``pair.len_max``.
 
     **Razionale scientifico e sistemistico**: In modalita' appaiata
     l'intervallo ammesso si dichiara, e sbagliarlo svuota la tabella: chi
@@ -616,7 +662,10 @@ def test_un_intervallo_di_lunghezze_senza_sequenze_fuse_ferma_il_filtro_di_lungh
     """
     from amplicon16s.errors.catalog import CATALOGO
 
-    uscita, config = _copia_con_altre_soglie(esecuzioni, tmp_path, len_min=400, len_max=410)
+    # La lunghezza attesa e' un parametro della fusione: cambiarla con
+    # l'intervallo rifa' la fusione e le fasi che ne dipendono, non l'inferenza.
+    uscita, config = _copia_con_altre_soglie(
+        esecuzioni, tmp_path, len_min=400, len_max=410, expected_merged_len=405)
     prima = {p: m.read_bytes() for p, m in _manifesti(uscita).items()}
     chiudi()
     assert cli.main(["resume", "--config", str(config)]) == 4
@@ -624,8 +673,7 @@ def test_un_intervallo_di_lunghezze_senza_sequenze_fuse_ferma_il_filtro_di_lungh
     punto = json.loads((uscita / "99_logs" / "punto_di_ripresa.json").read_text())
     assert (punto["passo"], punto["codice"]) == ("S7", "E-S7-02")
     assert "400-410" in punto["dettaglio"]
-    for passo in ("S4", "SM", "S5", "S6"):
-        assert _manifesti(uscita)[passo].read_bytes() == prima[passo], passo
+    assert _manifesti(uscita)["S4"].read_bytes() == prima["S4"]
     assert "pair.len_min" in CATALOGO["E-S7-02"].azione
     assert "asv.len_tol" not in CATALOGO["E-S7-02"].azione
 

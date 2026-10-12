@@ -51,7 +51,7 @@ from amplicon16s.logging.logger import ottieni
 from amplicon16s.metadata.lettura_inventario import leggi_inventario
 from amplicon16s.metadata.models import Inventario
 from amplicon16s.runner.graph import GRAFO, Grafo, Passo
-from amplicon16s.runner.provenienza import provenienza
+from amplicon16s.runner.provenienza import calcolata_con_idtaxa, provenienza
 from amplicon16s.steps.base import PipelineStep, StepContext, impronta_parametri
 from amplicon16s.steps.s00_validate import ValidazioneIngressi
 from amplicon16s.steps.s01_profile import ProfiloLetture
@@ -393,7 +393,10 @@ class ProjectRun:
         )
         return Situazione(
             passo, StatoPasso.COMPLETATA, motivo, manifesto.impronta,
-            avviso_di_provenienza(manifesto.provenienza, provenienza(fase, self.config)),
+            # Il sorgente di adesso sugli stessi file di quello registrato:
+            # con gli script del solo IdTaxa se la fase li aveva eseguiti.
+            avviso_di_provenienza(manifesto.provenienza, provenienza(
+                fase, self.config, calcolata_con_idtaxa(fase, manifesto.provenienza))),
         )
 
     # ----------------------------------------------------------------- #

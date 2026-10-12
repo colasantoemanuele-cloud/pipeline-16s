@@ -175,7 +175,9 @@ _MARCATORI: Final = {
 #: non si scrivono, come il gruppo ``pair`` in un file single-end.
 _DI_UNA_MODALITA: Final = frozenset((
     "filter.primer_removal", *defaults.PARAMETRI_DEL_TAGLIO_CERCATO,
-    *defaults.PARAMETRI_DI_IDTAXA))
+    *defaults.PARAMETRI_DI_IDTAXA,
+    # I facoltativi che omessi non esistono: si scrivono solo se init li tratta.
+    *defaults.FACOLTATIVI_ASSENTI_SE_OMESSI))
 
 
 def _marcatori_dei_predefiniti() -> dict[str, str]:

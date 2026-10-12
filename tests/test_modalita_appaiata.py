@@ -21,6 +21,7 @@ pacchetti di calcolo. La catena completa e' in ``tests/test_catena_appaiata.py``
 
 from __future__ import annotations
 
+import math
 import copy
 import gzip
 import json
@@ -717,9 +718,124 @@ def test_il_rifiuto_per_nome_resta_dove_il_contenuto_non_si_puo_giudicare(
 # --------------------------------------------------------------------------- #
 
 
+def test_la_quota_di_coppie_fuse_per_campione_e_facoltativa(tmp_path):
+    """
+    **Obiettivo**: Verificare che ``pair.min_merged_frac_sample_warn`` omessa
+    (o nulla) non compaia nella configurazione risolta ne' fra i parametri
+    assenti dichiarati, e che l'impronta dei parametri della fusione sia la
+    stessa di una configurazione che la dichiara nulla; che dichiarata entri
+    nella configurazione risolta e cambi quell'impronta; che
+    ``campioni_sotto_la_quota`` senza soglia non giudichi nessuno, e con la
+    soglia nomini i soli campioni biologici e controlli positivi con coppie la
+    cui quota sta strettamente sotto; e che ``soglie`` legga come misura la
+    quota piu' bassa fra quei campioni, non quella dell'insieme.
+
+    **Razionale scientifico e sistemistico**: La quota dell'insieme non vede
+    un campione solo che fonde pochissime coppie. Il controllo per campione e'
+    una scelta in piu': chi non lo dichiara deve ritrovare gli stessi digest,
+    le stesse impronte e gli stessi artefatti di prima.
+    """
+    from amplicon16s.soglie import misure
+    from amplicon16s.steps.base import impronta_parametri
+    from amplicon16s.steps.s04m_merge import FusioneCoppie, campioni_sotto_la_quota
+
+    dataset = sintetico.genera_coppie(tmp_path / "dati", biologici=2, coppie=20)
+    omessa = _config(dataset, tmp_path / "out")
+    nulla = _config(dataset, tmp_path / "out", pair={"min_merged_frac_sample_warn": None})
+    dichiarata = _config(dataset, tmp_path / "out", pair={"min_merged_frac_sample_warn": 0.5})
+    assert "pair.min_merged_frac_sample_warn" in omessa.chiavi_assenti()
+    assert "min_merged_frac_sample_warn" not in risolvi(omessa).come_mappa()["pair"]
+    assert risolvi(omessa).digest == risolvi(nulla).digest != risolvi(dichiarata).digest
+    assert risolvi(dichiarata).come_mappa()["pair"]["min_merged_frac_sample_warn"] == 0.5
+    fase = FusioneCoppie()
+    impronte = [impronta_parametri(risolvi(c), fase.parametri_per(c))
+                for c in (omessa, nulla, dichiarata)]
+    assert impronte[0] == impronte[1] != impronte[2]
+
+    per_campione = {
+        "a": {"coppie": 1000, "fuse": 950}, "b": {"coppie": 1000, "fuse": 100},
+        "c": {"coppie": 0, "fuse": 0}, "n": {"coppie": 50, "fuse": 1},
+        "p": {"coppie": 200, "fuse": 100},
+    }
+    classi = {"a": "biologico", "b": "biologico", "c": "biologico",
+              "n": "controllo_negativo", "p": "controllo_positivo"}
+    assert campioni_sotto_la_quota(per_campione, classi, None) == []
+    assert campioni_sotto_la_quota(per_campione, classi, 0.5) == [("b", 100, 1000)]
+    assert campioni_sotto_la_quota(per_campione, classi, 0.6) == [
+        ("b", 100, 1000), ("p", 100, 200)]
+    assert campioni_sotto_la_quota(per_campione, classi, 0.0) == []
+
+    radice = tmp_path / "esecuzione"
+    (radice / "01_input_validation").mkdir(parents=True)
+    (radice / "05_pair_merge").mkdir()
+    (radice / "01_input_validation" / "crosswalk.tsv").write_text(
+        "accession\tsample_name\tclasse\n"
+        + "".join(f"{c}\t{c}\t{classe}\n" for c, classe in classi.items()), encoding="utf-8")
+    (radice / "05_pair_merge" / "fusione.tsv").write_text(
+        "campione\tcoppie\tfuse\tquota\tsequenze\n"
+        + "".join(f"{c}\t{v['coppie']}\t{v['fuse']}\t0\t1\n" for c, v in per_campione.items()),
+        encoding="utf-8")
+    misura = misure._fusione_per_campione(radice)
+    assert float(misura.valore) == 0.1 and "minimo" in misura.statistica
+    assert misura.origine == "05_pair_merge/fusione.tsv"
+    assert CATALOGO["E-SM-04"].categoria is Categoria.DEGRADAZIONE_AUTOMATICA
+
+
+def test_la_lunghezza_attesa_sta_nell_intervallo_e_la_tolleranza_non_entra_nel_filtro(tmp_path):
+    """
+    **Obiettivo**: Verificare che una lunghezza attesa delle sequenze fuse
+    fuori dall'intervallo fra ``pair.len_min`` e ``pair.len_max`` sia respinta
+    come errore di coerenza della modalita' appaiata (``E-G15-15``), e che agli
+    estremi e nulla sia accettata; che in modalita' appaiata il filtro di
+    lunghezza dichiari il solo intervallo, cosi' che cambiare ``asv.len_tol`` o
+    il troncamento non ne cambi l'impronta dei parametri, mentre la cambia
+    l'intervallo; e che in modalita' single-end la fase dipenda dalla
+    tolleranza come prima.
+
+    **Razionale scientifico e sistemistico**: Una lunghezza attesa fuori
+    dall'intervallo ammesso dichiara due cose che non possono valere insieme:
+    le sequenze attese uscirebbero dalla tabella. Un parametro che in una
+    modalita' non ha effetto non deve far rifare una fase.
+    """
+    from amplicon16s.steps.base import impronta_parametri
+    from amplicon16s.steps.s07_asv_length import FiltroLunghezza
+
+    dataset = sintetico.genera_coppie(tmp_path / "dati", biologici=2, coppie=20)
+    base = sintetico.configurazione_appaiata(dataset, tmp_path / "out")
+    minima, massima = base["pair"]["len_min"], base["pair"]["len_max"]
+    for attesa in (minima, massima, None):
+        assert _config(dataset, tmp_path / "out", pair={"expected_merged_len": attesa})
+    for attesa in (minima - 1, massima + 1):
+        with pytest.raises(ErroreConfigurazione) as rifiuto:
+            _config(dataset, tmp_path / "out", pair={"expected_merged_len": attesa})
+        violazione = rifiuto_di_g15(rifiuto.value).violazioni[0]
+        assert violazione.codice == "E-G15-15" and "expected_merged_len" in violazione.dettaglio
+
+    fase = FiltroLunghezza()
+    appaiata = _config(dataset, tmp_path / "out")
+    assert set(fase.parametri_per(appaiata)) == {
+        "asv.len_min", "asv.len_max", "io.layout", "pair.len_min", "pair.len_max"}
+
+    def impronta(**gruppi) -> str:
+        config = _config(dataset, tmp_path / "out", **gruppi)
+        return impronta_parametri(risolvi(config), fase.parametri_per(config))
+
+    assert impronta() == impronta(asv={"len_tol": 3})
+    assert impronta() == impronta(filter={"truncLen": base["filter"]["truncLen"] - 1})
+    assert impronta() != impronta(pair={"len_max": massima + 5})
+
+    singolo = sintetico.genera(tmp_path / "singolo", biologici=2, negativi=0, letture=20)
+    config = valida(sintetico.configurazione(singolo, tmp_path / "out"))
+    con_tolleranza = valida(sintetico.configurazione(singolo, tmp_path / "out",
+                                                     asv={"len_tol": 3}))
+    assert fase.parametri_per(config) == fase.parametri
+    assert impronta_parametri(risolvi(config), fase.parametri_per(config)) != (
+        impronta_parametri(risolvi(con_tolleranza), fase.parametri_per(con_tolleranza)))
+
+
 def test_le_soglie_della_modalita_appaiata_stanno_nel_meccanismo_delle_soglie(tmp_path):
     """
-    **Obiettivo**: la tabella delle soglie ha le quattro della modalita'
+    **Obiettivo**: la tabella delle soglie ha le cinque della modalita'
     appaiata, con direzione, codici e margine; in modalita' single-end non se
     ne parla (:func:`soglie_di`); in modalita' appaiata i loro valori che non
     fermano sono riconosciuti come controlli spenti, e la soglia del primer
@@ -734,6 +850,7 @@ def test_le_soglie_della_modalita_appaiata_stanno_nel_meccanismo_delle_soglie(tm
         "pair.truncLen_shortfall_warn_reverse": ("massima", ("E-S1-01",), False),
         "pair.min_merged_frac_warn": ("minima", ("E-SM-02",), False),
         "pair.min_merged_frac_stop": ("minima", ("E-SM-01",), True),
+        "pair.min_merged_frac_sample_warn": ("minima", ("E-SM-04",), False),
     }
     assert tabella.SOGLIE_DELLE_COPPIE == set(attese)
     for chiave, (direzione, codici, ferma) in attese.items():
@@ -747,11 +864,17 @@ def test_le_soglie_della_modalita_appaiata_stanno_nel_meccanismo_delle_soglie(tm
     config = _config(dataset, tmp_path / "out", pair={
         "primer_sequence_reverse": sintetico.PRIMER_805R, "max_primer_hit_frac_reverse": 1.0,
         "min_merged_frac_warn": 0.0, "min_merged_frac_stop": 0.0,
+        "min_merged_frac_sample_warn": 0.0,
         "truncLen_shortfall_warn_reverse": dataset.lunghezza - 1})
     valori = tabella.valori_piatti(config)
     assert set(attese) <= {s.chiave for s in tabella.soglie_di(valori)}
     spenti = {s.chiave: s for s in tabella.controlli_spenti(valori, 2)}
     assert set(attese) <= set(spenti)
+    # La soglia per campione, omessa, non e' un controllo spento: non esiste.
+    senza = tabella.valori_piatti(_config(dataset, tmp_path / "out"))
+    assert "pair.min_merged_frac_sample_warn" not in senza
+    assert "pair.min_merged_frac_sample_warn" not in {
+        s.chiave for s in tabella.controlli_spenti(senza, 2)}
     assert "pair.truncLen_reverse meno 1" in spenti["pair.truncLen_shortfall_warn_reverse"].testo
     assert tabella.valore_esplorativo(tabella.soglia("pair.min_merged_frac_stop")) == 0.0
     assert tabella.valore_esplorativo(tabella.soglia("pair.max_primer_hit_frac_reverse")) == 1.0
@@ -920,7 +1043,8 @@ def test_i_primer_reverse_dell_elenco_hanno_la_fonte_e_la_posizione():
     assert con_i_primer - len(forward.sequenza) - len(reverse.sequenza) == 253
 
 
-def test_init_riconosce_un_dataset_appaiato_e_ne_propone_i_parametri(tmp_path, capsys):
+def test_init_riconosce_un_dataset_appaiato_e_ne_propone_i_parametri(
+        tmp_path, capsys, monkeypatch):
     """
     **Obiettivo**: su una cartella con le due letture di ogni frammento, che
     portano i due primer, ``init`` rileva la modalita' appaiata e i marcatori
@@ -930,8 +1054,11 @@ def test_init_riconosce_un_dataset_appaiato_e_ne_propone_i_parametri(tmp_path, c
     sequenze fuse dalla lunghezza dell'inserto misurata, tolti i due tagli. La
     lunghezza attesa dai primer riconosciuti (quella della regione vera, piu'
     lunga del frammento sintetico) non concorda: ``init`` lo dice, e vale la
-    misurata. Con ``--accetta-proposte`` le soglie della modalita' appaiata
-    sono esplorative.
+    misurata. Un intervallo misurato piu' stretto della variabilita' di una
+    regione (qui ogni frammento ha la stessa lunghezza) non e' proposto: i due
+    estremi restano da scegliere con un intervallo raccomandato; uno largo
+    quanto una regione vera lo e'. Con ``--accetta-proposte`` le soglie della
+    modalita' appaiata sono esplorative.
 
     **Razionale scientifico e sistemistico**: nessun valore dei dati entra
     nella configurazione scelto a mano: cio' che la fusione richiede si misura
@@ -953,8 +1080,17 @@ def test_init_riconosce_un_dataset_appaiato_e_ne_propone_i_parametri(tmp_path, c
     assert righe["pair.trimLeft_reverse"] == (True, str(len(sintetico.PRIMER_805R)))
     attivo, motivo = righe["pair.conserved_motif_reverse"]
     assert attivo and yaml.safe_load(motivo).startswith(sintetico.MOTIVO_REVERSE[:8])
-    for chiave in ("pair.expected_merged_len", "pair.len_min", "pair.len_max"):
-        assert righe[chiave] == (True, str(sintetico.INSERTO)), chiave
+    assert righe["pair.expected_merged_len"] == (True, str(sintetico.INSERTO))
+    # Ogni frammento sintetico ha la stessa lunghezza: un intervallo largo zero
+    # non descrive la regione, e i due estremi restano da scegliere, con
+    # l'intervallo raccomandato nel commento e nel riepilogo.
+    testo = " ".join(uscita.read_text(encoding="utf-8").replace("#", " ").split())
+    for chiave in ("pair.len_min", "pair.len_max"):
+        assert righe[chiave] == (False, ""), chiave
+    largo = (f"da {math.floor(sintetico.INSERTO * 0.95)} a "
+             f"{math.ceil(sintetico.INSERTO * 1.05)}")
+    assert f"e' largo meno del 2% della mediana" in testo and largo in testo
+    assert "Intervallo delle lunghezze fuse non proposto" in " ".join(stampato.split())
     assert "non concorda con quella attesa dai primer riconosciuti" in stampato
     assert "vale la misurata" in stampato
     for chiave in ("pair.max_primer_hit_frac_reverse", "pair.min_merged_frac_warn",
@@ -966,3 +1102,126 @@ def test_init_riconosce_un_dataset_appaiato_e_ne_propone_i_parametri(tmp_path, c
     assert "vincolo della fusione" in uscita.read_text(encoding="utf-8")
     # I predefiniti del gruppo restano in commento con il loro valore.
     assert righe["pair.min_overlap"] == (False, str(defaults.PAIR_MIN_OVERLAP))
+
+    # Lunghezze che variano come in una regione vera: l'intervallo e' proposto.
+    from amplicon16s.init import rilevamento
+
+    vera = rilevamento.stima_dell_inserto
+
+    def con_variazione(per_file, *altri):
+        return vera([[None if x is None else x + (n % 9) - 4 for n, x in enumerate(f)]
+                     for f in per_file], *altri)
+
+    monkeypatch.setattr(rilevamento, "stima_dell_inserto", con_variazione)
+    larga = tmp_path / "larga.yaml"
+    assert main(["init", "--reads", str(dataset.letture), "--metadata", str(dataset.tabella),
+                 "--output", str(larga), "--skip-profile", "--accetta-proposte"]) == 0
+    righe = righe_dei_parametri(larga.read_text(encoding="utf-8"))
+    assert righe["pair.len_min"] == (True, str(sintetico.INSERTO - 4))
+    assert righe["pair.len_max"] == (True, str(sintetico.INSERTO + 4))
+    assert "Intervallo delle lunghezze fuse non proposto" not in capsys.readouterr().out
+
+
+def _profilo_finto(
+        frequente: int, ammessa: int, per_qualita: int, per_fondere: int | None = None,
+        corte: int = 0) -> dict:
+    """Il profilo che ``init`` ricava dallo script di S1, costruito a mano: 1.000
+    letture di ``frequente`` basi (``corte`` di 20), con la lunghezza ammessa
+    data, qualita' mediana 36 fino a ``per_qualita``, 24 fino a ``per_fondere``
+    e 12 oltre.
+    """
+    per_fondere = per_qualita if per_fondere is None else per_fondere
+    distribuzione = {frequente: 1000 - corte, **({20: corte} if corte else {})}
+    mediana = {p: 36.0 if p <= per_qualita else 24.0 if p <= per_fondere else 12.0
+               for p in range(1, frequente + 1)}
+    return {
+        "suggerito": {
+            "senza_perdite": min(distribuzione), "per_lunghezza": ammessa,
+            "per_qualita": per_qualita, "suggerito": min(ammessa, per_qualita),
+            "perdita_peggiore": 0.0, "campione_peggiore": None, "perdita_per_classe": {}},
+        "mediana": mediana, "per_fondere": per_fondere,
+        "valori_di_qualita": list(range(2, 41)),
+        "minima": min(distribuzione), "massima": frequente, "moda": frequente,
+        "distribuzione": distribuzione, "totale": 1000,
+        "qualita": {p: (q, q - 2) for p, q in mediana.items()},
+    }
+
+
+def test_init_non_allunga_i_troncamenti_dentro_basi_di_qualita_bassa(
+        tmp_path, capsys, monkeypatch):
+    """
+    **Obiettivo**: con letture reverse accorciate prima del deposito e di
+    qualita' bassa quasi dall'inizio (la gran parte lunga 100 basi, qualita'
+    mediana che regge a 30 fino alla posizione 15 e a 20 fino alla 25; forward
+    che regge a 30 fino alla 60 e a 20 fino alla 70, su 120),
+    ``init --accetta-proposte`` non propone i due troncamenti: restano da
+    scegliere, senza valore, e il riepilogo dice che le coppie non si fondono
+    senza basi di qualita' bassa, riporta per le due letture la lunghezza piu'
+    frequente e il limite di qualita', e consiglia le sole forward. Quando per
+    fondere basta allungare una lettura dentro posizioni in cui la qualita'
+    mediana e' almeno 20, i due troncamenti sono proposti e il commento dice
+    di quante basi e fino a quale qualita'; una base oltre, no; e quando la
+    qualita' regge senza allungare la proposta e' quella di sempre.
+
+    **Razionale scientifico e sistemistico**: il vincolo della fusione si puo'
+    sempre rispettare allungando i troncamenti, ma una sovrapposizione fatta di
+    basi di qualita' bassa fa scartare le letture al filtro e fonde le coppie
+    su basi inaffidabili. In quel caso la scelta giusta e' un'altra (le sole
+    forward), e una proposta attiva la nasconderebbe.
+    """
+    from amplicon16s.init import comando
+
+    dataset = sintetico.genera_coppie(
+        tmp_path / "dati", biologici=3, coppie=300, lunghezza=120,
+        primer=sintetico.PRIMER_341F, primer_reverse=sintetico.PRIMER_805R)
+
+    def lancia(nome: str, forward: dict, reverse: dict) -> tuple[dict, str, str]:
+        profili = iter((forward, reverse))
+        monkeypatch.setattr(comando, "_profilo", lambda *a, **k: next(profili))
+        uscita = tmp_path / nome
+        assert main(["init", "--reads", str(dataset.letture), "--metadata", str(dataset.tabella),
+                     "--output", str(uscita), "--accetta-proposte"]) == 0
+        testo = uscita.read_text(encoding="utf-8")
+        return (righe_dei_parametri(testo), " ".join(capsys.readouterr().out.split()),
+                " ".join(testo.replace("#", " ").split()))
+
+    assert comando.QUALITA_MINIMA_PER_FONDERE == 20
+    # Reverse corte e scadenti: nessuna proposta, e la nota che lo spiega.
+    righe, stampato, testo = lancia(
+        "scadenti.yaml", _profilo_finto(120, 120, 60, 70),
+        _profilo_finto(100, 100, 15, 25, corte=50))
+    assert righe["filter.truncLen"] == (False, "")
+    assert righe["pair.truncLen_reverse"] == (False, "")
+    assert "Le coppie non si fondono senza basi di qualita' bassa" in stampato
+    assert "fino alla posizione 60 nelle letture forward (lunghezza piu' frequente 120)" in stampato
+    assert "fino alla 15 nelle reverse (lunghezza piu' frequente 100)" in stampato
+    assert "fin dove la qualita' mediana e' almeno 20 le due letture danno 70 + 25 = 95 basi" \
+        in stampato
+    assert "Si consiglia di usare le sole letture forward: togli dalla cartella delle letture " \
+           "i file reverse e rilancia init." in stampato
+    assert "le coppie non si fondono senza basi di qualita' bassa" in testo
+    necessarie = int(stampato.split("e ne servono ")[1].split()[0])
+    # La somma delle lunghezze ammesse basterebbe: e' la qualita' a fermare.
+    assert 120 + 100 >= necessarie > 95
+
+    # Dentro basi di qualita' almeno 20: proposti, la forward allungata di quanto serve.
+    reverse_buona = necessarie - 100
+    righe, stampato, testo = lancia(
+        "entro.yaml", _profilo_finto(120, 120, 90, 100),
+        _profilo_finto(120, 120, reverse_buona))
+    assert righe["filter.truncLen"] == (True, "100")
+    assert righe["pair.truncLen_reverse"] == (True, str(reverse_buona))
+    assert ("allungato di 10 basi oltre il calo della qualita' quanto serve a fondere le coppie, "
+            "dentro posizioni in cui la qualita' mediana e' almeno 20 (la piu' bassa: 24)") in testo
+    assert "non si fondono" not in stampato
+    # Una base in meno di qualita' almeno 20: di nuovo da scegliere.
+    righe, stampato, _ = lancia(
+        "oltre.yaml", _profilo_finto(120, 120, 90, 99), _profilo_finto(120, 120, reverse_buona))
+    assert righe["filter.truncLen"] == (False, "") and "non si fondono" in stampato
+
+    # La qualita' regge: proposti dove regge, senza allungare, come prima.
+    righe, stampato, testo = lancia(
+        "buone.yaml", _profilo_finto(120, 120, 115), _profilo_finto(120, 120, 108))
+    assert righe["filter.truncLen"] == (True, "115")
+    assert righe["pair.truncLen_reverse"] == (True, "108")
+    assert "allungato" not in testo and "non si fondono" not in stampato

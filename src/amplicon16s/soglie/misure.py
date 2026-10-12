@@ -4,8 +4,12 @@ Per ogni soglia di :data:`~amplicon16s.soglie.tabella.SOGLIE` si legge, dagli
 artefatti che l'esecuzione ha lasciato nella cartella di uscita, **la stessa
 statistica che il controllo confronta con la soglia**: il valore peggiore fra i
 file dove il controllo giudica file per file, la mediana dove giudica la
-mediana, la frazione d'insieme dove giudica l'insieme. Nulla viene ricalcolato
-dalle letture, e la cartella non viene modificata.
+mediana, la frazione d'insieme dove giudica l'insieme. La cartella non viene
+modificata, e nulla viene ricalcolato dalle letture, con una sola eccezione: le
+letture piu' corte del troncamento fra le prime lette dalla validazione, che
+nessun artefatto riporta quando il file non e' stato letto per intero, si
+contano rileggendo quelle prime letture dal file FASTQ, con la stessa funzione
+della validazione.
 
 Dove l'artefatto riporta la statistica arrotondata e il controllo confronta il
 valore non arrotondato, la misura porta una **tolleranza di lettura**: meta'
@@ -32,12 +36,14 @@ from pathlib import Path
 from typing import Any, Final
 
 from amplicon16s.io_layer.artifacts import Fase, nome_manifesto_passo
+from amplicon16s.io_layer.reads import RicercaPrimer, scansiona_file
 from amplicon16s.metadata.lettura_inventario import NOME_CROSSWALK
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE
 from amplicon16s.soglie.tabella import non_eseguito, soglia
 from amplicon16s.steps.s00_validate import NOME_INVENTARIO, NOME_LETTURE, NOME_LETTURE_REVERSE
 from amplicon16s.steps.s01_profile import NOME_LUNGHEZZE, nome_reverse
 from amplicon16s.steps.s01_profile import NOME_RIEPILOGO as RIEPILOGO_PROFILO
+from amplicon16s.steps.s04m_merge import NOME_FUSIONE
 from amplicon16s.steps.s04m_merge import NOME_RIEPILOGO as RIEPILOGO_FUSIONE
 from amplicon16s.steps.s05_seqtab import NOME_RIEPILOGO as RIEPILOGO_TABELLA
 from amplicon16s.steps.s06_chimera import NOME_RIEPILOGO as RIEPILOGO_CHIMERE
@@ -221,7 +227,7 @@ def _letture_corte(radice: Path, valori: Mapping[str, Any]) -> Misura:
     metriche = _campo(_json(radice, manifesto), manifesto, "metriche")
     forward = _corte_di_una_lettura(
         radice, manifesto, _campo(metriche, manifesto, "letture_piu_corte_del_troncamento"),
-        int(valori["filter.truncLen"]), NOME_LETTURE, NOME_LUNGHEZZE, statistica)
+        int(valori["filter.truncLen"]), NOME_LETTURE, NOME_LUNGHEZZE, statistica, valori)
     if valori.get("io.layout") != "paired-end" or forward.non_leggibile is not None:
         return forward
     # In modalita' appaiata la stessa soglia giudica anche le letture reverse,
@@ -232,7 +238,7 @@ def _letture_corte(radice: Path, valori: Mapping[str, Any]) -> Misura:
         radice, manifesto,
         _campo(metriche, manifesto, "reverse", "letture_piu_corte_del_troncamento"),
         int(valori["pair.truncLen_reverse"]), NOME_LETTURE_REVERSE, nome_reverse(NOME_LUNGHEZZE),
-        statistica)
+        statistica, valori, reverse=True)
     origine = f"{forward.origine}; {Fase.INPUT_VALIDATION.value}/{NOME_LETTURE_REVERSE}"
     if reverse.non_leggibile is not None:
         return Misura(None, statistica, origine, non_leggibile=reverse.non_leggibile)
@@ -242,13 +248,40 @@ def _letture_corte(radice: Path, valori: Mapping[str, Any]) -> Misura:
     return Misura(max(presenti), statistica, origine)
 
 
+def _corte_fra_le_prime(
+    valori: Mapping[str, Any], nome_file: str, esaminate: int, troncamento: int, reverse: bool
+) -> int | None:
+    """Quante delle prime ``esaminate`` letture di un file sono piu' corte del
+    troncamento, contate sul file FASTQ con la funzione della validazione;
+    ``None`` se il file non e' piu' quello ispezionato (non si trova, non si
+    legge, o le sue prime letture non sono tante quante allora).
+
+    La tabella della validazione riporta la lettura piu' corta fra le prime ma
+    non quante sono corte: quando il file non e' stato letto per intero il
+    numero non e' in alcun artefatto, e si ricava solo dalle letture.
+    """
+    ricerca = None
+    if valori.get("filter.primer_removal") == "search":
+        ricerca = RicercaPrimer(
+            valori["pair.primer_sequence_reverse" if reverse else "qc.primer_sequence"],
+            valori["filter.primer_max_mismatch"], valori["filter.primer_max_offset"],
+            scarta_senza_primer=valori["filter.primer_untrimmed"] == "discard")
+    statistiche = scansiona_file(
+        Path(str(valori["io.fastq_dir"])) / nome_file, esaminate, None, None,
+        lunghezza_richiesta=troncamento, ricerca=ricerca)
+    if not statistiche.valido or statistiche.letture_esaminate != esaminate:
+        return None
+    return statistiche.piu_corte
+
+
 def _corte_di_una_lettura(
     radice: Path, manifesto: str, corte: Any, troncamento: int, nome_letture: str,
-    nome_lunghezze: str, statistica: str,
+    nome_lunghezze: str, statistica: str, valori: Mapping[str, Any], reverse: bool = False,
 ) -> Misura:
     """La frazione di letture corte di una delle due letture (o della sola
     lettura, in modalita' single-end): dal manifesto di S1 e dalla tabella
-    delle letture ispezionate dalla validazione.
+    delle letture ispezionate dalla validazione; per un file con letture corte
+    fra le prime e non letto per intero, dal file delle letture.
     """
     del_profilo = [
         _frazione(_campo(corte, manifesto, classe, "frazione"))
@@ -259,6 +292,7 @@ def _corte_di_una_lettura(
     relativo, righe = _letture_ispezionate(radice, nome_letture)
     classi = _classi(radice)
     lunghezze: dict[str, int] | None = None
+    dai_file = False
     per_classe: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     for riga in righe:
         try:
@@ -276,17 +310,28 @@ def _corte_di_una_lettura(
                 lunghezze = _corte_per_campione(radice, troncamento, nome_lunghezze)
             corte_del_file = lunghezze.get(riga["accession"], 0)
         else:
-            return Misura(
-                None, statistica, origine,
-                non_leggibile=(
-                    f"il file {riga.get('file', riga['accession'])} ha letture piu' corte di "
-                    f"filter.truncLen fra le prime {esaminate} e non e' stato letto per intero "
-                    "dalla validazione: quante siano non e' scritto in alcun artefatto"))
+            # Quante siano non e' scritto in alcun artefatto: si contano
+            # rileggendo le stesse prime letture dal file.
+            contate = _corte_fra_le_prime(
+                valori, riga.get("file", ""), esaminate, troncamento, reverse)
+            if contate is None:
+                return Misura(
+                    None, statistica, origine,
+                    non_leggibile=(
+                        f"il file {riga.get('file', riga['accession'])} ha letture piu' corte "
+                        f"del troncamento fra le prime {esaminate} e non e' stato letto per "
+                        "intero dalla validazione: quante siano non e' scritto in alcun "
+                        "artefatto, e il file non e' piu' leggibile in io.fastq_dir com'era "
+                        "alla validazione"))
+            corte_del_file = contate
+            dai_file = True
         voce = per_classe[classi[riga["accession"]]]
         voce[0] += corte_del_file
         voce[1] += esaminate
     della_validazione = [Fraction(c, n) for c, n in per_classe.values() if n]
     tutte = del_profilo + della_validazione
+    if dai_file:
+        origine += "; le prime letture dei file in io.fastq_dir"
     if not tutte:
         return Misura(None, statistica, origine,
                       assente="nessuna lettura di un campione biologico o di un controllo positivo")
@@ -328,6 +373,28 @@ def _fusione(radice: Path) -> Misura:
         return Misura(None, statistica, relativo,
                       assente="nessuna coppia di un campione biologico o di un controllo positivo")
     return Misura(_frazione(quota), statistica, relativo)
+
+
+def _fusione_per_campione(radice: Path) -> Misura:
+    """La quota di coppie fuse piu' bassa fra i campioni biologici e i
+    controlli positivi con coppie, dai conteggi per campione della fusione.
+    """
+    relativo = f"{Fase.PAIR_MERGE.value}/{NOME_FUSIONE}"
+    statistica = ("minimo, fra i campioni biologici e i controlli positivi con coppie, della "
+                  "quota di coppie fuse del campione")
+    classi = _classi(radice)
+    try:
+        quote = [
+            Fraction(int(float(r["fuse"])), int(float(r["coppie"])))
+            for r in _tsv(radice, relativo)
+            if classi.get(r["campione"]) in _CONTROLLATE and int(float(r["coppie"]))
+        ]
+    except (KeyError, ValueError) as guasto:
+        raise ArtefattoNonLeggibile(f"{relativo}: {guasto}") from guasto
+    if not quote:
+        return Misura(None, statistica, relativo,
+                      assente="nessun campione biologico o controllo positivo con coppie")
+    return Misura(min(quote), statistica, relativo)
 
 
 def _filtro(radice: Path) -> tuple[Misura, Misura]:
@@ -474,6 +541,7 @@ def _leggi(radice: Path, valori: Mapping[str, Any]) -> dict[str, Misura]:
             "pair.truncLen_shortfall_warn_reverse": _scarto(radice, valori, reverse=True),
             "pair.min_merged_frac_warn": fusione,
             "pair.min_merged_frac_stop": fusione,
+            "pair.min_merged_frac_sample_warn": _fusione_per_campione(radice),
         }
     del_taglio: dict[str, Misura] = {}
     if valori.get("filter.primer_removal") == "search":

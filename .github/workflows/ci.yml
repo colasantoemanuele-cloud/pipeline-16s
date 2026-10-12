@@ -75,14 +75,44 @@ jobs:
         run: pytest
 
   container:
-    name: Test nell'immagine della pipeline
+    name: Test nell'immagine della pipeline (parte ${{ matrix.parte }})
     # Le fasi di calcolo usano Bioconductor, e i loro test devono girare con le
     # stesse versioni del container, che e' il riferimento. Il modo che le
     # garantisce per costruzione e' costruire l'immagine dallo stesso
     # Dockerfile: le versioni R vengono verificate contro renv.lock durante la
     # build, e non esiste una seconda via d'installazione da tenere allineata.
     # Costa alcuni minuti per push e lo spazio dell'immagine sul runner.
+    #
+    # La suite e' divisa in due parti che girano insieme, ciascuna sul suo
+    # runner: la durata e' la somma dei test divisa per i quattro processori, e
+    # su un runner solo e' il doppio. La parte «calcolo» esegue i moduli elencati
+    # in MODULI_DI_CALCOLO, la parte «resto» tutti gli altri (gli stessi moduli
+    # passati a --ignore): l'elenco e' uno solo, e un modulo nuovo cade nel
+    # «resto» senza toccare nulla, quindi nessun test resta fuori.
     runs-on: ubuntu-24.04
+    # Un test bloccato fermerebbe il job fino al limite di GitHub (sei ore): le
+    # due parti durano meno di meta' di questo tempo.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        parte: [calcolo, resto]
+    env:
+      MODULI_DI_CALCOLO: >-
+        tests/test_w28_calcolo.py
+        tests/test_catena_appaiata.py
+        tests/test_taglio_primer.py
+        tests/test_soglie.py
+        tests/test_eco_configurazione.py
+        tests/test_controlli_assenti.py
+        tests/test_w15_consolidamento.py
+        tests/test_w29_soglia.py
+        tests/test_w14_s04_s07_denoising.py
+        tests/test_w21_finale.py
+        tests/test_w09_w10_retry_policy.py
+        tests/test_w18_oggetto.py
+        tests/test_w08_w09_graph_resume.py
+        tests/test_init.py
 
     steps:
       - name: Checkout
@@ -96,9 +126,14 @@ jobs:
       # (pytest-xdist), come i processori del runner; i test sui dati reali, che
       # qui si saltano, girerebbero tutti su uno solo (gruppo dati_reali).
       - name: Run test suite in the image
-        run: >
-          docker run --rm
-          -e AMPLICON16S_RICHIEDI_R=1
-          -e AMPLICON16S_RICHIEDI_BIOC=1
-          amplicon16s:ci
-          pytest -p no:cacheprovider
+        run: |
+          if [ "${{ matrix.parte }}" = "calcolo" ]; then
+            SELEZIONE="$MODULI_DI_CALCOLO"
+          else
+            SELEZIONE="$(printf -- '--ignore=%s ' $MODULI_DI_CALCOLO)"
+          fi
+          docker run --rm \
+            -e AMPLICON16S_RICHIEDI_R=1 \
+            -e AMPLICON16S_RICHIEDI_BIOC=1 \
+            amplicon16s:ci \
+            pytest -p no:cacheprovider $SELEZIONE

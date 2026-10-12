@@ -97,6 +97,7 @@ __all__ = [
     "verifica_git",
     "ECCEZIONI_PER_FASE",
     "ESCLUSI",
+    "calcolata_con_idtaxa",
     "file_del_sorgente",
     "impronta_sorgente",
     "moduli_del_calcolo",
@@ -301,24 +302,32 @@ def moduli_della_fase(fase: PipelineStep) -> tuple[str, ...]:
     return tuple(sorted(moduli))
 
 
-def file_del_sorgente(fase: PipelineStep, cartella_r: Path) -> dict[str, Path]:
+def file_del_sorgente(
+    fase: PipelineStep, cartella_r: Path, idtaxa: bool = False
+) -> dict[str, Path]:
     """I file del sorgente di una fase, per nome logico.
 
     Il nome logico non dipende da dove stanno i file (``python/<modulo>``,
     ``R/<script>``, ``R/lib/<file>``): la stessa copia in due posti ha la
-    stessa impronta.
+    stessa impronta. Con ``idtaxa`` vero vi entrano anche gli script che la
+    fase esegue solo con quel classificatore (``script_r_con_idtaxa``), con le
+    loro librerie: senza, il sorgente e' quello di chi non lo usa, e la sua
+    impronta non cambia.
     """
     file: dict[str, Path] = {}
     for modulo in (type(fase).__module__, *moduli_della_fase(fase)):
         percorso = importlib.import_module(modulo).__file__
         assert percorso is not None, modulo
         file[f"python/{modulo}"] = Path(percorso)
-    if fase.script_r is not None:
-        script = cartella_r / fase.script_r
+    script_r = [fase.script_r] if fase.script_r is not None else []
+    if idtaxa:
+        script_r += [nome for nome in fase.script_r_con_idtaxa if nome not in script_r]
+    for nome in script_r:
+        script = cartella_r / nome
         # Lo si legge subito, per le librerie che carica: se non c'e', la
         # cartella degli script non e' quella del repository.
-        _leggi_sorgente(f"R/{fase.script_r}", script)
-        file[f"R/{fase.script_r}"] = script
+        _leggi_sorgente(f"R/{nome}", script)
+        file[f"R/{nome}"] = script
         for libreria in _librerie_caricate(script):
             file[f"R/lib/{libreria}"] = cartella_r / "lib" / libreria
     return file
@@ -519,7 +528,7 @@ def impronta_rigorosa(fase: PipelineStep, config: Config) -> dict[str, Any]:
     """
     from amplicon16s.rbridge.runner import cartella_r
 
-    sorgente, _ = impronta_sorgente(file_del_sorgente(fase, cartella_r()))
+    sorgente, _ = impronta_sorgente(file_del_sorgente(fase, cartella_r(), config.idtaxa))
     trovato = blocco_r(config.run.lockfile)
     return {
         "sorgente": sorgente,
@@ -530,15 +539,32 @@ def impronta_rigorosa(fase: PipelineStep, config: Config) -> dict[str, Any]:
     }
 
 
-def provenienza(fase: PipelineStep, config: Config) -> dict[str, Any]:
+def calcolata_con_idtaxa(fase: PipelineStep, registrata: Mapping[str, Any]) -> bool:
+    """Se la provenienza registrata di una fase comprende gli script che la fase
+    esegue solo con IdTaxa: cioe' se la fase e' stata calcolata con quel
+    classificatore.
+
+    Serve a confrontare il sorgente di adesso con quello registrato sugli
+    stessi file: passare da un classificatore all'altro senza rifare la fase
+    non e' una modifica del suo sorgente.
+    """
+    file = registrata.get("file", {})
+    return any(f"R/{nome}" in file for nome in fase.script_r_con_idtaxa)
+
+
+def provenienza(
+    fase: PipelineStep, config: Config, idtaxa: bool | None = None
+) -> dict[str, Any]:
     """La provenienza da registrare nel manifesto di una fase conclusa.
 
     ``sorgente`` è calcolata sui file effettivamente usati: i moduli importati
-    e gli script nella cartella che il ponte esegue.
+    e gli script nella cartella che il ponte esegue. ``idtaxa`` dice se
+    comprendervi gli script del solo IdTaxa; nullo, lo dice la configurazione.
     """
     from amplicon16s.rbridge.runner import cartella_r
 
-    impronta, per_file = impronta_sorgente(file_del_sorgente(fase, cartella_r()))
+    impronta, per_file = impronta_sorgente(file_del_sorgente(
+        fase, cartella_r(), config.idtaxa if idtaxa is None else idtaxa))
     commit, modifiche = _stato_git()
     return {
         "versione": fase.versione,

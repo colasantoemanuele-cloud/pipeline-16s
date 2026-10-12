@@ -814,6 +814,372 @@ def test_il_report_sostituisce_il_resoconto_provvisorio(file_config, capsys):
 
 
 # --------------------------------------------------------------------------- #
+# 3b. Cio' che il report dichiara di modalita', controlli positivi e prevalenza #
+# --------------------------------------------------------------------------- #
+
+
+class ConArtefatti(Doppia):
+    """Una fase di prova che scrive nella propria cartella gli artefatti dati,
+    con il contenuto dato: serve a mettere davanti al report un riepilogo di
+    fase scelto dal test, senza eseguire il calcolo che lo produce.
+    """
+
+    contenuti: ClassVar[dict[str, str]] = {}
+
+    def calcola(self, contesto: StepContext) -> Produzione:
+        """Scrive e registra ogni artefatto dichiarato dalla classe."""
+        return Produzione(tuple(
+            contesto.albero.scrivi_testo(self.cartella, nome, testo)
+            for nome, testo in self.contenuti.items()
+        ))
+
+
+def _tsv(colonne: tuple[str, ...], righe: list[tuple[Any, ...]]) -> str:
+    """Una tabella TSV con la sua intestazione."""
+    return "".join("\t".join(str(v) for v in riga) + "\n" for riga in (colonne, *righe))
+
+
+def _report_con(monkeypatch, scenario, file_config, capsys, artefatti):
+    """Esegue la catena con le fasi di prova, sostituendo quelle indicate con
+    fasi che scrivono gli artefatti dati, e restituisce il report costruito.
+    """
+    fasi = _fasi()
+    for passo, contenuti in artefatti.items():
+        fasi[passo] = type(
+            f"ConArtefatti{passo}", (ConArtefatti,), {"passo": passo, "contenuti": contenuti})()
+    monkeypatch.setattr(cli, "_passi", lambda: fasi)
+    assert _cli("run", "--config", str(file_config), capsys=capsys)[0] == 0
+    return costruisci(scenario.config.io.out_root, fasi)
+
+
+def _positivi(esiti: list[tuple[str, str, str]]) -> dict[str, str]:
+    """Gli artefatti di S11 che il report legge per la conformita': il
+    riepilogo e la tabella dei controlli, da (nome, esito, motivo).
+    """
+    quanti = {e: sum(1 for _, esito, _ in esiti if esito == e)
+              for e in ("conforme", "non conforme", "non valutabile")}
+    riepilogo = {
+        "positivi": len(esiti), "conformi": quanti["conforme"],
+        "non_conformi": quanti["non conforme"], "non_valutabili": quanti["non valutabile"],
+        "non_conformi_elenco": [n for n, esito, _ in esiti if esito == "non conforme"],
+    }
+    tabella = _tsv(("accession", "sample_name", "conformita", "motivo"),
+                   [(f"ACC{i}", n, esito, motivo) for i, (n, esito, motivo) in enumerate(esiti)])
+    return {"riepilogo.json": json.dumps(riepilogo), "positivi.tsv": tabella}
+
+
+_POCHI = "livello con 1 controlli, meno di 3"
+
+CASI_DEI_POSITIVI = {
+    "nessuno valutato": (
+        [(f"POS.{i}", "non valutabile", _POCHI) for i in range(4)],
+        ("nessuno dei 4 è stato valutato", f"Motivo: {_POCHI} (4 controlli)",
+         "<code>ctrl.min_positive_pass_frac</code>) non è stata giudicata"),
+        ("conformi al proprio livello di diluizione: 0 su", "non conformi: nessuno"),
+    ),
+    "tutti conformi": (
+        [(f"POS.{i}", "conforme", "") for i in range(3)],
+        ("conformi al proprio livello di diluizione: 3 su 3; non conformi: nessuno.",),
+        ("valutat",),
+    ),
+    "alcuni non conformi": (
+        [("POS.0", "conforme", ""), ("POS.1", "non conforme", "fedelta' bassa"),
+         ("POS.2", "conforme", "")],
+        ("conformi al proprio livello di diluizione: 2 su 3; non conformi: POS.1.",),
+        ("valutat",),
+    ),
+    "valutati in parte": (
+        [("POS.0", "conforme", ""), ("POS.1", "non conforme", "fedelta' bassa"),
+         ("POS.2", "conforme", ""), ("POS.3", "non valutabile", _POCHI),
+         ("POS.4", "non valutabile", "senza livello di concentrazione")],
+        ("conformi al proprio livello di diluizione: 2 su 3 valutati; non conformi: POS.1.",
+         "Non valutati: 2 su 5.", f"{_POCHI} (1 controllo)",
+         "senza livello di concentrazione (1 controllo)"),
+        ("2 su 5;",),
+    ),
+    "un solo controllo non valutato": (
+        [("POS.0", "non valutabile", _POCHI)],
+        ("Controlli positivi: l'unico non è stato valutato", f"{_POCHI} (1 controllo)"),
+        ("nessuno dei 1", "0 su 1"),
+    ),
+    "senza controlli positivi": (
+        [],
+        ("Controlli positivi: l'inventario non ne ha",),
+        ("0 su 0", "non conformi: nessuno"),
+    ),
+}
+
+
+@pytest.mark.parametrize("caso", sorted(CASI_DEI_POSITIVI))
+def test_il_report_distingue_i_positivi_non_valutati_dai_conformi(
+    caso, scenario, file_config, monkeypatch, capsys
+):
+    """
+    **Obiettivo**: Verificare, su riepiloghi di S11 con controlli positivi
+    tutti non valutati (anche uno solo), tutti conformi, in parte non conformi, valutati solo
+    in parte e assenti, che il report conti i conformi sui soli controlli
+    valutati, dichiari i non valutati con il motivo scritto da S11 per
+    ciascuno, e non scriva mai un conteggio di conformi quando nessun
+    controllo e' stato valutato.
+
+    **Razionale scientifico e sistemistico**: Un controllo non valutato non e'
+    un controllo non conforme ne' uno conforme: scrivere zero conformi e nessun
+    non conforme fa leggere un esito che l'esecuzione non ha prodotto, e chi
+    riceve il risultato giudicherebbe la corsa su un controllo mai fatto.
+    """
+    esiti, attesi, esclusi = CASI_DEI_POSITIVI[caso]
+    report = _report_con(
+        monkeypatch, scenario, file_config, capsys, {Passo.S11: _positivi(esiti)})
+    for testo in attesi:
+        assert testo in report.html, testo
+    for testo in esclusi:
+        assert testo not in report.html, testo
+
+
+def _filtri(applicata: bool, senza_letture: int) -> dict[str, str]:
+    """Gli artefatti di S13 che il report legge: il riepilogo dei filtri e la
+    tabella delle varianti rimosse, con ``senza_letture`` varianti uscite al
+    posto della prevalenza nell'ordine dei filtri.
+    """
+    riepilogo = {
+        "ordine": ["profondita", "tassonomico", "prevalenza", "letture_finali"],
+        "campioni": {"biologici": 2, "controlli_a_parte": 3, "finali": 1,
+                     "esclusi": {"profondita": 1, "tassonomico": 0, "prevalenza": 0,
+                                 "letture_finali": 0}},
+        "prevalenza": {"applicata": applicata, "denominatore": 1,
+                       "min_campioni": 1 if applicata else None,
+                       "min_conteggio": 1 if applicata else None},
+        "varianti": {"iniziali": 10, "finali": 9 - senza_letture,
+                     "rimosse": {"tassonomico": 1, "prevalenza": senza_letture,
+                                 "letture_finali": 0}},
+        "letture": {"finali": 100},
+    }
+    motivo = ("presente con almeno 1 letture in 0 campioni su 1, meno di 1" if applicata
+              else "nessuna lettura nei campioni tenuti")
+    rimosse = [("ASV9", "tassonomico", "phylum non assegnato", 7)] + [
+        (f"ASV{i}", "prevalenza", motivo, 0) for i in range(senza_letture)]
+    return {
+        "filtri_riepilogo.json": json.dumps(riepilogo),
+        "varianti_rimosse.tsv": _tsv(
+            ("asv_id", "filtro", "motivo", "letture_biologici_tenuti"), rimosse),
+    }
+
+
+@pytest.mark.parametrize("applicata, senza_letture", [(False, 3), (False, 0), (True, 3)])
+def test_il_report_non_attribuisce_varianti_a_una_prevalenza_non_applicata(
+    applicata, senza_letture, scenario, file_config, monkeypatch, capsys
+):
+    """
+    **Obiettivo**: Verificare che, con il filtro di prevalenza spento, la riga
+    del filtro nella tabella delle esclusioni lo dichiari non applicato, e che
+    le varianti contate in quella riga siano spiegate come varianti senza
+    letture nei campioni tenuti; che senza
+    varianti in quella riga la spiegazione non compaia; e che con il filtro
+    applicato la riga e il testo restino quelli del filtro.
+
+    **Razionale scientifico e sistemistico**: Con la prevalenza spenta S13 non
+    giudica alcuna variante sulla prevalenza, ma al suo posto nell'ordine
+    toglie quelle rimaste senza letture dopo l'esclusione dei campioni: un
+    conteggio sotto il nome del filtro farebbe credere applicato un filtro che
+    chi conduce l'analisi ha scelto di non applicare.
+    """
+    report = _report_con(
+        monkeypatch, scenario, file_config, capsys,
+        {Passo.S13: _filtri(applicata, senza_letture)})
+    righe = {t.nome: t for t in report.tabelle}["filtri_finali"].righe
+    nome = "prevalenza" if applicata else "prevalenza (non applicata)"
+    assert [r[0] for r in righe] == ["profondita", "tassonomico", nome, "letture_finali"]
+    assert righe[2][2] == senza_letture
+    spiegata = "non sono state giudicate sulla prevalenza" in report.html
+    assert spiegata == (not applicata and senza_letture > 0)
+    if spiegata:
+        assert f"le {senza_letture} varianti contate nella sua riga" in report.html
+        assert "non hanno letture nei campioni tenuti" in report.html
+    assert ("Prevalenza applicata" if applicata else "Prevalenza non applicata") in report.html
+
+
+def test_le_varianti_rimosse_dicono_su_quali_campioni_sono_contate_le_letture(
+    scenario, file_config, monkeypatch, capsys
+):
+    """
+    **Obiettivo**: Verificare che la tabella delle varianti rimosse intitoli la
+    colonna delle letture e se stessa con le stesse parole (le letture nei
+    campioni biologici presenti all'applicazione del filtro), che il testo che
+    la precede dica che vi contano anche le letture di un campione poi escluso,
+    e che l'espressione «biologici tenuti» non resti come titolo di colonna.
+
+    **Razionale scientifico e sistemistico**: Le letture di una variante tolta
+    dal filtro tassonomico si contano prima che quel filtro escluda il campione
+    rimasto senza letture: chi legge «biologici tenuti» attribuirebbe ai
+    campioni dell'oggetto finale letture che sono di un campione uscito.
+    """
+    report = _report_con(
+        monkeypatch, scenario, file_config, capsys, {Passo.S13: _filtri(False, 2)})
+    tabella = {t.nome: t for t in report.tabelle}["varianti_rimosse"]
+    assert tabella.colonne[-1] == "letture nei biologici presenti all'applicazione del filtro"
+    assert "presenti all'applicazione del filtro" in tabella.titolo
+    assert "letture nei biologici tenuti" not in report.html
+    assert ("contano anche le letture di un campione che quello stesso filtro ha lasciato "
+            "senza letture") in report.html
+    assert tabella.righe[0] == ("ASV9", "tassonomico", "phylum non assegnato", "7")
+
+
+def _tassonomia(classificatore: str) -> dict[str, str]:
+    """Gli artefatti di S8 che il report legge: il riepilogo e la tassonomia di
+    quattro varianti, una senza phylum e due senza genere (una con il solo
+    prefisso di rango, che non e' un'assegnazione).
+    """
+    riepilogo = {
+        "classificatore": classificatore,
+        "classi_controllate": ["biologico", "controllo_positivo"],
+        "ranghi": ["Kingdom", "Phylum", "Genus"],
+        "frazione_con_phylum": {
+            "biologico": {"letture": 0.99, "varianti": 0.75},
+            "controllo_positivo": {"letture": 1.0, "varianti": 0.9},
+            "controllo_negativo": {"letture": 0.5, "varianti": 0.25}},
+        "per_gruppo": {
+            "biologico": {"varianti": 4, "varianti_con_phylum": 3},
+            "controllo_positivo": {"varianti": 10, "varianti_con_phylum": 9},
+            "controllo_negativo": {"varianti": 4, "varianti_con_phylum": 1}},
+    }
+    tassonomia = _tsv(("sequenza", "Kingdom", "Phylum", "Genus", "letture"), [
+        ("AAAA", "Bacteria", "Phylum_A", "Genere_01", 10),
+        ("CCCC", "Bacteria", "Phylum_A", "g__", 5),
+        ("GGGG", "Bacteria", "Phylum_B", "Genere_07", 3),
+        ("TTTT", "Bacteria", "", "", 1),
+    ])
+    return {"riepilogo.json": json.dumps(riepilogo), "tassonomia.tsv": tassonomia}
+
+
+def test_il_report_riporta_copertura_del_phylum_ranghi_e_versione_di_decipher(
+    scenario, tmp_path, monkeypatch, capsys
+):
+    """
+    **Obiettivo**: Verificare che il report riporti, dal riepilogo e dalla
+    tassonomia di S8: la frazione di varianti con il phylum per classe, con
+    quali classi sono giudicate contro ``qc.min_frac_phylum`` e la misura
+    confrontata con la soglia (la classe controllata che ne ha meno, non i
+    controlli negativi); le varianti assegnate a ogni rango; e, con IdTaxa, la
+    versione di DECIPHER solo se l'esecuzione l'ha registrata all'avvio,
+    dichiarando altrimenti che non e' registrata; con il bayesiano ingenuo la
+    riga di DECIPHER non compare.
+
+    **Razionale scientifico e sistemistico**: La copertura del phylum e' la
+    misura di un controllo che ferma, e i ranghi assegnati dicono fin dove la
+    tassonomia risolve: chi legge il report li deve trovare senza aprire gli
+    artefatti. La versione di un pacchetto si riporta se la registra
+    l'esecuzione: quella installata dove si genera il documento puo' essere
+    un'altra.
+    """
+    config = _scrivi_config(scenario, tmp_path / "config.yaml", filter={"truncLen": 120},
+                            qc={"min_frac_phylum": 0.6})
+    report = _report_con(monkeypatch, scenario, config, capsys,
+                         {Passo.S8: _tassonomia("idtaxa")})
+    tabelle = {t.nome: t for t in report.tabelle}
+    copertura = {r[0]: r for r in tabelle["copertura_del_phylum"].righe}
+    assert copertura["biologico"][1:] == (4, 3, "75,0%", "99,0%", "sì")
+    assert copertura["controllo_negativo"][-1] == "no"
+    assert "nella classe controllata che ne ha meno" in report.html
+    assert "ciascuna da sola): 75,0%." in report.html and "(0.6)" in report.html
+    assert tabelle["varianti_per_rango"].righe == (
+        ("Kingdom", 4, "100,0%"), ("Phylum", 3, "75,0%"), ("Genus", 2, "50,0%"))
+    assert "Versione di DECIPHER: non registrata dall'esecuzione" in report.html
+
+    radice = Path(scenario.config.io.out_root)
+    (radice / "99_logs" / "ambiente_r.json").write_text(json.dumps(
+        {"r": "9.9.9", "pacchetti": {"DECIPHER": {"versione": "7.8.9", "correzione": None}}}),
+        encoding="utf-8")
+    con_versione = costruisci(radice, cli._passi())
+    assert "Versione di DECIPHER: 7.8.9, quella dell'ambiente R verificato all'avvio" in (
+        con_versione.html)
+
+    altra = crea_scenario(tmp_path / "bayesiano", _campioni(), con_letture=True)
+    config = _scrivi_config(altra, tmp_path / "bayesiano.yaml", filter={"truncLen": 120})
+    bayesiano = _report_con(monkeypatch, altra, config, capsys,
+                            {Passo.S8: _tassonomia("naive_bayes")})
+    assert "DECIPHER" not in bayesiano.html.split("Assegnazione tassonomica (S8)")[1].split(
+        "<h3")[0]
+    assert "varianti_per_rango" in {t.nome for t in bayesiano.tabelle}
+
+
+def test_il_report_segnala_un_controllo_negativo_con_piu_letture_dei_biologici(
+    scenario, file_config, monkeypatch, capsys
+):
+    """
+    **Obiettivo**: Verificare che, quando un controllo negativo ha al primo
+    passo del tracciamento piu' letture della mediana dei campioni biologici,
+    il report lo segnali nominandolo con le sue letture e rimandi alla colonna
+    e alle etichette dei controlli; e che con i controlli negativi sotto quella
+    mediana la segnalazione non compaia.
+
+    **Razionale scientifico e sistemistico**: Un bianco con piu' letture dei
+    campioni di solito non e' un bianco: e' il segno di etichette dei controlli
+    attribuite ai campioni sbagliati, che nessun controllo sulle letture vede e
+    che cambia decontaminazione e risultato.
+    """
+    def con_letture(dove, config: Path, negativo: int) -> str:
+        letture = {"ERX3000001": 1000, "ERX3000002": 3000, "ERX3000003": 500,
+                   "ERX3000004": negativo, "ERX3000005": 10}
+        fasi = _fasi()
+        fasi[Passo.S1] = type("ConTracciamento", (ConArtefatti,), {
+            "passo": Passo.S1, "passi_tracciamento": ("grezze",),
+            "contenuti": {"letture_grezze.tsv": _tsv(
+                ("campione", "passo", "letture"),
+                [(campione, "grezze", n) for campione, n in sorted(letture.items())])}})()
+        monkeypatch.setattr(cli, "_passi", lambda: fasi)
+        assert _cli("run", "--config", str(config), capsys=capsys)[0] == 0
+        chiudi()
+        return costruisci(dove.config.io.out_root, fasi).html
+
+    segnalato = con_letture(scenario, file_config, 2500)
+    assert "<strong>1 controlli negativi</strong>" in segnalato
+    assert "BLANK.P1.1 (ERX3000004, 2.500)" in segnalato
+    assert "più letture della mediana dei campioni biologici (2.000)" in segnalato
+    assert "<code>ctrl.column</code>" in segnalato
+
+    altro = crea_scenario(file_config.parent / "sotto", _campioni(), con_letture=True)
+    config = _scrivi_config(altro, file_config.parent / "sotto.yaml", filter={"truncLen": 120})
+    assert "più letture della mediana dei campioni biologici" not in con_letture(
+        altro, config, 1500)
+
+
+def test_il_titolo_del_report_dice_la_modalita_della_configurazione(
+    scenario, file_config, fasi, capsys
+):
+    """
+    **Obiettivo**: Verificare che il titolo del report dichiari la modalita'
+    della configurazione in uso: single-end per un'esecuzione single-end,
+    appaiata quando la configurazione registrata dichiara ``io.layout``
+    appaiato, nessuna quando non c'e' una configurazione registrata; e che le
+    frasi proprie della modalita' appaiata non compaiano in single-end.
+
+    **Razionale scientifico e sistemistico**: Il titolo e' la prima cosa che
+    chi riceve il documento legge: una modalita' diversa da quella eseguita fa
+    dubitare dell'intera esecuzione, e la modalita' vera sta nella
+    configurazione risolta, non in una costante del documento.
+    """
+    assert _cli("run", "--config", str(file_config), capsys=capsys)[0] == 0
+    pagina = costruisci(scenario.config.io.out_root, fasi).html
+    titolo = "Report di esecuzione della pipeline 16S rRNA"
+    assert f"<title>{titolo} single-end</title>" in pagina
+    assert "modalità appaiata" not in pagina and "letture forward (S1)" not in pagina
+
+    class Esecuzione:
+        """Cio' che il titolo legge di un'esecuzione."""
+
+        def __init__(self, parametri: dict[str, Any] | None) -> None:
+            self.versioni = [] if parametri is None else [{"parametri": parametri}]
+            self.parametri = parametri or {}
+
+    assert builder._titolo(Esecuzione({"io.layout": defaults.LAYOUT_APPAIATO})) == (
+        f"{titolo}, modalità appaiata (paired-end)")
+    assert builder._titolo(Esecuzione({"io.layout": defaults.LAYOUT_SINGOLO})) == (
+        f"{titolo} single-end")
+    assert builder._titolo(Esecuzione({})) == f"{titolo} single-end"
+    assert builder._titolo(Esecuzione(None)) == titolo
+
+
+# --------------------------------------------------------------------------- #
 # 4. Sul sottoinsieme di prova e sul dataset completo                          #
 # --------------------------------------------------------------------------- #
 
@@ -896,6 +1262,15 @@ def test_il_report_della_catena_completa_sul_sottoinsieme(catena, capsys):
     soglia = json.loads((radice / Fase.CONTROLS.value / "soglia.json").read_text())
     assert len(_tabella(radice, "soglie_profondita")) == len(soglia["per_piastra"]) + ("senza_piastra" in soglia)
     assert {r["modalità"] for r in _tabella(radice, "decontaminazione")} == {"aggregata", "per_piastra"}
+    # La conformita' dei controlli positivi e' contata sui soli valutati.
+    positivi = json.loads((radice / Fase.CONTROLS.value / "riepilogo.json").read_text())
+    valutati = positivi["positivi"] - positivi["non_valutabili"]
+    assert positivi["positivi"] > 0
+    if valutati:
+        assert f"diluizione: {positivi['conformi']} su {valutati}" in documento
+    else:
+        assert f"nessuno dei {positivi['positivi']} è stato valutato" in documento
+        assert "diluizione: 0 su" not in documento
     assert documento.count('src="data:image/png;base64,') >= 1
 
 

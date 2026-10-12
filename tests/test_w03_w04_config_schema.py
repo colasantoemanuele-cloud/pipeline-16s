@@ -222,6 +222,9 @@ NULLI = (
     # La modalita' di lettura: l'assenza e' la modalita' single-end. Il modo di
     # togliere il primer: l'assenza e' il taglio a posizione fissa.
     "io.layout", "filter.primer_removal",
+    # I facoltativi che omessi non esistono: le righe dell'assay da tenere e la
+    # quota di coppie fuse per campione.
+    "meta.assay_keep_column", "meta.assay_keep_values", "pair.min_merged_frac_sample_warn",
 )
 
 
@@ -375,11 +378,14 @@ def test_nessuna_chiave_dello_schema_manca_nel_file():
     assert not mancanti, f"chiavi dello schema assenti dal file: {sorted(mancanti)}"
     # run.threads e run.r_timeout_s sono nulli per difetto: restano in commento.
     # Restano in commento anche la modalita' e i predefiniti del gruppo pair,
-    # che in modalita' single-end non si dichiara.
+    # che in modalita' single-end non si dichiara, e i facoltativi che omessi
+    # non esistono nella configurazione risolta.
     assert modello["commentate"] == {
         "run.threads", "run.r_timeout_s", "io.layout", "filter.primer_removal",
         "pair.maxEE_reverse",
-        "pair.min_overlap", "pair.max_mismatch", "pair.trim_overhang"}
+        "pair.min_overlap", "pair.max_mismatch", "pair.trim_overhang",
+        "meta.assay_keep_column", "meta.assay_keep_values",
+        "pair.min_merged_frac_sample_warn"}
 
 
 def test_nessuna_chiave_del_file_e_sconosciuta_allo_schema():

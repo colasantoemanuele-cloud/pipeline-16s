@@ -28,6 +28,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import tempfile
 import time
 from dataclasses import dataclass, replace
 from io import StringIO
@@ -38,7 +39,15 @@ from amplicon16s.config.resolve import risolvi
 from amplicon16s.config.schema import Config
 from amplicon16s.errors.catalog import Categoria, voce
 from amplicon16s.errors.exceptions import ErrorePipeline
-from amplicon16s.gates.g01_g15 import Contesto, ErroreGate, Violazione
+from amplicon16s.gates.g01_g15 import (
+    PREFISSO_DI_RANGO,
+    Contesto,
+    ErroreGate,
+    Violazione,
+    avviso_per_un_taxon_assente,
+    nomi_assenti,
+    taxa_nominati,
+)
 from amplicon16s.gates.registry import EsitoGate, esegui_gate, esegui_tutti
 from amplicon16s.io_layer.artifacts import AlberoOutput, Fase
 from amplicon16s.logging.logger import ottieni
@@ -275,6 +284,8 @@ class ValidazioneIngressi(PipelineStep):
     #: intera; il riferimento entra nell'impronta di S8. G15 e G12 si eseguono
     #: in :meth:`esegui`, sulla configurazione completa, prima che la fase la
     #: veda ristretta, e figurano in gates.json fra gli altri gate.
+    #: La verifica del classificatore addestrato, che S0 esegue solo con IdTaxa.
+    script_r_con_idtaxa: ClassVar[tuple[str, ...]] = (NOME_SCRIPT_CLASSIFICATORE,)
     parametri: ClassVar[tuple[str, ...]] = (
         "io", "meta",
         "ctrl.column", "ctrl.blank_values", "ctrl.positive_values", "ctrl.biological_values",
@@ -311,6 +322,9 @@ class ValidazioneIngressi(PipelineStep):
         #: riferimento non e' fra i parametri della fase (entra in S8): cambiare
         #: classificatore non rifa' la validazione ne' l'inferenza.
         self._addestrato: Path | None = None
+        #: Con IdTaxa, i taxa che la configurazione completa nomina (parametro,
+        #: nome): si cercano fra quelli del classificatore addestrato.
+        self._taxa_nominati: list[tuple[str, str]] | None = None
 
     def impronta_dati_esterni(self, config: Config) -> str | None:
         """L'impronta dei dati grezzi da nome, dimensione e istante di modifica dei
@@ -324,11 +338,13 @@ class ValidazioneIngressi(PipelineStep):
         self._precondizioni = {g: esegui_gate(g, completa) for g in ("G15", "G12")}
         if contesto.config.idtaxa:
             self._addestrato = Path(contesto.config.tax.idtaxa_trained)
+            self._taxa_nominati = taxa_nominati(contesto.config)
         try:
             return super().esegui(contesto)
         finally:
             self._precondizioni = None
             self._addestrato = None
+            self._taxa_nominati = None
 
     def _classificatore_addestrato(
         self, contesto: StepContext, esiti: tuple[EsitoGate, ...]
@@ -347,19 +363,35 @@ class ValidazioneIngressi(PipelineStep):
         g12 = next(e for e in esiti if e.gate == "G12")
         if not g12.superato:
             return esiti, []
-        try:
-            esito = esegui_script(
-                cartella_r() / NOME_SCRIPT_CLASSIFICATORE,
-                {"addestrato": str(self._addestrato)},
-                contesto.albero, Fase.INPUT_VALIDATION, passo="S0_CLASSIFICATORE",
-                tempo_massimo_s=contesto.config.run.r_timeout_s, logger=contesto.logger,
-            )
-        except ErrorePipeline as guasto:
-            if guasto.codice != "E-S0-28":
-                raise
-            respinto = replace(g12, superato=False, violazioni=(
-                Violazione("E-S0-28", f"tax.idtaxa_trained: {guasto.dettaglio}"),))
-            return tuple(respinto if e.gate == "G12" else e for e in esiti), []
+        nominati = self._taxa_nominati or []
+        with tempfile.TemporaryDirectory(prefix="amplicon16s-taxa-") as temporanea:
+            # I nomi dei taxa del classificatore, per cercarvi quelli che la
+            # configurazione nomina: un file temporaneo, non un artefatto.
+            elenco = Path(temporanea) / "taxa.json"
+            try:
+                esito = esegui_script(
+                    cartella_r() / NOME_SCRIPT_CLASSIFICATORE,
+                    {"addestrato": str(self._addestrato),
+                     **({"elenco_dei_taxa": str(elenco)} if nominati else {})},
+                    contesto.albero, Fase.INPUT_VALIDATION, passo="S0_CLASSIFICATORE",
+                    tempo_massimo_s=contesto.config.run.r_timeout_s, logger=contesto.logger,
+                )
+            except ErrorePipeline as guasto:
+                if guasto.codice != "E-S0-28":
+                    raise
+                respinto = replace(g12, superato=False, violazioni=(
+                    Violazione("E-S0-28", f"tax.idtaxa_trained: {guasto.dettaglio}"),))
+                return tuple(respinto if e.gate == "G12" else e for e in esiti), []
+            if nominati and elenco.is_file():
+                presenti = frozenset(
+                    PREFISSO_DI_RANGO.sub("", nome)
+                    for nome in json.loads(elenco.read_text(encoding="utf-8"))["taxa"])
+                # Segnalazioni, non esiti del gate: come per il riferimento FASTA.
+                for assente in nomi_assenti(nominati, presenti):
+                    avviso = avviso_per_un_taxon_assente(*assente)
+                    contesto.logger.warning(
+                        avviso.dettaglio,
+                        extra={"gate": "G12", "codice": avviso.codice, "fase": "S0"})
         return esiti, list(esito.artefatti)
 
     def calcola(self, contesto: StepContext) -> Produzione:

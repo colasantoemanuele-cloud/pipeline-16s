@@ -646,6 +646,7 @@ def test_la_catena_arriva_in_fondo_senza_i_condizionali_non_pertinenti(bioc, tmp
         sha[nome] = _sha_degli_artefatti(run)
         pagine[nome] = genera(run.config.io.out_root).read_text(encoding="utf-8")
         assert "Risultato finale" in pagine[nome]
+        assert "prevalenza (non applicata)" in pagine[nome]
     assert set(sha["omessi"]) == set(sha["dichiarati"]) and len(sha["omessi"]) > 20
     diversi = {n for n in sha["omessi"] if sha["omessi"][n] != sha["dichiarati"][n]}
     # Differiscono i soli riepiloghi: anche l'oggetto finale e il suo elenco

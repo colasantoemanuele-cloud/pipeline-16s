@@ -409,21 +409,27 @@ def test_init_rifiuta_letture_appaiate_e_un_file_gia_esistente(tmp_path, capsys)
     assert "esiste gia'" in capsys.readouterr().out
 
 
-def test_con_due_tabelle_il_nome_del_campione_e_la_colonna_che_le_aggancia(tmp_path):
+def test_con_due_tabelle_il_nome_del_campione_e_la_colonna_che_le_aggancia(tmp_path, capsys):
     """
     **Obiettivo**: Verificare che con una tabella di assay e una di studio
     ``init`` rilevi ``meta.sample_id_column`` come la colonna con lo stesso
     nome che aggancia ogni riga dell'assay a una sola riga dello studio; che
     con nomi diversi rilevi anche ``meta.study_sample_id_column``; che le
     etichette si propongano dalle sole righe dei campioni dell'assay; e che il
-    primer dichiarato dai metadati, assente dalle letture, sia una proposta
-    con il taglio proposto a zero.
+    primer dichiarato dai metadati come forward, assente dalle letture, sia
+    una proposta con il taglio proposto a zero; che una sequenza senza
+    etichetta sia proposta lo stesso se coincide, codici IUPAC compresi, con un
+    primer forward dell'elenco di ``init``, il cui verso e' noto; e che non lo
+    sia una sequenza che non e' un primer noto, ne' una fra due candidate allo
+    stesso verso: il primer parte allora da nullo, con le sequenze nel commento
+    e nel riepilogo.
 
     **Razionale scientifico e sistemistico**: La tabella di studio e'
     condivisa fra piu' assay: una colonna costante compare in tutte le righe e
     non aggancia nulla, e i valori di altri assay non sono etichette di questo.
     """
-    dataset = sintetico.genera(tmp_path / "dati", biologici=4, negativi=1, letture=40)
+    dataset = sintetico.genera(
+        tmp_path / "dati", biologici=4, negativi=1, letture=40, letture_negativi=20)
     intestazione, *righe = dataset.tabella.read_text(encoding="utf-8").splitlines()
     colonne = intestazione.split("\t")
     campione, file, tipo = (colonne.index(c) for c in (
@@ -453,6 +459,37 @@ def test_con_due_tabelle_il_nome_del_campione_e_la_colonna_che_le_aggancia(tmp_p
         assert righe_file["qc.primer_sequence"] == (False, '"GTGCCAGCAGCCGCGGTAA"')
         assert righe_file["filter.trimLeft"] == (False, "0")
         assert righe_file["qc.conserved_motif"][0] is False and righe_file["qc.conserved_motif"][1]
+    # La stessa sequenza senza dire che cosa sia: coincide con un primer forward
+    # dell'elenco (la sua forma senza codici degenerati), e il verso e' noto.
+    def con_la_cella(cella: str, nome: str) -> tuple[dict, str, str]:
+        assay.write_text("campione\tfile_letture\tprotocollo\tprimer\n" + "".join(
+            f"{r.split(chr(9))[campione]}\t{r.split(chr(9))[file]}\tuno\t{cella}\n"
+            for r in righe), encoding="utf-8")
+        capsys.readouterr()
+        uscita = tmp_path / nome
+        assert main(["init", "--reads", str(dataset.letture), "--metadata", str(assay),
+                     "--study-table", str(studio), "--output", str(uscita), "--skip-profile",
+                     "--accetta-proposte"]) == 0
+        testo = uscita.read_text(encoding="utf-8")
+        return (righe_dei_parametri(testo), " ".join(testo.replace("#", " ").split()),
+                " ".join(capsys.readouterr().out.split()))
+
+    parametri, commenti, stampato = con_la_cella("GTGCCAGCAGCCGCGGTAA", "noto.yaml")
+    assert parametri["qc.primer_sequence"] == (True, '"GTGCCAGCAGCCGCGGTAA"')
+    assert "coincide con il primer forward 515F" in commenti
+    assert "Primer forward non proposto" not in stampato
+    # Una sequenza che non e' un primer noto, senza dire che cosa sia: non e' proposta.
+    parametri, commenti, stampato = con_la_cella("ACGGTTCAGCATTGCAAGGTC", "ignoto.yaml")
+    assert parametri["qc.primer_sequence"] == (True, "null")
+    assert "nessuna coincide con un primer forward dell'elenco: ACGGTTCAGCATTGCAAGGTC" in commenti
+    assert "Primer forward non proposto: i metadati riportano sequenze " \
+           "(ACGGTTCAGCATTGCAAGGTC)" in stampato
+    # Due primer forward noti, senza dire quale sia stato usato: init non sceglie.
+    parametri, commenti, stampato = con_la_cella(
+        f"GTGCCAGCAGCCGCGGTAA; {sintetico.PRIMER_341F}", "due.yaml")
+    assert parametri["qc.primer_sequence"] == (True, "null")
+    assert "2 sequenze dei metadati sono candidate a primer forward" in commenti
+    assert "Primer forward non proposto: 2 sequenze dei metadati sono candidate" in stampato
 
 
 def test_le_regole_di_rilevamento_sui_casi_semplici():
@@ -504,6 +541,16 @@ def test_le_regole_di_rilevamento_sui_casi_semplici():
     per_colonna = [{"forward_primer": "CCTACGGGNGGCWGCAG", "reverse_primer": "GACTACHVGGGTATCTAATCC"}]
     assert rilevamento.primer_dai_metadati([per_colonna])[::2] == ("CCTACGGGNGGCWGCAG", True)
     assert rilevamento.primer_dai_metadati([[{"primer": "806R GGACTACHVGGGTWTCTAAT"}]])[0] is None
+    # Una sequenza coincide con un primer dell'elenco se in ogni posizione i due
+    # codici ammettono una base in comune; la lunghezza deve essere la stessa.
+    assert rilevamento.primer_dell_elenco(
+        "GTGCCAGCAGCCGCGGTAA", vocabolario.PRIMER_16S).nome.startswith("515F")
+    assert rilevamento.primer_dell_elenco("GTGCCAGCAGCCGCGGTA", vocabolario.PRIMER_16S) is None
+    assert rilevamento.primer_dell_elenco("GTGCCAGCTGCCGCGGTAA", vocabolario.PRIMER_16S) is None
+    assert rilevamento.primer_dell_elenco(
+        "GGACTACHVGGGTWTCTAAT", vocabolario.PRIMER_16S) is None
+    assert rilevamento.primer_dell_elenco(
+        "GGACTACHVGGGTWTCTAAT", vocabolario.PRIMER_16S_REVERSE) is not None
     assert rilevamento.primer_dai_metadati([[{"adattatore": "AATGATACGGCGACCACCGAGATCTACAC"}]]) == (
         "AATGATACGGCGACCACCGAGATCTACAC", ["AATGATACGGCGACCACCGAGATCTACAC"], False)
 
@@ -546,11 +593,13 @@ def test_un_fatto_e_attivo_solo_se_vale_per_ogni_file(tmp_path, capsys):
     """
     **Obiettivo**: Verificare che il primer e il taglio siano righe attive solo
     se ogni file con letture porta il primer in testa e sono state lette tutte
-    le letture: con una parte dei file senza primer, o con ``--head-reads``,
-    sono proposte, con i file che non lo portano nominati; che una chiave di
-    sole cifre che corrisponde ai file sia proposta e non rilevata, con
-    l'abbinamento mostrato; che una tabella senza righe e un numero di letture
-    non positivo siano rifiutati.
+    le letture: con una parte dei file senza primer il primer e' proposto e il
+    taglio resta da scegliere, senza valore, con i file che non lo portano
+    nominati e il taglio che sarebbe nel commento; con ``--head-reads`` sono
+    proposte; che una chiave di sole cifre che corrisponde ai file non sia
+    proposta, nemmeno con ``--accetta-proposte``, e resti da scegliere con
+    l'abbinamento e i valori da scrivere nel commento; che una tabella senza
+    righe e un numero di letture non positivo siano rifiutati.
 
     **Razionale scientifico e sistemistico**: Con il taglio dichiarato la
     validazione non cerca piu' il primer: un taglio attivo su un dataset in cui
@@ -572,10 +621,17 @@ def test_un_fatto_e_attivo_solo_se_vale_per_ogni_file(tmp_path, capsys):
     assert _init(misto, tmp_path / "misto.yaml") == 0
     testo = (tmp_path / "misto.yaml").read_text(encoding="utf-8")
     righe = righe_dei_parametri(testo)
-    assert righe["filter.trimLeft"] == (False, "17")
+    assert righe["filter.trimLeft"] == (False, "")
     assert righe["qc.primer_sequence"] == (False, f'"{sintetico.PRIMER_341F}"')
-    assert "3 file su 7 non lo portano in testa" in " ".join(testo.replace("#", " ").split())
-    assert "proposti, non rilevati" in capsys.readouterr().out
+    piatto = " ".join(testo.replace("#", " ").split())
+    assert "3 file su 7 non lo portano in testa" in piatto
+    assert "non proposto: il taglio sarebbe 17" in piatto
+    assert "il primer e' proposto, il taglio resta da scegliere" in capsys.readouterr().out
+    assert _init(misto, tmp_path / "misto_accettate.yaml", "--accetta-proposte") == 0
+    accettate = righe_dei_parametri((tmp_path / "misto_accettate.yaml").read_text(encoding="utf-8"))
+    assert accettate["filter.trimLeft"] == (False, "")
+    assert accettate["qc.primer_sequence"] == (True, f'"{sintetico.PRIMER_341F}"')
+    capsys.readouterr()
 
     intero = sintetico.genera(tmp_path / "intero", biologici=4, letture=60,
                               primer=sintetico.PRIMER_341F, con_tipo=False)
@@ -602,15 +658,16 @@ def test_un_fatto_e_attivo_solo_se_vale_per_ogni_file(tmp_path, capsys):
         encoding="utf-8")
     assert main(["init", "--reads", str(numeri / "letture"), "--metadata",
                  str(numeri / "campioni.tsv"), "--output", str(tmp_path / "numeri.yaml"),
-                 "--skip-profile"]) == 0
+                 "--skip-profile", "--accetta-proposte"]) == 0
     testo = (tmp_path / "numeri.yaml").read_text(encoding="utf-8")
     righe = righe_dei_parametri(testo)
-    assert righe["meta.accession_column"] == (False, '"profondita_cm"')
-    assert righe["io.accession_regex"][0] is False
+    assert righe["meta.accession_column"] == (False, "")
+    assert righe["io.accession_regex"] == (False, "")
     piatto = " ".join(testo.replace("#", " ").split())
     assert "puo' essere una coincidenza" in piatto
+    assert 'scrivi meta.accession_column: "profondita_cm" e io.accession_regex: ' in piatto
+    assert "Chiave del campione non proposta" in capsys.readouterr().out
     assert re.search(r"abbinamento, per esempio: (\d)\.fq\.gz -> \1;", piatto)
-    assert "proposta e non rilevata" in capsys.readouterr().out
 
     # Una tabella senza righe non e' una tabella dei campioni.
     (numeri / "vuota.tsv").write_text("campione\tfile\n", encoding="utf-8")
@@ -776,6 +833,339 @@ def test_il_profilo_propone_troncamento_e_funzione_d_errore(profilo, tmp_path):
         "filter.truncLen"] == (False, "")
 
 
+def _riscrivi_letture(percorso: Path, trasforma) -> None:
+    """Riscrive un file FASTQ compresso passando ogni lettura (numero, sequenza,
+    qualita') a ``trasforma``, che restituisce la coppia da scrivere.
+    """
+    import gzip
+
+    with gzip.open(percorso, "rt", encoding="ascii") as file:
+        righe = file.read().splitlines()
+    with gzip.open(percorso, "wt", encoding="ascii") as file:
+        for numero in range(len(righe) // 4):
+            sequenza, qualita = trasforma(numero, righe[4 * numero + 1], righe[4 * numero + 3])
+            file.write(f"{righe[4 * numero]}\n{sequenza}\n+\n{qualita}\n")
+
+
+def test_il_troncamento_proposto_non_scende_a_poche_letture_accorciate(profilo, tmp_path):
+    """
+    **Obiettivo**: Verificare, con il profilo calcolato dallo script di S1 su
+    un dataset in cui due letture di un campione sono state accorciate a 40
+    basi, che ``init`` proponga come troncamento la lunghezza delle altre
+    letture e non 40; che il commento riporti la regola, la lunghezza piu'
+    frequente con la sua quota, la quota di letture piu' corte del troncamento
+    proposto e di 10 e 20 basi sotto la piu' frequente, e la qualita' in coda;
+    che ``qc.max_frac_short_reads`` resti da fissare con la quota scartata nel
+    commento, e che con ``--accetta-proposte`` sia una soglia esplorativa; e
+    che lo scarto di partenza sia zero.
+
+    **Razionale scientifico e sistemistico**: Un troncamento che non scarta
+    alcuna lettura scende alla lettura piu' corta del deposito: bastano poche
+    letture accorciate a rendere inservibile la configurazione proposta. La
+    proposta ammette di perderne una quota piccola e dichiarata.
+    """
+    from amplicon16s.init.comando import QUOTA_DI_LETTURE_CORTE
+
+    dataset = sintetico.genera(tmp_path / "dati", biologici=4, negativi=1, letture=200)
+    primo = sorted(dataset.letture.glob("*T01*"))[0]
+    _riscrivi_letture(primo, lambda n, s, q: (s[:40], q[:40]) if n < 2 else (s, q))
+    assert _init(dataset, tmp_path / "a.yaml", profilo=True) == 0
+    testo = (tmp_path / "a.yaml").read_text(encoding="utf-8")
+    righe = righe_dei_parametri(testo)
+    assert righe["filter.truncLen"] == (False, str(dataset.lunghezza))
+    assert righe["filter.truncLen_shortfall_warn"] == (False, "0")
+    assert righe["qc.max_frac_short_reads"] == (False, "")
+    piatto = " ".join(testo.replace("#", " ").split())
+    assert QUOTA_DI_LETTURE_CORTE == 0.05 and "non oltre il 5% delle letture" in piatto
+    assert "scarta lo 0.25% delle letture, nella classe che ne perde di piu'" in piatto
+    assert f"lunghezze osservate: da 40 a {dataset.lunghezza}; la piu' frequente e' " \
+           f"{dataset.lunghezza}, con il 99.8% delle letture" in piatto
+    assert f"letture piu' corte di {dataset.lunghezza} (il troncamento proposto) lo 0.25%" in piatto
+    assert "10 basi sotto la piu' frequente) lo 0.25%" in piatto
+    assert "20 basi sotto la piu' frequente) lo 0.25%" in piatto
+    assert "qualita' per posizione in coda (media e primo quartile" in piatto
+    assert "la soglia deve stare sopra quella quota" in piatto
+
+    assert _init(dataset, tmp_path / "b.yaml", "--accetta-proposte", profilo=True) == 0
+    accettate = (tmp_path / "b.yaml").read_text(encoding="utf-8")
+    assert righe_dei_parametri(accettate)["qc.max_frac_short_reads"] == (True, "1.0")
+    assert righe_dei_parametri(accettate)["filter.truncLen"] == (True, str(dataset.lunghezza))
+
+
+def test_il_primer_dell_altra_estremita_in_coda_si_riconosce(tmp_path):
+    """
+    **Obiettivo**: Verificare che l'ispezione delle letture trovi il complemento
+    inverso del primer reverse dove la lettura prosegue oltre la regione
+    amplificata, che ``primer_in_coda`` lo riconosca quando la mediana fra i
+    file raggiunge la soglia del primer in testa e ne dia la prima posizione,
+    che in letture che finiscono dentro la regione non trovi nulla, e che lo
+    stesso sito seguito dal gene invece che da un adattatore non conti come
+    fine dell'amplicone.
+
+    **Razionale scientifico e sistemistico**: Con letture piu' lunghe della
+    regione il primer dell'altra estremita' e l'adattatore entrano in coda
+    alla lettura: in single-end nessuna fusione li toglie, e per fermare il
+    troncamento prima bisogna sapere dove cominciano.
+    """
+    import gzip
+    import random
+
+    primer = vocabolario.PRIMER_16S_REVERSE[2]
+    assert rilevamento.complemento_inverso("GACTACHVGGGTATCTAATCC") == "GGATTAGATACCCBDGTAGTC"
+    caso = random.Random(5)
+    in_coda = rilevamento.complemento_inverso(
+        primer.sequenza.replace("H", "A").replace("V", "C"))
+    lunghe, corte = tmp_path / "lunghe.fq.gz", tmp_path / "corte.fq.gz"
+    with gzip.open(lunghe, "wt") as a, gzip.open(corte, "wt") as b:
+        for numero in range(200):
+            # Una regione di 90 basi, in una lettura su dieci di 86.
+            regione = "".join(caso.choice("ACGT") for _ in range(86 if numero % 10 == 0 else 90))
+            lettura = regione + in_coda + "AGATCGGAAGAGC"
+            a.write(f"@l{numero}\n{lettura}\n+\n{'I' * len(lettura)}\n")
+            b.write(f"@c{numero}\n{regione[:80]}\n+\n{'I' * 80}\n")
+    sequenze = tuple(p.sequenza for p in vocabolario.PRIMER_16S_REVERSE)
+    ispezioni = {
+        percorso.name: rilevamento.ispeziona((str(percorso), None, (), (), sequenze))
+        for percorso in (lunghe, corte)}
+    trovato = rilevamento.primer_in_coda(
+        {"lunghe.fq.gz": ispezioni["lunghe.fq.gz"]}, vocabolario.PRIMER_16S_REVERSE)
+    assert trovato is not None and trovato.primer.sequenza == primer.sequenza
+    assert trovato.mediana == 1.0 and trovato.posizioni == {86: 20, 90: 180}
+    assert trovato.prima_posizione == 86 and trovato.chiude_l_amplicone
+    # Lo stesso sito seguito dal gene, non da un adattatore: non chiude l'amplicone.
+    dentro = tmp_path / "dentro.fq.gz"
+    with gzip.open(dentro, "wt") as file:
+        for numero in range(200):
+            lettura = ("".join(caso.choice("ACGT") for _ in range(90)) + in_coda
+                       + "".join(caso.choice("ACGT") for _ in range(60)))
+            file.write(f"@d{numero}\n{lettura}\n+\n{'I' * len(lettura)}\n")
+    interno = rilevamento.primer_in_coda(
+        {"dentro.fq.gz": rilevamento.ispeziona((str(dentro), None, (), (), sequenze))},
+        vocabolario.PRIMER_16S_REVERSE)
+    assert interno is not None and interno.con_adattatore < 0.05
+    assert not interno.chiude_l_amplicone
+    assert rilevamento.primer_in_coda(
+        {"corte.fq.gz": ispezioni["corte.fq.gz"]}, vocabolario.PRIMER_16S_REVERSE) is None
+    # Senza il quinto argomento l'ispezione non cerca nulla in coda.
+    assert rilevamento.ispeziona((str(lunghe), None, (), ())).code == ()
+
+
+def test_init_ferma_il_troncamento_prima_del_primer_in_coda(profilo, tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare, con il profilo calcolato dallo script di S1 su
+    letture single-end che dopo la regione proseguono nel complemento inverso
+    di un primer reverse e in un adattatore, che ``init`` proponga un
+    troncamento non oltre le basi che precedono quel primer, lo dica nel
+    commento della riga e nel riepilogo; e che sullo stesso dataset senza la
+    coda il troncamento proposto sia la lunghezza delle letture.
+
+    **Razionale scientifico e sistemistico**: Un troncamento alla lunghezza
+    delle letture porterebbe nelle varianti il primer dell'altra estremita' e
+    l'adattatore: sequenze che non sono del campione, uguali in ogni variante.
+    """
+    senza = sintetico.genera(tmp_path / "senza", biologici=3, negativi=0, letture=200)
+    assert _init(senza, tmp_path / "s.yaml", profilo=True) == 0
+    assert righe_dei_parametri((tmp_path / "s.yaml").read_text(encoding="utf-8"))[
+        "filter.truncLen"] == (False, str(senza.lunghezza))
+    capsys.readouterr()
+
+    dataset = sintetico.genera(tmp_path / "dati", biologici=3, negativi=0, letture=200)
+    in_coda = rilevamento.complemento_inverso("GACTACAAGGGTATCTAATCC") + "AGATCGGAAGAGCACACG"
+    for percorso in dataset.letture.glob("*.fq.gz"):
+        _riscrivi_letture(percorso, lambda n, s, q: (s + in_coda, q + "I" * len(in_coda)))
+    assert _init(dataset, tmp_path / "a.yaml", profilo=True) == 0
+    console = " ".join(capsys.readouterr().out.split())
+    testo = (tmp_path / "a.yaml").read_text(encoding="utf-8")
+    attiva, valore = righe_dei_parametri(testo)["filter.truncLen"]
+    assert not attiva and int(valore) == dataset.lunghezza
+    piatto = " ".join(testo.replace("#", " ").split())
+    assert "porta in coda il complemento inverso del primer 805R" in piatto
+    assert f"preceduto da {dataset.lunghezza} basi" in piatto
+    assert "Le letture sono piu' lunghe della regione amplificata" in console
+
+
+def test_la_sovrapposizione_si_conferma_sulle_basi_affidabili():
+    """
+    **Obiettivo**: Verificare che ``lunghezza_dell_inserto``, date due letture
+    dello stesso frammento con errori nelle code sovrapposte, non confermi la
+    sovrapposizione sulle sole sequenze (oltre il 10% di discordanze) e la
+    confermi con le righe di qualita', contando le sole posizioni in cui
+    entrambe le basi hanno qualita' almeno 20; che senza abbastanza posizioni
+    affidabili non dia una misura; e che ``stima_dell_inserto`` accetti una
+    quota minore di meta' solo se chi la chiama lo chiede.
+
+    **Razionale scientifico e sistemistico**: In letture lunghe la
+    sovrapposizione cade nelle code, dove gli errori di sequenza superano da
+    soli la quota di discordanze ammessa: confrontando le basi buone la
+    lunghezza dell'inserto si misura anche li'.
+    """
+    import random
+
+    caso = random.Random(11)
+    frammento = "".join(caso.choice("ACGT") for _ in range(160))
+    forward, reverse = frammento[:120], rilevamento.complemento_inverso(frammento[-120:])
+    assert rilevamento.lunghezza_dell_inserto(forward, reverse) == 160
+
+    # Nelle ultime 40 basi della reverse una su quattro e' sbagliata, con
+    # qualita' bassa: dieci discordanze nelle ottanta basi sovrapposte.
+    basi, qualita = list(reverse), ["I"] * len(reverse)
+    for posto in range(len(reverse) - 40, len(reverse), 4):
+        basi[posto] = "ACGT"[("ACGT".index(basi[posto]) + 1) % 4]
+        qualita[posto] = "#"
+    rovinata, qr = "".join(basi), "".join(qualita)
+    qf = "I" * len(forward)
+    assert rilevamento.lunghezza_dell_inserto(forward, rovinata) is None
+    assert rilevamento.lunghezza_dell_inserto(forward, rovinata, qf, qr) == 160
+    # Con la coda della forward tutta di qualita' bassa non restano venti
+    # posizioni da confrontare.
+    assert rilevamento.lunghezza_dell_inserto(
+        forward, rovinata, "I" * 40 + "#" * 80, qr) is None
+
+    misure = [[160] * 2 + [None] * 8]
+    assert rilevamento.stima_dell_inserto(misure) is None
+    parziale = rilevamento.stima_dell_inserto(
+        misure, rilevamento.QUOTA_DI_COPPIE_CON_IL_RISCONTRO_DEI_PRIMER)
+    assert parziale is not None and (parziale.sovrapposte, parziale.mediana) == (2, 160)
+    assert rilevamento.stima_dell_inserto([[None] * 10], 0.1) is None
+
+
+def test_la_colonna_dei_controlli_e_proposta_solo_se_nulla_la_contraddice(
+    tmp_path, capsys
+):
+    """
+    **Obiettivo**: Verificare che, con una colonna in cui la parola dei
+    controlli negativi marca due campioni che non lo sono e i bianchi veri
+    stanno in un'altra colonna, ``init`` non proponga la colonna dei controlli
+    ne' le tre etichette, nemmeno con ``--accetta-proposte``: restano da
+    scegliere, senza valore; il commento dice quale colonna sarebbe la piu'
+    plausibile e perche' non e' proposta (un'altra candidata classifica i
+    campioni in modo diverso, e i due «bianchi» hanno piu' letture della
+    mediana degli altri), ed elenca per ogni valore i campioni che lo portano,
+    per quella colonna e per ogni altra candidata; il riepilogo lo dice. E che
+    con due colonne che danno ai campioni le stesse classi, e bianchi con poche
+    letture, la colonna sia proposta come sempre, anche quando una colonna di
+    nomi, con un valore per riga, porta una parola dei controlli.
+
+    **Razionale scientifico e sistemistico**: La proposta guarda le parole dei
+    valori e puo' scegliere la colonna sbagliata: una riga attiva sbagliata
+    toglierebbe campioni veri dall'analisi come controlli. Quando i dati la
+    contraddicono la scelta resta a chi conosce lo studio, con cio' che serve
+    a farla senza aprire i metadati.
+    """
+    dataset = sintetico.genera(tmp_path / "dati", biologici=4, negativi=2, letture=120)
+    intestazione, *righe = [
+        r.split("\t") for r in dataset.tabella.read_text(encoding="utf-8").splitlines()]
+    posto = intestazione.index(sintetico.COLONNA_TIPO)
+    originale = dataset.tabella.read_text(encoding="utf-8")
+    # Una colonna, prima di quella del tipo, in cui «blank» marca due campioni biologici.
+    intestazione.insert(posto, "materiale")
+    for riga in righe:
+        riga.insert(posto, "blank" if riga[0] in ("T01", "T02") else "polvere")
+    dataset.tabella.write_text(
+        "\n".join("\t".join(r) for r in [intestazione, *righe]) + "\n", encoding="utf-8")
+    assert _init(dataset, tmp_path / "a.yaml", "--accetta-proposte") == 0
+    console = " ".join(capsys.readouterr().out.split())
+    testo = (tmp_path / "a.yaml").read_text(encoding="utf-8")
+    parametri = righe_dei_parametri(testo)
+    for chiave in ("ctrl.column", "ctrl.blank_values", "ctrl.positive_values",
+                   "ctrl.biological_values"):
+        assert parametri[chiave] == (False, ""), chiave
+    piatto = " ".join(testo.replace("#", " ").split())
+    assert "non proposta: la colonna piu' plausibile e' 'materiale'" in piatto
+    assert f"1 altre colonne candidate classificano i campioni in modo diverso " \
+           f"({sintetico.COLONNA_TIPO!r})" in piatto
+    assert "2 campioni che ne risulterebbero controlli negativi hanno piu' letture della " \
+           "mediana degli altri campioni" in piatto and "T01 (120), T02 (120)" in piatto
+    assert "valori di 'materiale' e campioni che li portano: 'blank': T01, T02; " \
+           "'polvere': B05, B06, T03, T04" in piatto
+    assert f"candidata {sintetico.COLONNA_TIPO!r}, valori e campioni: " \
+           f"{sintetico.ETICHETTA_NEGATIVO!r}: B05, B06; " \
+           f"{sintetico.ETICHETTA_BIOLOGICO!r}: T01, T02, T03, T04" in piatto
+    assert "se e' la colonna giusta scrivi 'materiale' qui e, nelle tre etichette, " \
+           'ctrl.blank_values: ["blank"]; ctrl.positive_values: []; ' \
+           'ctrl.biological_values: ["polvere"]' in piatto
+    assert "Colonna dei controlli non proposta: la piu' plausibile e' 'materiale'" in console
+
+    # Due colonne che dicono la stessa cosa con parole diverse: nessun dubbio.
+    intestazione, *righe = [r.split("\t") for r in originale.splitlines()]
+    posto = intestazione.index(sintetico.COLONNA_TIPO)
+    intestazione.insert(posto, "materiale")
+    for riga in righe:
+        riga.insert(posto, "blank" if riga[posto] == sintetico.ETICHETTA_NEGATIVO else "polvere")
+    dataset.tabella.write_text(
+        "\n".join("\t".join(r) for r in [intestazione, *righe]) + "\n", encoding="utf-8")
+    assert _init(dataset, tmp_path / "b.yaml", "--accetta-proposte") == 0
+    parametri = righe_dei_parametri((tmp_path / "b.yaml").read_text(encoding="utf-8"))
+    assert parametri["ctrl.column"][0] is True
+    assert yaml.safe_load(parametri["ctrl.blank_values"][1]) in (
+        ["blank"], [sintetico.ETICHETTA_NEGATIVO])
+    assert "Colonna dei controlli non proposta" not in capsys.readouterr().out
+
+    # Una colonna con un valore diverso per riga e' un nome: una parola dei
+    # controlli nel nome di un campione biologico non contraddice la colonna.
+    intestazione, *righe = [r.split("\t") for r in originale.splitlines()]
+    intestazione.append("descrizione")
+    for n, riga in enumerate(righe):
+        riga.append(f"campione {n} (dopo il blank)" if riga[0] == "T01" else f"campione {n}")
+    dataset.tabella.write_text(
+        "\n".join("\t".join(r) for r in [intestazione, *righe]) + "\n", encoding="utf-8")
+    assert _init(dataset, tmp_path / "c.yaml", "--accetta-proposte") == 0
+    parametri = righe_dei_parametri((tmp_path / "c.yaml").read_text(encoding="utf-8"))
+    assert parametri["ctrl.column"] == (True, f'"{sintetico.COLONNA_TIPO}"')
+    assert "Colonna dei controlli non proposta" not in capsys.readouterr().out
+
+
+def test_una_colonna_del_lotto_e_proposta_solo_se_e_la_sola_candidata(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che, con un file del lotto in cui due colonne
+    hanno un nome che dice la piastra e raggruppano i campioni in modo diverso,
+    ``init`` non proponga ``decontam.batch_column``, nemmeno con
+    ``--accetta-proposte``: resta da scegliere, senza valore, con le due
+    candidate e quella raccomandata nel commento, e il riepilogo lo dice; che
+    la colonna della corsa, che resta la sola candidata, sia proposta come
+    sempre; e che due colonne che raggruppano i campioni allo stesso modo non
+    siano un dubbio.
+
+    **Razionale scientifico e sistemistico**: La piastra di estrazione e quella
+    di amplificazione, o la corsa e la sua data, hanno nomi che si somigliano:
+    scegliere la prima per ordine nel file dividerebbe i campioni nei lotti
+    sbagliati senza che nulla lo segnali.
+    """
+    dataset = sintetico.genera(tmp_path / "dati", biologici=4, negativi=1, letture=120,
+                               letture_negativi=20, con_lotto=True)
+    assert dataset.lotto is not None
+    righe = [r.split("\t") for r in dataset.lotto.read_text(encoding="utf-8").splitlines()]
+    posto = righe[0].index(sintetico.COLONNA_PIASTRA)
+    righe[0].append("piastra_di_amplificazione")
+    for n, riga in enumerate(righe[1:]):
+        riga.append(f"A{n % 3}")
+    dataset.lotto.write_text("\n".join("\t".join(r) for r in righe) + "\n", encoding="utf-8")
+    assert posto >= 0 and _init(dataset, tmp_path / "a.yaml", "--accetta-proposte") == 0
+    testo = (tmp_path / "a.yaml").read_text(encoding="utf-8")
+    parametri = righe_dei_parametri(testo)
+    assert parametri["decontam.batch_column"] == (False, "")
+    assert parametri["err.batch_column"] == (True, f'"{sintetico.COLONNA_CORSA}"')
+    piatto = " ".join(testo.replace("#", " ").split())
+    assert "non proposta: 2 colonne del file del lotto hanno un nome che dice la piastra di " \
+           "estrazione, raggruppano i campioni in modo diverso e init non sceglie fra loro: " \
+           f"{sintetico.COLONNA_PIASTRA!r}, 'piastra_di_amplificazione'" in piatto
+    assert f"raccomandata la prima, {sintetico.COLONNA_PIASTRA!r}" in piatto
+    assert "decontam.batch_column non proposto: 2 colonne" in " ".join(
+        capsys.readouterr().out.split())
+    # Due colonne che raggruppano i campioni allo stesso modo (un numero e una
+    # sigla della stessa piastra) non sono un dubbio: la prima e' proposta.
+    for riga in righe[1:]:
+        riga[-1] = "sigla-" + riga[posto]
+    dataset.lotto.write_text("\n".join("\t".join(r) for r in righe) + "\n", encoding="utf-8")
+    assert _init(dataset, tmp_path / "b.yaml", "--accetta-proposte") == 0
+    testo = (tmp_path / "b.yaml").read_text(encoding="utf-8")
+    assert righe_dei_parametri(testo)["decontam.batch_column"] == (
+        True, f'"{sintetico.COLONNA_PIASTRA}"')
+    assert "che raggruppano i campioni allo stesso modo: 'piastra_di_amplificazione'" in " ".join(
+        testo.replace("#", " ").split())
+    assert "non proposto" not in capsys.readouterr().out
+
+
 def test_la_guida_copre_ogni_parametro_obbligatorio_e_ogni_argomento_di_init():
     """
     **Obiettivo**: Verificare che il documento di riferimento nomini, nella
@@ -858,7 +1248,7 @@ def test_il_primer_indicato_a_mano_e_una_cartella_non_scrivibile(tmp_path, capsy
     piatto = " ".join(testo.replace("#", " ").split())
     assert "i metadati nominano un primer" in piatto and "341F CCTACGGGNGGCWGCAG" in piatto
     assert "partenza: nullo" in piatto and "non cerca alcun primer" in piatto
-    assert "rilancia init con --primer SEQUENZA" in piatto and "GUIDA.md, sezione 6.3" in piatto
+    assert "rilancia init con --primer SEQUENZA" in piatto and "RIFERIMENTO.md, 6.3" in piatto
     assert "ne' nei metadati" not in testo
     assert "i metadati lo nominano senza riportarne la sequenza" in piatto
     assert righe["qc.conserved_motif"] == (False, "null")

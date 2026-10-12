@@ -10,7 +10,10 @@
 #                                    quelli che non hanno una colonna nella
 #                                    tassonomia; il numero dei taxa
 #
-# Parametri: addestrato (il percorso del file .RData).
+# Parametri: addestrato (il percorso del file .RData); facoltativo
+# elenco_dei_taxa, il percorso di un file temporaneo in cui scrivere i nomi dei
+# taxa del classificatore: la validazione vi cerca i taxa che la configurazione
+# nomina (E-S0-32). Non e' un artefatto: lo legge e lo toglie chi lo chiede.
 #
 # Scoprire un file sbagliato qui costa qualche secondo; scoprirlo
 # all'assegnazione tassonomica costerebbe tutta l'inferenza delle varianti.
@@ -25,6 +28,13 @@ esegui_fase(function(parametri, cartella) {
     error = function(e) errore_catalogo("E-S0-28", conditionMessage(e))
   )
   ranghi <- ranghi_dell_addestrato(addestrato)
+  elenco <- facoltativo(parametri, "elenco_dei_taxa")
+  if (!is.null(elenco)) {
+    scrivi_json(
+      list(taxa = as.list(sort(unique(as.character(addestrato$taxa)), method = "radix"))),
+      elenco
+    )
+  }
   noti <- c(RANGO_RADICE, unlist(COLONNE_DEI_RANGHI))
   scrivi_json(
     list(ranghi = as.list(ranghi),

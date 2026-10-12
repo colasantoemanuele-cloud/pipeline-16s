@@ -546,7 +546,9 @@ def chiavi_di_altre_modalita() -> frozenset[str]:
 
     return frozenset((
         "filter.primer_removal", *defaults.PARAMETRI_DEL_TAGLIO_CERCATO,
-        *defaults.PARAMETRI_DI_IDTAXA))
+        *defaults.PARAMETRI_DI_IDTAXA,
+        # I facoltativi che omessi non esistono nella configurazione risolta.
+        *defaults.FACOLTATIVI_ASSENTI_SE_OMESSI))
 
 
 def codici_con_retry() -> frozenset[str]:

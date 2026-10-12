@@ -75,7 +75,20 @@ from amplicon16s.io_layer.reads import (
     sonda_del_taglio_fisso,
     segnale_di_orientamento,
 )
-from amplicon16s.metadata.crosswalk import Analisi, analizza
+from amplicon16s.metadata.ampliconi import (
+    COLONNA_AMPLICONE,
+    COLONNA_PRIMER,
+    LETTURE_PER_IL_PRIMER,
+    RigaCollegata,
+    collega,
+    confronta,
+)
+from amplicon16s.metadata.crosswalk import (
+    AccessionNonEstraibile,
+    Analisi,
+    analizza,
+    chiave_dalla_tabella,
+)
 from amplicon16s.metadata.models import CLASSI_CONTROLLATE, ClasseCampione, Inventario
 from amplicon16s.metadata.tabelle import intestazione as _intestazione
 from amplicon16s.metadata.tabelle import leggi_tsv as _leggi_tsv
@@ -95,7 +108,14 @@ __all__ = [
     "ErroreGate",
     "Violazione",
     "controlla_coerenza",
+    "PREFISSO_DI_RANGO",
+    "avviso_per_un_taxon_assente",
+    "nomi_assenti",
     "rifiuto_di_g15",
+    "righe_e_file",
+    "taxa_assenti_dal_riferimento",
+    "taxa_del_riferimento",
+    "taxa_nominati",
 ]
 
 
@@ -193,7 +213,8 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
         "E-G15-14",
         ("ctrl.blank_override_values", "ctrl.blank_override_column",
          "meta.study_sample_id_column", "io.study_table",
-         "meta.module_regex", "meta.non_surface_positions", "meta.module_column"),
+         "meta.module_regex", "meta.non_surface_positions", "meta.module_column",
+         "meta.assay_keep_column", "meta.assay_keep_values"),
         "gate",
     ),
     Controllo(
@@ -345,6 +366,10 @@ def _codice_per_problema(problema: str) -> str:
     # La regola di riclassificazione senza la sua colonna: lo schema la respinge
     # da se', e il rifiuto e' quello del controllo sulle dipendenze fra parametri.
     if problema.startswith("ctrl:") and "blank_override_column e' nullo" in problema:
+        return "E-G15-14"
+    # Colonna e valori delle righe dell'assay da tenere, dichiarati l'una senza
+    # gli altri: lo stesso controllo.
+    if problema.startswith("meta:") and "assay_keep_" in problema:
         return "E-G15-14"
     # Un parametro rimosso da una versione precedente: e' un problema di
     # schema, non il controllo sulle soglie delle chimere che vigila sul gruppo.
@@ -648,6 +673,107 @@ def _g04_accession_estraibile(analisi: Analisi) -> list[Violazione]:
         )
 
     return violazioni
+
+
+def righe_e_file(config: Config, analisi: Analisi) -> tuple[
+    list[RigaCollegata], list[tuple[str, str]]
+] | None:
+    """Le righe della tabella di assay con il file di letture a cui sono
+    collegate e cio' che dichiarano, e le righe (nome del campione, file) che
+    nominano un file assente dalla cartella; ``None`` se la tabella non
+    dichiara per riga ne' l'amplicone ne' il primer.
+
+    Si leggono tutte le righe, prima della regola di ``meta.assay_keep_column``:
+    una riga di un altro amplicone collegata a un file di questa analisi va
+    vista, non tolta. La riga si collega al file che la cella nomina, se e'
+    nella cartella; altrimenti, se la cella non nomina file, per chiave.
+    """
+    assay = Path(config.io.assay_table)
+    colonne = _intestazione(assay)
+    amplicone = COLONNA_AMPLICONE if colonne.count(COLONNA_AMPLICONE) == 1 else None
+    primer = COLONNA_PRIMER if colonne.count(COLONNA_PRIMER) == 1 else None
+    if amplicone is None and primer is None:
+        return None
+    presenti = {
+        percorso.name: percorso
+        for percorso in Path(config.io.fastq_dir).glob(config.io.fastq_glob)}
+    espressione = re.compile(config.io.accession_regex)
+
+    def per_chiave(valore: str) -> Path | None:
+        try:
+            return analisi.file_per_accession.get(chiave_dalla_tabella(valore, espressione))
+        except AccessionNonEstraibile:
+            return None
+
+    collegate, assenti = collega(
+        _leggi_tsv(assay), config.meta.sample_id_column, config.meta.accession_column,
+        presenti, amplicone, primer, per_chiave)
+    return collegate, [(nome, file) for nome, file, _ in assenti]
+
+
+def _righe_collegate_al_file_giusto(contesto: Contesto) -> list[Violazione]:
+    """Nessuna riga dei metadati e' collegata a un file di un altro amplicone.
+
+    Dove la tabella di assay dichiara per riga l'amplicone o il primer, lo si
+    confronta con il primer in testa alle letture del file collegato
+    (:func:`amplicon16s.metadata.ampliconi.confronta`). Un'incoerenza ferma: il
+    campione sarebbe analizzato con le letture di un altro. Non scrive nulla
+    quando non scatta, e non si applica dove la tabella non dichiara nulla o le
+    letture non portano un primer riconosciuto.
+    """
+    config = contesto.config
+    try:
+        trovate = righe_e_file(config, contesto.analisi)
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return []  # una tabella che non si legge e' gia' una violazione di G02
+    if trovate is None:
+        return []
+    collegate, assenti = trovate
+    incoerenze, _ = confronta(collegate, min(config.qc.head_reads, LETTURE_PER_IL_PRIMER))
+    if not incoerenze:
+        return []
+    dettaglio = (
+        "{} righe della tabella di assay sono collegate a un file le cui letture portano "
+        "il primer di un altro amplicone: {}".format(
+            len(incoerenze), _elenca([str(i) for i in incoerenze])))
+    if assenti:
+        dettaglio += (
+            ". Inoltre {} righe nominano un file che non e' in io.fastq_dir: {}".format(
+                len(assenti), _elenca([f"{nome} ({file})" for nome, file in assenti])))
+    return [Violazione(
+        "E-S0-30",
+        dettaglio + ". Anche le righe non elencate possono essere collegate al file di un "
+        "altro campione dello stesso amplicone: va verificata una copia della tabella per "
+        "intero")]
+
+
+def _g04_chiave_e_file(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
+    """G04 nel registro: la chiave si estrae da ogni nome, e nessuna riga e'
+    collegata a un file di un altro amplicone.
+
+    Il secondo controllo sta qui, prima dell'univocita' delle chiavi e del
+    confronto fra file e metadati: una tabella con le righe collegate al file
+    sbagliato darebbe li' chiavi ripetute o righe senza file, e il messaggio
+    nasconderebbe la causa. Quando passa non aggiunge nulla all'esito. Le righe
+    escluse dalla regola di ``meta.assay_keep_column`` si dichiarano qui.
+    """
+    violazioni = _g04_accession_estraibile(contesto.analisi)
+    if violazioni:
+        return violazioni, []
+    violazioni = _righe_collegate_al_file_giusto(contesto)
+    if violazioni:
+        return violazioni, []
+    avvisi = []
+    escluse = contesto.analisi.righe_assay_escluse
+    if escluse:
+        avvisi.append(Avviso(
+            "E-S0-31",
+            "{} righe della tabella di assay non portano in {!r} (meta.assay_keep_column) "
+            "uno dei valori di meta.assay_keep_values ({}) e sono escluse: {}".format(
+                len(escluse), contesto.config.meta.assay_keep_column,
+                ", ".join(contesto.config.meta.assay_keep_values or ()),
+                _elenca([f"{nome} ({valore or '<vuoto>'})" for nome, valore in escluse]))))
+    return [], avvisi
 
 
 def _file_senza_compagno(analisi: Analisi) -> list[Violazione]:
@@ -1014,6 +1140,8 @@ def _g02_tabelle_apribili(contesto: Contesto) -> tuple[list[Violazione], list[Av
 
     assay = [("meta.sample_id_column", config.meta.sample_id_column),
              ("meta.accession_column", config.meta.accession_column)]
+    if config.meta.assay_keep_column is not None:
+        assay.append(("meta.assay_keep_column", config.meta.assay_keep_column))
     di_studio = [
         ("meta.study_sample_id_column" if config.meta.study_sample_id_column
          and config.io.study_table is not None else "meta.sample_id_column", colonna_id),
@@ -1391,6 +1519,99 @@ def _g12_riferimento_verificato(contesto: Contesto) -> tuple[list[Violazione], l
     if difetto is not None:
         return [Violazione("E-S0-22", f"tax.ref_fasta: {percorso.name}: {difetto}")], []
     return [], []
+
+
+PREFISSO_DI_RANGO: Final = re.compile(r"^[A-Za-z]__")
+
+
+def taxa_del_riferimento(percorso: Path) -> frozenset[str]:
+    """I nomi dei taxa che il riferimento contiene, a ogni rango, senza il
+    prefisso di rango (``p__``, ``g__``): la forma in cui S13 li confronta con
+    ``filt.exclude_taxa``.
+
+    Si legge l'intero file: nel formato di dada2 ogni sequenza sta su una riga,
+    e le intestazioni sono meta' delle righe.
+    """
+    nomi: set[str] = set()
+    with apri_fastq(percorso) as file:
+        for riga in file:
+            if riga.startswith(">"):
+                nomi.update(
+                    PREFISSO_DI_RANGO.sub("", nome.strip())
+                    for nome in riga[1:].strip().rstrip(";").split(";"))
+    nomi.discard("")
+    return frozenset(nomi)
+
+
+def taxa_nominati(config: Config) -> list[tuple[str, str]]:
+    """I taxa che la configurazione nomina e che hanno effetto solo se il
+    riferimento li contiene: (parametro, nome). Un nome di
+    ``katharoseq.target_taxon`` conta solo con controlli positivi dichiarati.
+    """
+    nominati = [("filt.exclude_taxa", nome) for nome in config.filt.exclude_taxa]
+    if config.ctrl.positive_values and config.katharoseq.target_taxon is not None:
+        nominati.append(("katharoseq.target_taxon", config.katharoseq.target_taxon))
+    return nominati
+
+
+def nomi_assenti(
+    nominati: Sequence[tuple[str, str]], presenti: frozenset[str]
+) -> list[tuple[str, str, list[str]]]:
+    """I nomi che il riferimento non contiene: (parametro, nome, i nomi del
+    riferimento che sono lo stesso nome con un suffisso numerico).
+
+    Alcuni riferimenti distinguono con un suffisso i taxa omonimi di rami
+    diversi (``Chloroplast_2``): chi scrive il nome senza suffisso non toglie
+    nulla, e il suggerimento dice come il riferimento lo scrive.
+    """
+    assenti = []
+    for parametro, nome in nominati:
+        cercato = PREFISSO_DI_RANGO.sub("", nome)
+        if cercato in presenti:
+            continue
+        con_suffisso = re.compile(re.escape(cercato) + r"_[0-9]+")
+        assenti.append((parametro, nome, sorted(
+            presente for presente in presenti if con_suffisso.fullmatch(presente))))
+    return assenti
+
+
+def avvisi_sui_taxa_nominati(config: Config, presenti: frozenset[str]) -> list[Avviso]:
+    """Un avviso ``E-S0-32`` per ogni taxon nominato che il riferimento non contiene."""
+    return [avviso_per_un_taxon_assente(*assente)
+            for assente in nomi_assenti(taxa_nominati(config), presenti)]
+
+
+def taxa_assenti_dal_riferimento(config: Config) -> list[Avviso]:
+    """Gli avvisi ``E-S0-32`` per il riferimento del bayesiano ingenuo, letto dal
+    file FASTA; vuoto con IdTaxa (i nomi del classificatore addestrato li legge
+    R, alla validazione), senza nomi da cercare, o se il file non si legge
+    (lo dichiara G12).
+
+    Sono segnalazioni dell'avvio, sulla console e nel log: non entrano negli
+    esiti dei gate, perche' dipendono da parametri che non sono fra quelli
+    della validazione (i taxa da escludere, il taxon atteso), e si ripetono a
+    ogni avvio con la configurazione di quel momento.
+    """
+    if config.idtaxa or not taxa_nominati(config):
+        return []
+    try:
+        return avvisi_sui_taxa_nominati(config, taxa_del_riferimento(Path(config.tax.ref_fasta)))
+    except (OSError, EOFError, zlib.error, UnicodeDecodeError):
+        return []
+
+
+def avviso_per_un_taxon_assente(parametro: str, nome: str, simili: Sequence[str]) -> Avviso:
+    """L'avviso per un taxon nominato in ``parametro`` e assente dal riferimento."""
+    che_cosa = (
+        "nessuna variante sara' tolta per questo nome" if parametro == "filt.exclude_taxa"
+        else "il taxon atteso non si trovera' in alcun controllo positivo")
+    suggerimento = (
+        f"; il riferimento ha {', '.join(simili)}: scrivi il nome con il suffisso"
+        if simili else "")
+    return Avviso(
+        "E-S0-32",
+        f"{parametro}: {nome!r} non compare nel riferimento tassonomico a nessun rango, "
+        f"e {che_cosa}{suggerimento}")
 
 
 def _g14_risorse_disponibili(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:

@@ -49,7 +49,8 @@ from amplicon16s.logging.logger import chiudi
 from amplicon16s.rbridge.runner import trova_rscript
 from amplicon16s.runner.executor import Conclusione, Esecutore
 from amplicon16s.runner.graph import Passo
-from amplicon16s.runner.project import ProjectRun
+from amplicon16s.runner.project import ProjectRun, passi_realizzati
+from amplicon16s.steps.base import impronta_parametri
 from amplicon16s_eco.cli import main as main_eco
 
 RADICE = Path(__file__).resolve().parents[1]
@@ -314,6 +315,158 @@ def test_un_file_che_non_e_un_classificatore_addestrato_ferma_la_validazione(con
         (tmp_path / "out" / "01_input_validation" / "classificatore_addestrato.json").read_text())
     assert scritto["ranghi_scartati"] == ["subclass"] and "rootrank" in scritto["ranghi"]
     assert CATALOGO["E-S0-28"].categoria is Categoria.REVISIONE_UMANA
+
+
+# --------------------------------------------------------------------------- #
+# I taxa nominati nella configurazione, e il sorgente della validazione         #
+# --------------------------------------------------------------------------- #
+
+
+def test_un_taxon_nominato_che_il_riferimento_non_contiene_si_segnala_all_avvio(
+    tmp_path, capsys
+):
+    """
+    **Obiettivo**: Verificare che i nomi dei taxa di un riferimento si leggano
+    a ogni rango senza il prefisso di rango; che un nome di
+    ``filt.exclude_taxa`` assente dal riferimento sia riconosciuto, con il
+    suggerimento del nome con suffisso numerico quando il riferimento lo ha;
+    che ``katharoseq.target_taxon`` conti solo con controlli positivi
+    dichiarati; che ``validate`` scriva la segnalazione ``E-S0-32`` sulla
+    console per il nome assente e non per quello presente; e che la
+    segnalazione non entri in ``gates.json`` ne' nel manifesto della
+    validazione, e non cambi l'impronta dei suoi parametri.
+
+    **Razionale scientifico e sistemistico**: Un nome che il riferimento non
+    scrive cosi' non toglie alcuna variante, e nulla lo dice: chi ha chiesto di
+    escludere i cloroplasti li ritroverebbe nei risultati. La segnalazione
+    dipende da parametri che non sono della validazione, e non deve cambiarne
+    gli artefatti.
+    """
+    from amplicon16s.gates import g01_g15
+
+    presenti = g01_g15.taxa_del_riferimento(sintetico.RIFERIMENTO)
+    assert {"Bacteria", "Phylum_A", "Genere_01"} <= presenti and "" not in presenti
+    con_prefisso = tmp_path / "prefissi.fa"
+    con_prefisso.write_text(">d__Bacteria;p__Firmicutes;g__Bacillus;\nACGT\n", encoding="ascii")
+    assert g01_g15.taxa_del_riferimento(con_prefisso) == {"Bacteria", "Firmicutes", "Bacillus"}
+
+    nominati = [("filt.exclude_taxa", "Chloroplast"), ("filt.exclude_taxa", "g__Bacillus"),
+                ("filt.exclude_taxa", "Archaea")]
+    assenti = g01_g15.nomi_assenti(
+        nominati, frozenset({"Bacillus", "Chloroplast_2", "Chloroplast_10", "Chloroplastida"}))
+    assert assenti == [
+        ("filt.exclude_taxa", "Chloroplast", ["Chloroplast_10", "Chloroplast_2"]),
+        ("filt.exclude_taxa", "Archaea", [])]
+    avviso = g01_g15.avviso_per_un_taxon_assente(*assenti[0])
+    assert avviso.codice == "E-S0-32" and "Chloroplast_10, Chloroplast_2" in avviso.dettaglio
+    assert "scrivi il nome con il suffisso" in avviso.dettaglio
+
+    dataset = sintetico.genera(tmp_path / "dati", biologici=3, negativi=0, letture=40)
+    dati = sintetico.configurazione(
+        dataset, tmp_path / "out", filt={"exclude_taxa": ["Chloroplast", "Genere_01"]},
+        katharoseq={"target_taxon": "Genere_che_non_esiste"})
+    config = valida(dati)
+    # Senza controlli positivi il taxon atteso non si cerca.
+    assert g01_g15.taxa_nominati(config) == [
+        ("filt.exclude_taxa", "Chloroplast"), ("filt.exclude_taxa", "Genere_01")]
+    segnalati = g01_g15.taxa_assenti_dal_riferimento(config)
+    assert [a.codice for a in segnalati] == ["E-S0-32"] and "'Chloroplast'" in segnalati[0].dettaglio
+    assert g01_g15.taxa_assenti_dal_riferimento(valida(_con_idtaxa(dati))) == []
+
+    file = tmp_path / "c.yaml"
+    file.write_text(yaml.safe_dump(dati, sort_keys=False), encoding="utf-8")
+    capsys.readouterr()
+    assert cli.main(["validate", "--config", str(file)]) == 0
+    chiudi()
+    console = " ".join("".join(capsys.readouterr()).split())
+    assert "E-S0-32" in console and "'Chloroplast' non compare nel riferimento" in console
+    assert "'Genere_01' non compare" not in console
+    validazione = tmp_path / "out" / "01_input_validation"
+    assert "E-S0-32" not in (validazione / "gates.json").read_text(encoding="utf-8")
+    manifesto = json.loads((validazione / "manifest_S0.json").read_text(encoding="utf-8"))
+    assert "E-S0-32" not in json.dumps(manifesto["degradazioni"])
+    senza = valida(sintetico.configurazione(dataset, tmp_path / "out"))
+    fase = passi_realizzati()[Passo.S0]
+    assert impronta_parametri(risolvi(config), fase.parametri_per(config)) == (
+        impronta_parametri(risolvi(senza), fase.parametri_per(senza)))
+    assert CATALOGO["E-S0-32"].categoria is Categoria.DEGRADAZIONE_AUTOMATICA
+
+
+def test_il_sorgente_della_validazione_comprende_gli_script_di_idtaxa_solo_con_idtaxa(tmp_path):
+    """
+    **Obiettivo**: Verificare che il sorgente della validazione, per una
+    configurazione con il bayesiano ingenuo, sia quello del registro e non
+    contenga script R; che con IdTaxa vi entrino lo script che verifica il
+    classificatore addestrato e la libreria di IdTaxa, e la sua impronta sia
+    un'altra; che lo stesso valga per la provenienza registrata nel manifesto e
+    per l'impronta della regola rigorosa; e che per le altre fasi il
+    classificatore non cambi i file del sorgente.
+
+    **Razionale scientifico e sistemistico**: Con IdTaxa la validazione esegue
+    codice R che decide se il classificatore e' accettato: una sua modifica
+    deve vedersi nell'impronta del sorgente. Per chi non usa IdTaxa quel codice
+    non si esegue, e l'impronta non deve dipenderne.
+    """
+    from amplicon16s.rbridge.runner import cartella_r
+    from amplicon16s.runner import provenienza
+
+    fasi = passi_realizzati()
+    validazione = fasi[Passo.S0]
+    senza = provenienza.file_del_sorgente(validazione, cartella_r())
+    con = provenienza.file_del_sorgente(validazione, cartella_r(), idtaxa=True)
+    assert not [nome for nome in senza if nome.startswith("R/")]
+    assert sorted(senza) == provenienza.voce_registro(validazione)["file"]
+    assert set(con) - set(senza) >= {"R/00_classificatore.R", "R/lib/idtaxa.R"}
+    assert all(nome.startswith("R/") for nome in set(con) - set(senza))
+    assert provenienza.impronta_sorgente(con)[0] != provenienza.impronta_sorgente(senza)[0]
+    for passo in (Passo.S1, Passo.S13):
+        assert provenienza.file_del_sorgente(fasi[passo], cartella_r()) == (
+            provenienza.file_del_sorgente(fasi[passo], cartella_r(), idtaxa=True))
+
+    dataset = sintetico.genera(tmp_path / "dati", biologici=2, negativi=0, letture=20)
+    dati = sintetico.configurazione(dataset, tmp_path / "out")
+    bayesiano, idtaxa = valida(dati), valida(_con_idtaxa(dati))
+    registrata = provenienza.provenienza(validazione, bayesiano)
+    assert sorted(registrata["file"]) == sorted(senza)
+    assert "R/00_classificatore.R" in provenienza.provenienza(validazione, idtaxa)["file"]
+    assert provenienza.impronta_rigorosa(validazione, bayesiano)["sorgente"] != (
+        provenienza.impronta_rigorosa(validazione, idtaxa)["sorgente"])
+
+
+def test_la_validazione_segnala_un_taxon_che_il_classificatore_non_contiene(
+    con_r, tmp_path, capsys
+):
+    """
+    **Obiettivo**: Verificare che con IdTaxa la validazione cerchi i taxa
+    nominati in ``filt.exclude_taxa`` fra quelli del classificatore addestrato:
+    un nome assente si segnala con ``E-S0-32`` sulla console, uno presente no;
+    la validazione riesce, gli artefatti di S0 sono gli stessi di una
+    configurazione senza nomi da cercare, e nessun file resta nella cartella
+    oltre agli artefatti registrati.
+
+    **Razionale scientifico e sistemistico**: I classificatori addestrati
+    scrivono alcuni taxa con un suffisso che il nome consueto non ha: e'
+    proprio con IdTaxa che un filtro scritto come sempre non toglie nulla.
+    """
+    dataset = sintetico.genera(tmp_path / "dati", biologici=3, negativi=0, letture=40)
+    base = sintetico.configurazione(dataset, tmp_path / "out")
+    uscite = {}
+    for nome, esclusi in (("con", ["Taxon_che_non_esiste", "Phylum_A"]), ("senza", [])):
+        dati = _con_idtaxa(base)
+        dati["filt"]["exclude_taxa"] = esclusi
+        capsys.readouterr()
+        uscite[nome] = _esegui(dati, tmp_path, nome, "validate")
+        console = " ".join("".join(capsys.readouterr()).split())
+        if esclusi:
+            assert "E-S0-32" in console and "'Taxon_che_non_esiste' non compare" in console
+            assert "'Phylum_A' non compare" not in console
+        else:
+            assert "E-S0-32" not in console
+    artefatti = _impronte(uscite["con"])
+    assert artefatti == _impronte(uscite["senza"])
+    presenti = sorted(p.name for p in (uscite["con"] / "01_input_validation").iterdir()
+                      if not p.name.startswith(("manifest", "rbridge_")))
+    assert presenti == sorted(nome.split("/", 1)[1] for nome in artefatti)
 
 
 # --------------------------------------------------------------------------- #

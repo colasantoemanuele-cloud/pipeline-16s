@@ -3,7 +3,9 @@
 Tiene della tabella senza chimere le sole varianti di lunghezza fra
 ``asv.len_min`` e ``asv.len_max`` (``R/07_asv_length.R``), derivati da
 ``filter.truncLen - filter.trimLeft`` con la tolleranza ``asv.len_tol``, e
-scrive in ``07_chimera/`` accanto a S6.
+scrive in ``07_chimera/`` accanto a S6. In modalita' appaiata l'intervallo e'
+quello dichiarato in ``pair.len_min`` e ``pair.len_max``, e la tolleranza non
+ha effetto.
 
 Le letture sono troncate a lunghezza fissa e, in single-end, nessuna fusione
 di coppie ne cambia la lunghezza: le varianti hanno tutte la lunghezza del
@@ -28,6 +30,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Final
 
+from amplicon16s.config.schema import Config
 from amplicon16s.errors.exceptions import errore
 from amplicon16s.io_layer.artifacts import Fase
 from amplicon16s.io_layer.conteggi import letture_in_ingresso_alla_tabella
@@ -55,6 +58,16 @@ class FiltroLunghezza(PipelineStep):
     #: In modalita' appaiata l'intervallo e' dichiarato: le sequenze fuse hanno
     #: la lunghezza della regione amplificata, che varia fra i taxa.
     parametri_appaiata: ClassVar[tuple[str, ...]] = ("pair.len_min", "pair.len_max")
+
+    def parametri_per(self, config: Config) -> tuple[str, ...] | None:
+        """In modalita' appaiata la fase dipende dal solo intervallo dichiarato:
+        la tolleranza ``asv.len_tol`` e il troncamento, da cui in single-end
+        discende l'intervallo, non vi hanno effetto, e cambiarli non rifa' la
+        fase.
+        """
+        if config.appaiata:
+            return ("asv.len_min", "asv.len_max", "io.layout", *self.parametri_appaiata)
+        return super().parametri_per(config)
 
     def calcola(self, contesto: StepContext) -> Produzione:
         """Esegue ``R/07_asv_length.R``, che toglie dalla tabella senza chimere le

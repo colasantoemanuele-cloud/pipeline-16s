@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.conftest import esegui_g15
+from conftest import esegui_g15
 
 RADICE = Path(__file__).resolve().parents[1]
 DATI = RADICE / "dati"

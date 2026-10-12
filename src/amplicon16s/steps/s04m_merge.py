@@ -166,6 +166,28 @@ def controlla_fusione(misure: dict[str, Any], coppie: Pair) -> str | None:
     return None
 
 
+def campioni_sotto_la_quota(
+    per_campione: dict[str, dict[str, int]], classi: dict[str, str], minima: float | None
+) -> list[tuple[str, int, int]]:
+    """I campioni biologici e i controlli positivi la cui quota di coppie fuse
+    sta sotto ``minima``: (campione, coppie fuse, coppie), in ordine di nome.
+
+    La quota dell'insieme non vede un campione solo che fonde pochissime
+    coppie. Senza soglia (``pair.min_merged_frac_sample_warn`` omessa) non c'e'
+    alcun controllo; un campione senza coppie non ha una quota. Il confronto e'
+    stretto, sul rapporto esatto.
+    """
+    if minima is None:
+        return []
+    controllate = {c.value for c in CLASSI_CONTROLLATE}
+    return [
+        (campione, conteggi["fuse"], conteggi["coppie"])
+        for campione, conteggi in sorted(per_campione.items())
+        if classi[campione] in controllate and conteggi["coppie"]
+        and conteggi["fuse"] / conteggi["coppie"] < minima
+    ]
+
+
 class FusioneCoppie(PipelineStep):
     """SM: le sequenze fuse di ogni campione."""
 
@@ -179,6 +201,8 @@ class FusioneCoppie(PipelineStep):
         "pair.min_overlap", "pair.max_mismatch", "pair.trim_overhang",
         "pair.min_merged_frac_warn", "pair.min_merged_frac_stop",
         "pair.expected_merged_len",
+        # Facoltativa: omessa non entra nell'impronta, e nessun campione e' giudicato.
+        "pair.min_merged_frac_sample_warn",
     )
     passi_tracciamento: ClassVar[tuple[str, ...]] = ("fuse",)
 
@@ -243,6 +267,17 @@ class FusioneCoppie(PipelineStep):
         avviso = controlla_fusione(misure, coppie)
         if avviso is not None:
             contesto.degrada("E-SM-02", avviso, quota=misure["quota_controllata"])
+        sotto = campioni_sotto_la_quota(per_campione, classi, coppie.min_merged_frac_sample_warn)
+        if sotto:
+            contesto.degrada(
+                "E-SM-04",
+                "{} campioni fondono meno del {:.0%} delle coppie "
+                "(pair.min_merged_frac_sample_warn): {}".format(
+                    len(sotto), coppie.min_merged_frac_sample_warn,
+                    ", ".join(f"{campione} ({fuse / totali:.1%}, {fuse} su {totali})"
+                              for campione, fuse, totali in sotto)),
+                campioni=[campione for campione, _, _ in sotto],
+            )
         if (attesa is not None and mediana is not None
                 and abs(mediana - attesa) > SCARTO_DELLA_LUNGHEZZA_ATTESA * attesa):
             contesto.degrada(

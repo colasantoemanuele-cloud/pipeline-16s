@@ -45,6 +45,7 @@ from amplicon16s.io_layer.reads import (
 from amplicon16s.metadata.crosswalk import (
     AccessionNonEstraibile,
     chiave_dalla_tabella,
+    elementi_di_una_cella,
     estrai_accession,
 )
 from amplicon16s.metadata.tabelle import intestazione, leggi_tsv
@@ -52,6 +53,7 @@ from amplicon16s.metadata.tabelle import intestazione, leggi_tsv
 __all__ = [
     "Chiave",
     "Ispezione",
+    "PrimerInCoda",
     "PrimerOsservato",
     "PrimerSfasato",
     "LETTURE_PER_IL_MOTIVO",
@@ -69,8 +71,11 @@ __all__ = [
     "motivo_dal_consenso",
     "nome_e_versione_del_riferimento",
     "primer_dai_metadati",
+    "primer_dell_elenco",
     "primer_nominati",
+    "primer_in_coda",
     "primer_nelle_letture",
+    "righe_con_un_file",
     "secondi_di_coppia",
 ]
 
@@ -148,15 +153,27 @@ _PASSO_DEI_SEMI = 4
 SOVRAPPOSIZIONE_MINIMA_STIMATA = 20
 DISCORDANZE_NELLA_SOVRAPPOSIZIONE = 0.1
 
-_COMPLEMENTO = str.maketrans("ACGTNacgtn", "TGCANtgcan")
+#: La qualita' (Phred) da cui una base conta nel confronto della
+#: sovrapposizione: un errore atteso su cento. Nelle code delle letture lunghe
+#: le basi sotto questa qualita' discordano per errore di sequenza, non perche'
+#: le due letture vengano da frammenti diversi.
+QUALITA_DI_UNA_BASE_AFFIDABILE = 20
+#: La codifica della qualita' nei file FASTQ: Phred piu' 33.
+_BASE_DELLA_QUALITA = 33
+
+_COMPLEMENTO = str.maketrans(
+    "ACGTNRYKMSWBVDHacgtnrykmswbvdh", "TGCANYRMKSWVBHDtgcanyrmkswvbhd")
 
 
 def complemento_inverso(sequenza: str) -> str:
-    """Il complemento inverso di una sequenza di basi."""
+    """Il complemento inverso di una sequenza, codici IUPAC compresi."""
     return sequenza.translate(_COMPLEMENTO)[::-1]
 
 
-def lunghezza_dell_inserto(forward: str, reverse: str) -> int | None:
+def lunghezza_dell_inserto(
+    forward: str, reverse: str,
+    qualita_forward: str | None = None, qualita_reverse: str | None = None,
+) -> int | None:
     """La lunghezza del frammento di cui ``forward`` e ``reverse`` sono le due
     estremita', o ``None`` se le due letture non si sovrappongono.
 
@@ -164,10 +181,21 @@ def lunghezza_dell_inserto(forward: str, reverse: str) -> int | None:
     (complemento inverso): se le due letture coprono lo stesso frammento, un
     tratto della forward compare nella reverse, a una distanza che dice la
     lunghezza del frammento. I semi propongono la distanza, la sovrapposizione
-    intera la conferma. Comprende i primer, se le letture li portano; vale
-    anche quando il frammento e' piu' corto delle letture.
+    la conferma. Comprende i primer, se le letture li portano; vale anche
+    quando il frammento e' piu' corto delle letture.
+
+    Con le due righe di qualita' la conferma guarda le sole posizioni in cui
+    entrambe le basi sono affidabili (:data:`QUALITA_DI_UNA_BASE_AFFIDABILE`):
+    in letture lunghe la sovrapposizione cade nelle code, dove gli errori di
+    sequenza superano da soli la quota di discordanze ammessa. Servono almeno
+    :data:`SOVRAPPOSIZIONE_MINIMA_STIMATA` posizioni cosi'.
     """
     altra = complemento_inverso(reverse)
+    con_qualita = (
+        qualita_forward is not None and qualita_reverse is not None
+        and len(qualita_forward) == len(forward) and len(qualita_reverse) == len(reverse))
+    minima = chr(_BASE_DELLA_QUALITA + QUALITA_DI_UNA_BASE_AFFIDABILE)
+    qualita_altra = qualita_reverse[::-1] if con_qualita else ""  # type: ignore[index]
     voti: Counter[int] = Counter()
     for inizio in range(0, len(forward) - _SEME + 1, _PASSO_DEI_SEMI):
         seme = forward[inizio:inizio + _SEME]
@@ -179,8 +207,17 @@ def lunghezza_dell_inserto(forward: str, reverse: str) -> int | None:
         da, a = max(0, scarto), min(len(forward), scarto + len(altra))
         if a - da < SOVRAPPOSIZIONE_MINIMA_STIMATA:
             continue
-        diverse = sum(x != y for x, y in zip(forward[da:a], altra[da - scarto:a - scarto]))
-        if diverse <= DISCORDANZE_NELLA_SOVRAPPOSIZIONE * (a - da):
+        coppie = list(zip(forward[da:a], altra[da - scarto:a - scarto]))
+        if con_qualita:
+            coppie = [
+                basi for basi, q1, q2 in zip(
+                    coppie, qualita_forward[da:a],  # type: ignore[index]
+                    qualita_altra[da - scarto:a - scarto])
+                if q1 >= minima and q2 >= minima]
+            if len(coppie) < SOVRAPPOSIZIONE_MINIMA_STIMATA:
+                continue
+        diverse = sum(x != y for x, y in coppie)
+        if diverse <= DISCORDANZE_NELLA_SOVRAPPOSIZIONE * len(coppie):
             return scarto + len(altra)
     return None
 
@@ -201,13 +238,18 @@ def inserti_di_una_coppia_di_file(argomenti: tuple[Any, ...]) -> list[int | None
     lunghezze: list[int | None] = []
     try:
         with apri_fastq(forward) as primo, apri_fastq(reverse) as secondo:
+            prima = seconda = ""
             for numero, (riga_1, riga_2) in enumerate(zip(primo, secondo)):
-                if numero % 4 != 1:
+                if numero % 4 == 1:
+                    prima, seconda = riga_1.strip().upper(), riga_2.strip().upper()
+                if numero % 4 != 3:
                     continue
                 if len(lunghezze) >= COPPIE_PER_L_INSERTO:
                     break
-                prima, seconda = riga_1.strip().upper(), riga_2.strip().upper()
-                misurata = lunghezza_dell_inserto(prima, seconda)
+                # La riga della qualita' chiude la lettura: la sovrapposizione
+                # si conferma sulle basi affidabili delle due letture.
+                misurata = lunghezza_dell_inserto(
+                    prima, seconda, riga_1.rstrip("\r\n"), riga_2.rstrip("\r\n"))
                 if ricerche and misurata is not None:
                     tagli = (ricerche[0].fine(prima), ricerche[1].fine(seconda))
                     misurata = (
@@ -232,9 +274,21 @@ class Inserto:
     massima: int
 
 
-def stima_dell_inserto(per_file: Iterable[Sequence[int | None]]) -> Inserto | None:
+#: La quota di coppie campionate che devono risultare sovrapposte perche' la
+#: lunghezza dell'inserto si stimi da loro senza altri riscontri: meta'.
+QUOTA_DI_COPPIE_SOVRAPPOSTE = 0.5
+#: La quota che basta quando la lunghezza attesa dai primer riconosciuti cade
+#: nell'intervallo misurato: con letture lunghe e code rovinate la
+#: sovrapposizione si conferma in una parte sola delle coppie, e il riscontro
+#: dei primer dice che quelle misurate sono il bersaglio.
+QUOTA_DI_COPPIE_CON_IL_RISCONTRO_DEI_PRIMER = 0.1
+
+
+def stima_dell_inserto(
+    per_file: Iterable[Sequence[int | None]], quota: float = QUOTA_DI_COPPIE_SOVRAPPOSTE
+) -> Inserto | None:
     """La distribuzione della lunghezza dell'inserto, o ``None`` se non si
-    stima: nessuna coppia campionata, o meno di meta' con le letture
+    stima: nessuna coppia campionata, o meno di ``quota`` con le letture
     sovrapposte (le letture non coprono il frammento, e la lunghezza non si
     ricava da loro).
 
@@ -243,7 +297,7 @@ def stima_dell_inserto(per_file: Iterable[Sequence[int | None]]) -> Inserto | No
     """
     tutte = [x for lunghezze in per_file for x in lunghezze]
     misurate = sorted(x for x in tutte if x is not None)
-    if not tutte or 2 * len(misurate) < len(tutte):
+    if not tutte or not misurate or len(misurate) < quota * len(tutte):
         return None
 
     def percentile(quota: float) -> int:
@@ -278,6 +332,13 @@ class Ispezione:
     #: Per ciascuno di quei primer e per posizione dopo la sua fine, quante
     #: letture portano ciascuna base.
     basi_dopo: tuple[tuple[dict[str, int], ...], ...] = ()
+    #: Per ciascun primer dell'altra estremita' cercato in coda (il suo
+    #: complemento inverso), fra le letture entrate nel consenso: quante basi
+    #: lo precedono, e in quante letture.
+    code: tuple[dict[int, int], ...] = ()
+    #: Per ciascuno di quei primer, in quante di quelle letture dopo il primer
+    #: c'e' un adattatore (:data:`ADATTATORI`) o la lettura finisce.
+    code_con_adattatore: tuple[int, ...] = ()
 
     def dopo_il_primer(self, indice: int) -> Ispezione:
         """La stessa ispezione con, al posto delle basi in testa, quelle che
@@ -302,8 +363,16 @@ def ispeziona(argomenti: tuple[Any, ...]) -> Ispezione:
     primer, li fa cercare anche lungo la lettura
     (:class:`~amplicon16s.io_layer.reads.RicercaPrimer`, fino a
     :data:`SFASAMENTO_CERCATO` basi di sfasamento) nelle letture del consenso.
+    Un quinto, le sequenze IUPAC dei primer dell'altra estremita', ne fa
+    cercare il complemento inverso in tutta la lettura: letture piu' lunghe
+    della regione amplificata lo portano in coda.
     """
     percorso, quante, primer, *resto = argomenti
+    in_coda = [
+        re.compile(espandi_iupac(complemento_inverso(sequenza)))
+        for sequenza in (resto[1] if len(resto) > 1 else ())]
+    code: list[Counter[int]] = [Counter() for _ in in_coda]
+    con_adattatore = [0] * len(in_coda)
     limite = sys.maxsize if quante is None else quante
     statistiche = scansiona_file(percorso, limite, None, None)
     espressioni = [re.compile(p) for p in primer]
@@ -341,10 +410,20 @@ def ispeziona(argomenti: tuple[Any, ...]) -> Ispezione:
                         for posizione, base in enumerate(
                                 sequenza[fine:fine + _BASI_IN_TESTA]):
                             dopo[indice][posizione][base] += 1
+                    for indice, espressione in enumerate(in_coda):
+                        trovata_in_coda = espressione.search(sequenza.upper())
+                        if trovata_in_coda is not None:
+                            code[indice][trovata_in_coda.start()] += 1
+                            dopo_il_primer = sequenza.upper()[trovata_in_coda.end():]
+                            if not dopo_il_primer or any(
+                                    a[:len(dopo_il_primer)] in dopo_il_primer
+                                    for a in ADATTATORI):
+                                con_adattatore[indice] += 1
     return Ispezione(
         statistiche, tuple(conteggi), tuple(dict(b) for b in basi), nel_consenso,
         tuple(dict(s) for s in sfasamenti),
-        tuple(tuple(dict(b) for b in del_primer) for del_primer in dopo))
+        tuple(tuple(dict(b) for b in del_primer) for del_primer in dopo),
+        tuple(dict(c) for c in code), tuple(con_adattatore))
 
 
 @dataclass(frozen=True)
@@ -419,6 +498,81 @@ def primer_sfasato(
     return PrimerSfasato(
         elenco[migliore], migliore, mediane[migliore], min(frazioni[migliore].values()),
         max(frazioni[migliore].values()), dict(sorted(totali.items())))
+
+
+#: L'inizio degli adattatori Illumina che seguono l'inserto quando la lettura
+#: lo supera: TruSeq e Nextera (Illumina Adapter Sequences, documento
+#: 1000000002694). Dicono che il primer trovato in coda chiude l'amplicone: lo
+#: stesso sito, dentro un amplicone piu' lungo, e' seguito dal gene.
+ADATTATORI = ("AGATCGGAAGAGC", "CTGTCTCTTATACACATCT")
+
+
+@dataclass(frozen=True)
+class PrimerInCoda:
+    """Il primer dell'altra estremita' trovato in coda alle letture."""
+
+    primer: v.Primer
+    #: Mediana fra i file della frazione di letture che lo portano.
+    mediana: float
+    #: Sull'insieme dei file: basi che lo precedono -> letture.
+    posizioni: dict[int, int]
+    #: La quota di quelle letture in cui dopo il primer c'e' un adattatore, o
+    #: la lettura finisce.
+    con_adattatore: float = 1.0
+
+    @property
+    def chiude_l_amplicone(self) -> bool:
+        """Vero se dopo il primer, in almeno meta' delle letture che lo portano,
+        c'e' un adattatore o la lettura finisce: il primer e' la fine della
+        regione amplificata, non un sito conservato al suo interno.
+        """
+        return self.con_adattatore >= PRIMER_IN_TESTA
+
+    @property
+    def prima_posizione(self) -> int:
+        """Le basi che precedono il primer nelle letture in cui comincia prima:
+        il percentile 0,5 delle posizioni (la regione e' piu' corta in alcuni
+        taxa; qualche lettura isolata non conta).
+        """
+        ordinate = sorted(p for p, n in self.posizioni.items() for _ in range(n))
+        return ordinate[round(0.005 * (len(ordinate) - 1))]
+
+
+def primer_in_coda(
+    ispezioni: Mapping[str, Ispezione], elenco: Sequence[v.Primer],
+) -> PrimerInCoda | None:
+    """Il primer dell'altra estremita' che le letture portano in coda, se ce
+    n'e' uno: con letture piu' lunghe della regione amplificata la lettura
+    prosegue oltre il bersaglio, nel complemento inverso del primer opposto e
+    nell'adattatore.
+
+    La regola e' quella del primer in testa: la mediana fra i file della
+    frazione di letture che lo portano deve raggiungere ``PRIMER_IN_TESTA``;
+    fra piu' primer vale la mediana piu' alta, poi l'ordine dell'elenco. Chi
+    chiama guarda :attr:`PrimerInCoda.chiude_l_amplicone`: un sito conservato
+    del gene dentro un amplicone piu' lungo ha la stessa sequenza.
+    """
+    import statistics
+
+    valide = {n: i for n, i in ispezioni.items()
+              if i.statistiche.valido and i.letture_nel_consenso and i.code}
+    if not valide:
+        return None
+    mediane = [
+        statistics.median(
+            sum(i.code[k].values()) / i.letture_nel_consenso for i in valide.values())
+        for k in range(len(elenco))]
+    migliore = max(range(len(mediane)), key=lambda k: (mediane[k], -k))
+    if mediane[migliore] < PRIMER_IN_TESTA:
+        return None
+    totali: Counter[int] = Counter()
+    seguiti = 0
+    for ispezione in valide.values():
+        totali.update(ispezione.code[migliore])
+        seguiti += ispezione.code_con_adattatore[migliore]
+    return PrimerInCoda(
+        elenco[migliore], mediane[migliore], dict(sorted(totali.items())),
+        seguiti / sum(totali.values()))
 
 
 @dataclass(frozen=True)
@@ -633,6 +787,46 @@ def _espressioni_candidate(nomi: Sequence[str], chiavi: Sequence[str]) -> list[s
     return list(dict.fromkeys(candidate))
 
 
+def _file_nominato(valore: str, radici: Mapping[str, str]) -> tuple[str, str] | None:
+    """Il file che il valore nomina, con la parte del valore che lo nomina, o
+    ``None`` se non ne nomina uno solo.
+
+    Il valore, senza estensione, deve comparire nel nome del file delimitato da
+    cio' che non e' una lettera o una cifra. Una cella che elenca piu' file
+    separati da virgola (i due di una coppia) si legge elemento per elemento:
+    quelli che non nominano alcun file della cartella non contano.
+    """
+    trovati: dict[str, str] = {}
+    for elemento in elementi_di_una_cella(valore):
+        chiave = _senza_estensione(elemento)
+        delimitata = re.compile(rf"(?<![A-Za-z0-9]){re.escape(chiave)}(?![A-Za-z0-9])")
+        for nome, radice in radici.items():
+            if delimitata.search(radice):
+                trovati.setdefault(nome, chiave)
+    if len(trovati) != 1:
+        return None
+    return next(iter(trovati.items()))
+
+
+def righe_con_un_file(nomi: Sequence[str], valori: Sequence[str]) -> list[int] | None:
+    """Le righe i cui valori nominano un file della cartella, se ogni file e'
+    nominato da una riga sola; altrimenti ``None``.
+
+    Serve alle tabelle che descrivono anche campioni di cui la cartella non ha
+    i file (un altro amplicone dello stesso studio): la chiave si cerca fra le
+    sole righe che hanno un file.
+    """
+    radici = {n: _senza_estensione(n) for n in nomi}
+    trovate = {}
+    for indice, valore in enumerate(valori):
+        nominato = _file_nominato(valore, radici) if valore else None
+        if nominato is not None:
+            trovate[indice] = nominato[0]
+    if sorted(trovate.values()) != sorted(nomi):
+        return None
+    return sorted(trovate)
+
+
 def _verificata(espressione: str, nomi: Sequence[str], valori: Sequence[str]) -> list[str] | None:
     """Le chiavi che l'espressione estrae dai nomi dei file, se sono tutte
     distinte e sono le stesse che la pipeline ricava dai valori della colonna,
@@ -664,16 +858,15 @@ def _chiavi_possibili(nomi: Sequence[str], valori: Sequence[str]) -> list[list[t
     modi: list[list[tuple[str, str]]] = []
 
     # 1. Il valore intero nel nome del file, delimitato da cio' che non e' una
-    #    lettera o una cifra: "S1" non corrisponde a "S10".
+    #    lettera o una cifra: "S1" non corrisponde a "S10". Una cella che elenca
+    #    piu' file vale per l'elemento che nomina un file della cartella.
     coppie = []
     for valore in valori:
-        chiave = _senza_estensione(valore)
-        delimitata = re.compile(rf"(?<![A-Za-z0-9]){re.escape(chiave)}(?![A-Za-z0-9])")
-        trovati = [n for n, radice in radici.items() if delimitata.search(radice)]
-        if len(trovati) != 1:
+        nominato = _file_nominato(valore, radici)
+        if nominato is None:
             coppie = []
             break
-        coppie.append((trovati[0], chiave))
+        coppie.append(nominato)
     if coppie and len({n for n, _ in coppie}) == len(nomi):
         modi.append(coppie)
 
@@ -709,6 +902,11 @@ class Chiave:
     file_per_chiave: dict[str, str] = field(compare=False, default_factory=dict)
     #: Le altre espressioni verificate per la stessa colonna.
     alternative: tuple[str, ...] = ()
+    #: Le righe della tabella (per posizione) a cui la chiave si riferisce,
+    #: quando non sono tutte: le altre non nominano alcun file della cartella.
+    righe: tuple[int, ...] | None = field(compare=False, default=None)
+    #: Vero se i valori della colonna elencano piu' file di letture per cella.
+    elenca_file: bool = field(compare=False, default=False)
 
     @property
     def debole(self) -> bool:
@@ -731,7 +929,15 @@ def chiave_del_campione(
     """
     candidate = []
     for colonna in dict.fromkeys(colonne):
-        valori = [r.get(colonna, "") for r in righe]
+        tutti = [r.get(colonna, "") for r in righe]
+        indici: list[int] | None = list(range(len(righe)))
+        if len(righe) != len(nomi):
+            # La tabella ha piu' righe dei file: la chiave si cerca fra le sole
+            # righe che nominano un file della cartella.
+            indici = righe_con_un_file(nomi, tutti)
+            if indici is None:
+                continue
+        valori = [tutti[i] for i in indici]
         if len(valori) != len(nomi) or not all(valori) or len(set(valori)) != len(valori):
             continue
         verificate: dict[str, list[str]] = {}
@@ -751,10 +957,18 @@ def chiave_del_campione(
             di_file = all(
                 estensione_di(x) is not None and not re.search(r"[,;\s]", x) for x in valori
             )
+            # Nomi di file anche le celle che ne elencano piu' d'uno (i due di
+            # una coppia): contano dopo le colonne con un file per cella.
+            elenca_file = not di_file and all(
+                estensione_di(elemento) is not None and not re.search(r"[;\s]", elemento)
+                for x in valori for elemento in elementi_di_una_cella(x)
+            )
             candidate.append(Chiave(
                 colonna, prima, di_file,
                 dict(riga.split("\t") for riga in verificate[prima]),
                 tuple(list(verificate)[1:]),
+                tuple(indici) if len(indici) != len(righe) else None,
+                elenca_file,
             ))
     return candidate
 
@@ -909,9 +1123,36 @@ _ETICHETTA_REVERSE = re.compile(
     r"(?<![A-Za-z])(?:R|RV|REV|REVERSE|[0-9]+R)(?![A-Za-z])", re.IGNORECASE)
 
 
+#: Le basi che ogni codice IUPAC ammette, per confrontare due primer.
+_BASI_IUPAC: Final[dict[str, frozenset[str]]] = {
+    "A": frozenset("A"), "C": frozenset("C"), "G": frozenset("G"), "T": frozenset("T"),
+    "R": frozenset("AG"), "Y": frozenset("CT"), "S": frozenset("GC"), "W": frozenset("AT"),
+    "K": frozenset("GT"), "M": frozenset("AC"), "B": frozenset("CGT"), "D": frozenset("AGT"),
+    "H": frozenset("ACT"), "V": frozenset("ACG"), "N": frozenset("ACGT"),
+}
+
+
+def primer_dell_elenco(sequenza: str, elenco: Sequence[v.Primer]) -> v.Primer | None:
+    """Il primer dell'elenco con cui una sequenza coincide, o ``None``.
+
+    Coincide se ha la stessa lunghezza e in ogni posizione i due codici IUPAC
+    ammettono almeno una base in comune: la forma senza codici degenerati di
+    un primer e' lo stesso primer. Una sequenza che coincide con un primer
+    noto ha il verso di quel primer, anche se i metadati non lo dicono.
+    """
+    sequenza = sequenza.upper()
+    for primer in elenco:
+        if len(primer.sequenza) == len(sequenza) and all(
+                _BASI_IUPAC.get(a, frozenset()) & _BASI_IUPAC[b]
+                for a, b in zip(sequenza, primer.sequenza)):
+            return primer
+    return None
+
+
 def primer_dai_metadati(
     tabelle: Iterable[Sequence[dict[str, str]]],
     primer_reverse: list[str] | None = None,
+    primer_forward: list[str] | None = None,
 ) -> tuple[str | None, list[str], bool]:
     """Il primer forward che i metadati riportano, tutte le sequenze trovate, e
     se il forward e' dichiarato tale.
@@ -924,7 +1165,8 @@ def primer_dai_metadati(
     valore e' falso: nessuno dice che sia il forward. Una sequenza con
     un'etichetta di reverse non si propone. Se ``primer_reverse`` e' un elenco
     vi si aggiungono le sequenze con un'etichetta di reverse: servono alla
-    modalita' appaiata.
+    modalita' appaiata; se lo e' ``primer_forward``, quelle con un'etichetta
+    di forward.
     """
     sequenze: list[str] = []
     forward: list[str] = []
@@ -954,6 +1196,8 @@ def primer_dai_metadati(
                         reverse.append(sequenza)
     if primer_reverse is not None:
         primer_reverse.extend(reverse)
+    if primer_forward is not None:
+        primer_forward.extend(forward)
     if len(forward) == 1:
         return forward[0], sequenze, True
     if not forward and len(sequenze) == 1 and not reverse:

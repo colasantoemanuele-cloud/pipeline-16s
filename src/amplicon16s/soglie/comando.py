@@ -57,6 +57,7 @@ from amplicon16s.io_layer.artifacts import nome_manifesto_passo, scrivi_atomico
 from amplicon16s.runner.graph import GRAFO
 from amplicon16s.soglie.misure import ArtefattoNonLeggibile, Misura, campioni_controllati, leggi
 from amplicon16s.steps.base import impronta_parametri
+from amplicon16s.config import defaults
 from amplicon16s.soglie.tabella import (
     SOGLIE_SENZA_LIMITE_AMMESSO,
     TRONCAMENTO_DELLO_SCARTO,
@@ -177,7 +178,10 @@ def proponi(voce: Soglia, misura: Misura, configurazione: Any, al_limite: int | 
     """
     if configurazione is None:
         return Esito(voce, OMESSA, misura, None,
-                     regola="condizionale non pertinente: resta omessa")
+                     regola=("facoltativa e non dichiarata: resta omessa, e il suo controllo "
+                             "non si esegue"
+                             if voce.chiave in defaults.FACOLTATIVI_ASSENTI_SE_OMESSI else
+                             "condizionale non pertinente: resta omessa"))
     if voce.non_proposta is not None:
         return Esito(voce, NON_PROPOSTA, misura, configurazione, valore=configurazione,
                      regola=f"non proposta: {voce.non_proposta}",

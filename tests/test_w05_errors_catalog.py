@@ -112,14 +112,14 @@ CODICI_DI_FASE = (
     "E-S0-08", "E-S0-09", "E-S0-10", "E-S0-11", "E-S0-12",
     "E-S0-13", "E-S0-14", "E-S0-15", "E-S0-16", "E-S0-17", "E-S0-18",
     "E-S0-19", "E-S0-20", "E-S0-21", "E-S0-22", "E-S0-23", "E-S0-24", "E-S0-25", "E-S0-26", "E-S0-27",
-    "E-S0-28", "E-S0-29",
+    "E-S0-28", "E-S0-29", "E-S0-30", "E-S0-31", "E-S0-32",
     "E-S1-01", "E-S1-02", "E-S1-03", "E-S1-04", "E-S1-05", "E-S1-06", "E-S1-07",
     "E-S1-08", "E-S1-09", "E-S1-10", "E-S1-11",
     "E-S1-12",
     "E-S2-01", "E-S2-02", "E-S2-03", "E-S2-04",
     "E-S3-01", "E-S3-02", "E-S3-03", "E-S3-04", "E-S3-05",
     "E-S4-02",
-    "E-SM-01", "E-SM-02", "E-SM-03",
+    "E-SM-01", "E-SM-02", "E-SM-03", "E-SM-04",
     "E-S5-01",
     "E-S6-01", "E-S6-02",
     "E-S7-01", "E-S7-02",
@@ -491,6 +491,9 @@ DEGRADAZIONI = (
     "E-S2-04",
     # il taglio a posizione fissa su letture con il primer a posizione variabile
     "E-S0-29",
+    # le righe dell'assay escluse per dichiarazione; un taxon nominato che il
+    # riferimento non contiene; un campione che fonde poche coppie
+    "E-S0-31", "E-S0-32", "E-SM-04",
 )
 
 

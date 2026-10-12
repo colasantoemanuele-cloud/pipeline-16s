@@ -50,17 +50,17 @@ reverse, che `init` rileva (tagli di 17 e 21 basi). Le lunghezze vanno da 35 a 3
 basi, con la moda a 301: una piccola parte delle letture e' stata accorciata prima del
 deposito.
 
-- **In modalita' appaiata `init` non stima la lunghezza dell'inserto**, quindi non
-  propone `filter.truncLen`, `pair.truncLen_reverse`, `pair.len_min` e `pair.len_max`:
-  misura la sovrapposizione sulle letture intere, e nelle code di queste letture di 300
-  basi gli errori sono troppi perche' la riconosca (poche coppie su cento). Le due
-  letture coprono comunque la regione: i due troncamenti si scelgono dal profilo di
-  qualita' rispettando il vincolo della fusione, e l'intervallo delle lunghezze dalla
-  regione amplificata (RIFERIMENTO.md, sezione 6.7).
-- **Sulle sole forward `init` propone un troncamento di 35 basi**, la lunghezza della
-  lettura piu' corta: la sua proposta e' la lunghezza maggiore che non scarta alcuna
-  lettura, e qui va sostituita con una scelta fatta sul profilo di qualita', accettando
-  di scartare le poche letture piu' corte (RIFERIMENTO.md, sezione 6.3).
+- **In modalita' appaiata** `init` misura la lunghezza dell'inserto su circa una coppia
+  su tre: nelle altre le code di queste letture di 300 basi hanno troppi errori perche'
+  la sovrapposizione si confermi. La misura vale perche' la distanza fra i due primer
+  riconosciuti cade nell'intervallo misurato; `init` propone lunghezza attesa, intervallo
+  e i due troncamenti, con la lettura forward allungata oltre il calo della qualita'
+  quanto serve a fondere le coppie, e avverte che la quota di coppie fuse potra' essere
+  bassa (RIFERIMENTO.md, sezioni 2 e 6.7).
+- **Sulle sole forward** `init` propone il troncamento dalla lunghezza piu' frequente e
+  dalla qualita', accettando di scartare le poche letture piu' corte, e segnala che le
+  letture contengono il sito del primer 518R: qui e' un tratto conservato dentro la
+  regione V3-V4, non la sua fine (RIFERIMENTO.md, sezione 6.3).
 
 ## Confronto con l'elaborazione di GeneLab
 

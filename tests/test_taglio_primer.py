@@ -803,7 +803,9 @@ def test_init_misura_l_inserto_senza_i_primer(tmp_path, capsys):
     assert righe["pair.trimLeft_reverse"] == (False, "0")
     assert righe["pair.primer_sequence_reverse"] == (False, f'"{sintetico.PRIMER_805R}"')
     assert righe["pair.expected_merged_len"] == (False, str(sintetico.INSERTO))
-    assert righe["pair.len_min"][1] == righe["pair.len_max"][1] == str(sintetico.INSERTO)
+    # Ogni frammento sintetico ha la stessa lunghezza: l'intervallo misurato non
+    # descrive una regione, e i due estremi restano da scegliere.
+    assert righe["pair.len_min"] == righe["pair.len_max"] == (False, "")
     capsys.readouterr()
 
 

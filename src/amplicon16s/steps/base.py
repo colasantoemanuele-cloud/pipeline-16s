@@ -297,6 +297,9 @@ class PipelineStep(ABC):
     versione: ClassVar[int] = 1
     #: Lo script R della fase, nella cartella degli script, se ne ha uno.
     script_r: ClassVar[str | None] = None
+    #: Gli script R che la fase esegue solo con il classificatore IdTaxa:
+    #: entrano nel sorgente della fase solo con quel classificatore.
+    script_r_con_idtaxa: ClassVar[tuple[str, ...]] = ()
 
     @property
     def nodo(self) -> Nodo:

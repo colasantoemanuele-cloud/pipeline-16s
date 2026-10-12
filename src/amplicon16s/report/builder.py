@@ -33,6 +33,7 @@ import csv
 import html
 import io
 import json
+import re
 import statistics
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
@@ -45,8 +46,10 @@ import yaml
 
 from amplicon16s import __version__
 from amplicon16s.config.defaults import (
+    CLASSIFICATORE_IDTAXA,
     CONDIZIONALI,
     CONDIZIONALI_NULLI_SE_OMESSI,
+    LAYOUT_APPAIATO,
     condizione_vera,
 )
 from amplicon16s.config.resolve import versioni_registrate
@@ -73,7 +76,11 @@ from amplicon16s.runner.executor import (
 from amplicon16s.runner.graph import GRAFO, Passo
 from amplicon16s.runner.project import avviso_di_provenienza, passi_realizzati
 from amplicon16s.soglie.tabella import controlli_spenti
-from amplicon16s.runner.provenienza import file_del_sorgente, impronta_sorgente
+from amplicon16s.runner.provenienza import (
+    calcolata_con_idtaxa,
+    file_del_sorgente,
+    impronta_sorgente,
+)
 from amplicon16s.runner.tracciamento import PREFISSO, Tracciamento, componi
 from amplicon16s.steps.base import PipelineStep
 from amplicon16s.steps.s01_profile import (
@@ -81,6 +88,7 @@ from amplicon16s.steps.s01_profile import (
     NOME_QUALITA,
     classi_oltre_soglia,
     letture_corte,
+    nome_reverse,
 )
 
 __all__ = [
@@ -93,6 +101,7 @@ __all__ = [
     "genera",
     "scrivi",
     "troncamento_suggerito",
+    "ultima_posizione_di_qualita",
 ]
 
 #: La cartella del report sotto ``io.out_root``. Non è una cartella di fase:
@@ -108,6 +117,13 @@ _CLASSI: Final = tuple(c.value for c in ClasseCampione)
 #: posizione. La quota di letture piu' corte ammessa non e' una costante: e'
 #: qc.max_frac_short_reads, la stessa che ferma S1 e G09.
 QUALITA_MINIMA_SUGGERITA: Final = 30
+#: Le posizioni consecutive su cui la regola «per qualita'» giudica: la
+#: finestra scorrevole di quattro basi con cui gli strumenti di taglio per
+#: qualita' leggono una lettura dall'inizio (Trimmomatic, SLIDINGWINDOW:4:Q;
+#: fastp, cut_right con cut_window_size 4). Della finestra si prende la
+#: mediana e non la media: una posizione sola sotto la soglia, per quanto
+#: bassa (la prima base di una lettura reverse), non ferma la regola.
+FINESTRA_DI_QUALITA: Final = 4
 
 
 # --------------------------------------------------------------------------- #
@@ -525,6 +541,25 @@ def _aggiustamenti(esecuzione: _Esecuzione) -> list[tuple[Passo, dict[str, Any]]
     return [(p, a) for p, m in esecuzione.manifesti.items() for a in m.aggiustamenti]
 
 
+def _appaiata(esecuzione: _Esecuzione) -> bool:
+    """Vero se la configurazione in uso dichiara la modalita' appaiata."""
+    return esecuzione.parametri.get("io.layout") == LAYOUT_APPAIATO
+
+
+def _titolo(esecuzione: _Esecuzione) -> str:
+    """Il titolo del documento, con la modalita' della configurazione in uso.
+
+    Senza una configurazione registrata la modalita' non e' nota, e il titolo
+    non ne dichiara una.
+    """
+    titolo = "Report di esecuzione della pipeline 16S rRNA"
+    if not esecuzione.versioni:
+        return titolo
+    if _appaiata(esecuzione):
+        return f"{titolo}, modalità appaiata (paired-end)"
+    return f"{titolo} single-end"
+
+
 def _fasi_elencate(esecuzione: _Esecuzione) -> list[Passo]:
     """Le fasi di cui il report parla, nell'ordine del grafo: una fase che
     esiste solo in una modalita' non si elenca nell'altra.
@@ -761,7 +796,11 @@ def _sezione_provenienza(esecuzione: _Esecuzione) -> tuple[_Sezione, list[tuple[
         registrata = manifesto.provenienza
         try:
             sorgente, per_file = impronta_sorgente(
-                file_del_sorgente(esecuzione.passi[passo], cartella_r())
+                # Sugli stessi file del sorgente registrato: con gli script del
+                # solo IdTaxa se la fase li aveva eseguiti.
+                file_del_sorgente(
+                    esecuzione.passi[passo], cartella_r(),
+                    calcolata_con_idtaxa(esecuzione.passi[passo], registrata))
             )
             avviso = avviso_di_provenienza(
                 registrata, {"sorgente": sorgente, "file": per_file, "immagine": immagine}
@@ -887,6 +926,50 @@ def _sezione_provenienza(esecuzione: _Esecuzione) -> tuple[_Sezione, list[tuple[
     return sezione, avvisi
 
 
+def _conformita_dei_positivi(esecuzione: _Esecuzione, riepilogo: Mapping[str, Any]) -> str:
+    """La frase sulla conformita' dei controlli positivi al proprio livello di
+    diluizione, dal riepilogo di S11.
+
+    Un controllo non valutato non e' ne' conforme ne' non conforme: il conteggio
+    dei conformi si riferisce ai soli valutati, e i non valutati sono dichiarati
+    con il motivo che S11 ha scritto per ciascuno in positivi.tsv.
+    """
+    totale = riepilogo.get("positivi") or 0
+    non_valutati = riepilogo.get("non_valutabili") or 0
+    if not totale:
+        return ("Controlli positivi: l'inventario non ne ha, e la conformità al livello di "
+                "diluizione non è stata valutata.")
+    elenco = _e(", ".join(riepilogo.get("non_conformi_elenco", [])) or "nessuno")
+    if not non_valutati:
+        return (
+            f"Controlli positivi conformi al proprio livello di diluizione: "
+            f"{_e(riepilogo.get('conformi'))} su {_e(totale)}; non conformi: {elenco}."
+        )
+    motivi: dict[str, int] = defaultdict(int)
+    for riga in esecuzione.tsv(Passo.S11, "positivi.tsv") or []:
+        if riga.get("conformita") == "non valutabile":
+            motivi[riga.get("motivo") or "motivo non registrato"] += 1
+    perche = "; ".join(
+        f"{_e(m)} ({'1 controllo' if n == 1 else f'{_n(n)} controlli'})"
+        for m, n in sorted(motivi.items())
+    ) or "motivo non disponibile: 11_controls/positivi.tsv non è leggibile"
+    if non_valutati >= totale:
+        return (
+            "Controlli positivi: "
+            + ("l'unico non è stato valutato" if totale == 1 else
+               f"nessuno dei {_e(totale)} è stato valutato")
+            + " per la conformità al proprio livello di diluizione, e nessuno risulta quindi "
+            f"conforme o non conforme. Motivo: {perche}. La frazione minima di conformi "
+            f"(<code>ctrl.min_positive_pass_frac</code>) non è stata giudicata."
+        )
+    return (
+        f"Controlli positivi conformi al proprio livello di diluizione: "
+        f"{_e(riepilogo.get('conformi'))} su {_e(totale - non_valutati)} valutati; non "
+        f"conformi: {elenco}. Non valutati: {_e(non_valutati)} su {_e(totale)}. Motivo: "
+        f"{perche}."
+    )
+
+
 def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
     """Soglia di profondità per piastra (S11) e modalità di decontaminazione (S12)."""
     soglia = esecuzione.json(Passo.S11, "soglia.json")
@@ -956,11 +1039,7 @@ def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
             )
     positivi = esecuzione.json(Passo.S11, "riepilogo.json")
     if positivi is not None:
-        sezione.testo(
-            f"Controlli positivi conformi al proprio livello di diluizione: "
-            f"{_e(positivi.get('conformi'))} su {_e(positivi.get('positivi'))}; non conformi: "
-            f"{_e(', '.join(positivi.get('non_conformi_elenco', [])) or 'nessuno')}."
-        )
+        sezione.testo(_conformita_dei_positivi(esecuzione, positivi))
 
     decontam = esecuzione.json(Passo.S12, "decontam_riepilogo.json")
     if decontam is not None:
@@ -983,6 +1062,88 @@ def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
             ((nome, m["contaminanti"], *(_pct(m["letture_rimosse"].get(c)) for c in _CLASSI))
              for nome, m in decontam.get("modalita", {}).items() if m is not None),
         ))
+
+
+#: Dove l'esecutore registra, con la regola rigorosa, l'ambiente R verificato
+#: all'avvio: versione di R e di ogni pacchetto installato.
+NOME_AMBIENTE_R: Final = "ambiente_r.json"
+
+
+def _versione_registrata(esecuzione: _Esecuzione, pacchetto: str) -> str | None:
+    """La versione di un pacchetto R che l'esecuzione ha registrato all'avvio
+    (regola rigorosa sulla provenienza), o ``None`` se non l'ha registrata.
+
+    Non si legge quella installata dove gira il report: puo' essere un'altra.
+    """
+    percorso = esecuzione.albero.cartella(Fase.LOGS) / NOME_AMBIENTE_R
+    try:
+        registrato = json.loads(percorso.read_text(encoding="utf-8"))
+        return str(registrato["pacchetti"][pacchetto]["versione"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _decisioni_tassonomia(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
+    """L'assegnazione tassonomica (S8): la copertura del phylum accanto alla
+    sua soglia, le varianti assegnate a ogni rango e, con IdTaxa, la versione
+    di DECIPHER che l'esecuzione ha registrato.
+    """
+    riepilogo = esecuzione.json(Passo.S8, "riepilogo.json")
+    if not isinstance(riepilogo, dict):
+        return
+    sezione.sottotitolo("Assegnazione tassonomica (S8)")
+    soglia = esecuzione.parametri.get("qc.min_frac_phylum")
+    controllate = [c.value for c in CLASSI_CONTROLLATE]
+    per_classe = riepilogo.get("frazione_con_phylum") or {}
+    conteggi = riepilogo.get("per_gruppo") or {}
+    sezione.tabella(_tabella(
+        "copertura_del_phylum",
+        "Varianti con il phylum assegnato, per classe di campioni (08_taxonomy/riepilogo.json)",
+        ("classe", "varianti", "con il phylum", "frazione delle varianti",
+         "frazione delle letture", "giudicata contro qc.min_frac_phylum"),
+        ((classe, conteggi.get(classe, {}).get("varianti", ""),
+          conteggi.get(classe, {}).get("varianti_con_phylum", ""),
+          _pct(voce.get("varianti")), _pct(voce.get("letture")),
+          "sì" if classe in controllate else "no")
+         for classe, voce in sorted(per_classe.items()) if isinstance(voce, dict)),
+    ))
+    giudicate = [
+        per_classe[c]["varianti"] for c in controllate
+        if isinstance(per_classe.get(c), dict) and per_classe[c].get("varianti") is not None]
+    sezione.testo(
+        "La soglia <code>qc.min_frac_phylum</code> "
+        f"({_e(_valore(soglia))}) si confronta con la frazione di varianti con il phylum "
+        "assegnato nella classe controllata che ne ha meno (biologici e controlli positivi, "
+        "ciascuna da sola): "
+        + (f"{_pct(min(giudicate))}." if giudicate else
+           "nessuna classe controllata ha varianti, e il controllo non ha una misura.")
+    )
+    tassonomia = esecuzione.tsv(Passo.S8, "tassonomia.tsv")
+    ranghi = [r for r in riepilogo.get("ranghi") or [] if tassonomia and r in tassonomia[0]]
+    if tassonomia and ranghi:
+        totale = len(tassonomia)
+        sezione.tabella(_tabella(
+            "varianti_per_rango",
+            "Varianti assegnate a ogni rango, su tutte le varianti (08_taxonomy/tassonomia.tsv)",
+            ("rango", "varianti assegnate", "frazione"),
+            ((rango, assegnate, _pct(assegnate / totale))
+             for rango in ranghi
+             # Un rango col solo prefisso («g__») non e' assegnato, come per S8.
+             for assegnate in [sum(
+                 1 for riga in tassonomia
+                 if re.sub(r"^[A-Za-z]__", "", riga.get(rango) or ""))]),
+        ))
+    if riepilogo.get("classificatore") == CLASSIFICATORE_IDTAXA:
+        versione = _versione_registrata(esecuzione, "DECIPHER")
+        sezione.testo(
+            "Classificatore: <code>DECIPHER::IdTaxa</code>. Versione di DECIPHER: "
+            + (f"{_e(versione)}, quella dell'ambiente R verificato all'avvio "
+               f"dell'esecuzione (99_logs/{NOME_AMBIENTE_R})." if versione is not None else
+               "non registrata dall'esecuzione. La registra la regola rigorosa sulla "
+               "provenienza (<code>run.strict_provenance</code>), che qui non era attiva; "
+               "quella installata dove si genera questo documento può essere un'altra, e "
+               "non è riportata.")
+        )
 
 
 def _decisioni_campioni(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
@@ -1028,14 +1189,20 @@ def _decisioni_campioni(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
         return
     sezione.sottotitolo("Campioni e varianti esclusi dai filtri finali (S13)")
     ordine = filtri["ordine"]
+    prevalenza = filtri.get("prevalenza", {})
+    # Con il filtro spento S13 non giudica alcuna variante sulla prevalenza, ma
+    # al suo posto nell'ordine toglie quelle rimaste senza letture nei campioni
+    # tenuti: la riga lo dice, perche' quel conteggio non si legga come l'esito
+    # di un filtro che non e' stato applicato.
+    spenta = not prevalenza.get("applicata")
     sezione.tabella(_tabella(
         "filtri_finali", "Esclusioni per filtro, nell'ordine di applicazione (12_final/intermedi/filtri_riepilogo.json)",
         ("filtro", "campioni biologici esclusi", "varianti rimosse"),
-        ((f, filtri["campioni"]["esclusi"].get(f, 0),
+        ((f"{f} (non applicata)" if f == "prevalenza" and spenta else f,
+          filtri["campioni"]["esclusi"].get(f, 0),
           filtri["varianti"]["rimosse"].get(f, "non si applica"))
          for f in ordine),
     ))
-    prevalenza = filtri.get("prevalenza", {})
     # Nullo con il filtro spento e prev.min_fraction omesso: non c'e' un minimo.
     minimo = prevalenza.get("min_campioni")
     sezione.testo(
@@ -1049,6 +1216,17 @@ def _decisioni_campioni(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
         + ("minimo di campioni per variante non pertinente." if minimo is None else
            f"almeno {_e(minimo)} campioni per variante.")
     )
+    senza_letture = filtri["varianti"]["rimosse"].get("prevalenza", 0)
+    if spenta and senza_letture:
+        sezione.testo(
+            f"Il filtro di prevalenza non è applicato (<code>prev.apply</code> falso): le "
+            f"{_n(senza_letture)} varianti contate nella sua riga non sono state giudicate "
+            "sulla prevalenza. Sono uscite a quel punto dell'ordine perché non hanno letture "
+            "nei campioni tenuti: erano solo nei campioni esclusi dai filtri precedenti o nei "
+            "controlli, e toglierle non toglie letture ai campioni dell'oggetto finale. Nella "
+            "tabella delle varianti rimosse portano il nome del filtro, con il motivo riga per "
+            "riga."
+        )
     if esclusi:
         sezione.tabella(_tabella(
             "campioni_esclusi", "Campioni esclusi, con il motivo (12_final/intermedi/esclusioni.tsv)",
@@ -1057,12 +1235,52 @@ def _decisioni_campioni(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
             ripiegata=True,
         ))
     if rimosse:
+        # Le letture sono quelle della variante nei campioni biologici ancora
+        # presenti quando il suo filtro si applica: comprendono un campione che
+        # lo stesso filtro lascia senza letture e che esce subito dopo.
+        sezione.testo(
+            "Nella tabella delle varianti rimosse le letture sono quelle che la variante "
+            "aveva nei campioni biologici ancora presenti quando il suo filtro è stato "
+            "applicato (la colonna <code>letture_biologici_tenuti</code> del file): contano "
+            "anche le letture di un campione che quello stesso filtro ha lasciato senza "
+            "letture, o che un filtro successivo ha escluso, e che non è nell'oggetto finale."
+        )
         sezione.tabella(_tabella(
-            "varianti_rimosse", "Varianti rimosse, con il motivo (12_final/intermedi/varianti_rimosse.tsv)",
-            ("variante", "filtro", "motivo", "letture nei biologici tenuti"),
+            "varianti_rimosse",
+            "Varianti rimosse, con il motivo e le letture nei campioni biologici presenti "
+            "all'applicazione del filtro (12_final/intermedi/varianti_rimosse.tsv)",
+            ("variante", "filtro", "motivo",
+             "letture nei biologici presenti all'applicazione del filtro"),
             ((r["asv_id"], r["filtro"], r["motivo"], r["letture_biologici_tenuti"]) for r in rimosse),
             ripiegata=True, limite=50,
         ))
+
+
+def ultima_posizione_di_qualita(
+    qualita: Mapping[int, float], soglia: float = QUALITA_MINIMA_SUGGERITA
+) -> int | None:
+    """L'ultima posizione fino a cui la qualita' regge: quella che precede la
+    prima finestra di :data:`FINESTRA_DI_QUALITA` posizioni consecutive con la
+    mediana sotto ``soglia``, o l'ultima posizione se nessuna finestra scende;
+    da li' si torna indietro finche' la posizione stessa e' sotto la soglia.
+
+    ``qualita`` da' la qualita' di ogni posizione. Un calo isolato non ferma la
+    regola, per quanto profondo, perche' la mediana della finestra che lo
+    contiene resta quella delle vicine: nelle
+    letture reverse la prima base, o una posizione a meta' lettura, e' spesso
+    piu' bassa delle vicine senza che la lettura sia peggiorata. ``None`` se
+    non ci sono posizioni, o se nessuna posizione resta.
+    """
+    posizioni = sorted(qualita)
+    ultima = len(posizioni) - 1
+    for indice in range(len(posizioni) - FINESTRA_DI_QUALITA + 1):
+        finestra = [qualita[p] for p in posizioni[indice:indice + FINESTRA_DI_QUALITA]]
+        if statistics.median(finestra) < soglia:
+            ultima = indice - 1
+            break
+    while ultima >= 0 and qualita[posizioni[ultima]] < soglia:
+        ultima -= 1
+    return posizioni[ultima] if ultima >= 0 else None
 
 
 def troncamento_suggerito(
@@ -1081,10 +1299,11 @@ def troncamento_suggerito(
     (``qc.max_frac_short_reads``), con le stesse funzioni di S1: un valore
     suggerito e' quindi un valore che S1 accetta. ``perdita_peggiore``: a
     quella lunghezza, la frazione di letture scartate nel campione che ne
-    perde di piu', con ``campione_peggiore``. ``per_qualita``: l'ultima
-    posizione prima che la qualita' mediana dei campioni biologici (la
-    mediana, fra i campioni, della mediana di ciascuno) scenda sotto
-    ``QUALITA_MINIMA_SUGGERITA``; la lunghezza massima se non scende mai.
+    perde di piu', con ``campione_peggiore``; ``perdita_per_classe``: la
+    frazione scartata in ciascuna classe controllata. ``per_qualita``: l'ultima
+    posizione fino a cui regge la qualita' mediana dei campioni biologici (la
+    mediana, fra i campioni, della mediana di ciascuno), con la regola di
+    :func:`ultima_posizione_di_qualita`, che un calo isolato non ferma.
     ``suggerito`` e' il minore fra ``per_lunghezza`` e ``per_qualita``.
     ``lunghezze`` e ``qualita`` sono le righe delle tabelle di S1, ``classi``
     la classe di ogni campione. Un valore e' ``None`` se mancano le letture
@@ -1116,33 +1335,93 @@ def troncamento_suggerito(
     for riga in qualita:
         if classi.get(riga["campione"]) == ClasseCampione.BIOLOGICO.value:
             mediane[int(riga["posizione"])].append(float(riga["mediana"]))
-    da_qualita = None
-    for posizione in sorted(mediane):
-        if statistics.median(mediane[posizione]) < QUALITA_MINIMA_SUGGERITA:
-            break
-        da_qualita = posizione
+    da_qualita = ultima_posizione_di_qualita(
+        {posizione: statistics.median(valori) for posizione, valori in mediane.items()})
 
     presenti = [v for v in (da_lunghezza, da_qualita) if v is not None]
+    suggerito = min(presenti) if len(presenti) == 2 else None
     return {
         "senza_perdite": osservate[0] if osservate else None,
         "per_lunghezza": da_lunghezza,
         "perdita_peggiore": peggiore,
         "campione_peggiore": campione_peggiore,
         "per_qualita": da_qualita,
-        "suggerito": min(presenti) if len(presenti) == 2 else None,
+        "suggerito": suggerito,
+        # Al valore suggerito, la frazione di letture piu' corte in ogni classe.
+        "perdita_per_classe": {} if suggerito is None else {
+            classe: voce["frazione"]
+            for classe, voce in letture_corte(per_campione, classe_di, suggerito).items()
+            if classe in controllate
+        },
     }
 
 
 def _decisioni_troncamento(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
-    """Il troncamento suggerito dalle letture (S1), accanto a quello dichiarato."""
-    lunghezze = esecuzione.tsv(Passo.S1, NOME_LUNGHEZZE)
-    qualita = esecuzione.tsv(Passo.S1, NOME_QUALITA)
+    """Il troncamento suggerito dalle letture (S1), accanto a quello dichiarato.
+
+    In modalita' appaiata le letture sono due, ciascuna con il suo profilo e
+    il suo troncamento dichiarato: il suggerimento si da' per entrambe.
+    """
     inventario = esecuzione.tsv(Passo.S0, NOME_CROSSWALK)
     massima = esecuzione.parametri.get("qc.max_frac_short_reads")
-    if lunghezze is None or qualita is None or inventario is None or massima is None:
+    if inventario is None or massima is None:
         return
+    appaiata = _appaiata(esecuzione)
+    letture = [("", NOME_LUNGHEZZE, NOME_QUALITA, "filter.truncLen")]
+    if appaiata:
+        letture = [
+            (" forward", NOME_LUNGHEZZE, NOME_QUALITA, "filter.truncLen"),
+            (" reverse", nome_reverse(NOME_LUNGHEZZE), nome_reverse(NOME_QUALITA),
+             "pair.truncLen_reverse"),
+        ]
+    scritte = 0
+    for quale, nome_lunghezze, nome_qualita, chiave in letture:
+        lunghezze = esecuzione.tsv(Passo.S1, nome_lunghezze)
+        qualita = esecuzione.tsv(Passo.S1, nome_qualita)
+        if lunghezze is None or qualita is None:
+            continue
+        scritte += 1
+        _troncamento_di_una_lettura(
+            esecuzione, sezione, inventario, float(massima), lunghezze, qualita, quale, chiave)
+    if not scritte:
+        return
+    if appaiata:
+        sezione.testo(
+            "I valori suggeriti sono indicazioni ricavate dai profili di S1 in "
+            "02_qc_profiles (lunghezze.tsv e qualita.tsv per le letture forward, "
+            "lunghezze_reverse.tsv e qualita_reverse.tsv per le reverse), per ciascuna "
+            "lettura il minore fra la lunghezza ammessa e quella della qualità: i "
+            "troncamenti applicati restano quelli dichiarati in <code>filter.truncLen</code> "
+            "e <code>pair.truncLen_reverse</code>, che sono una scelta di chi conduce "
+            "l'analisi. Il suggerimento guarda una lettura per volta e non la sovrapposizione "
+            "che la fusione richiede: i due troncamenti si giudicano insieme sulla quota di "
+            'coppie fuse, nella sezione <a href="#tracciamento">Tracciamento delle '
+            "letture</a>. Troncare oltre la lunghezza senza perdite scarta letture in modo "
+            "diverso da campione a campione: la quota ammessa vale per la classe, e il "
+            "singolo campione può perderne molte di più."
+        )
+        return
+    sezione.testo(
+        "Il valore suggerito è un'indicazione ricavata da 02_qc_profiles/lunghezze.tsv e "
+        "qualita.tsv, il minore fra la lunghezza ammessa e quella della qualità: il "
+        "troncamento applicato resta quello dichiarato in <code>filter.truncLen</code>, "
+        "che è una scelta di chi conduce l'analisi. Troncare oltre la lunghezza senza "
+        "perdite scarta letture in modo diverso da campione a campione: la quota ammessa "
+        "vale per la classe, e il singolo campione può perderne molte di più."
+    )
+
+
+def _troncamento_di_una_lettura(
+    esecuzione: _Esecuzione, sezione: _Sezione, inventario: list[dict[str, str]],
+    massima: float, lunghezze: list[dict[str, str]], qualita: list[dict[str, str]],
+    quale: str, chiave: str,
+) -> None:
+    """Il troncamento suggerito per una lettura: ``quale`` la nomina nei titoli
+    (vuoto in modalita' single-end), ``chiave`` e' il parametro che ne dichiara
+    il troncamento.
+    """
     esito = troncamento_suggerito(
-        lunghezze, qualita, {r["accession"]: r["classe"] for r in inventario}, float(massima)
+        lunghezze, qualita, {r["accession"]: r["classe"] for r in inventario}, massima
     )
     nomi = {r["accession"]: r["sample_name"] for r in inventario}
 
@@ -1151,10 +1430,9 @@ def _decisioni_troncamento(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
         return valore if valore is not None else "non calcolabile"
 
     peggiore = esito["campione_peggiore"]
-    sezione.sottotitolo("Troncamento suggerito dalle letture (S1)")
+    sezione.sottotitolo(f"Troncamento suggerito dalle letture{quale} (S1)")
     sezione.sintesi((
-        ("troncamento dichiarato (filter.truncLen)",
-         _valore(esecuzione.parametri.get("filter.truncLen"))),
+        (f"troncamento dichiarato ({chiave})", _valore(esecuzione.parametri.get(chiave))),
         ("troncamento suggerito", o_assente(esito["suggerito"])),
         ("lunghezza senza perdite: la più lunga che non scarta alcuna lettura di "
          "biologici e positivi", o_assente(esito["senza_perdite"])),
@@ -1164,17 +1442,10 @@ def _decisioni_troncamento(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
         ("alla lunghezza ammessa, perdita peggiore per singolo campione",
          "non calcolabile" if peggiore is None else
          f"{_pct(esito['perdita_peggiore'])} ({nomi.get(peggiore, peggiore)}, {peggiore})"),
-        (f"per qualità: l'ultima posizione con qualità mediana dei biologici almeno "
-         f"{QUALITA_MINIMA_SUGGERITA}", o_assente(esito["per_qualita"])),
+        (f"per qualità: l'ultima posizione prima che la qualità mediana dei biologici scenda "
+         f"sotto {QUALITA_MINIMA_SUGGERITA} nella mediana di {FINESTRA_DI_QUALITA} posizioni "
+         "consecutive (un calo isolato non conta)", o_assente(esito["per_qualita"])),
     ))
-    sezione.testo(
-        "Il valore suggerito è un'indicazione ricavata da 02_qc_profiles/lunghezze.tsv e "
-        "qualita.tsv, il minore fra la lunghezza ammessa e quella della qualità: il "
-        "troncamento applicato resta quello dichiarato in <code>filter.truncLen</code>, "
-        "che è una scelta di chi conduce l'analisi. Troncare oltre la lunghezza senza "
-        "perdite scarta letture in modo diverso da campione a campione: la quota ammessa "
-        "vale per la classe, e il singolo campione può perderne molte di più."
-    )
 
 
 def _sezione_decisioni(esecuzione: _Esecuzione) -> tuple[_Sezione, int, int]:
@@ -1215,6 +1486,7 @@ def _sezione_decisioni(esecuzione: _Esecuzione) -> tuple[_Sezione, int, int]:
         sezione.testo("Nessuna fase conclusa ha registrato una degradazione.")
 
     _decisioni_troncamento(esecuzione, sezione)
+    _decisioni_tassonomia(esecuzione, sezione)
     _decisioni_controlli(esecuzione, sezione)
     _decisioni_campioni(esecuzione, sezione)
     return sezione, len(tentativi), len(degradazioni)
@@ -1236,6 +1508,16 @@ def _sezione_tracciamento(esecuzione: _Esecuzione) -> tuple[_Sezione, Tracciamen
         "letture per ragioni diverse dai campioni biologici, e una media sull'insieme le "
         "confonderebbe."
     )
+    if _appaiata(esecuzione):
+        sezione.testo(
+            "In modalità appaiata l'unità contata cambia lungo la catena: fino al passo "
+            "<code>filtrate</code> sono le coppie di letture (una lettura forward con la sua "
+            "reverse); <code>denoised</code> e <code>denoised_reverse</code> sono le letture "
+            "forward e le letture reverse attribuite a una variante, contate separatamente; "
+            "da <code>fuse</code> in poi sono le coppie fuse in una sola sequenza. Anche nelle "
+            "altre sezioni (soglia di profondità, decontaminazione, filtri finali, risultato "
+            "finale) le letture contate dopo la fusione sono coppie fuse."
+        )
     righe = []
     for passo in tracciamento.passi:
         riga: list[Any] = [passo, tracciamento.origine[passo]]
@@ -1255,8 +1537,34 @@ def _sezione_tracciamento(esecuzione: _Esecuzione) -> tuple[_Sezione, Tracciamen
         ("passo", "fase", *(f"{c}: {m}" for c in _CLASSI for m in ("campioni", "letture", "mediana"))),
         righe,
     ))
-    _fusione_delle_coppie(esecuzione, sezione, classe)
     nome = {r["accession"]: r for r in inventario}
+    # Un controllo negativo con piu' letture della mediana dei biologici di
+    # solito non e' un bianco: le etichette dei controlli possono essere
+    # sbagliate, e nessun controllo sulle letture lo direbbe.
+    primo = tracciamento.passi[0]
+    dei_biologici = [
+        v[primo] for a, v in tracciamento.letture.items()
+        if classe.get(a) == ClasseCampione.BIOLOGICO.value and primo in v]
+    if dei_biologici:
+        mediana_dei_biologici = statistics.median(dei_biologici)
+        ricchi = sorted(
+            a for a, v in tracciamento.letture.items()
+            if classe.get(a) == ClasseCampione.CONTROLLO_NEGATIVO.value
+            and v.get(primo, 0) > mediana_dei_biologici)
+        if ricchi:
+            elenco = ", ".join(
+                f"{nome.get(a, {}).get('sample_name', '') or a} ({a}, "
+                f"{_n(tracciamento.letture[a][primo])})" for a in ricchi[:10])
+            sezione.testo(
+                f"<strong>{_n(len(ricchi))} controlli negativi</strong> hanno al passo "
+                f"<code>{_e(primo)}</code> più letture della mediana dei campioni biologici "
+                f"({_n(int(mediana_dei_biologici))}): {_e(elenco)}"
+                + (f" e altri {_n(len(ricchi) - 10)}" if len(ricchi) > 10 else "")
+                + ". Un controllo negativo con tante letture di solito non è un bianco: va "
+                "verificato che <code>ctrl.column</code> e le etichette dei controlli "
+                "classifichino i campioni come lo studio li intende.", "evidenza",
+            )
+    _fusione_delle_coppie(esecuzione, sezione, classe)
     sezione.tabella(_tabella(
         "tracciamento_per_campione", "Letture per campione, passo per passo",
         ("accession", "campione", "classe", "piastra", *tracciamento.passi),
@@ -1511,7 +1819,7 @@ def costruisci(
          else "registro degli avvii assente"),
     ))
     documento = Template((_MODELLI / "report.html").read_text(encoding="utf-8")).substitute(
-        titolo="Report di esecuzione della pipeline 16S rRNA single-end",
+        titolo=_titolo(esecuzione),
         stile=(_MODELLI / "stile.css").read_text(encoding="utf-8"),
         intestazione=intestazione.blocchi[0],
         indice="<ol>" + "".join(

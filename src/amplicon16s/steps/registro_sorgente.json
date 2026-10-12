@@ -4,9 +4,11 @@
       "python/amplicon16s.errors.catalog",
       "python/amplicon16s.gates.g01_g15",
       "python/amplicon16s.gates.registry",
+      "python/amplicon16s.init.vocabolario",
       "python/amplicon16s.io_layer.artifacts",
       "python/amplicon16s.io_layer.checksums",
       "python/amplicon16s.io_layer.reads",
+      "python/amplicon16s.metadata.ampliconi",
       "python/amplicon16s.metadata.controls_map",
       "python/amplicon16s.metadata.crosswalk",
       "python/amplicon16s.metadata.lettura_inventario",
@@ -16,7 +18,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s00_validate"
     ],
-    "sorgente": "sha256:e4f9dbcbb95726f498a02f6e7daeb32bdb1ebde331039ba6244c883276d4f3bd",
+    "sorgente": "sha256:ac5cb4e2bbae198dc5b582edf9d1ba469812d82012daa2f4ea68937e41294cd0",
     "versione": 17
   },
   "S1": {
@@ -56,7 +58,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s10_phyloseq"
     ],
-    "sorgente": "sha256:dac89a7c7debc41322585c2d46d69ed14bcafad2264413163df27734891e633c",
+    "sorgente": "sha256:682f7bc7eddc188443029b83bee2317fbdc9bce8d5d42a0267e82baad215765e",
     "versione": 4
   },
   "S11": {
@@ -238,7 +240,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s07_asv_length"
     ],
-    "sorgente": "sha256:82de53ebd8cc250b5faab34961cf178eda0e3bede10fd8c5df37e762fe13adab",
+    "sorgente": "sha256:84054d138b005af257c4d3e12c6fbc552b197c1230ae0ed43d0c511974665e01",
     "versione": 1
   },
   "S8": {
@@ -288,7 +290,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s04m_merge"
     ],
-    "sorgente": "sha256:8fc6cb7a8aa15294048ebecc47e2d5adcea63da430061101a2a3bef2cd948bde",
+    "sorgente": "sha256:031ac8a47845fc47d8e2d2e24b142950789d4ea45afcf5f9692532db87479b5c",
     "versione": 1
   }
 }

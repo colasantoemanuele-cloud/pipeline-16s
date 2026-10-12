@@ -36,7 +36,7 @@ from amplicon16s.metadata.controls_map import MappaControlli
 from amplicon16s.metadata.models import Campione, ClasseCampione, Inventario
 from amplicon16s.metadata.tabelle import leggi_tsv, tabella_di_studio
 
-__all__ = ["Analisi", "analizza", "estrai_accession"]
+__all__ = ["Analisi", "analizza", "elementi_di_una_cella", "estrai_accession"]
 
 
 class AccessionNonEstraibile(ValueError):
@@ -68,22 +68,45 @@ def estrai_accession(testo: str, espressione: re.Pattern[str]) -> str:
     return trovati[0]
 
 
+def elementi_di_una_cella(valore: str) -> list[str]:
+    """Gli elementi di una cella che ne elenca piu' d'uno, separati da virgola.
+
+    In ISA-Tab la cella del file di un campione appaiato riporta i due file
+    della coppia: ``..._R1.fastq.gz, ..._R2.fastq.gz``.
+    """
+    return [elemento.strip() for elemento in valore.split(",") if elemento.strip()]
+
+
 def chiave_dalla_tabella(valore: str, espressione: re.Pattern[str]) -> str:
     """La chiave del campione ricavata dal valore di una colonna dei metadati.
 
     Il valore puo' essere il nome di un file, e allora la chiave vi si estrae
     come dai nomi dei file; oppure puo' essere gia' la chiave, e allora la si
     usa cosi' com'e' quando l'espressione, pensata per i nomi dei file, non vi
-    trova nulla. Un valore vuoto o con piu' chiavi resta un errore.
+    trova nulla. Una cella che elenca piu' file separati da virgola (i due file
+    di una coppia) si legge come elenco: la chiave di ciascun elemento deve
+    coincidere, e allora non e' ambigua. Un valore vuoto, o con chiavi diverse,
+    resta un errore.
     """
     if not valore:
         raise AccessionNonEstraibile("valore vuoto")
     try:
         return estrai_accession(valore, espressione)
     except AccessionNonEstraibile as guasto:
-        if "ambiguo" in str(guasto):
+        if "ambiguo" not in str(guasto):
+            return valore
+        elementi = elementi_di_una_cella(valore)
+        if len(elementi) < 2:
             raise
-        return valore
+        chiavi = set()
+        for elemento in elementi:
+            try:
+                chiavi.add(estrai_accession(elemento, espressione))
+            except AccessionNonEstraibile:
+                raise guasto from None
+        if len(chiavi) != 1:
+            raise
+        return chiavi.pop()
 
 
 @dataclass(frozen=True)
@@ -102,6 +125,10 @@ class Analisi:
     # --- G04: estrazione dell'accession -------------------------------------
     file_senza_accession: list[tuple[str, str]] = field(default_factory=list)
     assay_senza_accession: list[tuple[str, str]] = field(default_factory=list)
+
+    #: Le righe della tabella di assay escluse dalla regola dichiarata in
+    #: meta.assay_keep_column: (nome del campione, valore della colonna).
+    righe_assay_escluse: list[tuple[str, str]] = field(default_factory=list)
 
     # --- G05: univocità ------------------------------------------------------
     accession_ripetuti_nei_file: dict[str, list[str]] = field(default_factory=dict)
@@ -216,9 +243,21 @@ def _righe_assay(config: Config, analisi: Analisi) -> dict[str, RigaAssay]:
     espressione = re.compile(config.io.accession_regex)
     per_accession: dict[str, list[RigaAssay]] = defaultdict(list)
 
+    # Le righe da tenere, se la configurazione le dichiara: il confronto e'
+    # quello delle etichette dei controlli, senza maiuscole ne' spazi attorno.
+    colonna_da_tenere = config.meta.assay_keep_column
+    tenuti = (
+        None if colonna_da_tenere is None
+        else frozenset(v.strip().casefold() for v in config.meta.assay_keep_values or ()))
+
     for riga in leggi_tsv(Path(config.io.assay_table)):
         nome = riga.get(config.meta.sample_id_column, "")
         riferimento = riga.get(config.meta.accession_column, "")
+        if tenuti is not None and (
+                riga.get(colonna_da_tenere or "", "").strip().casefold() not in tenuti):
+            analisi.righe_assay_escluse.append(
+                (nome or riferimento, riga.get(colonna_da_tenere or "", "")))
+            continue
         try:
             accession = chiave_dalla_tabella(riferimento, espressione)
         except AccessionNonEstraibile as guasto:

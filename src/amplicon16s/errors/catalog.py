@@ -226,8 +226,9 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "ereditato da un altro dataset sarebbe quasi certamente sbagliato. Un "
         "parametro condizionale e' richiesto solo quando la sua condizione e' vera "
         "(il messaggio la riporta); se non e' pertinente si omette. Che cosa "
-        "significa ciascuno e come si sceglie e' in GUIDA.md, "
-        "sezione 6, e in config/config.example.yaml; init li scrive a partire dai dati.",
+        "significa ciascuno e come si sceglie e' in GUIDA.md, passo 5, in "
+        "RIFERIMENTO.md, sezione 6, e in config/config.example.yaml; init li scrive a "
+        "partire dai dati.",
         _UMANA,
     ),
     _v(
@@ -607,8 +608,46 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "un taglio a posizione fissa (filter.trimLeft, pair.trimLeft_reverse) "
         "lascerebbe residui del primer in testa a una parte delle letture, e lo "
         "stesso taxon in piu' varianti. Dichiara filter.primer_removal: \"search\" "
-        "con filter.trimLeft 0 (GUIDA.md, 6.3); il dettaglio riporta le posizioni "
+        "con filter.trimLeft 0 (RIFERIMENTO.md, 6.3); il dettaglio riporta le posizioni "
         "trovate, da cui scegliere filter.primer_max_offset.",
+        _DEGRADA,
+    ),
+    _v(
+        "E-S0-30", "S0",
+        "Righe dei metadati sono collegate a file di letture di un altro amplicone.",
+        "I metadati dichiarano per quelle righe un amplicone o un primer, e le letture "
+        "del file a cui ciascuna e' collegata cominciano con il primer di un altro: i "
+        "campioni sarebbero analizzati con le letture sbagliate. Il dettaglio nomina i "
+        "campioni, il file collegato, che cosa la riga dichiara e che cosa le letture "
+        "portano; elenca anche le righe il cui file non e' nella cartella delle letture. "
+        "La tabella va corretta per intero, non solo nelle righe elencate: uno scambio "
+        "fra due campioni dello stesso amplicone non si riconosce dal contenuto, e "
+        "l'abbinamento di ogni riga va verificato su un'altra colonna dei metadati che "
+        "porti il codice del file, o con chi ha depositato i dati. Copia le tabelle dei "
+        "metadati in una cartella tua (mai gli originali), correggi la copia collegando "
+        "ogni campione al suo file e togliendo le righe che non appartengono a questa "
+        "analisi, poi rilancia init sulla copia, oppure indica la copia in "
+        "io.assay_table e rilancia validate.",
+        _UMANA,
+    ),
+    _v(
+        "E-S0-31", "S0",
+        "Righe della tabella di assay escluse dalla regola di meta.assay_keep_column.",
+        "La validazione prosegue senza quelle righe, elencate nel dettaglio: non "
+        "portano uno dei valori di meta.assay_keep_values e non sono campioni di "
+        "questa analisi (di solito un altro amplicone dello stesso studio). Se una "
+        "doveva restare, aggiungi il suo valore a meta.assay_keep_values.",
+        _DEGRADA,
+    ),
+    _v(
+        "E-S0-32", "S0",
+        "Un taxon nominato nella configurazione non compare nel riferimento tassonomico.",
+        "La validazione prosegue. Il dettaglio elenca i nomi di filt.exclude_taxa o di "
+        "katharoseq.target_taxon che il riferimento non contiene a nessun rango: un "
+        "nome assente non toglie alcuna variante, e un taxon atteso assente non si "
+        "trova in alcun controllo positivo. I nomi vanno scritti come li scrive il "
+        "riferimento: se questo ha lo stesso nome con un suffisso, il dettaglio lo "
+        "suggerisce (RIFERIMENTO.md, 6.4).",
         _DEGRADA,
     ),
     _v(
@@ -897,6 +936,17 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "La distribuzione e' in 05_pair_merge/lunghezze_fuse.tsv: una mediana lontana "
         "da pair.expected_merged_len indica un amplicone diverso da quello dichiarato, "
         "fusioni spurie, o un valore atteso da correggere.",
+        _DEGRADA,
+    ),
+    _v(
+        "E-SM-04", "SM",
+        "Uno o piu' campioni hanno la quota di coppie fuse sotto "
+        "pair.min_merged_frac_sample_warn.",
+        "L'esecuzione prosegue e l'avviso e' registrato nel manifesto della fusione. Il "
+        "dettaglio nomina i campioni biologici e i controlli positivi sotto la soglia, "
+        "con la loro quota (05_pair_merge/fusione.tsv). Un campione solo che fonde poche "
+        "coppie non sposta la quota dell'insieme: guarda la qualita' delle sue letture, "
+        "se i suoi due file corrispondono, e se e' dominato da sequenze fuori bersaglio.",
         _DEGRADA,
     ),
     # ----------------------------------------------------------------- S5 ---

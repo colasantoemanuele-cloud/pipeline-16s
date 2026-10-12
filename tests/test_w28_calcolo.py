@@ -107,6 +107,7 @@ I conteggi li da' pytest (``pytest --collect-only -q``).
 
 from __future__ import annotations
 
+import statistics
 import functools
 import csv
 import gzip
@@ -855,21 +856,77 @@ def test_il_troncamento_suggerito_e_il_minore_fra_lunghezza_e_qualita():
     ]
     qualita = [
         {"campione": c, "posizione": str(p), "mediana": str(q)}
-        for c, valori in (("b1", [38, 36, 31, 28]), ("b2", [38, 34, 30, 20]), ("n", [10, 10, 10, 10]))
+        for c, valori in (("b1", [38, 36, 38, 38, 20, 20, 20, 20]),
+                          ("b2", [38, 34, 38, 38, 20, 20, 20, 20]),
+                          ("n", [10, 10, 10, 10, 10, 10, 10, 10]))
         for p, q in enumerate(valori, start=1)
     ]
     esito = troncamento_suggerito(lunghezze, qualita, classi, 0.10)
     # A 150 i biologici perdono 10 letture su 100 (10%, ammesso al 10%) e i
-    # positivi nessuna; il campione che perde di piu' e' b1.
+    # positivi nessuna; il campione che perde di piu' e' b1. La qualita' dei
+    # biologici regge fino alla posizione 2: la finestra che parte dalla 3
+    # (38, 38, 20, 20) ha la mediana sotto 30.
     assert esito == {"senza_perdite": 100, "per_lunghezza": 150, "perdita_peggiore": 0.10,
-                     "campione_peggiore": "b1", "per_qualita": 3, "suggerito": 3}
+                     "campione_peggiore": "b1", "per_qualita": 2, "suggerito": 2,
+                     "perdita_per_classe": {"biologico": 0.0, "controllo_positivo": 0.0}}
     # Al 5% i biologici a 150 sono oltre: resta 140 (4 su 100).
     assert troncamento_suggerito(lunghezze, qualita, classi, 0.05)["per_lunghezza"] == 140
-    assert troncamento_suggerito(lunghezze, qualita[:4], classi, 0.10)["suggerito"] == 3
+    assert troncamento_suggerito(lunghezze, qualita[:8], classi, 0.10)["suggerito"] == 2
+    # Senza limite dalla qualita' il suggerito e' la lunghezza ammessa, e la
+    # perdita per classe e' quella a quella lunghezza.
+    buona = [{"campione": "b1", "posizione": str(p), "mediana": "38"} for p in range(1, 151)]
+    alla_lunghezza = troncamento_suggerito(lunghezze, buona, classi, 0.10)
+    assert alla_lunghezza["suggerito"] == 150
+    assert alla_lunghezza["perdita_per_classe"] == {"biologico": 0.10, "controllo_positivo": 0.0}
     vuoto = troncamento_suggerito([], [], classi, 0.05)
     assert vuoto == {"senza_perdite": None, "per_lunghezza": None, "perdita_peggiore": None,
-                     "campione_peggiore": None, "per_qualita": None, "suggerito": None}
+                     "campione_peggiore": None, "per_qualita": None, "suggerito": None,
+                     "perdita_per_classe": {}}
     assert _pct(None) == "-" and _pct(0.125) == "12,5%"
+
+
+def test_la_regola_per_qualita_non_si_ferma_a_un_calo_isolato():
+    """
+    **Obiettivo**: Verificare che ``ultima_posizione_di_qualita`` non si fermi
+    a una posizione sola sotto la soglia (la prima base, o una a meta'
+    lettura, per quanto profonda), si fermi prima del primo tratto in cui la
+    mediana di quattro posizioni consecutive scende sotto la soglia, tolga la sola ultima
+    posizione quando e' l'unica bassa in coda, e dia ``None`` senza posizioni
+    o se nessuna posizione resta; e che ``troncamento_suggerito`` dia
+    cosi' un valore per una lettura con la prima base sotto la soglia.
+
+    **Razionale scientifico e sistemistico**: Nelle letture reverse la prima
+    base e qualche posizione isolata hanno spesso una qualita' piu' bassa
+    delle vicine: una regola che si ferma al primo punto sotto soglia non
+    darebbe alcun troncamento proprio per la lettura che ne ha piu' bisogno.
+    """
+    from amplicon16s.report.builder import FINESTRA_DI_QUALITA, ultima_posizione_di_qualita
+
+    assert FINESTRA_DI_QUALITA == 4
+    profilo = {p: 38.0 for p in range(1, 201)}
+    assert ultima_posizione_di_qualita(profilo) == 200
+    # La prima base sotto la soglia, e un calo isolato a meta': non contano.
+    assert ultima_posizione_di_qualita({**profilo, 1: 2.0, 120: 2.0}) == 200
+    # Un tratto basso: la regola si ferma prima della prima finestra che lo comprende
+    # abbastanza da portare la media sotto la soglia.
+    calo = {**profilo, **{p: 20.0 for p in range(150, 201)}}
+    assert ultima_posizione_di_qualita(calo) == 147
+    assert statistics.median(calo[p] for p in (147, 148, 149, 150)) >= 30
+    assert statistics.median(calo[p] for p in (148, 149, 150, 151)) < 30
+    # La sola ultima posizione bassa esce; la soglia e' un argomento.
+    assert ultima_posizione_di_qualita({**profilo, 200: 15.0}) == 199
+    assert ultima_posizione_di_qualita(profilo, soglia=39) is None
+    assert ultima_posizione_di_qualita({}) is None
+    assert ultima_posizione_di_qualita({1: 10.0, 2: 10.0, 3: 38.0, 4: 38.0, 5: 38.0}) is None
+    # Meno posizioni della finestra: resta il solo ritorno dalle posizioni basse.
+    assert ultima_posizione_di_qualita({1: 38.0, 2: 38.0, 3: 12.0}) == 2
+
+    classi = {"b": "biologico"}
+    lunghezze = [{"campione": "b", "lunghezza": "200", "letture": "100"}]
+    qualita = [{"campione": "b", "posizione": str(p), "mediana": str(q)}
+               for p, q in sorted({**calo, 1: 22.0}.items())]
+    esito = troncamento_suggerito(lunghezze, qualita, classi, 0.0)
+    assert (esito["per_qualita"], esito["suggerito"]) == (147, 147)
 
 
 # --------------------------------------------------------------------------- #

@@ -363,6 +363,22 @@ COPPIE_NULLE_SE_OMESSE: Final[frozenset[str]] = frozenset(
 )
 
 # --------------------------------------------------------------------------- #
+# Parametri facoltativi che, omessi, non esistono                              #
+# --------------------------------------------------------------------------- #
+
+#: I parametri facoltativi senza un valore che significhi "assente" fra quelli
+#: dichiarabili: omessi (o nulli) non compaiono nella configurazione risolta,
+#: ne' nel digest, ne' nell'impronta di alcuna fase, e nessun artefatto ne porta
+#: traccia. Sono le righe della tabella di assay da tenere (colonna e valori:
+#: senza, nessuna riga e' tolta) e la quota minima di coppie fuse per campione
+#: (senza, nessun controllo per campione).
+FACOLTATIVI_ASSENTI_SE_OMESSI: Final[tuple[str, ...]] = (
+    "meta.assay_keep_column",
+    "meta.assay_keep_values",
+    "pair.min_merged_frac_sample_warn",
+)
+
+# --------------------------------------------------------------------------- #
 # Come si toglie il primer                                                     #
 # --------------------------------------------------------------------------- #
 

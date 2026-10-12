@@ -170,6 +170,9 @@ SOGLIE: Final[tuple[Soglia, ...]] = (
            MARGINE_FRAZIONE),
     Soglia("pair.min_merged_frac_stop", _MINIMA, _FRAZIONE, ("E-SM-01",), True,
            MARGINE_ARRESTO_CHIMERE),
+    # Facoltativa: giudica ogni campione da solo, e senza valore non c'e' controllo.
+    Soglia("pair.min_merged_frac_sample_warn", _MINIMA, _FRAZIONE, ("E-SM-04",), False,
+           MARGINE_FRAZIONE),
     Soglia("qc.max_asv_count", _MASSIMA, Unita.CONTEGGIO, ("E-S5-01",), True, 0,
            non_proposta=PROTEGGE_LA_MEMORIA),
     Soglia("qc.warn_frac_chimeric", _MASSIMA, _FRAZIONE, ("E-S6-02",), False, MARGINE_FRAZIONE),

@@ -363,6 +363,33 @@ class Meta(_Gruppo):
         "Colonna del file del lotto che dichiara il modulo; ha la precedenza sulla "
         "derivazione da meta.module_regex. Nullo se il file non la porta."))
 
+    # Le righe della tabella di assay da tenere, quando la tabella descrive
+    # anche campioni che questa analisi non tratta (un altro amplicone dello
+    # stesso studio). Facoltativi: omessi non compaiono nella configurazione
+    # risolta (defaults.FACOLTATIVI_ASSENTI_SE_OMESSI) e nessuna riga e' tolta.
+    assay_keep_column: StringaNonVuota | None = Field(None, description=(
+        "Colonna della tabella di assay che dice quali righe appartengono a questa "
+        "analisi, per esempio quella che dichiara l'amplicone. Si dichiara insieme a "
+        "meta.assay_keep_values. Omesso: ogni riga della tabella e' un campione."))
+    assay_keep_values: Annotated[list[StringaNonVuota], Field(min_length=1)] | None = Field(
+        None, description=(
+            "Valori di meta.assay_keep_column delle righe da tenere: le altre righe della "
+            "tabella di assay sono escluse, con un avviso che le elenca (E-S0-31). Omesso: "
+            "nessuna riga e' esclusa."))
+
+    @model_validator(mode="after")
+    def _righe_da_tenere(self) -> Meta:
+        """Colonna e valori delle righe da tenere si dichiarano insieme."""
+        if (self.assay_keep_column is None) != (self.assay_keep_values is None):
+            dichiarato, mancante = (
+                ("assay_keep_column", "assay_keep_values") if self.assay_keep_values is None
+                else ("assay_keep_values", "assay_keep_column"))
+            raise ValueError(
+                f"{dichiarato} e' dichiarato ma {mancante} no: le righe della tabella di "
+                "assay da tenere si dichiarano con la colonna e con i suoi valori, insieme; "
+                "senza entrambi nessuna riga e' esclusa")
+        return self
+
     @property
     def colonna_id_studio(self) -> str:
         """La colonna del nome del campione nella tabella di studio."""
@@ -501,7 +528,8 @@ class Asv(_Gruppo):
 
     len_tol: InteroNonNegativo = Field(d.ASV_LEN_TOL, description=(
         "Tolleranza sulla lunghezza delle varianti rispetto a quella attesa "
-        "(filter.truncLen meno filter.trimLeft)."))
+        "(filter.truncLen meno filter.trimLeft). In modalita' appaiata non ha effetto: "
+        "l'intervallo ammesso e' quello di pair.len_min e pair.len_max."))
 
 
 class Tax(_Gruppo):
@@ -971,6 +999,12 @@ class Pair(_Gruppo):
     expected_merged_len: InteroPositivo | None = Field(None, description=(
         "Lunghezza attesa delle sequenze fuse: la mediana osservata si confronta con "
         "questa (E-SM-03). Nullo: non e' nota, e il confronto non si fa."))
+    # Facoltativo: omesso non compare nella configurazione risolta
+    # (defaults.FACOLTATIVI_ASSENTI_SE_OMESSI) e nessun campione e' giudicato.
+    min_merged_frac_sample_warn: Frazione | None = Field(None, description=(
+        "Quota di coppie fuse di un singolo campione biologico o controllo positivo "
+        "sotto la quale la fusione da' un avviso che nomina i campioni (E-SM-04). "
+        "Omesso: nessun controllo per campione."))
 
     @model_validator(mode="after")
     def _coerenza(self) -> Pair:
@@ -1007,6 +1041,13 @@ class Pair(_Gruppo):
             raise ValueError(
                 f"len_min ({self.len_min}) supera len_max ({self.len_max}): l'intervallo "
                 "delle lunghezze ammesse sarebbe vuoto")
+        if (self.expected_merged_len is not None and self.len_min is not None
+                and self.len_max is not None
+                and not self.len_min <= self.expected_merged_len <= self.len_max):
+            raise ValueError(
+                f"expected_merged_len ({self.expected_merged_len}) e' fuori "
+                f"dall'intervallo fra len_min ({self.len_min}) e len_max ({self.len_max}): "
+                "le sequenze della lunghezza attesa uscirebbero dalla tabella")
         return self
 
 
@@ -1251,14 +1292,20 @@ class Config(_Gruppo):
 
     def chiavi_assenti(self) -> frozenset[str]:
         """I parametri che con le modalita' di questa configurazione non
-        esistono: quelli del taglio cercato con il taglio a posizione fissa, e
-        quelli del classificatore non scelto. Non sono nella configurazione
+        esistono: quelli del taglio cercato con il taglio a posizione fissa,
+        quelli del classificatore non scelto, e i facoltativi non dichiarati
+        che non hanno un valore di assenza. Non sono nella configurazione
         risolta ne' nell'impronta di alcuna fase.
         """
         assenti: set[str] = set()
         if not self.taglio_cercato:
             assenti.update(("filter.primer_removal", *d.PARAMETRI_DEL_TAGLIO_CERCATO))
         assenti.update(d.SOLO_DEL_BAYESIANO if self.idtaxa else d.PARAMETRI_DI_IDTAXA)
+        # I facoltativi senza un valore di assenza: omessi non esistono.
+        for chiave in d.FACOLTATIVI_ASSENTI_SE_OMESSI:
+            gruppo, nome = chiave.split(".")
+            if getattr(getattr(self, gruppo), nome) is None:
+                assenti.add(chiave)
         return frozenset(assenti)
 
     @model_validator(mode="after")
@@ -1545,8 +1592,8 @@ def _voce_mancanti(mancanti: list[str]) -> str:
         f"{INTESTAZIONE_MANCANTI} ({len(mancanti)}): {', '.join(mancanti)}. Descrivono il "
         "dataset o le scelte di analisi che ne dipendono, e non hanno un valore "
         "predefinito: vanno dichiarati nel file di configurazione. Che cosa significa "
-        "ciascuno e come si sceglie e' in GUIDA.md, sezione 6, e in "
-        "config/config.example.yaml"
+        "ciascuno e come si sceglie e' in GUIDA.md, passo 5, in RIFERIMENTO.md, sezione 6, "
+        "e in config/config.example.yaml"
     )
     condizionali = [
         c for c in mancanti if c in d.CONDIZIONALI or c in d.CONDIZIONALI_RESPINTI]

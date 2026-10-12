@@ -869,6 +869,52 @@ def test_soglie_dichiara_controllo_spento_senza_misura_esclusa_e_omessa(tmp_path
     assert "qc.max_frac_contaminant: omessa" in errore
 
 
+def test_le_letture_corte_fra_le_prime_si_contano_dal_file_delle_letture(tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che, quando un file non letto per intero dalla
+    validazione ha letture piu' corte del troncamento fra le prime, ``soglie``
+    le conti rileggendo quelle prime letture dal file FASTQ, proponga la soglia
+    dalla frazione cosi' ricostruita (qui piu' alta di quella di S1 su tutte le
+    letture), dichiari l'origine della misura, e non scriva nulla nella
+    cartella dell'esecuzione ne' in quella delle letture; e che resti
+    «esclusa» se il file ha ora meno letture di quante ne furono ispezionate.
+
+    **Razionale scientifico e sistemistico**: La validazione giudica le prime
+    letture di ogni file e non scrive quante sono corte: senza contarle la
+    soglia resterebbe al valore che non ferma proprio nei dataset con letture
+    accorciate, dove serve.
+    """
+    dati = _dati(tmp_path / "out")
+    letture = tmp_path / "letture"
+    letture.mkdir()
+    dati["io"]["fastq_dir"] = str(letture)
+    troncamento = valida(dati).filter.truncLen
+    with gzip.open(letture / "LIB001.fq.gz", "wt", encoding="ascii") as file:
+        for numero in range(700):
+            # 45 letture corte fra le prime 500, altre oltre: quelle non contano.
+            lunga = not (numero < 450 and numero % 10 == 0 or numero >= 600)
+            basi = "A" * (troncamento + 20 if lunga else troncamento - 1)
+            file.write(f"@r{numero}\n{basi}\n+\n{'I' * len(basi)}\n")
+    prima = sorted(p.name for p in letture.iterdir())
+    codice, documento, nuovo, _ = _soglie(
+        tmp_path, dati, "--accetta-proposte", capsys=capsys,
+        minime=[troncamento - 1, 160, 160], esauriti=["no", "si", "si"])
+    assert codice == 0
+    corte = _per_parametro(documento)["qc.max_frac_short_reads"]
+    # 45 corte su 1500 prime letture dei tre biologici; S1 ne da' 30 su 3000.
+    assert corte["esito"] == "proposta" and (corte["misura"], corte["valore"]) == (0.03, 0.08)
+    assert "le prime letture dei file in io.fastq_dir" in corte["origine_della_misura"]
+    assert "max_frac_short_reads: 0.08" in nuovo.read_text(encoding="utf-8")
+    assert sorted(p.name for p in letture.iterdir()) == prima
+
+    # Il file non e' piu' quello ispezionato: meno letture di allora.
+    with gzip.open(letture / "LIB001.fq.gz", "wt", encoding="ascii") as file:
+        file.write(f"@r0\n{'A' * 100}\n+\n{'I' * 100}\n")
+    codice, documento, _, _ = _soglie(tmp_path, dati, capsys=capsys)
+    corte = _per_parametro(documento)["qc.max_frac_short_reads"]
+    assert corte["esito"] == "esclusa" and "non e' piu' leggibile" in corte["note"][0]
+
+
 def test_soglie_si_rifiuta_senza_scrivere(tmp_path, capsys):
     """
     **Obiettivo**: Verificare che ``soglie`` esca con 3 senza scrivere nulla, e

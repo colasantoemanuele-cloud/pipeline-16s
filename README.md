@@ -185,10 +185,10 @@ sezioni, nell'ordine:
   qualità spenti. Poi **Stato della catena** e **Gate di validazione e controlli di avvio**.
 - **Configurazione** (ogni parametro con il valore e l'origine: *dichiarato*,
   *predefinito*, *derivato*, *aggiustato*) e **Provenienza delle fasi**.
-- **Decisioni prese automaticamente**: curve di calibrazione e soglia di profondità per
-  piastra, contaminanti rimossi, campioni riclassificati, troncamento suggerito.
-- **Tracciamento delle letture** e **Risultato finale** (campioni e varianti, esclusi
-  con il motivo).
+- **Decisioni prese automaticamente**: troncamento suggerito, copertura del phylum e varianti
+  assegnate per rango, curve e soglia di profondità per piastra, contaminanti e campioni esclusi.
+- **Tracciamento delle letture** (segnala un controllo negativo con più letture dei
+  biologici) e **Risultato finale** (campioni e varianti, esclusi con il motivo).
 
 ## Codici di uscita
 
@@ -270,19 +270,19 @@ misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in
   nome solo dove il contenuto non si può giudicare (RIFERIMENTO.md, 1.2); lo è un dataset le cui letture
   portano tutte il marcatore `/2`. In modalità appaiata i taxa con la regione più lunga di quanto
   le letture troncate coprono non si fondono, senza alcun errore (RIFERIMENTO.md, 6.7).
-- `init` riconosce il primer solo se è in un elenco di primer 16S comuni; la chiave del campione solo se una colonna corrisponde uno a uno ai file;
-  in modalità appaiata non propone i troncamenti se le code delle letture hanno troppi errori (RIFERIMENTO.md, 2). Il primer cercato lungo la lettura ammette sole sostituzioni, non
+- `init` riconosce il primer solo se è in un elenco di primer 16S comuni; la chiave del campione solo se una colonna corrisponde uno a uno ai file (o alle righe che ne hanno uno);
+  in modalità appaiata non propone troncamenti e intervallo se non misura la sovrapposizione né riconosce i due primer (RIFERIMENTO.md, 2). Il primer cercato lungo la lettura ammette sole sostituzioni, non
   inserzioni né delezioni, e non toglie il primer dell'altra estremità in coda alle letture (RIFERIMENTO.md, 6.3).
-- Con `filter.trimLeft` maggiore di zero `qc.conserved_motif` si cerca dopo le basi tagliate
-  (un'espressione che guarda all'indietro non trova nulla) e il primer non si cerca: in
-  `letture_ispezionate.tsv` la colonna `frazione_primer` vale 0.
-- Byte estranei dopo la fine dell'archivio gzip di un FASTQ fermano S0 o S1, anche se
-  altri strumenti leggono il file.
+- Una riga dei metadati collegata al file sbagliato si riconosce (`E-S0-30`) solo se i metadati dichiarano per riga amplicone o primer e il file porta il primer di un altro amplicone: uno scambio fra due campioni dello stesso amplicone non si vede dal contenuto (RIFERIMENTO.md, 1.3).
+- I controlli positivi si valutano solo come serie di diluizione di un taxon: colture pure di specie diverse, o uno standard senza diluizioni, si dichiarano fra i biologici e si tolgono dalle analisi ecologiche con `design.subset` (RIFERIMENTO.md, 6.5).
+- Con `filter.trimLeft` maggiore di zero `qc.conserved_motif` si cerca dopo le basi tagliate (un'espressione che guarda
+  all'indietro non trova nulla) e il primer non si cerca: in `letture_ispezionate.tsv` la colonna `frazione_primer` vale 0.
+- Byte estranei dopo la fine dell'archivio gzip di un FASTQ fermano S0 o S1, anche se altri strumenti leggono il file.
 - Il testo generale «che cosa fare» di alcuni codici descrive solo il caso più frequente (quelli
   sui controlli negativi citano `decontam.min_blanks` anche se omesso): fa fede il dettaglio.
 - Un riferimento senza cloroplasti, mitocondri ed eucarioti (GTDB) non permette di toglierli per nome. La tassonomia
   arriva al rango più fine del riferimento, con IdTaxa al genere. IdTaxa richiede un classificatore già addestrato, può lasciare vuoto un rango sopra
-  ranghi assegnati e riporta i nomi del classificatore, che in SILVA r138.2 hanno spesso un suffisso (`Chloroplast_2`; RIFERIMENTO.md, 6.4). L'albero di S9 serve alle distanze fra campioni.
+  ranghi assegnati e riporta i nomi del classificatore, che in SILVA r138.2 hanno spesso un suffisso (`Chloroplast_2`: un nome senza suffisso non toglie nulla, e l'avvio lo segnala con `E-S0-32`; RIFERIMENTO.md, 6.4). L'albero di S9 serve alle distanze fra campioni.
 - Nelle analisi ecologiche una variabile è continua, e un disegno è a misure ripetute, solo se
   dichiarati (`design.continuous_variables`, `design.subject`: RIFERIMENTO.md, 4.1 e 4.2). Con una
   distanza non euclidea la PERMANOVA entro soggetto può non essere valutabile. Un'analisi respinta

@@ -192,6 +192,49 @@ Tabelle di testo UTF-8 separate da tabulazioni, con una riga di intestazione. Du
 
 I valori non devono contenere tabulazioni né a capo.
 
+**Una cella con più file.** Nei depositi la cella del file di un campione appaiato
+riporta i due file della coppia, separati da virgola (`..._R1.fastq.gz,
+..._R2.fastq.gz`). Si legge come elenco: la chiave del campione (`io.accession_regex`) si
+estrae da ciascun elemento, e se è la stessa non è ambigua. Chiavi diverse nella stessa
+cella restano un errore (`E-S0-04`).
+
+**Righe di un altro amplicone.** La tabella di assay di uno studio può descrivere anche
+campioni che questa analisi non tratta (16S e ITS insieme, per esempio). Se una colonna
+li distingue, si dichiarano le righe da tenere, senza toccare la tabella:
+
+```yaml
+meta:
+  assay_keep_column: "Parameter Value[Target Molecule]"
+  assay_keep_values: ["16S"]
+```
+
+Le altre righe sono escluse, e la validazione le elenca con un avviso (`E-S0-31`). I due
+parametri sono facoltativi e si dichiarano insieme: omessi, ogni riga della tabella è un
+campione, e una riga senza file ferma la validazione (`E-S0-06`). `init` cerca la chiave
+del campione fra le sole righe che nominano un file della cartella, e propone i due
+parametri quando la colonna `Parameter Value[Target Molecule]` di una tabella ISA-Tab
+dichiara più ampliconi: tiene le righe 16S. Senza una colonna che le distingua, le righe
+in più si tolgono da una copia della tabella.
+
+**Righe collegate al file sbagliato.** Un deposito può collegare una riga al file di un
+altro campione. Dove la tabella di assay dichiara per riga l'amplicone o i primer (in
+ISA-Tab le colonne `Parameter Value[Target Molecule]` e `Parameter Value[Primer Info]`),
+`init` e la validazione confrontano la dichiarazione con il primer che le letture del
+file collegato portano in testa, sulle prime 2.000 letture. Il confronto si fa su tutte
+le righe, prima della regola delle righe da tenere, e solo dove è senza ambiguità: la
+riga deve dichiarare un amplicone noto (16S, 18S, ITS e simili) o un primer
+riconoscibile (una sequenza in codici IUPAC, o il nome di un primer dell'elenco di
+`init`), e almeno metà delle letture del file deve cominciare con un primer che la
+tabella dichiara o che `init` conosce. Una riga è incoerente se il file porta il primer
+di un altro amplicone, o quello che la tabella dichiara per altre righe e non per lei:
+la validazione si ferma (`E-S0-30`) nominando i campioni, il file e il primer trovato,
+ed elenca le righe che nominano un file assente dalla cartella; `init` lo scrive nel
+riepilogo e non propone la chiave del campione. Si corregge una copia della tabella,
+mai l'originale, e si rilancia `init` sulla copia. Se le letture non portano più il
+primer, o la tabella non dichiara nulla di interpretabile, il confronto non si fa, e
+`init` lo dice. **Limite:** uno scambio fra due campioni dello stesso amplicone non
+lascia traccia nelle letture, e non si riconosce dal contenuto.
+
 ### 1.4 Il file del lotto (facoltativo)
 
 Una tabella con una riga per campione che dichiara la piastra di estrazione e la corsa
@@ -325,30 +368,50 @@ scrive il gruppo `pair` (sezione 6.7). Dalle letture ricava:
   il primer reverse è noto;
 - la lunghezza dell'inserto, cioè del frammento di cui le due letture sono le
   estremità: su 500 coppie per campione cerca la sovrapposizione fra la lettura forward
-  e il complemento inverso della reverse. Dalla sua distribuzione, tolte le basi dei
-  due tagli, propone `pair.expected_merged_len` (la mediana), `pair.len_min` e
-  `pair.len_max` (i percentili 0,5 e 99,5). Se riconosce i due primer confronta la
-  misura con la distanza fra i due primer sul 16S di *E. coli*, e dice se non
-  concordano: vale la misurata;
-- i due troncamenti (`filter.truncLen`, `pair.truncLen_reverse`), dai due profili di
-  qualità, e il vincolo che devono rispettare perché le coppie si fondano (sezione
-  6.7), scritto nel commento con i numeri del dataset.
+  e il complemento inverso della reverse, e la conferma sulle sole posizioni in cui le
+  due basi hanno qualità almeno 20 (ne servono venti, con al massimo una discordanza
+  ogni dieci): nelle code delle letture lunghe gli errori di sequenza supererebbero da
+  soli quella quota. Dalla distribuzione, tolte le basi dei due tagli, propone
+  `pair.expected_merged_len` (la mediana), `pair.len_min` e `pair.len_max` (i percentili
+  0,5 e 99,5). Se riconosce i due primer confronta la misura con la distanza fra i due
+  primer sul 16S di *E. coli*, e dice se non concordano: vale la misurata;
+- i due troncamenti (`filter.truncLen`, `pair.truncLen_reverse`), ciascuno dalla regola
+  della sezione 6.3 («Il troncamento proposto») sul profilo della sua lettura, entro il
+  vincolo che devono rispettare perché le coppie si fondano (sezione 6.7). Il commento
+  di ciascuna riga riporta il conto del vincolo, le lunghezze e la qualità in coda.
 
-Se meno di metà delle coppie esaminate si sovrappone `init` non stima l'inserto: non
-propone le lunghezze né verifica il vincolo, e lo dice. Può voler dire che le letture
-sono troppo corte per la regione: in quel caso si usano le sole forward, con
-`io.layout: "single-end"` e i soli file forward nella cartella (sezione 1.2). Può anche
-voler dire che le letture coprono la regione ma hanno troppi errori in coda: `init`
-cerca la sovrapposizione sulle letture intere e la accetta con al massimo una
-discordanza ogni dieci basi, e con letture di 300 basi di qualità bassa nelle ultime
-decine di basi poche coppie la superano (`dati/osd191/README.md` ne descrive un caso).
-Se la regione amplificata e la lunghezza delle letture dicono che le due letture si
-sovrappongono, la modalità appaiata resta quella giusta: i due troncamenti e
-l'intervallo delle lunghezze si scelgono a mano, come nella sezione 6.7.
+Se la qualità delle due letture non basta al vincolo, `init` allunga i troncamenti
+oltre il punto fin dove la qualità mediana regge a 30, ma solo dentro posizioni in cui
+regge almeno a 20 (sezione 6.3), e mai oltre la lunghezza che la gran parte delle
+letture raggiunge; il commento dice di quante basi e fino a quale qualità. Se nemmeno
+così la somma basta, non li propone: i due troncamenti restano in commento, da
+scegliere, e il riepilogo dice che le coppie non si fondono senza basi di qualità
+bassa, con la lunghezza più frequente e il limite di qualità delle due letture.
+Succede con letture reverse accorciate prima del deposito o di qualità bassa quasi
+dall'inizio: una sovrapposizione fatta di quelle basi farebbe scartare molte letture al
+filtro e fonderebbe le coppie su basi inaffidabili. Conviene allora usare le sole
+forward: si tolgono dalla cartella delle letture i file reverse e si rilancia `init`.
+Chi vuole comunque fondere sceglie i due troncamenti a mano, dalle lunghezze e dalla
+qualità che il commento riporta.
 
-Con `--accetta-proposte` le due soglie sulla quota di coppie fuse e quella del primer
-reverse sono esplorative come le altre; dopo la prima esecuzione `soglie` le propone
-dalla misura (sezione 6.6). La configurazione appaiata di un dataset piccolo, eseguibile
+La misura dell'inserto vale da sola se almeno metà delle coppie esaminate si
+sovrappone. Con meno di metà, ma almeno una su dieci, vale se i due primer sono
+riconosciuti e la loro distanza cade nell'intervallo misurato: succede con letture di
+300 basi dalle code rovinate, e il commento avverte che la quota di coppie fuse potrà
+essere bassa. Se la misura non c'è ma i due primer sono riconosciuti, lunghezza attesa
+e intervallo sono proposti dalla distanza fra i primer (più e meno il 5%), dichiarati
+come tali: vanno verificati dopo la prima esecuzione su
+`05_pair_merge/lunghezze_fuse.tsv`. Senza misura e senza primer `init` non propone le
+lunghezze né i troncamenti, e lo dice: può voler dire che le letture sono troppo corte
+per la regione (si usano allora le sole forward, con `io.layout: "single-end"` e i soli
+file forward nella cartella, sezione 1.2), oppure che coprono la regione ma primer e
+sovrapposizione non si riconoscono: in quel caso i due troncamenti e l'intervallo si
+scelgono a mano, come nella sezione 6.7 (`dati/osd191/README.md` descrive un dataset di
+letture lunghe con le code rovinate).
+
+Con `--accetta-proposte` le soglie sulla quota di coppie fuse (dell'insieme e, quella
+facoltativa, per campione) e quella del primer reverse sono esplorative come le altre;
+dopo la prima esecuzione `soglie` le propone dalla misura (sezione 6.6). La configurazione appaiata di un dataset piccolo, eseguibile
 senza scaricare nulla, è `tests/fixtures/osd276/appaiato/config.yaml`:
 
 ```bash
@@ -458,7 +521,10 @@ condizionale, e allora si scrive come ogni altra scelta.
   colonna. La verifica è fatta su tutti i file e tutte le righe. L'espressione può
   essere scritta diversamente da come la scriverebbe una persona: conta che estragga la
   stessa chiave. Se nessuna colonna corrisponde, o più d'una, `init` non sceglie: elenca
-  le candidate e lascia la riga da scegliere.
+  le candidate e lascia la riga da scegliere. Una cella può elencare i due file di una
+  coppia; se la tabella ha più righe dei file, la chiave si cerca fra le sole righe che
+  nominano un file della cartella, e il riepilogo nomina le altre. Se una riga è
+  collegata al file di un altro amplicone la chiave non è proposta (sezione 1.3).
 - La colonna del nome del campione (`meta.sample_id_column`), con due tabelle: quella
   che aggancia ogni riga della tabella di assay a una sola riga della tabella di studio.
 - La colonna della chiave nel file del lotto (`meta.batch_key_column`). Senza file del
@@ -481,6 +547,31 @@ commento mostra alcuni abbinamenti file-chiave da controllare.
 
 ### 2.3 Che cosa viene proposto
 
+`init` scrive come proposta, cioè come riga che `--accetta-proposte` rende attiva,
+solo ciò che i dati sostengono senza ambiguità. Quando un'euristica è al limite, o due
+letture dei dati sono ugualmente plausibili, la riga resta in commento, da scegliere:
+il suo commento riporta ciò che `init` ha trovato, il valore che raccomanda e i dati
+per decidere, e il riepilogo lo dice in una nota. Quelle note vanno lette: sono i
+punti in cui i dati non bastavano. Le condizioni, proposta per proposta:
+
+| Proposta | È una proposta se | Altrimenti |
+|---|---|---|
+| `ctrl.column` e le tre etichette | le altre colonne candidate danno ai campioni le stesse classi (non conta una colonna di nomi, con un valore per riga); ogni valore si attribuisce a una classe; nessun campione che ne risulta controllo negativo ha più letture della mediana degli altri | da scegliere: il commento nomina la colonna più plausibile, dice che cosa la contraddice, i valori da scrivere nelle etichette e i campioni di ogni valore, per quella e per le altre candidate |
+| `meta.accession_column`, `io.accession_regex` | una sola colonna corrisponde uno a uno ai file, e la chiave non è di sole cifre né molto corta (altrimenti la corrispondenza può essere una coincidenza) | da scegliere: il commento mostra l'abbinamento e i valori da scrivere se è giusto |
+| `filter.trimLeft`, `pair.trimLeft_reverse` (lunghezza del primer) | il primer è in testa alle letture di ogni file | il primer resta proposto, il taglio è da scegliere: il commento nomina i file che non lo portano |
+| `qc.primer_sequence`, `pair.primer_sequence_reverse` dai metadati | una sola sequenza è candidata a quel verso: i metadati la dichiarano tale, oppure coincide, codici IUPAC compresi, con un primer dell'elenco di `init` (e allora il verso è noto) | parte da nullo, se nessuna sequenza dei metadati è un primer noto né ha l'etichetta, o se due sono candidate allo stesso verso: il commento le riporta |
+| `pair.len_min`, `pair.len_max` misurati | l'intervallo misurato è largo almeno il 2% della mediana (la V4 varia di sei basi su 253 nel tutorial di dada2: più stretto descrive i taxa di quei campioni, non la regione) | da scegliere: il commento raccomanda la mediana meno e più il 5%, da stringere dopo la prima esecuzione |
+| `filter.truncLen`, `pair.truncLen_reverse` in modalità appaiata | la fusione è possibile senza allungare i troncamenti dentro basi di qualità mediana sotto 20 (sezione 6.3) | da scegliere: la nota consiglia le sole forward |
+| `decontam.batch_column`, `err.batch_column`, `katharoseq.cell_count_column` | una sola colonna del file del lotto ha un nome che lo dice, o più colonne che raggruppano i campioni allo stesso modo | da scegliere: il commento elenca le candidate |
+
+Restano proposte, con un avviso nel commento, le righe in cui il dubbio non cambia il
+valore: il motivo conservato quando alcuni file non iniziano come gli altri (sono
+esclusi dal consenso e nominati); la lunghezza attesa e l'intervallo quando meno di
+metà delle coppie si sovrappone ma i primer riconosciuti li confermano, o quando
+vengono dalla sola distanza fra i primer (dichiarati come tali); il nome del campione
+quando più colonne hanno un valore per riga (cambia solo come i campioni si chiamano).
+I valori di partenza (`[PARTENZA]`) non sono euristiche: sono gli standard del metodo.
+
 - La colonna del tipo di campione e le etichette (`ctrl.column`, `ctrl.blank_values`,
   `ctrl.positive_values`, `ctrl.biological_values`), dalle parole dei valori: blank,
   negative, NTC, no template per i controlli negativi; positive, mock per i positivi.
@@ -490,20 +581,29 @@ commento mostra alcuni abbinamenti file-chiave da controllare.
   stessi i controlli di un altro studio (le repliche di uno standard, per esempio) li
   propone tutti come controlli positivi, e nessuno resterebbe nell'oggetto finale. In
   quel caso si dichiara `ctrl.column: null`, oppure si mettono quei valori fra le
-  etichette dei campioni biologici.
+  etichette dei campioni biologici. Il commento della colonna proposta, e di ogni altra
+  candidata, elenca per ogni valore i campioni che lo portano: una parola dei controlli
+  può marcare campioni che non lo sono (una coltura pura descritta come «blank»), e lo
+  si vede leggendo l'elenco. Se un campione che ne risulterebbe controllo negativo ha
+  più letture della mediana degli altri, di solito non è un bianco: la colonna non è
+  proposta (il report segnala lo stesso caso dopo l'esecuzione).
+- Le righe della tabella di assay da tenere (`meta.assay_keep_column`,
+  `meta.assay_keep_values`), solo se la tabella dichiara più ampliconi (sezione 1.3).
 - Nel file del lotto, le colonne di piastra, corsa e cellule dei controlli positivi,
-  dal loro nome.
-- Il troncamento (`filter.truncLen`), dal profilo di qualità: la lunghezza più lunga
-  che non scarta alcuna lettura e che precede il calo della qualità mediana. È lo
-  stesso valore che il report suggerisce dopo la prima esecuzione.
+  dal loro nome, se le colonne che lo portano raggruppano i campioni allo stesso modo.
+- Il troncamento (`filter.truncLen`), dal profilo di qualità e delle lunghezze, con la
+  regola della sezione 6.3 («Il troncamento proposto»): il commento riporta la lunghezza
+  più frequente, le quote di letture più corte e la qualità in coda. In single-end, se
+  le letture sono più lunghe della regione amplificata, si ferma prima del primer
+  dell'altra estremità.
 - `err.error_function: loess_monotono`, se le qualità sono raggruppate in pochi valori.
 - Nome e versione del riferimento, se si leggono dal nome del file.
 - Se nessun primer dell'elenco è nelle letture: `filter.trimLeft: 0` (un primer fuori
   elenco va indicato a mano) e `qc.primer_sequence` dai metadati, se riportano una
-  sequenza marcata come forward, o una sola sequenza (e allora il commento dice che
-  l'indicazione manca). Senza una sequenza nei metadati il primer è una scelta con
-  partenza nulla, e il commento elenca le forme che `init` conosce del primer che i
-  metadati nominano.
+  sola sequenza marcata come forward o che coincide con un primer forward dell'elenco.
+  Altrimenti il primer è una scelta con partenza nulla: il commento riporta le sequenze
+  che i metadati danno senza che se ne conosca il verso, o le forme che `init` conosce
+  del primer che i metadati nominano.
 - Il motivo conservato (`qc.conserved_motif`), solo se il primer è noto: il consenso
   delle basi con cui inizia la regione amplificata.
 
@@ -711,6 +811,18 @@ ogni riga è in commento:
   Aitchison (`beta.clr_pseudocount`, solo con quella distanza). Hanno un valore di
   partenza solo `ord.nmds_trymax` (20, `vegan::metaMDS`) e `ord.pcoa_correction`
   (`none`, `ape::pcoa`).
+
+**Togliere campioni dalle analisi.** `design.subset` (facoltativo) dichiara, per una o più
+colonne dell'oggetto, i valori dei campioni da tenere; si applica prima di tutto il
+resto, e i campioni che non li portano non entrano in alcuna tabella né in alcun test.
+Serve a togliere ciò che è nell'oggetto finale ma fuori dal confronto: una coltura pura
+tenuta come campione biologico (sezione 6.5), una replica, un gruppo che lo studio non
+confronta.
+
+```yaml
+design:
+  subset: {"factor_value_trattamento": ["Trattato", "Non trattato"]}
+```
 
 Con `--accetta-proposte` le proposte sono righe attive (la variabile biologica, le
 variabili tecniche, il rango, le variabili continue). Fanno eccezione i parametri che servono solo con un
@@ -1049,6 +1161,7 @@ nota, tabella dei campioni in TSV semplice).
 | `io.accession_regex` | espressione che estrae la chiave del campione dal nome del file | la parte del nome unica per campione | rilevata, se una sola colonna corrisponde ai file | `01_input_validation/crosswalk.tsv`: una riga per campione |
 | `meta.accession_column` | colonna da cui si ricava la stessa chiave | di solito quella con il nome del file | rilevata | come sopra |
 | `meta.sample_id_column` | colonna con il nome del campione | la colonna che aggancia le due tabelle | rilevata con due tabelle, proposta con una | `crosswalk.tsv`, colonna `sample_name` |
+| `meta.assay_keep_column`, `meta.assay_keep_values` | facoltativi, insieme: la colonna della tabella di assay e i suoi valori che dicono quali righe sono campioni di questa analisi; omessi, tutte | la colonna che dichiara l'amplicone, se la tabella ne descrive più d'uno (sezione 1.3) | proposti solo con più ampliconi dichiarati: le righe 16S | avviso `E-S0-31`: le righe escluse |
 | `ctrl.column` | colonna con il tipo del campione; nullo: nessun controllo | la colonna che distingue campioni e controlli | proposta (parole dei valori, o nome della colonna) | report, «Gate di validazione»: conteggi per classe |
 | `ctrl.blank_values` | valori dei controlli negativi; `[]` se non ce ne sono; solo se `ctrl.column` non è nullo | copiati dalla colonna | proposti (blank, negative, NTC, no template) | conteggi per classe |
 | `ctrl.positive_values` | valori dei controlli positivi; `[]` se non ce ne sono; solo se `ctrl.column` non è nullo | copiati dalla colonna | proposti (positive, mock) | conteggi per classe |
@@ -1090,17 +1203,52 @@ Senza file del lotto questi parametri sono rilevati nulli o vuoti.
 | `qc.max_primer_hit_frac` | frazione di letture con il primer in testa oltre la quale è considerato presente | bassa: il primer o c'è o non c'è | nessuno | `frazione_primer` per file |
 | `qc.min_motif_frac` | frazione minima di letture con il motivo, sulla mediana dei campioni | sotto il valore osservato nei campioni buoni | nessuno | `frazione_motivo` per file |
 | `qc.head_reads` | letture ispezionate per file dalla validazione | un compromesso fra durata della validazione e precisione delle frazioni misurate | 9.604: le letture con cui una frazione ha un intervallo di confidenza al 95% di un punto percentuale; le letture del file più grande, se sono meno | durata della validazione |
-| `qc.max_frac_short_reads` | frazione massima di letture più corte del troncamento, per classe | zero se il troncamento non scarta letture | 0 con il troncamento proposto (dai dati) | report, «Troncamento suggerito» |
+| `qc.max_frac_short_reads` | frazione massima di letture più corte del troncamento, per classe | zero se il troncamento non scarta letture; altrimenti sopra la quota che scarta | 0 se il troncamento proposto non scarta letture, altrimenti nessuna (dai dati) | report, «Troncamento suggerito» |
 | `tax.ref_name`, `tax.ref_version` | nome e versione del riferimento, riportati con i risultati | dalla fonte del riferimento | proposti dal nome del file, se vi compaiono | report, «Configurazione» |
 | `tax.try_rc` | se provare anche il complemento inverso | vero se le letture possono essere nell'altro orientamento | falso (`dada2::assignTaxonomy`) | report: frazione di varianti con il phylum |
 
-**Il troncamento proposto.** `init` propone la lunghezza maggiore che non scarta alcuna
-lettura dei campioni e che precede il calo di qualità. Se una piccola parte delle
-letture è stata accorciata prima del deposito, la proposta scende alla lunghezza della
-più corta, anche di poche decine di basi: il commento della riga riporta le lunghezze
-osservate e la quota di letture che si scarterebbe troncando alla moda, e la scelta
-ragionevole è un troncamento vicino alla moda, dove la qualità regge, accettando di
-scartare le letture più corte (`qc.max_frac_short_reads` va allora sopra quella quota).
+**Il troncamento proposto.** `init` propone il minore fra due lunghezze, calcolate sui
+campioni che non sono controlli negativi:
+
+- la **lunghezza ammessa**: la più lunga che in ciascuna classe scarta non oltre il 5%
+  delle letture (le letture più corte del troncamento sono scartate, non accorciate).
+  Con zero basterebbe una lettura accorciata prima del deposito a portare la proposta
+  alla sua lunghezza; con il 5%, lo stesso margine con cui `soglie` propone le frazioni,
+  la proposta sta alla lunghezza più frequente, o poco sotto se molte letture sono più
+  corte di qualche base;
+- la lunghezza **per qualità**: l'ultima posizione prima che la qualità mediana (la
+  mediana, fra i campioni, della mediana di ciascuno) scenda sotto 30 nella mediana di
+  quattro posizioni consecutive. Una posizione sola sotto 30, per quanto bassa, come la prima base di
+  molte letture reverse o un calo isolato a metà lettura, non ferma la regola; in coda
+  la proposta arretra finché la posizione stessa è sotto 30.
+
+È la regola con cui il report suggerisce il troncamento dopo l'esecuzione; lì la
+lunghezza ammessa usa `qc.max_frac_short_reads` al posto del 5%. Il commento della
+riga riporta la regola con i due valori, gli estremi delle lunghezze, la lunghezza più
+frequente con la sua quota, la quota di letture più corte del troncamento proposto e di
+10 e 20 basi sotto la più frequente, e la qualità in coda (media e primo quartile ogni
+10 basi nelle ultime 100): bastano a scegliere un altro valore. Se il troncamento
+proposto scarta letture, `qc.max_frac_short_reads` non ha una partenza: deve stare sopra
+la quota scartata, che il commento riporta, e dopo la prima esecuzione la propone
+`soglie`. In modalità appaiata la regola vale per ciascuna delle due letture, entro il
+vincolo della fusione (sezione 6.7). Le soglie di qualità sono due. Il troncamento di
+una lettura si propone dove la qualità mediana regge a 30: un errore atteso ogni mille
+basi. Per rispettare il vincolo `init` lo allunga solo dentro posizioni in cui la
+qualità mediana, con la stessa statistica e la stessa finestra di quattro posizioni,
+regge almeno a 20: un errore atteso ogni cento basi, il valore sotto il quale una base
+non è di norma considerata affidabile. Se non basta, lascia i due troncamenti da
+scegliere e consiglia le sole forward (sezione 2, «In modalità appaiata»).
+
+In single-end, se le letture sono più lunghe della regione amplificata proseguono nel
+complemento inverso del primer dell'altra estremità e nell'adattatore: `init` cerca
+quel primer in coda alle letture (i primer reverse del suo elenco, o quello indicato con
+`--primer-reverse`) e, se lo trova in almeno metà delle letture seguito da un adattatore
+Illumina (TruSeq o Nextera) o dalla fine della lettura, ferma il troncamento proposto
+alle basi che lo precedono nelle letture in cui comincia prima. Senza l'adattatore lo
+stesso sito può essere un tratto conservato dentro un amplicone più lungo: `init` lo
+scrive nel riepilogo e non cambia la proposta. Un primer fuori elenco e non indicato, o
+seguito da un altro adattatore, non è riconosciuto: il troncamento va allora scelto
+sotto la lunghezza della regione.
 
 **Il primer.** Il nome di un primer nei metadati non basta: lo stesso nome ha più
 forme. Del 515F ce ne sono due, che differiscono per la quarta base: la forma
@@ -1256,6 +1404,9 @@ che il bayesiano ingenuo assegna restano alla famiglia, o senza assegnazione, e 
 sole forward della regione V4 sono di più che sulle coppie fuse della V3-V4: prima di
 scegliere IdTaxa per un'analisi al livello di genere conviene eseguire su quei dati le
 due configurazioni e la verifica della composizione, e guardare quali generi cambiano.
+Per un'analisi al livello di genere la prima scelta resta il bayesiano ingenuo: IdTaxa
+con il classificatore SILVA r138.2 non ha superato la prova sulle comunità a
+composizione nota.
 
 **I nomi dei taxa con IdTaxa.** La tassonomia riporta i nomi come li scrive il
 classificatore, e ogni confronto per nome (i filtri, il taxon atteso dei controlli
@@ -1264,8 +1415,9 @@ la stessa scrittura. Il classificatore SILVA SSU r138.2 scrive molti taxa con un
 suffisso numerico: i cloroplasti sono `Chloroplast_2`, i mitocondri `Mitochondria_2`,
 *Pseudomonas* è `Pseudomonas_2`, *Escherichia* è `Escherichia-Shigella_2`; il
 classificatore r138 scrive `Chloroplast`, `Mitochondria`, `Pseudomonas`. Un nome di
-`filt.exclude_taxa` senza il suffisso non toglie nulla, senza alcun errore. I nomi di un
-classificatore si leggono dal suo file:
+`filt.exclude_taxa` senza il suffisso non toglie nulla: la validazione lo segnala
+(`E-S0-32`) e suggerisce il nome con il suffisso. I nomi di un classificatore si leggono
+dal suo file:
 
 ```bash
 Rscript -e 'load("SILVA_SSU_r138_2_2024.RData"); t <- trainingSet$taxa
@@ -1290,7 +1442,11 @@ tax:
 Percorso e MD5 sono quelli che stampa `dati/riferimento/scarica_addestrato.py` (sezione
 1.5). `init` scrive sempre `naive_bayes`: il passaggio si fa a mano. Su un'esecuzione
 già conclusa `resume` rifà l'assegnazione tassonomica e le fasi che ne dipendono, non
-la validazione né l'inferenza delle varianti; gli artefatti del classificatore di prima
+la validazione né l'inferenza delle varianti. Fa eccezione la regola rigorosa sulla
+provenienza (`run.strict_provenance`): con IdTaxa il sorgente della validazione
+comprende lo script che verifica il classificatore addestrato e la libreria di IdTaxa
+(con il bayesiano ingenuo non vi entrano), la sua impronta è un'altra, e `resume` rifà
+la validazione e con lei tutte le fasi. In ogni caso gli artefatti del classificatore di prima
 (`bootstrap.tsv`) escono da `08_taxonomy/`. Con un altro riferimento cambiano i nomi dei
 taxa: `katharoseq.target_taxon` e `filt.exclude_taxa` vanno riscritti come li scrive il
 nuovo. La soglia `qc.min_frac_phylum` fissata con
@@ -1358,7 +1514,14 @@ scrivono così:
   rimaste senza phylum.
 
 Un nome di `filt.exclude_taxa` che il riferimento non ha non è un errore e non toglie
-nulla: che cosa è stato tolto si controlla in `varianti_rimosse.tsv`.
+nulla. A ogni avvio (`validate`, `run`, `resume`) lo strumento cerca nel riferimento i
+nomi di `filt.exclude_taxa` e, con controlli positivi dichiarati,
+`katharoseq.target_taxon`, a qualunque rango e senza il prefisso di rango: per ogni nome
+assente scrive sulla console e nel log la segnalazione `E-S0-32`, con il nome con
+suffisso numerico che il riferimento ha al suo posto, se c'è. Con il bayesiano ingenuo
+legge i nomi dal file FASTA; con IdTaxa li legge dal classificatore addestrato, alla
+validazione. La segnalazione non ferma e non è registrata negli artefatti. Che cosa è
+stato tolto si controlla in `varianti_rimosse.tsv`.
 
 Un riferimento può dare a una variante il solo regno: in SILVA 138 nel formato di dada2
 le sequenze eucariotiche hanno `Eukaryota` e nessun altro rango. Una variante così non
@@ -1389,6 +1552,15 @@ Senza controlli negativi la decontaminazione non toglie nulla e lo dichiara
 condizionale dichiarato senza che serva è accettato e non cambia conteggi, tassonomia,
 campioni né varianti (la configurazione di OSD-276, che non ha controlli, li dichiara
 tutti); che cosa cambia fra ometterlo e dichiararlo è nella sezione 2.5.
+
+**Colture pure e altri controlli che non sono una serie di diluizione.** I controlli
+positivi si valutano in un solo modo: come serie di diluizione di un taxon
+(`katharoseq.target_taxon`), da cui si ricava la profondità minima dei campioni. Due
+colture pure di specie diverse, o uno standard senza diluizioni, non si possono
+dichiarare come controlli positivi: non c'è un taxon atteso per campione. Si dichiarano
+fra i campioni biologici (`ctrl.biological_values`), e servono da verifica guardandone
+la composizione nell'oggetto finale; dalle analisi ecologiche si tolgono con
+`design.subset` (sezione 4).
 
 | Parametro | Significato | Come si ricava | Partenza (fonte) | Conferma |
 |---|---|---|---|---|
@@ -1437,6 +1609,7 @@ report lo segnalano. `init --accetta-proposte` scrive il valore che non ferma
 | `pair.truncLen_shortfall_warn_reverse` | solo in modalità appaiata: di quante basi il troncamento delle reverse può stare sotto la lettura reverse più corta | lo scarto la supera (avviso `E-S1-01`) | `pair.truncLen_reverse` meno 1, il massimo ammesso | lo scarto del troncamento proposto |
 | `pair.min_merged_frac_warn` | solo in modalità appaiata: quota di coppie fuse che dà un avviso | la quota sui campioni biologici e sui controlli positivi le sta sotto (avviso `E-SM-02`) | 0 | nessuna |
 | `pair.min_merged_frac_stop` | solo in modalità appaiata: quota di coppie fuse che ferma | la quota le sta sotto (`E-SM-01`) | 0 | nessuna |
+| `pair.min_merged_frac_sample_warn` | solo in modalità appaiata, facoltativa: quota di coppie fuse di un singolo campione che dà un avviso | la quota di un campione biologico o di un controllo positivo le sta sotto (avviso `E-SM-04`, che nomina i campioni); omessa, nessun controllo per campione | 0 | nessuna |
 | `qc.max_asv_count` | varianti oltre le quali la tabella non si costruisce: protegge la memoria | le varianti distinte sono di più (`E-S5-01`) | nessun limite: non è mai riportata come spenta | dalla memoria della macchina; `soglie` non la propone |
 | `ctrl.min_positive_pass_frac` | frazione minima di controlli positivi conformi; solo con controlli positivi | i conformi sono meno: arresto `E-S11-03` con `ctrl.positive_gate` vero, altrimenti avviso `E-S11-04` | 0 | nessuna, mai: è una scelta; `soglie` non la propone |
 
@@ -1485,9 +1658,16 @@ mediana o la misura d'insieme dove giudica quella) e propone:
 - se il valore proposto coincide con il limite (la misura è già lì, o misura e margine
   escono dall'intervallo), lo dichiara come **controllo spento**;
 - una soglia **senza misura** in quell'esecuzione (motivo nullo, primer con il taglio,
-  decontaminazione senza abbastanza controlli negativi) o la cui misura non si legge
-  dagli artefatti (letture corte fra le prime letture di un file non letto per intero)
-  resta com'è, e il comando lo dice; una condizionale omessa resta omessa.
+  decontaminazione senza abbastanza controlli negativi) resta com'è, e il comando lo
+  dice; una condizionale omessa, o la soglia facoltativa per campione non dichiarata,
+  resta omessa;
+- per `qc.max_frac_short_reads` la misura è la peggiore fra quella di S1 (tutte le
+  letture, dal suo manifesto) e quella della validazione (le prime `qc.head_reads`
+  letture di ogni file). La seconda non è scritta per intero in alcun artefatto: per un
+  file con letture corte fra le prime e non letto per intero, `soglie` rilegge quelle
+  prime letture dal file in `io.fastq_dir` e le conta, senza scrivere nulla. È la sola
+  misura per cui legge le letture; se il file non è più quello della validazione la
+  soglia resta com'è, e il comando lo dice.
 
 Nel file scritto ogni soglia è preceduta da un commento: `[PROPOSTO] da soglie` con
 misura, artefatto, regola e valore che aveva, per una soglia proposta; `[SOGLIE]` con
@@ -1525,7 +1705,8 @@ soglie.
 | `pair.conserved_motif_reverse` | espressione del motivo con cui iniziano le letture reverse dopo il taglio; nullo | dal consenso delle prime basi delle reverse | proposto se il primer reverse è noto; altrimenti nullo | `letture_ispezionate_reverse.tsv`, `frazione_motivo` |
 | `pair.min_overlap`, `pair.max_mismatch` | sovrapposizione minima fra le due letture e discordanze ammesse nella sovrapposizione | predefiniti 12 e 0 (`dada2::mergePairs`) | predefiniti | `05_pair_merge/fusione.tsv` |
 | `pair.len_min`, `pair.len_max` | intervallo ammesso della lunghezza delle sequenze fuse; prende il posto di `asv.len_tol` | dalla regione amplificata e dalla sua variabilità fra i taxa | proposti: percentili 0,5 e 99,5 dell'inserto misurato, tolti i due tagli | `07_chimera/lunghezze.tsv` |
-| `pair.expected_merged_len` | lunghezza attesa delle sequenze fuse; nullo se non si vuole il confronto | dalla regione amplificata | proposta: la mediana dell'inserto misurato, tolti i due tagli | segnalazione `E-SM-03`, `05_pair_merge/fusione.json` |
+| `pair.min_merged_frac_sample_warn` | facoltativa: quota di coppie fuse sotto la quale un singolo campione dà un avviso (`E-SM-04`); omessa, nessun controllo | dalla quota per campione della prima esecuzione (`05_pair_merge/fusione.tsv`) | nessuna; esplorativa (0) con `--accetta-proposte` | `soglie`: la quota più bassa fra i campioni, meno il margine |
+| `pair.expected_merged_len` | lunghezza attesa delle sequenze fuse, fra `pair.len_min` e `pair.len_max` (altrimenti `E-G15-15`); nullo se non si vuole il confronto | dalla regione amplificata | proposta: la mediana dell'inserto misurato, tolti i due tagli | segnalazione `E-SM-03`, `05_pair_merge/fusione.json` |
 
 Le soglie del gruppo (`pair.max_primer_hit_frac_reverse`, `pair.min_merged_frac_warn`,
 `pair.min_merged_frac_stop`) sono nella sezione 6.6.
@@ -1547,7 +1728,14 @@ con la stessa L: `init` misura allora l'inserto senza i primer e senza le basi c
 precedono, togliendo a ogni coppia ciò che il taglio toglie alle sue due letture, e
 `pair.expected_merged_len`, `pair.len_min` e `pair.len_max` sono in quella misura.
 
-**L'intervallo delle lunghezze.** `init` propone `pair.len_min` e `pair.len_max` dai
+**L'intervallo delle lunghezze.** In modalità appaiata l'intervallo ammesso è quello
+dichiarato: `asv.len_tol`, la tolleranza attorno al troncamento della modalità single-end,
+non ha effetto, e cambiarla non rifà alcuna fase. (Il filtro di lunghezza dichiara per
+questo, in modalità appaiata, il solo intervallo: su un'esecuzione appaiata fatta con una
+versione precedente dello strumento `resume` rifà una volta il filtro di lunghezza e le
+fasi che ne dipendono, con gli stessi risultati.) `pair.expected_merged_len`, se non è
+nulla, deve stare nell'intervallo: fuori, la configurazione è respinta (`E-G15-15`),
+perché le sequenze della lunghezza attesa uscirebbero dalla tabella. `init` propone `pair.len_min` e `pair.len_max` dai
 percentili dell'inserto misurato: descrivono le coppie del dataset, non la regione. Se
 sotto la lunghezza attesa c'è una popolazione a sé (amplificazioni fuori bersaglio, più
 corte di decine di basi) il percentile basso la comprende, e quelle sequenze restano nella tabella finché un filtro
