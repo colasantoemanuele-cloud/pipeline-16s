@@ -39,6 +39,12 @@ catena prosegue su quelle. Perché le coppie si fondano le due letture, dopo il
 troncamento, devono sovrapporsi: è il vincolo che guida la scelta dei troncamenti
 (sezione 6.3).
 
+Sui dataset del repository la modalità appaiata è eseguita su letture Illumina MiSeq:
+della regione V4 (2 x 151, 2 x 250 e 2 x 251 basi, dove la lettura forward copre già
+quasi tutta la regione) e della regione V3-V4 (2 x 301 basi con i primer 341F e 806R,
+dove solo la fusione copre la regione). Non è eseguita su altre piattaforme né su regioni
+più lunghe di quanto le due letture coprono.
+
 **I file, in modalità appaiata.** Due file per campione nella stessa cartella, che si
 distinguono per un marcatore in fondo al nome, prima dell'estensione (`_R1` e `_R2`,
 `_1` e `_2`, `.1` e `.2`, anche seguiti da un numero di blocco di tre cifre come
@@ -301,7 +307,14 @@ scrive il gruppo `pair` (sezione 6.7). Dalle letture ricava:
 Se meno di metà delle coppie esaminate si sovrappone `init` non stima l'inserto: non
 propone le lunghezze né verifica il vincolo, e lo dice. Può voler dire che le letture
 sono troppo corte per la regione: in quel caso si usano le sole forward, con
-`io.layout: "single-end"` e i soli file forward nella cartella (sezione 1.2).
+`io.layout: "single-end"` e i soli file forward nella cartella (sezione 1.2). Può anche
+voler dire che le letture coprono la regione ma hanno troppi errori in coda: `init`
+cerca la sovrapposizione sulle letture intere e la accetta con al massimo una
+discordanza ogni dieci basi, e con letture di 300 basi di qualità bassa nelle ultime
+decine di basi poche coppie la superano (`dati/osd191/README.md` ne descrive un caso).
+Se la regione amplificata e la lunghezza delle letture dicono che le due letture si
+sovrappongono, la modalità appaiata resta quella giusta: i due troncamenti e
+l'intervallo delle lunghezze si scelgono a mano, come nella sezione 6.7.
 
 Con `--accetta-proposte` le due soglie sulla quota di coppie fuse e quella del primer
 reverse sono esplorative come le altre; dopo la prima esecuzione `soglie` le propone
@@ -1040,6 +1053,14 @@ Senza file del lotto questi parametri sono rilevati nulli o vuoti.
 | `tax.ref_name`, `tax.ref_version` | nome e versione del riferimento, riportati con i risultati | dalla fonte del riferimento | proposti dal nome del file, se vi compaiono | report, «Configurazione» |
 | `tax.try_rc` | se provare anche il complemento inverso | vero se le letture possono essere nell'altro orientamento | falso (`dada2::assignTaxonomy`) | report: frazione di varianti con il phylum |
 
+**Il troncamento proposto.** `init` propone la lunghezza maggiore che non scarta alcuna
+lettura dei campioni e che precede il calo di qualità. Se una piccola parte delle
+letture è stata accorciata prima del deposito, la proposta scende alla lunghezza della
+più corta, anche di poche decine di basi: il commento della riga riporta le lunghezze
+osservate e la quota di letture che si scarterebbe troncando alla moda, e la scelta
+ragionevole è un troncamento vicino alla moda, dove la qualità regge, accettando di
+scartare le letture più corte (`qc.max_frac_short_reads` va allora sopra quella quota).
+
 **Il primer.** Il nome di un primer nei metadati non basta: lo stesso nome ha più
 forme. Del 515F ce ne sono due, che differiscono per la quarta base: la forma
 modificata (Parada 2016) porta `Y`, cioè C oppure T, dove la forma originale (Caporaso
@@ -1185,6 +1206,30 @@ l'altro: la configurazione è respinta (`E-G15-17`). Come scegliere:
   addestrato con una versione precedente si carica ma può dare confidenze diverse da
   quelle ottenute con la versione con cui è stato pubblicato. La versione di DECIPHER
   dell'immagine è in `renv.lock`.
+
+Sui dataset del repository IdTaxa è eseguito con i due classificatori di SILVA (r138 e
+r138.2) su varianti da letture Illumina MiSeq: della regione V4 dalle sole forward (da
+137 a 251 basi) e della regione V3-V4 da coppie fuse. Sui due standard di composizione
+nota (`dati/comunita_nota/`, `dati/comunita_nota_v3v4/`) con la soglia 60 alcuni generi
+che il bayesiano ingenuo assegna restano alla famiglia, o senza assegnazione, e sulle
+sole forward della regione V4 sono di più che sulle coppie fuse della V3-V4: prima di
+scegliere IdTaxa per un'analisi al livello di genere conviene eseguire su quei dati le
+due configurazioni e la verifica della composizione, e guardare quali generi cambiano.
+
+**I nomi dei taxa con IdTaxa.** La tassonomia riporta i nomi come li scrive il
+classificatore, e ogni confronto per nome (i filtri, il taxon atteso dei controlli
+positivi, una tabella di generi attesi, il confronto con un'altra elaborazione) vuole
+la stessa scrittura. Il classificatore SILVA SSU r138.2 scrive molti taxa con un
+suffisso numerico: i cloroplasti sono `Chloroplast_2`, i mitocondri `Mitochondria_2`,
+*Pseudomonas* è `Pseudomonas_2`, *Escherichia* è `Escherichia-Shigella_2`; il
+classificatore r138 scrive `Chloroplast`, `Mitochondria`, `Pseudomonas`. Un nome di
+`filt.exclude_taxa` senza il suffisso non toglie nulla, senza alcun errore. I nomi di un
+classificatore si leggono dal suo file:
+
+```bash
+Rscript -e 'load("SILVA_SSU_r138_2_2024.RData"); t <- trainingSet$taxa
+cat(grep("hloroplast|itochondri|ukaryot", t, value = TRUE), sep = "\n")'
+```
 
 Per passare a IdTaxa una configurazione scritta per il bayesiano ingenuo, nel gruppo
 `tax` si tolgono `ref_fasta`, `ref_md5`, `try_rc` (e `min_boot`, `ref_bad_taxa`, se

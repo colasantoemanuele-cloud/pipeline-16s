@@ -121,6 +121,7 @@ In che cosa OSD-276 differisce da OSD-734:
 | `letture_reverse.md5` | si' | l'MD5 del contenuto non compresso di ogni file reverse ricavato con `--coppie` |
 | `scarica_letture.py` | si' | scarica, verifica e ricava le forward; con `--coppie`, le due letture |
 | `config_osd276.yaml` | si' | la configurazione della pipeline per questo dataset |
+| `config_osd276_forward_idtaxa.yaml` | si' | la stessa con IdTaxa e il classificatore SILVA SSU r138 |
 | `eco_osd276.yaml` | si' | la configurazione d'esempio delle analisi ecologiche di base |
 | `FONTI.tsv` | si' | fonte, licenza e controllo di ogni file |
 | `ena/`, `fastq/` | no | i file di ENA (196 MB) e le forward ricavate (91 MB) |
@@ -182,6 +183,13 @@ negativi (`E-S0-17`), cioe' che la soglia di profondita' non puo' venire da una 
 che i contaminanti non sono stimabili. Senza controlli positivi non si applica alcuna
 soglia di profondita' (`E-S11-05`): sui campioni resta il solo `qc.min_reads_final`,
 sulle letture dell'oggetto finale.
+
+`config_osd276_forward_idtaxa.yaml` differisce da `config_osd276.yaml` solo nel
+classificatore: assegna la tassonomia con IdTaxa e `SILVA_SSU_r138_2019.RData`, il
+classificatore che GeneLab ha usato per la tabella elaborata di questo dataset
+(`python3 dati/riferimento/scarica_addestrato.py 2019`). Dichiara la regola rigorosa
+sulla provenienza (`run.strict_provenance: true`) e scrive in una cartella propria sotto
+`output/`.
 
 ## Stato della prova
 

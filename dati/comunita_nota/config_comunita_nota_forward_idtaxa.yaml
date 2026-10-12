@@ -1,0 +1,84 @@
+# Comunita' nota sulla regione V4 (studio PRJNA758928), sole letture forward, con IdTaxa e il
+# classificatore SILVA SSU r138.2.
+# Uguale a config_comunita_nota.yaml salvo il classificatore; i taxa da escludere sono scritti
+# come li scrive questo classificatore (Chloroplast_2, Mitochondria_2).
+io:
+  fastq_dir: dati/comunita_nota/fastq
+  assay_table: dati/comunita_nota/campioni.tsv
+  study_table: null
+  out_root: output/comunita_nota_forward_idtaxa
+  batch_table: null
+  fastq_glob: '*.fastq.gz'
+  accession_regex: SRR[0-9]+
+meta:
+  sample_id_column: campione
+  accession_column: file_letture
+  derive_module: false
+  module_column: null
+  non_surface_positions: []
+  batch_key_column: null
+  batch_module_column: null
+filter:
+  truncLen: 249
+  truncLen_shortfall_warn: 1
+  trimLeft: 19
+err:
+  randomize: false
+  batch_column: null
+dada:
+  pool: false
+chimera:
+  min_fold_parent_over_abundance: 1.5
+tax:
+  ref_name: SILVA
+  ref_version: '138.2'
+  classifier: idtaxa
+  idtaxa_trained: dati/riferimento/SILVA_SSU_r138_2_2024.RData
+  idtaxa_trained_md5: 4e272e39c2d71f5d3e7a31b00dbb1df4
+  idtaxa_threshold: 60
+  idtaxa_strand: both
+filt:
+  remove_na_phylum: false
+  exclude_taxa:
+  - Chloroplast_2
+  - Mitochondria_2
+phylo:
+  enabled: false
+ctrl:
+  column: null
+  blank_override_column: null
+katharoseq:
+  cell_count_column: null
+  target_sensitivity: 0.5
+decontam:
+  batch_column: null
+  threshold: 0.1
+  min_blanks: 1
+  mode: aggregate
+prev:
+  apply: false
+  min_fraction: 0.0
+  min_count: 1
+qc:
+  head_reads: 10000
+  primer_sequence: GTGYCAGCMGCCGCGGTAA
+  max_primer_hit_frac: 0.05
+  conserved_motif: TACG[GT]AGG[GT][GT]GCAAGCGTT
+  min_motif_frac: 0.5
+  max_frac_short_reads: 0.0
+  max_zeroed_samples: 0
+  max_frac_lost_filter: 0.4
+  max_asv_count: 170000
+  warn_frac_chimeric: 0.25
+  stop_frac_chimeric: 0.6
+  min_frac_phylum: 0.8
+  min_reads_mode: none
+  max_frac_contaminant: 0.4
+  min_reads_final: 0
+  min_frac_reads_retained: 0.4
+out:
+  study_columns: []
+  batch_columns: []
+run:
+  container: ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
+  strict_provenance: true

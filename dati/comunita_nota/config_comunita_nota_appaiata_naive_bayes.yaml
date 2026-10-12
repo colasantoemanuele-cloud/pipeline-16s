@@ -1,0 +1,98 @@
+# Comunita' nota sulla regione V4 (studio PRJNA758928), in modalita' appaiata.
+# Uguale a config_comunita_nota.yaml, con in piu' la modalita' appaiata: i parametri della
+# lettura reverse e della fusione (gruppo pair) sono quelli scritti da init --accetta-proposte
+# sulle coppie.
+io:
+  fastq_dir: dati/comunita_nota/fastq_coppie
+  assay_table: dati/comunita_nota/campioni.tsv
+  study_table: null
+  out_root: output/comunita_nota_appaiata_naive_bayes
+  batch_table: null
+  fastq_glob: '*.fastq.gz'
+  accession_regex: SRR[0-9]+
+  layout: paired-end
+meta:
+  sample_id_column: campione
+  accession_column: file_letture
+  derive_module: false
+  module_column: null
+  non_surface_positions: []
+  batch_key_column: null
+  batch_module_column: null
+filter:
+  truncLen: 249
+  truncLen_shortfall_warn: 1
+  trimLeft: 19
+err:
+  randomize: false
+  batch_column: null
+dada:
+  pool: false
+chimera:
+  min_fold_parent_over_abundance: 1.5
+tax:
+  ref_fasta: dati/riferimento/silva_nr99_v138_train_set.fa.gz
+  ref_md5: 56821dd6f365f64c8518a21e049c3232
+  ref_name: SILVA
+  ref_version: '138'
+  try_rc: false
+filt:
+  remove_na_phylum: false
+  exclude_taxa:
+  - Chloroplast
+  - Mitochondria
+phylo:
+  enabled: false
+ctrl:
+  column: null
+  blank_override_column: null
+katharoseq:
+  cell_count_column: null
+  target_sensitivity: 0.5
+decontam:
+  batch_column: null
+  threshold: 0.1
+  min_blanks: 1
+  mode: aggregate
+prev:
+  apply: false
+  min_fraction: 0.0
+  min_count: 1
+qc:
+  head_reads: 10000
+  primer_sequence: GTGYCAGCMGCCGCGGTAA
+  max_primer_hit_frac: 0.05
+  conserved_motif: TACG[GT]AGG[GT][GT]GCAAGCGTT
+  min_motif_frac: 0.5
+  max_frac_short_reads: 0.0
+  max_zeroed_samples: 0
+  max_frac_lost_filter: 0.4
+  max_asv_count: 170000
+  warn_frac_chimeric: 0.25
+  stop_frac_chimeric: 0.6
+  min_frac_phylum: 0.8
+  min_reads_mode: none
+  max_frac_contaminant: 0.4
+  min_reads_final: 0
+  min_frac_reads_retained: 0.4
+pair:
+  file_markers:
+  - _R1
+  - _R2
+  truncLen_reverse: 250
+  trimLeft_reverse: 20
+  truncLen_shortfall_warn_reverse: 0
+  primer_sequence_reverse: GGACTACNVGGGTWTCTAAT
+  conserved_motif_reverse: CCTGTT[CT]G[AC]T[AC]CCCA[CT]GCTT
+  max_primer_hit_frac_reverse: 1.0
+  min_merged_frac_warn: 0.0
+  min_merged_frac_stop: 0.0
+  len_min: 252
+  len_max: 359
+  expected_merged_len: 253
+out:
+  study_columns: []
+  batch_columns: []
+run:
+  container: ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
+  strict_provenance: true

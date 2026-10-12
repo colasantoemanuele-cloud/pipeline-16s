@@ -209,3 +209,52 @@ def test_un_campione_escluso_dalla_pipeline_non_supera_i_criteri(vc, tmp_path, c
     assert vc.main(["--finale", str(finale), "--attesi", str(tmp_path / "rotta.tsv"),
                     "--campioni", str(tmp_path / "campioni.tsv"), "--uscita", str(tmp_path / "b")]) == 2
     assert "verifica non eseguita" in capsys.readouterr().out
+
+
+def test_gli_altri_nomi_di_un_genere_atteso_si_sommano_al_genere(vc, tmp_path, capsys):
+    """
+    **Obiettivo**: Verificare che, con la colonna facoltativa ``altri_nomi``,
+    le letture delle varianti assegnate a un altro nome dello stesso genere
+    atteso si sommino a quelle del genere, nei due criteri e nei rapporti; che
+    senza la colonna lo stesso nome conti fra i non attesi e il riepilogo non
+    porti la voce degli altri nomi; e che un altro nome ripetuto, o uguale a
+    un genere atteso, renda la tabella non valida.
+
+    **Razionale scientifico e sistemistico**: Un riferimento puo' scrivere lo
+    stesso organismo con due nomi (un genere diviso in due da una revisione
+    della nomenclatura): contarne uno solo darebbe per mancante, o per
+    contaminazione, cio' che e' la comunita' stessa. L'equivalenza deve stare
+    nella tabella degli attesi, dichiarata, e non nel codice.
+    """
+    intestazione = ["genere", "famiglia", "specie", "percentuale", "fonte"]
+    senza = [intestazione, ["Aa", "Fa", "Aa prima", "50", "prova"], ["Bb", "Fb", "Bb seconda", "30", "prova"],
+             ["Cc-Dd", "Fb", "Cc terza", "20", "prova"]]
+    con = [[*intestazione, "altri_nomi"], [*senza[1], ""], [*senza[2], " Zz | g__Cc "], [*senza[3], ""]]
+    _tsv(tmp_path / "senza.tsv", senza)
+    _tsv(tmp_path / "con.tsv", con)
+    _tsv(tmp_path / "campioni.tsv", [["campione"], ["uno"]])
+    # Aa 500, Bb 0, Cc-Dd 400; Zz 60 e Cc 40, che sono altri nomi di Bb.
+    finale = _finale(tmp_path, {"uno": [500, 0, 400, 0, 0, 0, 60, 0, 0, 40]})
+    base = ["--finale", str(finale), "--campioni", str(tmp_path / "campioni.tsv")]
+
+    assert vc.main([*base, "--attesi", str(tmp_path / "senza.tsv"), "--uscita", str(tmp_path / "a")]) == 1
+    prima = json.loads((tmp_path / "a" / "riepilogo.json").read_text(encoding="utf-8"))
+    assert "altri_nomi" not in prima
+    assert prima["campioni"]["uno"]["criterio_1"]["mancanti"] == ["Bb"]
+    assert prima["campioni"]["uno"]["non_attesi"] == {"Zz": 60, "Cc": 40}
+
+    assert vc.main([*base, "--attesi", str(tmp_path / "con.tsv"), "--uscita", str(tmp_path / "b")]) == 0
+    dopo = json.loads((tmp_path / "b" / "riepilogo.json").read_text(encoding="utf-8"))
+    assert dopo["altri_nomi"] == {"Zz": "Bb", "Cc": "Bb"}
+    uno = dopo["campioni"]["uno"]
+    assert uno["criterio_1"] == {"superato": True, "mancanti": []}
+    assert uno["quota_non_attesi"] == 0 and uno["non_attesi"] == {}
+    generi = {g["genere"]: g for g in uno["generi"]}
+    assert generi["Bb"]["letture"] == 100 and generi["Bb"]["misurato"] == pytest.approx(10.0)
+    assert dopo["attesi"] == prima["attesi"] and dopo["famiglie_ammesse"] == prima["famiglie_ammesse"]
+    capsys.readouterr()
+
+    for altri in ("Zz|Zz", "Aa", "Zz|NA"):
+        _tsv(tmp_path / "rotta.tsv", [con[0], con[1], [*senza[2], altri], con[3]])
+        assert vc.main([*base, "--attesi", str(tmp_path / "rotta.tsv"), "--uscita", str(tmp_path / "c")]) == 2
+        assert "altro nome vuoto o ripetuto" in capsys.readouterr().out

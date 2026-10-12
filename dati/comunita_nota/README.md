@@ -14,7 +14,10 @@ composizione che si conosce in anticipo.
 | `letture_ena.tsv` | per ogni corsa indirizzi, dimensioni e MD5 dei due file dichiarati da ENA, e il lato tenuto |
 | `scarica_letture.py` | scarica il file forward di ogni corsa in `fastq/` |
 | `config_comunita_nota.yaml` | la configurazione della pipeline, commentata |
-| `attesi.tsv` | i generi attesi con la percentuale teorica e la fonte |
+| `config_comunita_nota_appaiata_naive_bayes.yaml` | la stessa in modalita' appaiata, con i due file di ogni corsa |
+| `config_comunita_nota_forward_idtaxa.yaml` | la stessa con IdTaxa e il classificatore SILVA SSU r138.2 |
+| `attesi.tsv` | i generi attesi con la percentuale teorica e la fonte, come li scrive SILVA 138 nel formato di dada2 |
+| `attesi_idtaxa_silva_138_2.tsv` | gli stessi, come li scrive il classificatore di IdTaxa SILVA SSU r138.2 |
 | `verifica_composizione.py` | verifica la composizione ottenuta contro quella attesa |
 | `FONTI.tsv` | fonte, licenza e controllo di ogni file |
 
@@ -56,6 +59,24 @@ nessun filtro di prevalenza, nessuna rimozione delle varianti senza phylum, ness
 soglia sulle letture finali, perche' filtri piu' stretti toglierebbero cio' che la
 verifica deve contare.
 
+## Le altre due configurazioni
+
+Differiscono da `config_comunita_nota.yaml` solo in cio' che il nome dice, e dichiarano
+la regola rigorosa sulla provenienza (`run.strict_provenance: true`); ciascuna scrive in
+una cartella propria sotto `output/`.
+
+- `config_comunita_nota_appaiata_naive_bayes.yaml` usa le due letture di ogni corsa
+  (`scarica_letture.py --coppie`): i parametri della lettura forward, le scelte e le
+  soglie sono gli stessi; quelli della lettura reverse e della fusione (gruppo `pair`)
+  sono quelli scritti da `init --accetta-proposte` sulle coppie.
+- `config_comunita_nota_forward_idtaxa.yaml` assegna la tassonomia con IdTaxa e il
+  classificatore `SILVA_SSU_r138_2_2024.RData`
+  (`python3 dati/riferimento/scarica_addestrato.py 138.2`); i taxa da escludere sono
+  scritti come li scrive quel classificatore (`Chloroplast_2`, `Mitochondria_2`).
+
+La stessa comunita' sequenziata sulla regione V3-V4, piu' lunga di una lettura, e' in
+`dati/comunita_nota_v3v4/`.
+
 ## Composizione attesa
 
 `attesi.tsv` riporta la composizione teorica per il gene 16S dichiarata dal produttore
@@ -64,6 +85,16 @@ famiglia di ogni specie come li scrive il riferimento tassonomico (SILVA 138:
 *Escherichia coli* e' `Escherichia-Shigella`, *Lactobacillus fermentum* e'
 `Lactobacillus`). I due lieviti dello standard non hanno il 16S.
 
+Ogni riferimento scrive i taxa a modo suo, e la verifica confronta i nomi come stringhe
+esatte: la tabella degli attesi deve essere quella del riferimento con cui la
+tassonomia e' stata assegnata. Il classificatore di IdTaxa SILVA SSU r138.2 scrive molti
+taxa con un suffisso numerico: tre degli otto generi vi compaiono come `Pseudomonas_2`,
+`Escherichia-Shigella_2` e `Salmonella_2`, con le famiglie `Pseudomonadaceae_2` ed
+`Enterobacteriaceae_2`; e ha sia `Lactobacillus` sia `Limosilactobacillus`, il genere in
+cui *L. fermentum* e' stato spostato. `attesi_idtaxa_silva_138_2.tsv` li riporta cosi':
+il secondo nome di un genere sta nella colonna facoltativa `altri_nomi` (piu' nomi
+separati da `|`), e le sue letture si sommano a quelle del genere.
+
 ## Verifica
 
 ```bash
@@ -71,6 +102,9 @@ python3 dati/comunita_nota/verifica_composizione.py \
   --finale output/comunita_nota/12_final --attesi dati/comunita_nota/attesi.tsv \
   --campioni dati/comunita_nota/campioni.tsv --uscita output/comunita_nota_verifica
 ```
+
+Per un'esecuzione con IdTaxa e SILVA SSU r138.2 la tabella e'
+`dati/comunita_nota/attesi_idtaxa_silva_138_2.tsv`.
 
 Ogni corsa si valuta da sola, e lo standard supera un criterio se lo supera ogni corsa;
 una corsa di `campioni.tsv` che non e' nell'oggetto finale non li supera. Le quote sono

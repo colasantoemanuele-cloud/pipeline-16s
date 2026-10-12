@@ -55,9 +55,9 @@ File e metadati si agganciano con una chiave estratta dal nome di ogni file, uni
 campione (`io.accession_regex`). Come preparare letture e tabelle è in GUIDA.md,
 sezione 1.
 
-Nel repository ci sono i dataset su cui la pipeline è eseguita, con dati, configurazione e
-istruzioni: `dati/osd734/` (960 campioni, controlli e file del lotto), `dati/osd276/` (15, senza
-controlli), `dati/osd170/` (30, soli controlli negativi), `dati/comunita_nota/` (uno standard noto).
+Nel repository ci sono i dataset su cui la pipeline è eseguita, con dati, configurazioni e istruzioni: `dati/osd734/`
+(960 campioni, controlli e file del lotto), `dati/osd276/` (15, senza controlli), `dati/osd170/` (30, soli controlli negativi),
+`dati/comunita_nota/` e `dati/comunita_nota_v3v4/` (uno standard noto, regioni V4 e V3-V4); tutti da Illumina MiSeq (GUIDA.md, 1.2, 6.4).
 
 ## Requisiti
 
@@ -270,8 +270,8 @@ misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in
   nome solo dove il contenuto non si può giudicare (GUIDA.md, 1.2); lo è un dataset le cui letture
   portano tutte il marcatore `/2`. In modalità appaiata i taxa con la regione più lunga di quanto
   le letture troncate coprono non si fondono, senza alcun errore (GUIDA.md, 6.7).
-- `init` riconosce il primer solo se è in un elenco di primer 16S comuni; la chiave del campione solo se una
-  colonna corrisponde uno a uno ai file. Il primer cercato lungo la lettura ammette sole sostituzioni, non
+- `init` riconosce il primer solo se è in un elenco di primer 16S comuni; la chiave del campione solo se una colonna corrisponde uno a uno ai file;
+  in modalità appaiata non propone i troncamenti se le code delle letture hanno troppi errori (GUIDA.md, 2). Il primer cercato lungo la lettura ammette sole sostituzioni, non
   inserzioni né delezioni, e non toglie il primer dell'altra estremità in coda alle letture (GUIDA.md, 6.3).
 - Con `filter.trimLeft` maggiore di zero `qc.conserved_motif` si cerca dopo le basi tagliate
   (un'espressione che guarda all'indietro non trova nulla) e il primer non si cerca: in
@@ -281,8 +281,8 @@ misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in
 - Il testo generale «che cosa fare» di alcuni codici descrive solo il caso più frequente (quelli
   sui controlli negativi citano `decontam.min_blanks` anche se omesso): fa fede il dettaglio.
 - Un riferimento senza cloroplasti, mitocondri ed eucarioti (GTDB) non permette di toglierli per nome. La tassonomia
-  arriva al rango più fine del riferimento, con IdTaxa al genere. IdTaxa richiede un classificatore già addestrato, e può
-  lasciare vuoto un rango sopra ranghi assegnati (GUIDA.md, 6.4). L'albero di S9 serve alle distanze fra campioni.
+  arriva al rango più fine del riferimento, con IdTaxa al genere. IdTaxa richiede un classificatore già addestrato, può lasciare vuoto un rango sopra
+  ranghi assegnati e riporta i nomi del classificatore, che in SILVA r138.2 hanno spesso un suffisso (`Chloroplast_2`; GUIDA.md, 6.4). L'albero di S9 serve alle distanze fra campioni.
 - Nelle analisi ecologiche una variabile è continua, e un disegno è a misure ripetute, solo se
   dichiarati (`design.continuous_variables`, `design.subject`: GUIDA.md, 4.1 e 4.2). Con una
   distanza non euclidea la PERMANOVA entro soggetto può non essere valutabile. Un'analisi respinta

@@ -80,6 +80,8 @@ dati/*/fastq_coppie/
 # Le letture forward degli altri dataset, recuperate dai loro scarica_letture.py.
 dati/osd170/fastq/
 dati/comunita_nota/fastq/
+dati/osd191/fastq/
+dati/comunita_nota_v3v4/fastq/
 
 # --- Documenti di lavoro -----------------------------------------------------
 # Il repository contiene lo strumento e le istruzioni per usarlo: i documenti

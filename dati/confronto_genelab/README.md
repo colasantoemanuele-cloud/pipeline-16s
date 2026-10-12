@@ -19,7 +19,8 @@ python3 dati/confronto_genelab/confronta.py --finale <cartella 12_final> \
 | `--escludi` | facoltativo: un nome di campione per riga, da togliere dal confronto |
 
 Gli abbinamenti dei dataset del repository sono accanto ai loro dati
-(`dati/osd170/abbinamento_genelab.tsv`, `dati/osd276/abbinamento_genelab.tsv`). Per
+(`dati/osd170/abbinamento_genelab.tsv`, `dati/osd276/abbinamento_genelab.tsv`,
+`dati/osd191/abbinamento_genelab.tsv`). Per
 OSD-276 vanno escluse le corse in cui i due file pubblicati da OSDR sono scambiati
 (`dati/osd276/corse_invertite_osdr.txt`): l'elaborazione di GeneLab di quelle corse non
 e' confrontabile.
@@ -64,6 +65,14 @@ ha, un campione da escludere che l'abbinamento non conosce, nessun campione in c
 Le virgolette nelle tabelle sono testo, non delimitatori.
 
 Le due elaborazioni differiscono per costruzione: GeneLab fonde le due letture di ogni
-coppia, usa un altro classificatore e non applica filtri finali; la pipeline usa le sole
-forward e toglie contaminanti, organelli e varianti rare. Il confronto misura quanto, a
-dispetto di queste differenze, le due descrivono la stessa comunita'.
+coppia, assegna la tassonomia con IdTaxa e non applica filtri finali; la pipeline toglie
+contaminanti, organelli e varianti rare e, secondo la configurazione, usa le sole forward
+o fonde le coppie, e assegna la tassonomia con il classificatore bayesiano ingenuo o con
+IdTaxa. Il confronto misura quanto, a dispetto delle differenze che restano, le due
+descrivono la stessa comunita'. I nomi si confrontano come stringhe esatte: due
+classificatori che scrivono lo stesso genere in due modi danno due generi.
+
+Per confrontare con la stessa tabella due configurazioni della pipeline (le sole forward
+e le coppie fuse, o i due classificatori), ciascuna si confronta sugli stessi campioni:
+quelli che una delle due ha escluso con i filtri si tolgono dal confronto dell'altra con
+`--escludi`.

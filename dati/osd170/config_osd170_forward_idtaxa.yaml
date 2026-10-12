@@ -1,0 +1,97 @@
+# OSD-170, sole letture forward, con IdTaxa e il classificatore SILVA SSU r138 (2019), quello
+# usato da GeneLab per la tabella elaborata di questo dataset.
+# Uguale a config_osd170.yaml salvo il classificatore.
+io:
+  fastq_dir: dati/osd170/fastq
+  assay_table: dati/osd170/metadati/a_OSD-170_amplicon-sequencing_16s_Illumina.txt
+  study_table: dati/osd170/metadati/s_OSD-170.txt
+  out_root: output/osd170_forward_idtaxa
+  batch_table: null
+  fastq_glob: '*.fastq.gz'
+  accession_regex: L[0-9]+
+meta:
+  sample_id_column: Sample Name
+  accession_column: Sample Name
+  derive_module: false
+  module_column: Factor Value[Sample Location]
+  non_surface_positions: []
+  batch_key_column: null
+  batch_module_column: null
+filter:
+  truncLen: 251
+  truncLen_shortfall_warn: 0
+  trimLeft: 0
+err:
+  randomize: false
+  batch_column: null
+dada:
+  pool: pseudo
+chimera:
+  min_fold_parent_over_abundance: 1.5
+tax:
+  ref_name: SILVA
+  ref_version: '138'
+  classifier: idtaxa
+  idtaxa_trained: dati/riferimento/SILVA_SSU_r138_2019.RData
+  idtaxa_trained_md5: cb983b6a5e8cdb46f8c88b5afae21f66
+  idtaxa_threshold: 60
+  idtaxa_strand: both
+filt:
+  remove_na_phylum: true
+  exclude_taxa:
+  - Chloroplast
+  - Mitochondria
+  - Eukaryota
+phylo:
+  enabled: false
+ctrl:
+  column: Factor Value[Time]
+  blank_values:
+  - Negative control
+  positive_values: []
+  biological_values:
+  - Ascent/Descent, in-flight
+  - Cruise, in-flight
+  - Post-flight
+  - Pre-flight
+  blank_override_column: null
+katharoseq:
+  cell_count_column: null
+  target_sensitivity: 0.9
+decontam:
+  batch_column: null
+  threshold: 0.5
+  min_blanks: 2
+  mode: aggregate
+prev:
+  apply: true
+  min_fraction: 0.05
+  min_count: 2
+qc:
+  head_reads: 10000
+  primer_sequence: TCCTACGGGAGGCAGCAGT
+  max_primer_hit_frac: 0.05
+  conserved_motif: TAC[AG].AG[CG][GT][GT][CG]C[AG]AG[CG]GTT
+  min_motif_frac: 0.5
+  max_frac_short_reads: 0.0
+  max_zeroed_samples: 0
+  max_frac_lost_filter: 0.3
+  max_asv_count: 6300000
+  warn_frac_chimeric: 0.1
+  stop_frac_chimeric: 0.3
+  min_frac_phylum: 0.8
+  min_reads_mode: none
+  max_frac_contaminant: 0.2
+  min_reads_final: 1000
+  min_frac_reads_retained: 0.5
+out:
+  study_columns:
+  - Characteristics[Flight Name]
+  - Characteristics[Collection Date]
+  - Factor Value[Altitude]
+  - Factor Value[Time]
+  - Factor Value[Sample Location]
+  batch_columns: []
+run:
+  container: ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
+  strict_provenance: true

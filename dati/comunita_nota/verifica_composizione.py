@@ -7,7 +7,11 @@ Ingressi:
   ``tassonomia.tsv``, ``metadati.tsv``);
 * ``--attesi``: la tabella dei generi attesi (``attesi.tsv``: genere e
   famiglia come li scrive il riferimento tassonomico, specie, percentuale
-  teorica, fonte);
+  teorica, fonte). Ogni riferimento scrive i nomi a modo suo: la tabella e'
+  quella del riferimento con cui la tassonomia e' stata assegnata. Se il
+  riferimento scrive lo stesso genere atteso con piu' nomi, gli altri stanno
+  nella colonna facoltativa ``altri_nomi``, separati da ``|``: le loro letture
+  si sommano a quelle del genere;
 * ``--campioni``: la tabella dei campioni dati alla pipeline; la prima
   colonna e' il nome del campione. Un campione che vi compare e non e'
   nell'oggetto finale e' riportato come escluso e non supera i criteri: senza
@@ -92,10 +96,32 @@ def leggi_attesi(percorso: Path) -> tuple[dict[str, float], set[str]]:
     return attesi, famiglie
 
 
+def leggi_altri_nomi(percorso: Path) -> dict[str, str]:
+    """Altro nome di un genere atteso -> il genere sotto cui si conta (colonna
+    facoltativa ``altri_nomi``, nomi separati da ``|``)."""
+    try:
+        with open(percorso, encoding="utf-8", newline="") as file:
+            righe = list(csv.DictReader(file, delimiter="\t"))
+    except OSError as errore:
+        raise IngressoNonValido(f"{percorso}: {errore}") from errore
+    generi = {genere_normalizzato(r["genere"]) for r in righe}
+    altri: dict[str, str] = {}
+    for riga in righe:
+        for nome in (riga.get("altri_nomi") or "").split("|"):
+            altro = genere_normalizzato(nome)
+            if not nome.strip():
+                continue
+            if altro == NON_ASSEGNATO or altro in generi or altro in altri:
+                raise IngressoNonValido(f"{percorso}: altro nome vuoto o ripetuto ({nome!r})")
+            altri[altro] = genere_normalizzato(riga["genere"])
+    return altri
+
+
 def categoria(genere: str | None, famiglia: str | None, attesi: dict[str, float],
-              famiglie: set[str]) -> tuple[str, str]:
+              famiglie: set[str], altri_nomi: dict[str, str] | None = None) -> tuple[str, str]:
     """La categoria di una variante e il nome sotto cui si conta."""
     g = genere_normalizzato(genere)
+    g = (altri_nomi or {}).get(g, g)
     if g in attesi:
         return ATTESO, g
     if g != NON_ASSEGNATO:
@@ -144,7 +170,8 @@ def valuta(conteggi: dict[str, dict[str, int]], attesi: dict[str, float]) -> dic
     }
 
 
-def leggi_finale(finale: Path, attesi: dict[str, float], famiglie: set[str]) -> dict[str, dict]:
+def leggi_finale(finale: Path, attesi: dict[str, float], famiglie: set[str],
+                 altri_nomi: dict[str, str] | None = None) -> dict[str, dict]:
     """Per nome di campione, i conteggi per categoria dell'oggetto finale."""
     righe = _CG._righe
     _, metadati = righe(finale / "metadati.tsv")
@@ -157,7 +184,8 @@ def leggi_finale(finale: Path, attesi: dict[str, float], famiglie: set[str]) -> 
     nome_di = {r["accession"]: r["sample_name"] for r in metadati}
     if len(set(nome_di.values())) != len(nome_di):
         raise IngressoNonValido(f"{finale / 'metadati.tsv'}: nomi di campione ripetuti")
-    di_variante = {r["asv_id"]: categoria(r["Genus"], r["Family"], attesi, famiglie) for r in tassonomia}
+    di_variante = {r["asv_id"]: categoria(r["Genus"], r["Family"], attesi, famiglie, altri_nomi)
+                   for r in tassonomia}
     campioni: dict[str, dict] = {nome_di[c]: {} for c in intestazione[1:]}
     for riga in conteggi:
         specie, nome = di_variante[riga[intestazione[0]]]
@@ -182,7 +210,8 @@ def main(argomenti: list[str] | None = None) -> int:
     args = analizzatore.parse_args(argomenti)
     try:
         attesi, famiglie = leggi_attesi(args.attesi)
-        conteggi = leggi_finale(args.finale, attesi, famiglie)
+        altri_nomi = leggi_altri_nomi(args.attesi)
+        conteggi = leggi_finale(args.finale, attesi, famiglie, altri_nomi)
         intestazione, righe = _CG._righe(args.campioni)
         dichiarati = [r[intestazione[0]].strip() for r in righe]
         if not dichiarati:
@@ -236,6 +265,8 @@ def main(argomenti: list[str] | None = None) -> int:
         "campioni": esiti, "esclusi_dalla_pipeline": esclusi,
         "attesi": attesi, "famiglie_ammesse": sorted(famiglie),
     }
+    if altri_nomi:
+        riepilogo["altri_nomi"] = altri_nomi
     with open(args.uscita / "riepilogo.json", "w", encoding="utf-8") as file:
         json.dump(riepilogo, file, ensure_ascii=False, indent=2, sort_keys=True)
         file.write("\n")

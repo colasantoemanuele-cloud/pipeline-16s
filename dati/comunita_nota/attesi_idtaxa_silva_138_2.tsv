@@ -1,0 +1,9 @@
+genere	famiglia	specie	percentuale	fonte	altri_nomi
+Pseudomonas_2	Pseudomonadaceae_2	Pseudomonas aeruginosa	4.2	ZymoBIOMICS Microbial Community DNA Standard (D6305, D6306), manuale 1.2.0, tabella 1, colonna 16S Only	
+Escherichia-Shigella_2	Enterobacteriaceae_2	Escherichia coli	10.1	ZymoBIOMICS Microbial Community DNA Standard (D6305, D6306), manuale 1.2.0, tabella 1, colonna 16S Only	
+Salmonella_2	Enterobacteriaceae_2	Salmonella enterica	10.4	ZymoBIOMICS Microbial Community DNA Standard (D6305, D6306), manuale 1.2.0, tabella 1, colonna 16S Only	
+Lactobacillus	Lactobacillaceae	Lactobacillus fermentum	18.4	ZymoBIOMICS Microbial Community DNA Standard (D6305, D6306), manuale 1.2.0, tabella 1, colonna 16S Only	Limosilactobacillus
+Enterococcus	Enterococcaceae	Enterococcus faecalis	9.9	ZymoBIOMICS Microbial Community DNA Standard (D6305, D6306), manuale 1.2.0, tabella 1, colonna 16S Only	
+Staphylococcus	Staphylococcaceae	Staphylococcus aureus	15.5	ZymoBIOMICS Microbial Community DNA Standard (D6305, D6306), manuale 1.2.0, tabella 1, colonna 16S Only	
+Listeria	Listeriaceae	Listeria monocytogenes	14.1	ZymoBIOMICS Microbial Community DNA Standard (D6305, D6306), manuale 1.2.0, tabella 1, colonna 16S Only	
+Bacillus	Bacillaceae	Bacillus subtilis	17.4	ZymoBIOMICS Microbial Community DNA Standard (D6305, D6306), manuale 1.2.0, tabella 1, colonna 16S Only	

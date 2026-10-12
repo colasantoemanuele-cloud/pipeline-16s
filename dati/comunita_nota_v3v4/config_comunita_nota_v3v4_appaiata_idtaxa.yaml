@@ -1,0 +1,98 @@
+# Comunita' nota sulla regione V3-V4 (studio PRJEB30924, sei corse), in modalita' appaiata,
+# con IdTaxa e il classificatore SILVA SSU r138.2.
+# Uguale a config_comunita_nota_v3v4_appaiata_naive_bayes.yaml salvo il classificatore; i taxa da
+# escludere sono scritti come li scrive questo classificatore (Chloroplast_2, Mitochondria_2).
+io:
+  fastq_dir: dati/comunita_nota_v3v4/fastq_coppie
+  assay_table: dati/comunita_nota_v3v4/campioni.tsv
+  study_table: null
+  out_root: output/comunita_nota_v3v4_appaiata_idtaxa
+  batch_table: null
+  fastq_glob: '*.fastq.gz'
+  accession_regex: ERR[0-9]+
+  layout: paired-end
+meta:
+  sample_id_column: campione
+  accession_column: file_letture
+  derive_module: false
+  module_column: null
+  non_surface_positions: []
+  batch_key_column: null
+  batch_module_column: null
+filter:
+  truncLen: 263
+  truncLen_shortfall_warn: 14
+  trimLeft: 0
+  primer_removal: search
+  primer_max_mismatch: 1
+  primer_max_offset: 7
+  primer_untrimmed: discard
+err:
+  randomize: false
+  batch_column: null
+dada:
+  pool: false
+chimera:
+  min_fold_parent_over_abundance: 1.5
+tax:
+  ref_name: SILVA
+  ref_version: '138.2'
+  classifier: idtaxa
+  idtaxa_trained: dati/riferimento/SILVA_SSU_r138_2_2024.RData
+  idtaxa_trained_md5: 4e272e39c2d71f5d3e7a31b00dbb1df4
+  idtaxa_threshold: 60
+  idtaxa_strand: both
+filt:
+  remove_na_phylum: false
+  exclude_taxa:
+  - Chloroplast_2
+  - Mitochondria_2
+phylo:
+  enabled: false
+ctrl:
+  blank_override_column: null
+  column: null
+katharoseq:
+  cell_count_column: null
+decontam:
+  batch_column: null
+prev:
+  apply: false
+qc:
+  min_reads_mode: none
+  min_frac_reads_retained: 0.0
+  max_asv_count: 270000
+  max_zeroed_samples: 0
+  max_frac_lost_filter: 1.0
+  max_frac_short_reads: 0.0
+  warn_frac_chimeric: 1.0
+  stop_frac_chimeric: 1.0
+  min_frac_phylum: 0.0
+  head_reads: 9604
+  max_primer_hit_frac: 1.0
+  min_motif_frac: 0.0
+  max_frac_untrimmed: 1.0
+  primer_sequence: CCTACGGGNGGCWGCAG
+  conserved_motif: T[AG]GGGAAT[AC]TT[CG][CG][AG]CAA
+  min_reads_final: 0
+pair:
+  file_markers:
+  - _R1
+  - _R2
+  truncLen_reverse: 187
+  trimLeft_reverse: 0
+  truncLen_shortfall_warn_reverse: 87
+  primer_sequence_reverse: GGACTACNVGGGTWTCTAAT
+  conserved_motif_reverse: CCTGTT[CT]G[AC]T[AC]CCCA[CT]GCTT
+  max_primer_hit_frac_reverse: 1.0
+  min_merged_frac_warn: 0.0
+  min_merged_frac_stop: 0.0
+  len_min: 259
+  len_max: 430
+  expected_merged_len: 429
+out:
+  study_columns: []
+  batch_columns: []
+run:
+  container: ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
+  strict_provenance: true

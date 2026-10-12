@@ -15,6 +15,8 @@ letture (251 basi), ambiente e disegno dei controlli.
 | `letture_osdr.tsv` | per ogni campione gli indirizzi e le dimensioni dei due file grezzi, il lato tenuto e il suo MD5 |
 | `scarica_letture.py` | scarica il file forward di ogni campione in `fastq/` |
 | `config_osd170.yaml` | la configurazione della pipeline, commentata |
+| `config_osd170_appaiata_naive_bayes.yaml` | la stessa in modalita' appaiata, con i due file di ogni campione |
+| `config_osd170_forward_idtaxa.yaml` | la stessa con IdTaxa e il classificatore SILVA SSU r138 |
 | `eco_osd170.yaml` | la configurazione delle analisi ecologiche di base |
 | `abbinamento_genelab.tsv` | per ogni campione, il nome con cui compare nella tabella elaborata da GeneLab |
 | `FONTI.tsv` | fonte, licenza e controllo di ogni file |
@@ -76,6 +78,21 @@ pipeline lo dichiara.
 che si potrebbe omettere (`katharoseq.target_sensitivity`: non ci sono controlli
 positivi): e' dichiarato perche' la configurazione dia esattamente il suo digest, che
 identifica le esecuzioni.
+
+## Le altre due configurazioni
+
+Differiscono da `config_osd170.yaml` solo in cio' che il nome dice, e dichiarano la
+regola rigorosa sulla provenienza (`run.strict_provenance: true`); ciascuna scrive in
+una cartella propria sotto `output/`.
+
+- `config_osd170_appaiata_naive_bayes.yaml` usa le due letture di ogni campione
+  (`scarica_letture.py --coppie`): i parametri della lettura forward, le scelte e le
+  soglie sono gli stessi; quelli della lettura reverse e della fusione (gruppo `pair`)
+  sono quelli scritti da `init --accetta-proposte` sulle coppie. La regione letta, la V4,
+  sta quasi per intero nella lettura forward (251 basi su circa 253).
+- `config_osd170_forward_idtaxa.yaml` assegna la tassonomia con IdTaxa e il
+  classificatore `SILVA_SSU_r138_2019.RData`, quello che GeneLab ha usato per la tabella
+  elaborata di questo dataset (`python3 dati/riferimento/scarica_addestrato.py 2019`).
 
 ## Confronto con l'elaborazione di GeneLab
 

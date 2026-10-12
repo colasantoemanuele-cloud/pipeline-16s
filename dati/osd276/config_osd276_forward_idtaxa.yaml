@@ -1,0 +1,135 @@
+# OSD-276, sole letture forward, con IdTaxa e il classificatore SILVA SSU r138 (2019), quello
+# usato da GeneLab per la tabella elaborata di questo dataset.
+# Uguale a config_osd276.yaml salvo il classificatore.
+io:
+  fastq_dir: dati/osd276/fastq
+  assay_table: dati/osd276/metadati/a_OSD-276_amplicon-sequencing_16s_Illumina.txt
+  study_table: dati/osd276/metadati/s_OSD-276.txt
+  out_root: output/osd276_forward_idtaxa
+  batch_table: null
+  fastq_glob: '*.fastq.gz'
+  accession_regex: SRR[0-9]+
+meta:
+  sample_id_column: Sample Name
+  accession_column: Raw Data File
+  derive_module: true
+  module_regex: null
+  module_column: Factor Value[Sample Location]
+  non_surface_positions: []
+  batch_key_column: null
+  batch_module_column: null
+filter:
+  truncLen: 150
+  truncLen_shortfall_warn: 10
+  trimLeft: 0
+  maxEE: 2.0
+  truncQ: 2
+  maxN: 0
+  rm_phix: true
+err:
+  error_function: loess
+  nbases: 100000000.0
+  max_consist: 10
+  randomize: true
+  batch_column: null
+dada:
+  pool: pseudo
+  omega_a: 1.0e-40
+chimera:
+  method: consensus
+  min_fold_parent_over_abundance: 2.0
+  min_parent_abundance: 2
+  min_sample_fraction: 0.9
+  allow_one_off: false
+asv:
+  len_tol: 0
+tax:
+  ref_name: SILVA
+  ref_version: '138'
+  classifier: idtaxa
+  assign_species: false
+  idtaxa_trained: dati/riferimento/SILVA_SSU_r138_2019.RData
+  idtaxa_trained_md5: cb983b6a5e8cdb46f8c88b5afae21f66
+  idtaxa_threshold: 60
+  idtaxa_strand: both
+filt:
+  remove_na_phylum: true
+  exclude_taxa:
+  - Chloroplast
+  - Mitochondria
+  - Eukaryota
+phylo:
+  enabled: false
+  max_seqs: 5000
+  aligner: decipher
+  model: GTR+G+I
+ctrl:
+  column: Characteristics[Material Type]
+  biological_values:
+  - Cells
+  blank_values: []
+  positive_values: []
+  blank_override_column: null
+  blank_override_values: []
+  min_positives: 3
+  min_positive_pass_frac: 0.75
+  positive_gate: false
+katharoseq:
+  target_taxon: null
+  cell_count_column: null
+  collapse_rank: Genus
+  curve_model: allosteric_sigmoid
+  target_sensitivity: 0.9
+  min_r2: 0.8
+  read_stage: nonchimeric
+decontam:
+  batch_column: null
+  method: prevalence
+  threshold: 0.5
+  min_blanks: 5
+  batch_combine: minimum
+  mode: aggregate
+prev:
+  apply: true
+  min_count: 2
+  min_fraction: 0.1
+qc:
+  head_reads: 10000
+  primer_sequence: GTGYCAGCMGCCGCGGTAA
+  max_primer_hit_frac: 0.05
+  conserved_motif: TAC[AG].AGG..GC.AGCGTT
+  min_motif_frac: 0.25
+  max_frac_short_reads: 0.05
+  max_zeroed_samples: 0
+  max_frac_lost_filter: 0.3
+  max_asv_count: 300000
+  warn_frac_chimeric: 0.25
+  stop_frac_chimeric: 0.5
+  min_frac_phylum: 0.8
+  min_reads_mode: katharoseq_if_available
+  max_frac_contaminant: 0.4
+  min_reads_final: 1000
+  min_frac_reads_retained: 0.4
+retry:
+  enabled: true
+  max_attempts: 2
+  whitelist:
+  - E-S2-03
+  - E-S4-02
+out:
+  serialization: rds
+  taxa_are_rows: true
+  asv_id_scheme: abundance_rank
+  sample_id_source: accession
+  export_flat: true
+  study_columns:
+  - Factor Value[Spaceflight]
+  - Parameter Value[Sample Storage Temperature]
+  batch_columns: []
+run:
+  container: ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
+  lockfile: renv.lock
+  seed: 100
+  batch_size: 24
+  keep_filtered_fastq: true
+  strict_provenance: true
