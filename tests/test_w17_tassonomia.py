@@ -495,7 +495,7 @@ def test_una_provenienza_diversa_avvisa_e_una_versione_nuova_rifa(tmp_path, monk
 def test_i_manifesti_della_catena_registrano_il_sorgente_del_registro(dada2, finale_calcolata):
     """
     **Obiettivo**: Verificare che nei manifesti di ogni fase eseguita sulla
-    versione ridotta, S0-S8 e S10-S14 (S9 e' disattivata per difetto, e la
+    versione ridotta, S0-S8 e S10-S14 (S9 e' disattivata nella configurazione di prova, e la
     verifica ``tests/test_w23_filogenesi.py``), la provenienza riporti la
     versione e l'impronta del sorgente del registro.
 

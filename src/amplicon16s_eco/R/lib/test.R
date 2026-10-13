@@ -127,6 +127,7 @@ disegno_dei_test <- function(d, parametri) {
     stimabile <- eseguibile
     saturo <- FALSE
     possibili <- NA_real_
+    possibili_gruppi <- NA_real_
     if (eseguibile) {
       valori <- v$valori[campioni]
       for (tecnica in d$tecniche) {
@@ -187,10 +188,26 @@ disegno_dei_test <- function(d, parametri) {
       combinazioni <- do.call(paste, c(lapply(modello, as.character), sep = "\r"))
       logaritmo <- .log_disposizioni(combinazioni, blocchi)
       possibili <- if (logaritmo < log(1e15)) round(exp(logaritmo)) else Inf
+      # Il test delle dispersioni scambia le sole etichette dei gruppi: le sue
+      # disposizioni distinte sono quelle dei gruppi, non delle combinazioni
+      # del modello, e con variabili tecniche possono essere di meno.
+      logaritmo <- .log_disposizioni(valori, blocchi)
+      possibili_gruppi <- if (logaritmo < log(1e15)) round(exp(logaritmo)) else Inf
       if (!saturo && possibili <= permutazioni) {
+        if (possibili_gruppi == possibili) {
+          avviso("E-ECO-21", sprintf(
+            "Variabile '%s': con %d campioni le disposizioni distinte fra le combinazioni del modello sono %.0f, a fronte di %d permutazioni richieste; per PERMANOVA e test delle dispersioni la p minima raggiungibile e' %s.",
+            nome, length(campioni), possibili, permutazioni, reale(1 / possibili)))
+        } else {
+          avviso("E-ECO-21", sprintf(
+            "Variabile '%s': con %d campioni le disposizioni distinte fra le combinazioni del modello sono %.0f, a fronte di %d permutazioni richieste; per la PERMANOVA la p minima raggiungibile e' %s. Per il test delle dispersioni, che scambia le sole etichette dei gruppi, le disposizioni distinte sono %.0f e la p minima raggiungibile e' %s.",
+            nome, length(campioni), possibili, permutazioni, reale(1 / possibili),
+            possibili_gruppi, reale(1 / possibili_gruppi)))
+        }
+      } else if (!saturo && possibili_gruppi <= permutazioni) {
         avviso("E-ECO-21", sprintf(
-          "Variabile '%s': con %d campioni le disposizioni distinte fra le combinazioni del modello sono %.0f, a fronte di %d permutazioni richieste; per PERMANOVA e test delle dispersioni la p minima raggiungibile e' %s.",
-          nome, length(campioni), possibili, permutazioni, reale(1 / possibili)))
+          "Variabile '%s': con %d campioni le disposizioni distinte delle etichette dei gruppi sono %.0f, a fronte di %d permutazioni richieste; per il test delle dispersioni la p minima raggiungibile e' %s.",
+          nome, length(campioni), possibili_gruppi, permutazioni, reale(1 / possibili_gruppi)))
       }
     }
     piani[[nome]] <- list(
@@ -203,7 +220,8 @@ disegno_dei_test <- function(d, parametri) {
                        gruppi = g$nei_test, dimensioni = g$dimensioni[g$nei_test],
                        termini = termini, stimabile = stimabile, saturo = saturo,
                        eseguibile = eseguibile, stato = stato,
-                       disposizioni = possibili)
+                       disposizioni = possibili,
+                       disposizioni_gruppi = possibili_gruppi)
     )
   }
   list(piani = piani, avvisi = avvisi, strati = strati, valori_strati = valori_strati)
@@ -391,14 +409,16 @@ permanova <- function(matrice, distanza, piano, tecnici, valori_strati, permutaz
   # che l'esame di tutte le D disposizioni consentirebbe: la si riporta a quel
   # minimo e lo si dichiara nella nota. Le disposizioni non si enumerano qui:
   # quando le enumera permute le permutazioni usate sono meno delle richieste,
-  # e la p e' gia' quella esatta.
-  minimo <- function() {
-    if (!is.na(usate) && usate == permutazioni && is.finite(p$disposizioni) &&
-        p$disposizioni > 1 && p$disposizioni < permutazioni) 1 / p$disposizioni else NA_real_
+  # e la p e' gia' quella esatta. Le disposizioni sono quelle del test: per la
+  # PERMANOVA le combinazioni del modello, per le dispersioni le sole
+  # etichette dei gruppi, che permutest scambia.
+  minimo <- function(disposizioni) {
+    if (!is.na(usate) && usate == permutazioni && is.finite(disposizioni) &&
+        disposizioni > 1 && disposizioni < permutazioni) 1 / disposizioni else NA_real_
   }
-  nota_del_minimo <- sprintf(
+  nota_del_minimo <- function(disposizioni) sprintf(
     "p non inferiore a 1/%.0f: le disposizioni distinte dei campioni sono %.0f, meno delle %d permutazioni estratte a caso",
-    p$disposizioni, p$disposizioni, as.integer(permutazioni))
+    disposizioni, disposizioni, as.integer(permutazioni))
   if (p$saturo) {
     riga("permanova", piano$nome, "analizzata", NA, NA, NA, NA, NA,
          "non eseguita: il modello non lascia gradi di liberta' residui")
@@ -413,7 +433,7 @@ permanova <- function(matrice, distanza, piano, tecnici, valori_strati, permutaz
     usate <- nrow(attr(grezzo, "F.perm"))
     esito <- as.data.frame(grezzo)
     una_sola <- is.finite(p$disposizioni) && p$disposizioni <= 1
-    soglia <- minimo()
+    soglia <- minimo(p$disposizioni)
     for (termine in names(nomi)) {
       if (termine %in% rownames(esito)) {
         e <- esito[termine, ]
@@ -423,7 +443,7 @@ permanova <- function(matrice, distanza, piano, tecnici, valori_strati, permutaz
              if (limitata) max(pv, soglia) else pv,
              if (una_sola) {
                "p non calcolabile: una sola disposizione possibile dei campioni"
-             } else if (limitata) nota_del_minimo else "")
+             } else if (limitata) nota_del_minimo(p$disposizioni) else "")
       } else {
         riga("permanova", nomi[[termine]], ruolo[[termine]], 0L, NA, NA, NA, NA,
              "non stimabile: nessun grado di liberta' dopo i termini precedenti")
@@ -474,7 +494,7 @@ permanova <- function(matrice, distanza, piano, tecnici, valori_strati, permutaz
   valutabile <- is.finite(totale) && totale > 0 && residuo > 1e-12 * totale &&
     prova["Residuals", "Df"] > 0
   p_dispersioni <- if (valutabile) prova["Groups", "Pr(>F)"] else NA_real_
-  soglia <- minimo()
+  soglia <- minimo(p$disposizioni_gruppi)
   limitata <- !is.na(p_dispersioni) && !is.na(soglia)
   if (limitata) p_dispersioni <- max(p_dispersioni, soglia)
   diverse <- !is.na(p_dispersioni) && p_dispersioni < livello
@@ -490,7 +510,7 @@ permanova <- function(matrice, distanza, piano, tecnici, valori_strati, permutaz
            if (diverse) sprintf(
              "dispersioni diverse (p < %s): la PERMANOVA non va letta come differenza di posizione",
              format(livello)),
-           if (limitata) nota_del_minimo), collapse = "; ")
+           if (limitata) nota_del_minimo(p$disposizioni_gruppi)), collapse = "; ")
        })
   riga("dispersioni", "residuo", "residuo", prova["Residuals", "Df"], residuo, NA, NA, NA)
   list(tabella = do.call(rbind, righe), dispersioni_diverse = diverse,

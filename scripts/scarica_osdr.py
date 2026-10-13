@@ -259,7 +259,7 @@ def marcatore_in_fondo(nome: str) -> bool:
         if nome.lower().endswith(estensione):
             radice = nome[: -len(estensione)]
             break
-    return re.search(r"[_.][Rr]?[12](?:_[0-9]+|_raw)?$", radice) is not None
+    return re.search(r"[_.][Rr]?[12](?:_[0-9]+|_[Rr][Aa][Ww])?$", radice) is not None
 
 
 def letture_della_tabella(tabella: Path, solo_forward: bool) -> List[str]:

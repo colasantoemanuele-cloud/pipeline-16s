@@ -557,6 +557,41 @@ def test_con_poche_disposizioni_la_p_estratta_a_caso_non_scende_sotto_il_minimo(
         assert "28, meno delle 999 permutazioni" in riga["nota"], analisi
 
 
+def test_il_minimo_delle_dispersioni_e_quello_delle_sole_etichette_dei_gruppi(eco_r, tmp_path):
+    """
+    **Obiettivo**: con sei campioni contro due e una variabile tecnica
+    bilanciata fra i gruppi, le disposizioni distinte fra le combinazioni del
+    modello sono piu' delle 999 permutazioni richieste, quelle delle sole
+    etichette dei gruppi sono 28: la p delle dispersioni non scende sotto 1/28
+    e la sua nota lo dichiara, la riga della PERMANOVA non e' limitata, e
+    l'avviso ``E-ECO-21`` nomina il solo test delle dispersioni.
+
+    **Razionale scientifico e sistemistico**: il test delle dispersioni
+    permuta le etichette dei gruppi, non le combinazioni del modello: il suo
+    minimo raggiungibile dipende dai soli gruppi, e con variabili tecniche e'
+    piu' alto di quello della PERMANOVA.
+    """
+    oggetto = genera(tmp_path, [
+        {"n": 3, "gruppo": "a", "lotto": "x", "sigma": 0.3},
+        {"n": 3, "gruppo": "a", "lotto": "y", "sigma": 0.3},
+        {"n": 1, "gruppo": "b", "lotto": "x", "sigma": 0.3, "scambia": True},
+        {"n": 1, "gruppo": "b", "lotto": "y", "sigma": 0.3, "scambia": True},
+    ])
+    esito = esegui(
+        oggetto,
+        _config(design={"technical_variables": ["lotto"]}, stat={"min_group_size": 2}),
+        tmp_path / "uscita")
+    avvisi = [a.dettaglio for a in esito.avvisi if a.codice == "E-ECO-21"]
+    assert len(avvisi) == 1 and "etichette dei gruppi sono 28," in avvisi[0]
+    assert "per il test delle dispersioni" in avvisi[0] and "PERMANOVA" not in avvisi[0]
+    righe = righe_permanova(tmp_path / "uscita")
+    dispersioni = righe[("dispersioni", "gruppo")]
+    assert dispersioni["permutazioni"] == "999" and dispersioni["campioni"] == "8"
+    assert dispersioni["p"] != "NA" and float(dispersioni["p"]) >= 1 / 28 - 1e-9
+    assert "p non inferiore a 1/28" in dispersioni["nota"]
+    assert "p non inferiore" not in righe[("permanova", "gruppo")]["nota"]
+
+
 def test_un_valore_tecnico_mancante_toglie_il_campione_dalla_sola_permanova(eco_r, tmp_path):
     """
     **Obiettivo**: un campione senza valore nella variabile tecnica esce dalla

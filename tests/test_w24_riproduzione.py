@@ -374,7 +374,7 @@ def test_i_checksum_pubblicati_sono_coerenti():
     **Obiettivo**: Verificare che i checksum pubblicati dei file consegnati
     siano, nell'elenco di tutti gli artefatti, quelli di S14 in ``12_final``
     con la stessa impronta; che l'elenco copra tutte le fasi tranne S9,
-    disattivata per difetto, senza artefatti ripetuti e con impronte ben
+    disattivata nella configurazione di prova, senza artefatti ripetuti e con impronte ben
     formate; che vi compaia l'oggetto finale; e che il README della cartella
     riporti il comando del confronto e i due file.
 

@@ -221,7 +221,8 @@ def test_avverte_se_le_coppie_non_hanno_il_marcatore_in_fondo_al_nome(tmp_path, 
     assert "ATTENZIONE" not in testo and "p16s init" in testo
     for nome, atteso in (("a_R1.fastq.gz", True), ("a_R2_001.fastq.gz", True),
                          ("a_1.fq", True), ("a.2.fq.gz", True), ("a_R1_raw.fastq.gz", True),
-                         ("a_R2_raw.fastq.gz", True), ("a_R1_L001.fastq.gz", False),
+                         ("a_R2_raw.fastq.gz", True), ("a_R1_RAW.fastq.gz", True),
+                         ("a_R2_RAW.fastq.gz", True), ("a_R1_L001.fastq.gz", False),
                          ("a_R1_trimmed.fastq.gz", False), ("campione1.fastq.gz", False)):
         assert scarica_osdr.marcatore_in_fondo(nome) is atteso, nome
 

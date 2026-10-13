@@ -1285,7 +1285,7 @@ def test_esistono_tutte_le_fasi(scenario):
     ``Passo.S12`` attende S10 (non S11, di cui non legge artefatti),
     ``Passo.S13`` le fasi di cui legge gli
     artefatti e ``Passo.S14`` attende S10 e S13; ``Passo.S9`` e' realizzata e
-    disattivata per difetto.
+    disattivata nella configurazione di prova.
 
     **Razionale scientifico e sistemistico**: Con tutte le fasi realizzate
     nessuna valutazione puo' piu' dare una fase prevista dal grafo e priva di

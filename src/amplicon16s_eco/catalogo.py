@@ -179,7 +179,9 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "Le disposizioni distinte dei campioni sono meno delle permutazioni richieste.",
         "Per PERMANOVA e test delle dispersioni la p minima raggiungibile e' piu' "
         "alta di quella attesa con stat.permanova_permutations: e' riportata nel "
-        "dettaglio. La tabella riporta le permutazioni effettivamente usate; se "
+        "dettaglio. Il test delle dispersioni scambia le sole etichette dei "
+        "gruppi: con variabili tecniche le sue disposizioni possono essere meno "
+        "di quelle del modello, e il dettaglio riporta i due minimi. La tabella riporta le permutazioni effettivamente usate; se "
         "sono estratte a caso, una p piu' bassa del minimo e' riportata al minimo "
         "e la colonna nota lo dichiara.",
     ),
