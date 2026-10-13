@@ -28,7 +28,7 @@ from amplicon16s_eco import __version__
 from amplicon16s_eco.catalogo import CATALOGO
 from amplicon16s_eco.config import CONDIZIONALI, OBBLIGATORI, STANDARD_DEL_METODO, ConfigEco
 
-__all__ = ["esito_validazione", "problema", "schema", "stato"]
+__all__ = ["chiavi_dello_schema", "esito_validazione", "problema", "schema", "stato"]
 
 STRUMENTO = "amplicon16s_eco"
 
@@ -61,12 +61,17 @@ def schema() -> dict[str, Any]:
 _NOME = re.compile(r"\b([a-z]+\.[a-z_]+)\b")
 
 
-def problema(codice: str, dettaglio: str) -> dict[str, Any]:
-    """Un rifiuto o un avviso nella forma del documento."""
-    noti = {
+def chiavi_dello_schema() -> tuple[str, ...]:
+    """Tutti i parametri dello schema, nella forma ``gruppo.parametro``."""
+    return tuple(
         f"{gruppo}.{nome}" for gruppo, campo in ConfigEco.model_fields.items()
         for nome in campo.annotation.model_fields
-    }
+    )
+
+
+def problema(codice: str, dettaglio: str) -> dict[str, Any]:
+    """Un rifiuto o un avviso nella forma del documento."""
+    noti = set(chiavi_dello_schema())
     parametri = [n for n in dict.fromkeys(_NOME.findall(dettaglio)) if n in noti]
     voce = CATALOGO.get(codice)
     return {

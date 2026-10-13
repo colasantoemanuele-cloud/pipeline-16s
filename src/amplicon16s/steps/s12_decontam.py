@@ -9,9 +9,10 @@ manifesto.
 
 **Il metodo.** ``decontam.method`` e' ``prevalence``, l'unico praticabile: il
 metodo per frequenza richiede una misura di concentrazione del DNA che i
-metadati non hanno. ``decontam.threshold`` e' 0,5 e non 0,1: in bassa biomassa
-la contaminazione da reagente puo' essere una quota rilevante del segnale, e la
-soglia e' orientata alla sensibilita'.
+metadati non hanno. ``decontam.threshold`` e' una scelta di chi configura lo
+studio, non un valore dello strumento: in bassa biomassa la contaminazione da
+reagente puo' essere una quota rilevante del segnale, e una soglia piu' alta
+di quella predefinita del pacchetto orienta il confronto alla sensibilita'.
 
 **Chi entra nel confronto.** I controlli negativi da una parte, i campioni
 biologici dall'altra, secondo la classe dei metadati. I controlli positivi ne

@@ -16,8 +16,9 @@
 #                      sono gli identificativi delle varianti
 #
 # Parametri: filtrato (ps_filtrato.rds di S13), integrato (ps_integrato.rds
-# di S10), albero (albero.nwk di S9, o nullo con la filogenesi disattivata),
-# taxa_are_rows, export.
+# di S10), albero (albero.nwk di S9; nullo con la filogenesi disattivata, o
+# quando S9 si e' conclusa senza albero: varianti finali oltre phylo.max_seqs
+# o meno di quattro), taxa_are_rows, export.
 #
 # L'ALBERO. Con la filogenesi attiva l'albero di S9 entra qui nell'oggetto
 # finale: S10 assembla l'oggetto integrato sempre senza albero. Prima di unirlo

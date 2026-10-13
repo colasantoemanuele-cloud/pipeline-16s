@@ -551,6 +551,71 @@ def test_la_riga_di_comando_respinge_con_il_codice_e_uscita_3(tmp_path, capsys):
     assert not uscita.exists()
 
 
+def test_validate_indica_la_riga_del_file_di_ogni_parametro_mancante(tmp_path, capsys):
+    """
+    **Obiettivo**: sul modello di configurazione, che lascia in commento ogni
+    parametro obbligatorio, ``validate`` stampa dopo il rifiuto, per ciascun
+    parametro mancante, il numero della riga del file che lo porta in commento
+    sotto il suo gruppo; per un parametro senza riga indica la riga del gruppo
+    sotto cui aggiungerla; il messaggio del rifiuto e il documento JSON restano
+    quelli di prima.
+
+    **Razionale scientifico e sistemistico**: l'elenco dei parametri mancanti
+    e' la lista delle cose da scrivere, e il numero della riga evita di
+    scriverne uno sotto il gruppo sbagliato. La regola e' quella della
+    pipeline, applicata ai parametri dello schema delle analisi: un parametro
+    della pipeline con lo stesso nome non e' una riga di questo file.
+    """
+    import json
+
+    from amplicon16s.cli import righe_nel_file
+    from amplicon16s_eco.interfaccia import chiavi_dello_schema
+
+    comune = ["--object", str(tmp_path / "x.rds"), "--config", str(MODELLO)]
+    assert main(["validate", *comune]) == USCITA_RIFIUTO
+    rifiuto = capsys.readouterr().err
+    assert all(f"Parametro mancante: {chiave}" in rifiuto for chiave in schema.OBBLIGATORI)
+    assert f"dove scriverli, in {MODELLO} (parametro: riga del file):" in rifiuto
+    # Le indicazioni seguono il messaggio del rifiuto.
+    assert rifiuto.index("dove scriverli") > rifiuto.rindex("[E-ECO-02]")
+    righe = MODELLO.read_text(encoding="utf-8").splitlines()
+    indicate = dict(re.findall(r"^    ([a-z_.0-9]+): (.+)$", rifiuto, flags=re.M))
+    assert set(schema.OBBLIGATORI) <= set(indicate)
+    for chiave in schema.OBBLIGATORI:
+        gruppo, parametro = chiave.split(".")
+        numeri = [int(n) for n in re.findall(r"\d+", indicate[chiave].split("(")[0])]
+        assert numeri, chiave
+        for numero in numeri:
+            assert righe[numero - 1].startswith(f"  # {parametro}:"), (chiave, righe[numero - 1])
+            sopra = [r for r in righe[:numero] if re.match(r"^[a-z_]+:\s*$", r)]
+            assert sopra[-1] == f"{gruppo}:", chiave
+
+    # Senza la riga lo dice, e una riga di spiegazione non e' un parametro.
+    breve = tmp_path / "breve.yaml"
+    breve.write_text("design:\n  ## variable: come si sceglie\n  technical_variables: []\n",
+                     encoding="utf-8")
+    assert main(["validate", "--object", str(tmp_path / "x.rds"), "--config", str(breve)]) == (
+        USCITA_RIFIUTO)
+    rifiuto = capsys.readouterr().err
+    assert ("design.variable: nessuna riga nel file: aggiungila sotto «design:» (riga 1)"
+            in rifiuto)
+
+    # I parametri noti sono quelli dello schema indicato: per difetto la pipeline.
+    testo = breve.read_text(encoding="utf-8")
+    assert righe_nel_file(testo, chiavi_dello_schema())[0] == {
+        "design.technical_variables": [(3, True)]}
+    assert righe_nel_file(testo) == ({}, {"design": 1})
+
+    # Con --json il documento resta sull'uscita standard, senza le righe.
+    assert main(["validate", *comune, "--json"]) == USCITA_RIFIUTO
+    catturato = capsys.readouterr()
+    documento = json.loads(catturato.out)
+    assert all("dove scriverli" not in p["messaggio"] for p in documento["problemi"])
+    assert any("Parametro mancante: design.variable" in p["messaggio"]
+               for p in documento["problemi"])
+    assert "dove scriverli" in catturato.err and "dove scriverli" not in catturato.out
+
+
 def test_la_riga_di_comando_esegue_le_analisi(eco_r, tmp_path, capsys):
     """
     **Obiettivo**: ``run`` con oggetto, configurazione e cartella di uscita

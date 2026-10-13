@@ -305,7 +305,7 @@ def test_gli_eventi_si_filtrano_per_codice(tmp_path):
 def test_l_errore_registrato_porta_con_se_la_gestione(tmp_path):
     """
     **Obiettivo**: Verificare che ``registra_errore`` includa nell'evento JSON
-    ``codice``, ``fase``, ``categoria``, i parametri di contesto (``sequenze=12000``)
+    ``codice``, ``fase``, ``categoria``, i parametri di contesto (``varianti=12000``)
     e l'``azione`` prescrittiva del catalogo.
 
     **Razionale scientifico e sistemistico**: Garantisce che ogni evento d'errore
@@ -313,14 +313,14 @@ def test_l_errore_registrato_porta_con_se_la_gestione(tmp_path):
     gestione e l'istruzione operativa per il ricercatore.
     """
     percorso = configura(tmp_path)
-    registra_errore(ottieni("s9"), errore("E-S9-01", "12000 sequenze", sequenze=12000))
+    registra_errore(ottieni("s5"), errore("E-S5-01", "12000 varianti", varianti=12000))
     chiudi()
 
     evento = _righe(percorso)[0]
-    assert evento["codice"] == "E-S9-01"
-    assert evento["fase"] == "S9"
+    assert evento["codice"] == "E-S5-01"
+    assert evento["fase"] == "S5"
     assert evento["categoria"] == "revisione_umana"
-    assert evento["sequenze"] == 12000
+    assert evento["varianti"] == 12000
     assert evento["azione"]
 
 

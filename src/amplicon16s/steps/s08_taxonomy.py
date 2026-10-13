@@ -6,8 +6,10 @@ sul riferimento ``tax.ref_fasta``, e scrive in ``08_taxonomy/`` la tabella
 tassonomica, il bootstrap di ciascun rango (servira' ai filtri di S13 e
 all'interpretazione) e la copertura del phylum per classe di campioni.
 
-**Il classificatore.** ``tax.classifier`` vale ``naive_bayes``, il solo
-classificatore realizzato (``dada2::assignTaxonomy``). ``tax.min_boot`` ha per
+**Il classificatore.** ``tax.classifier`` sceglie fra i due classificatori
+realizzati: ``naive_bayes`` (``dada2::assignTaxonomy``), il predefinito, e
+``idtaxa`` (``DECIPHER::IdTaxa``, su un classificatore gia' addestrato). Con il
+bayesiano ``tax.min_boot`` ha per
 predefinito quello del pacchetto; su sequenze corte il bootstrap e'
 sistematicamente piu' basso a parita' di correttezza, e il valore va
 riesaminato quando le letture coprono solo una parte dell'amplicone.

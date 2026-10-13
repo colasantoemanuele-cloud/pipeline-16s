@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -172,6 +173,27 @@ def _stampa_esito(esito: Esito) -> None:
         print(f"avviso: {descrivi(avviso.codice, avviso.dettaglio)}")
 
 
+_PARAMETRO_MANCANTE: Final = re.compile(r"^Parametro mancante: ([a-z_0-9]+\.[a-z_0-9]+)")
+
+
+def dove_scriverli(rifiuti: Sequence[tuple[str, str]], configurazione: Path | None) -> list[str]:
+    """Per ogni parametro che un rifiuto dichiara mancante, la riga del file di
+    configurazione in cui scriverlo.
+
+    Razionale sistemistico: il file scritto da ``eco init`` porta ogni
+    parametro come riga in commento sotto il suo gruppo; dire il numero della
+    riga evita di cercarla. La regola con cui si leggono le righe e' quella
+    della pipeline, con i parametri dello schema delle analisi.
+    """
+    from amplicon16s.cli import indicazioni_di_riga
+
+    mancanti = [
+        trovato.group(1) for _, dettaglio in rifiuti
+        if (trovato := _PARAMETRO_MANCANTE.match(dettaglio))
+    ]
+    return indicazioni_di_riga(mancanti, configurazione, interfaccia.chiavi_dello_schema())
+
+
 def main(argv: Sequence[str] | None = None, programma: str = "python3 -m amplicon16s_eco") -> int:
     """Punto d'ingresso: restituisce il codice di uscita."""
     args = build_parser(programma).parse_args(argv)
@@ -201,6 +223,8 @@ def main(argv: Sequence[str] | None = None, programma: str = "python3 -m amplico
             print(f"file prodotti: {len(esito.file)} in {args.uscita}")
     except ErroreEco as e:
         print(str(e), file=sys.stderr)
+        for riga in dove_scriverli(e.rifiuti, getattr(args, "config", None)):
+            print(riga, file=sys.stderr)
         if in_json:
             _json(interfaccia.esito_validazione(
                 configurazione=args.config, oggetto=args.oggetto,

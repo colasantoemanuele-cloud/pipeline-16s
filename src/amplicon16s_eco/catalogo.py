@@ -177,9 +177,11 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
     VoceEco(
         "E-ECO-21", _A,
         "Le disposizioni distinte dei campioni sono meno delle permutazioni richieste.",
-        "La p minima raggiungibile e' piu' alta di quella attesa con "
-        "stat.permanova_permutations: e' riportata nel dettaglio. La tabella "
-        "riporta le permutazioni effettivamente usate.",
+        "Per PERMANOVA e test delle dispersioni la p minima raggiungibile e' piu' "
+        "alta di quella attesa con stat.permanova_permutations: e' riportata nel "
+        "dettaglio. La tabella riporta le permutazioni effettivamente usate; se "
+        "sono estratte a caso, una p piu' bassa del minimo e' riportata al minimo "
+        "e la colonna nota lo dichiara.",
     ),
     VoceEco(
         "E-ECO-22", _A,

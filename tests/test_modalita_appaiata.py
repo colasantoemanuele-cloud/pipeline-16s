@@ -242,6 +242,43 @@ def test_i_file_si_abbinano_per_l_ultima_occorrenza_del_marcatore():
     assert reads.compagni_per_nome(["s_R1.fq", "s_R2.fq", "s_R3.fq"]) is None
 
 
+def test_i_file_con_il_suffisso_raw_dopo_il_marcatore_si_abbinano():
+    """
+    **Obiettivo**: :func:`abbina_file` e :func:`compagni_per_nome` riconoscono
+    le due letture di un campione quando il marcatore e' seguito da ``_raw``
+    prima dell'estensione, senza distinzione fra maiuscole e minuscole;
+    :func:`nome_da_seconda_lettura` riconosce il file reverse con quel nome; un
+    altro suffisso dopo il marcatore (``_trimmed``, ``_L001``) resta non
+    riconosciuto, e il solo ``_raw`` senza marcatore non fa di un file una
+    lettura di coppia.
+
+    **Razionale scientifico e sistemistico**: alcuni archivi pubblici
+    distribuiscono le letture grezze con ``_raw`` dopo il marcatore della
+    lettura. E' una forma in piu' della stessa regola, ancorata alla fine del
+    nome: i nomi gia' riconosciuti si abbinano come prima, e le forme che la
+    regola non nomina non diventano coppie per somiglianza.
+    """
+    nomi = ["a_R1_raw.fastq.gz", "a_R2_raw.fastq.gz", "b_R1_raw.fastq.gz", "b_R2_raw.fastq.gz"]
+    esito = reads.abbina_file(nomi, ("_R1", "_R2"))
+    assert esito.completo
+    assert esito.coppie == {nomi[0]: nomi[1], nomi[2]: nomi[3]}
+    assert reads.compagni_per_nome(["s_R1_raw.fq", "s_R2_raw.fq"]) == ("_R1", "_R2")
+    assert reads.compagni_per_nome(["s_1_raw.fq.gz", "s_2_raw.fq.gz"]) == ("_1", "_2")
+    assert reads.compagni_per_nome(["s_R1_RAW.fastq", "s_R2_RAW.fastq"]) == ("_R1", "_R2")
+    assert reads.nome_da_seconda_lettura("a_R2_raw.fastq.gz", [])
+    assert reads.nome_da_seconda_lettura("s_2_raw.fq.gz", ["s_1_raw.fq.gz", "s_2_raw.fq.gz"])
+    assert not reads.nome_da_seconda_lettura("s_2_raw.fq.gz", ["s_2_raw.fq.gz"])
+    assert not reads.nome_da_seconda_lettura("corsa2_raw.fastq.gz", [])
+    for dopo in ("_trimmed", "_filtered", "_L001", "_raw_001"):
+        coppia = [f"a_R1{dopo}.fastq.gz", f"a_R2{dopo}.fastq.gz"]
+        assert not reads.abbina_file(coppia, ("_R1", "_R2")).coppie, dopo
+        assert reads.compagni_per_nome(coppia) is None, dopo
+        assert not reads.nome_da_seconda_lettura(coppia[1], coppia), dopo
+    # I nomi senza suffisso e con il numero di blocco si abbinano come prima.
+    assert reads.compagni_per_nome(["s_R1.fq", "s_R2.fq"]) == ("_R1", "_R2")
+    assert reads.compagni_per_nome(["s_R1_001.fq", "s_R2_001.fq"]) == ("_R1", "_R2")
+
+
 def test_un_file_senza_compagno_ferma_la_validazione(tmp_path):
     """
     **Obiettivo**: in modalita' appaiata, tolto il file reverse di un campione,

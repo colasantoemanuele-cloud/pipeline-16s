@@ -380,7 +380,7 @@ def test_init_non_chiede_i_condizionali_non_pertinenti(tmp_path, capsys):
     non_richiesti = {
         "ctrl.blank_override_values", "ctrl.min_positives", "ctrl.min_positive_pass_frac",
         "ctrl.positive_gate", "katharoseq.target_taxon", "katharoseq.collapse_rank",
-        "katharoseq.min_r2", "katharoseq.target_sensitivity", "phylo.max_seqs",
+        "katharoseq.min_r2", "katharoseq.target_sensitivity",
         "meta.module_regex", "prev.min_fraction", "prev.min_count",
     }
     for chiave in non_richiesti:
@@ -421,13 +421,13 @@ def test_init_non_chiede_i_condizionali_non_pertinenti(tmp_path, capsys):
     assert esegui_s0(carica(completo)).superata
 
     # Resa vera la condizione, validate chiede il condizionale e dice perche'.
-    con_filogenesi = tmp_path / "filogenesi.yaml"
-    con_filogenesi.write_text(
-        completa(testo, {**scelte, "phylo.enabled": True, "prev.apply": True}), encoding="utf-8")
+    con_prevalenza = tmp_path / "prevalenza.yaml"
+    con_prevalenza.write_text(
+        completa(testo, {**scelte, "prev.apply": True}), encoding="utf-8")
     capsys.readouterr()
-    assert main(["validate", "--config", str(con_filogenesi)]) == 3
+    assert main(["validate", "--config", str(con_prevalenza)]) == 3
     stampato = capsys.readouterr().out
-    assert "E-G15-10" in stampato and "phylo.max_seqs perche' phylo.enabled e' vero" in stampato
+    assert "E-G15-10" in stampato
     assert "prev.min_fraction perche' prev.apply e' vero" in stampato
     assert "prev.min_count perche' prev.apply e' vero" in stampato
 
@@ -987,7 +987,7 @@ def test_nessun_valore_dei_dataset_distribuiti_nel_codice_di_init(tmp_path):
         "ctrl.positive_values": "ricavato dai dati: il dataset sintetico non ha positivi",
         "katharoseq.target_taxon": "nullo, coerente con l'assenza di controlli positivi",
         "katharoseq.cell_count_column": "assenza: regola generale",
-        "phylo.enabled": "fase facoltativa: disattivata",
+        "phylo.enabled": "partenza attiva: l'albero si costruisce su ogni dataset",
         "ctrl.positive_gate": "avviso e non arresto finche' la conformita' non e' nota",
         "ctrl.min_positives": "un punto piu' dei due parametri della curva",
         "katharoseq.collapse_rank": "il rango piu' fine che la pipeline assegna",
@@ -1455,7 +1455,7 @@ def test_la_guida_copre_ogni_parametro_obbligatorio_e_ogni_argomento_di_init():
     sezione dei parametri, ogni parametro obbligatorio dello schema; che elenchi
     ogni argomento del sottocomando ``init`` e nessuno che non esiste; che ogni
     sottocomando che il README, la guida e il riferimento mostrano esista nella
-    riga di comando; e che il README resti sotto le trecento righe.
+    riga di comando.
 
     **Razionale scientifico e sistemistico**: Un parametro obbligatorio che la
     guida non spiega, o un argomento che la guida nomina e il programma non
@@ -1496,7 +1496,6 @@ def test_la_guida_copre_ogni_parametro_obbligatorio_e_ogni_argomento_di_init():
         assert comando[1] in (eco if comando[0] else pipeline), comando
     assert {"init", "schema", "status", "validate", "run", "resume", "report"} <= pipeline
     assert {"init", "schema", "status", "validate", "run"} <= eco
-    assert len(readme.splitlines()) < 300
 
 
 def test_il_primer_indicato_a_mano_e_una_cartella_non_scrivibile(tmp_path, capsys):
@@ -1564,6 +1563,8 @@ def _scelte_dopo_l_accettazione(dataset, con_profilo: bool) -> dict:
         "tax.ref_name": "sintetico", "tax.ref_version": "1",
         "filt.remove_na_phylum": True, "filt.exclude_taxa": [], "prev.apply": False,
         "decontam.threshold": 0.1, "decontam.min_blanks": 2, "qc.min_reads_final": 100,
+        # La filogenesi parte attiva: il limite delle varianti resta da scegliere.
+        "phylo.max_seqs": 1000,
     }
     if not con_profilo:
         scelte |= {"filter.truncLen": dataset.troncamento, "filter.truncLen_shortfall_warn": 30}

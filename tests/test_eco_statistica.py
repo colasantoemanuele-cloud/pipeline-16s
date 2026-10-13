@@ -526,6 +526,37 @@ def test_le_permutazioni_insufficienti_sono_dichiarate(eco_r, tmp_path):
     assert "E-ECO-21" not in _codici(poche)
 
 
+def test_con_poche_disposizioni_la_p_estratta_a_caso_non_scende_sotto_il_minimo(eco_r, tmp_path):
+    """
+    **Obiettivo**: con sei campioni contro due le disposizioni distinte sono
+    28, meno delle 999 permutazioni richieste, e le permutazioni degli otto
+    campioni sono troppe per essere enumerate: i due test ne estraggono 999 a
+    caso. La p della PERMANOVA e quella delle dispersioni restano numeri, non
+    scendono sotto 1/28, e la colonna ``nota`` delle due righe dichiara il
+    minimo e le disposizioni; l'avviso ``E-ECO-21`` nomina i due test.
+
+    **Razionale scientifico e sistemistico**: estraendo a caso da poche
+    disposizioni la stessa disposizione ricorre, e la p puo' scendere per caso
+    sotto il minimo che l'esame di tutte le disposizioni consentirebbe: una p
+    cosi' non e' raggiungibile con quel disegno e non va riportata.
+    """
+    oggetto = genera(tmp_path, [
+        {"n": 6, "gruppo": "a", "sigma": 0.3},
+        {"n": 2, "gruppo": "b", "sigma": 0.3, "scambia": True},
+    ])
+    esito = esegui(oggetto, _config(stat={"min_group_size": 2}), tmp_path / "uscita")
+    avvisi = [a.dettaglio for a in esito.avvisi if a.codice == "E-ECO-21"]
+    assert len(avvisi) == 1 and "sono 28," in avvisi[0]
+    assert "PERMANOVA e test delle dispersioni" in avvisi[0]
+    righe = righe_permanova(tmp_path / "uscita")
+    for analisi in ("permanova", "dispersioni"):
+        riga = righe[(analisi, "gruppo")]
+        assert riga["permutazioni"] == "999" and riga["campioni"] == "8", analisi
+        assert riga["p"] != "NA" and float(riga["p"]) >= 1 / 28 - 1e-9, analisi
+        assert "p non inferiore a 1/28" in riga["nota"], analisi
+        assert "28, meno delle 999 permutazioni" in riga["nota"], analisi
+
+
 def test_un_valore_tecnico_mancante_toglie_il_campione_dalla_sola_permanova(eco_r, tmp_path):
     """
     **Obiettivo**: un campione senza valore nella variabile tecnica esce dalla

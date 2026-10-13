@@ -494,6 +494,9 @@ DEGRADAZIONI = (
     # le righe dell'assay escluse per dichiarazione; un taxon nominato che il
     # riferimento non contiene; un campione che fonde poche coppie
     "E-S0-31", "E-S0-32", "E-SM-04",
+    # la filogenesi che il dataset non permette: troppe varianti finali per il
+    # limite dichiarato, o troppo poche per un albero
+    "E-S9-01", "E-S9-02",
 )
 
 
@@ -525,23 +528,26 @@ def test_le_degradazioni_sono_quelle_previste():
     assert degradano == set(DEGRADAZIONI)
 
 
-def test_la_guardia_sulla_filogenesi_ferma_l_esecuzione():
+def test_la_guardia_sulla_filogenesi_non_ferma_l_esecuzione():
     """
-    **Obiettivo**: Verificare che ``E-S9-01`` (superamento di ``phylo.max_seqs``
-    con filogenesi abilitata) appartenga a ``Categoria.REVISIONE_UMANA`` e non a
-    ``DEGRADAZIONE_AUTOMATICA``.
+    **Obiettivo**: Verificare che ``E-S9-01`` (varianti finali oltre
+    ``phylo.max_seqs``) ed ``E-S9-02`` (varianti troppo poche per un albero)
+    appartengano a ``Categoria.DEGRADAZIONE_AUTOMATICA`` e non a
+    ``REVISIONE_UMANA``, e che l'azione dica che l'oggetto finale e' consegnato
+    senza albero e, per ``E-S9-01``, quale parametro alzare per ottenerlo.
 
-    **Razionale scientifico e sistemistico**: Quando l'utente abilita esplicitamente
-    ``phylo.enabled = True`` per calcolare metriche UniFrac, saltare silenziosamente
-    la costruzione dell'albero in S9 per l'elevato numero di ASV consegnerebbe
-    in ``10_phyloseq`` un oggetto privo dell'albero filogenetico richiesto: la
-    pipeline deve invece fermarsi e chiedere all'operatore se alzare ``phylo.max_seqs``
-    o disattivare ``phylo.enabled``.
+    **Razionale scientifico e sistemistico**: Un dataset che non permette
+    l'albero ha comunque un oggetto finale valido: fermare l'esecuzione
+    costringerebbe a rilanciarla per un componente che le altre analisi non
+    usano. L'assenza non e' silenziosa: la degradazione resta nel manifesto
+    della fase e nel report, con l'indicazione di come ottenere l'albero.
     """
-    v = CATALOGO["E-S9-01"]
-    assert v.categoria is Categoria.REVISIONE_UMANA
-    assert "phylo.max_seqs" in v.azione
-    assert "phylo.enabled" in v.azione
+    for codice in ("E-S9-01", "E-S9-02"):
+        v = CATALOGO[codice]
+        assert v.categoria is Categoria.DEGRADAZIONE_AUTOMATICA, codice
+        assert "senza albero" in v.azione, codice
+        assert "phylo.enabled" in v.azione, codice
+    assert "phylo.max_seqs" in CATALOGO["E-S9-01"].azione
 
 
 def test_le_categorie_sono_tre():

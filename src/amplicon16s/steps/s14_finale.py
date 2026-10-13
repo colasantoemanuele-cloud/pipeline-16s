@@ -26,7 +26,11 @@ consegnata non restano file consegnati che ``checksum.sha256`` non elenca.
 legge ``albero.nwk`` da ``09_phylogeny/``, verificato contro il manifesto di
 S9, lo aggiunge all'oggetto finale e, con ``out.export_flat``, lo esporta in
 ``albero.nwk`` accanto agli altri file piatti. Con la filogenesi disattivata
-l'oggetto finale non ha l'albero, e nulla di S14 cambia.
+l'oggetto finale non ha l'albero, e nulla di S14 cambia. Non lo ha nemmeno
+quando S9 si e' conclusa senza albero, dichiarandolo nel proprio manifesto
+(varianti finali oltre ``phylo.max_seqs``, o troppo poche): S14 consegna
+allora l'oggetto senza albero. Un manifesto di S9 senza albero e senza quella
+dichiarazione resta un ingresso mancante (``E-S14-01``).
 
 **La validazione** (``E-S14-01``) e' strutturale: componenti allineati, le
 foglie dell'albero, se c'e', esattamente uguali agli identificativi delle
@@ -58,7 +62,7 @@ from amplicon16s.io_layer.checksums import checksum_file
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
 from amplicon16s.runner.graph import Passo
 from amplicon16s.steps.base import PipelineStep, Produzione, StepContext
-from amplicon16s.steps.s09_phylogeny import NOME_ALBERO
+from amplicon16s.steps.s09_phylogeny import CODICI_SENZA_ALBERO, NOME_ALBERO
 from amplicon16s.steps.s10_phyloseq import NOME_OGGETTO
 from amplicon16s.steps.s13_filtri import NOME_FILTRATO, NOME_RIEPILOGO
 
@@ -95,8 +99,9 @@ class Serializzazione(PipelineStep):
     #: ne verifica le foglie e lo esporta. 3: consegna ps_controlli.rds, lo
     #: elenca in checksum.sha256 e toglie i file di un'esecuzione precedente.
     #: 4: verifica anche ps_integrato.rds di S10 contro il suo manifesto; un
-    #: ingresso assente e' E-S14-01 come uno alterato.
-    versione: ClassVar[int] = 4
+    #: ingresso assente e' E-S14-01 come uno alterato. 5: se S9 si e' conclusa
+    #: senza albero dichiarandolo, consegna l'oggetto finale senza albero.
+    versione: ClassVar[int] = 5
     script_r: ClassVar[str | None] = NOME_SCRIPT
     #: La serializzazione, l'orientamento verificato, gli export, la frazione
     #: minima delle letture trattenute dall'insieme dei campioni finali, e se
@@ -143,14 +148,21 @@ class Serializzazione(PipelineStep):
 
         # L'albero c'e' solo con la filogenesi attiva, e viene da S9: come per
         # l'oggetto filtrato, vale se corrisponde al manifesto di chi l'ha scritto.
+        # Se S9 si e' conclusa senza albero e lo ha dichiarato (il dataset non
+        # lo permetteva), l'oggetto finale si consegna senza; un albero che
+        # manca senza quella dichiarazione e' un ingresso perso.
         filogenesi = None
         if config.phylo.enabled:
-            filogenesi = albero.cartella(Fase.PHYLOGENY) / NOME_ALBERO
             s9 = albero.manifesto_passo(Passo.S9, Fase.PHYLOGENY)
             voce = None if s9 is None else next(
                 (v for v in s9.artefatti if v["nome"] == NOME_ALBERO), None)
-            if voce is None or checksum_file(filogenesi) != voce["checksum"]:
-                raise errore("E-S14-01", f"{NOME_ALBERO} di S9 manca o non corrisponde al suo manifesto")
+            dichiarato_assente = s9 is not None and voce is None and any(
+                d.get("codice") in CODICI_SENZA_ALBERO for d in s9.degradazioni)
+            if not dichiarato_assente:
+                filogenesi = albero.cartella(Fase.PHYLOGENY) / NOME_ALBERO
+                if voce is None or checksum_file(filogenesi) != voce["checksum"]:
+                    raise errore(
+                        "E-S14-01", f"{NOME_ALBERO} di S9 manca o non corrisponde al suo manifesto")
 
         esito = esegui_script(
             cartella_r() / NOME_SCRIPT,

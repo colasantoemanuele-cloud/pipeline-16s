@@ -617,12 +617,14 @@ class Phylo(_Gruppo):
 
     enabled: StrictBool = Field(description=(
         "Se costruire l'albero filogenetico delle varianti finali e aggiungerlo "
-        "all'oggetto finale."))
-    # Varianti dell'oggetto filtrato (S13) oltre le quali S9 si ferma prima del
-    # calcolo (E-S9-01).
+        "all'oggetto finale. Se il dataset non lo permette (varianti finali oltre "
+        "phylo.max_seqs, o meno di quattro) la fase si conclude senza albero e "
+        "l'oggetto finale e' consegnato senza."))
+    # Varianti dell'oggetto filtrato (S13) oltre le quali S9 non avvia il
+    # calcolo e si conclude senza albero (E-S9-01).
     max_seqs: InteroPositivo | None = Field(None, description=(
-        "Varianti finali oltre le quali la filogenesi si ferma prima del calcolo "
-        "(E-S9-01). Serve solo con phylo.enabled vero."))
+        "Varianti finali oltre le quali l'albero non si calcola: la fase si conclude "
+        "senza albero e lo dichiara (E-S9-01). Serve solo con phylo.enabled vero."))
     # Insiemi chiusi: vanno estesi quando un'altra forma viene realizzata.
     # L'allineatore multiplo (DECIPHER::AlignSeqs) e il modello evolutivo
     # dell'albero di massima verosimiglianza (phangorn): GTR con eterogeneita'

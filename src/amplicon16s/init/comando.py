@@ -2208,12 +2208,14 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
     metti("filt.exclude_taxa", SCELTA, SENZA_VALORE,
           "i nomi dipendono dallo studio e da come li scrive il riferimento; [] per non "
           "togliere nulla")
-    metti("phylo.enabled", SCELTA, False,
-          "partenza: disattivata; la filogenesi e' una fase facoltativa, che serve alle "
-          "distanze filogenetiche fra campioni")
+    metti("phylo.enabled", SCELTA, True,
+          "partenza: attiva; l'albero si costruisce su ogni dataset e serve alle distanze "
+          "filogenetiche fra campioni; se il dataset non lo permette la fase si conclude "
+          "senza albero")
     metti("phylo.max_seqs", SCELTA, SENZA_VALORE,
-          "con phylo.enabled false non ha effetto; altrimenti si sceglie dopo aver visto "
-          "nel report quante varianti restano")
+          "serve con phylo.enabled true; dipende dal tempo e dalla memoria disponibili (il "
+          "costo dell'albero cresce rapidamente con il numero di sequenze): le varianti "
+          "finali sono nel report della prima esecuzione")
     for parametro, origine in (
         ("prev.apply", "se filtrare le varianti presenti in pochi campioni"),
         ("prev.min_fraction", "dipende da quanto sono eterogenei i campioni"),
@@ -2448,8 +2450,8 @@ def _letture_appaiate(dettaglio: str) -> str:
         f"le letture risultano appaiate: {dettaglio}. I file non si abbinano pero' a coppie "
         "per nome: le due letture di un campione si riconoscono solo se i due nomi "
         "differiscono per il marcatore in fondo al nome, prima dell'estensione (_R1 e _R2, _1 "
-        "e _2, anche seguito da _001), e non se dopo il marcatore il nome continua (per "
-        "esempio _R1_raw). Usa le sole letture forward: una cartella a parte con un file per "
+        "e _2, anche seguito da _001 o da _raw), e non se dopo il marcatore il nome continua "
+        "(per esempio _R1_L001). Usa le sole letture forward: una cartella a parte con un file per "
         "campione, quello della prima lettura di ogni coppia, indicata con --reads (GUIDA.md, "
         "passo 2)"
     )

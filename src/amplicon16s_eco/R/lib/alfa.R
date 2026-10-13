@@ -7,11 +7,11 @@
 #   indici_alfa(rarefatti)           ricchezza, Shannon, Gini-Simpson
 #   scrivi_alfa(...)                 le due tabelle
 #
-# Razionale biologico: la rarefazione e' senza reinserimento, cioe' un
-# sottocampione delle letture osservate: con il reinserimento (il predefinito
+# Razionale biologico: la rarefazione e' senza reinserimento perche' e' un
+# sottocampione delle letture osservate. Con il reinserimento (il predefinito
 # di phyloseq::rarefy_even_depth) una variante puo' ricevere piu' letture di
-# quante ne abbia, e una variante rara puo' essere estratta piu' volte gonfiando
-# gli indici di equiripartizione. Nessuna variante viene tolta dopo la
+# quante ne abbia, e all'estrazione si aggiunge una variabilita' che il dato
+# non ha. Nessuna variante viene tolta dopo la
 # rarefazione (trimOTUs = FALSE): la tabella rarefatta ha le stesse righe di
 # quella di partenza.
 

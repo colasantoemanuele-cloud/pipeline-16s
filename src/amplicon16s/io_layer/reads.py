@@ -1066,11 +1066,11 @@ MARCATORI_DI_FILE: Final[tuple[tuple[str, str], ...]] = (
 
 #: Il secondo file di una coppia, riconosciuto dal marcatore che precede
 #: l'estensione: ``_R2``, ``.R2``, ``_2`` o ``.2``, con un eventuale numero di
-#: blocco (``_001``). Ancorato alla fine del nome: un campione che si chiama
+#: blocco (``_001``) o il suffisso ``_raw``. Ancorato alla fine del nome: un campione che si chiama
 #: ``LAB_R2D2`` non e' una lettura inversa. Sono convenzioni diffuse, non una
 #: proprieta' di un dataset.
 NOME_DI_LETTURA_INVERSA: Final = re.compile(
-    r"(?P<prima>.*)(?P<segno>[._]R2|[._]2)(?P<dopo>(?:_[0-9]+)?\.(?:fastq|fq)(?:\.gz)?)$",
+    r"(?P<prima>.*)(?P<segno>[._]R2|[._]2)(?P<dopo>(?:_[0-9]+|_raw)?\.(?:fastq|fq)(?:\.gz)?)$",
     re.IGNORECASE,
 )
 
@@ -1100,16 +1100,17 @@ def nome_da_seconda_lettura(nome: str, nomi: Iterable[str]) -> bool:
 
 
 #: Cio' che puo' seguire il marcatore di coppia nel nome di un file: un numero
-#: di blocco di tre cifre (``_001``, la forma dei file Illumina) e
+#: di blocco di tre cifre (``_001``, la forma dei file Illumina) oppure il
+#: suffisso ``_raw`` (la forma dei file grezzi di alcuni archivi), e
 #: l'estensione. Un numero piu' corto e' parte del nome: ``X_1_2`` e' il
 #: reverse del campione ``X_1``, non il forward ``X`` del blocco 2.
-_DOPO_IL_MARCATORE: Final = r"(?P<dopo>(?:_[0-9]{3})?\.(?:fastq|fq)(?:\.gz)?)$"
+_DOPO_IL_MARCATORE: Final = r"(?P<dopo>(?:_[0-9]{3}|_raw)?\.(?:fastq|fq)(?:\.gz)?)$"
 
 
 def _con_l_altro_marcatore(nome: str, da: str, a: str) -> str | None:
     """Il nome con il marcatore ``da`` sostituito da ``a``, o ``None`` se il
-    nome non finisce con ``da`` (seguito al piu' da numeri di blocco e
-    dall'estensione).
+    nome non finisce con ``da`` (seguito al piu' dal numero di blocco o da
+    ``_raw``, e dall'estensione).
 
     Il marcatore conta solo in fondo al nome: un campione che lo contiene nel
     proprio nome (``X_1`` con i marcatori ``_1`` e ``_2``) non e' per questo
@@ -1141,7 +1142,8 @@ class Abbinamento:
 
 def abbina_file(nomi: Iterable[str], marcatori: tuple[str, str] | list[str]) -> Abbinamento:
     """Abbina i file per nome: un file e' forward se il suo nome finisce con
-    il primo marcatore (prima dell'estensione o del numero di blocco) e lo
+    il primo marcatore (prima dell'estensione, del numero di blocco o di
+    ``_raw``) e lo
     stesso nome con il secondo marcatore al suo posto e' un altro file
     dell'insieme; reverse nel caso simmetrico.
 

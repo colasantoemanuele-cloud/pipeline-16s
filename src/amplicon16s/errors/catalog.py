@@ -1029,27 +1029,27 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S9-01", "S9",
         "Le sequenze superano phylo.max_seqs con la filogenesi attiva.",
-        "L'esecuzione si ferma prima di allocare il calcolo. Il codice si "
-        "presenta solo se phylo.enabled e' true, cioe' se l'albero e' stato "
-        "richiesto esplicitamente: saltarlo in silenzio consegnerebbe un "
-        "oggetto privo proprio della componente domandata. Scegli se alzare "
-        "phylo.max_seqs, sapendo che il costo cresce rapidamente con il numero "
-        "di sequenze, oppure rinunciare all'albero con phylo.enabled: false, "
-        "accettando che le analisi che lo richiedono non saranno disponibili.",
-        _UMANA,
+        "Si prosegue senza avviare il calcolo dell'albero: l'oggetto finale e' "
+        "consegnato senza albero, e le analisi che lo richiedono non sono "
+        "disponibili. Il codice si presenta solo se phylo.enabled e' true. Per "
+        "ottenere l'albero alza phylo.max_seqs almeno al numero delle varianti "
+        "finali, sapendo che il costo cresce rapidamente con il numero di "
+        "sequenze, e riprendi l'esecuzione: si rifanno la filogenesi e "
+        "l'oggetto finale.",
+        _DEGRADA,
     ),
     _v(
         "E-S9-02", "S9",
         "Le varianti finali sono troppo poche per costruire un albero.",
-        "L'esecuzione si ferma prima di avviare il calcolo: un albero radicato ha "
-        "una topologia da stimare solo con almeno quattro sequenze. Il codice si "
-        "presenta solo se phylo.enabled e' true. Controlla in "
+        "Si prosegue senza avviare il calcolo: l'oggetto finale e' consegnato "
+        "senza albero. Con meno di quattro sequenze non c'e' un albero da "
+        "stimare: un albero radicato ha una topologia solo da quattro in su. Il "
+        "codice si presenta solo se phylo.enabled e' true. Controlla in "
         "12_final/intermedi/filtri_riepilogo.json e in varianti_rimosse.tsv, "
         "nella stessa cartella, quali filtri "
         "hanno tolto le varianti: se cosi' poche varianti finali sono un esito "
-        "inatteso, rivedi le soglie di S13 (filt, prev) e la decontaminazione; se "
-        "sono attese, rinuncia all'albero con phylo.enabled: false.",
-        _UMANA,
+        "inatteso, rivedi le soglie di S13 (filt, prev) e la decontaminazione.",
+        _DEGRADA,
     ),
     # ---------------------------------------------------------------- S10 ---
     _v(

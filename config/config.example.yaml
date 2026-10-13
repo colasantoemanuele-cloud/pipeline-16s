@@ -287,10 +287,14 @@ phylo:
   # Se costruire l'albero sulle varianti finali e aggiungerlo all'oggetto
   # finale. Serve alle distanze filogenetiche fra campioni; su letture corte,
   # di un solo tratto del gene, le relazioni profonde sono poco sostenute.
+  # Partenza consigliata: true. Se il dataset non permette l'albero (varianti
+  # finali oltre max_seqs, E-S9-01; meno di quattro, E-S9-02) la fase si
+  # conclude senza albero e l'oggetto finale e' consegnato senza.
   # enabled:                                          # [OBBLIGATORIO]
-  # Varianti finali oltre le quali la fase si ferma prima del calcolo
-  # (E-S9-01): il costo cresce rapidamente con il loro numero. Si sceglie
-  # secondo il tempo e la memoria disponibili.
+  # Varianti finali oltre le quali l'albero non si calcola (E-S9-01): il costo
+  # cresce rapidamente con il loro numero. Si sceglie secondo il tempo e la
+  # memoria disponibili; le varianti finali sono nel report della prima
+  # esecuzione.
   # max_seqs:                         # [CONDIZIONALE] se phylo.enabled e' vero
   aligner: decipher         # [UNICA FORMA] DECIPHER::AlignSeqs
   model: "GTR+G+I"          # [UNICA FORMA] massima verosimiglianza con phangorn

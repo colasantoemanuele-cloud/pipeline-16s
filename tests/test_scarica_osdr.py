@@ -193,22 +193,22 @@ def test_solo_forward_scarica_la_prima_lettura_di_ogni_coppia(tmp_path, senza_at
 def test_avverte_se_le_coppie_non_hanno_il_marcatore_in_fondo_al_nome(tmp_path, senza_attese):
     """
     **Obiettivo**: Verificare che, quando i due file di ogni campione portano
-    il marcatore della lettura seguito da un'altra parte del nome (``_R1_raw``),
+    il marcatore della lettura seguito da un'altra parte del nome (``_R1_L001``),
     lo script li scarichi e avverta che lo strumento non li riconosce come
     coppie, indicando ``--solo-forward`` al posto del comando di ``init``; che
     con ``--solo-forward`` sugli stessi nomi stampi il comando di ``init``
     senza avvertenze; e che il marcatore in fondo, anche seguito dal numero di
-    blocco, sia riconosciuto come tale.
+    blocco o da ``_raw``, sia riconosciuto come tale.
 
     **Razionale scientifico e sistemistico**: Le due letture di un campione si
     abbinano per nome, con il marcatore in fondo. Con un'altra convenzione
     ``init`` rifiuta la cartella dopo aver letto ogni file: chi scarica deve
     saperlo subito, con la strada che funziona.
     """
-    letture = {f"S{n}_R{l}_raw.fastq.gz": b"x" * (n + l) for n in (1, 2) for l in (1, 2)}
+    letture = {f"S{n}_R{l}_L001.fastq.gz": b"x" * (n + l) for n in (1, 2) for l in (1, 2)}
     archivio = Archivio(
         {"a_studio_16s.txt": _assay(
-            [(f"C{n}", f"S{n}_R1_raw.fastq.gz,S{n}_R2_raw.fastq.gz") for n in (1, 2)])},
+            [(f"C{n}", f"S{n}_R1_L001.fastq.gz,S{n}_R2_L001.fastq.gz") for n in (1, 2)])},
         letture)
     esito, righe = _lancia(archivio, tmp_path / "coppie")
     testo = "\n".join(righe)
@@ -217,11 +217,12 @@ def test_avverte_se_le_coppie_non_hanno_il_marcatore_in_fondo_al_nome(tmp_path, 
     esito, righe = _lancia(archivio, tmp_path / "forward", "--solo-forward")
     testo = "\n".join(righe)
     assert sorted(p.name for p in (tmp_path / "forward" / "letture").iterdir()) == [
-        "S1_R1_raw.fastq.gz", "S2_R1_raw.fastq.gz"]
+        "S1_R1_L001.fastq.gz", "S2_R1_L001.fastq.gz"]
     assert "ATTENZIONE" not in testo and "p16s init" in testo
     for nome, atteso in (("a_R1.fastq.gz", True), ("a_R2_001.fastq.gz", True),
-                         ("a_1.fq", True), ("a.2.fq.gz", True), ("a_R1_raw.fastq.gz", False),
-                         ("campione1.fastq.gz", False)):
+                         ("a_1.fq", True), ("a.2.fq.gz", True), ("a_R1_raw.fastq.gz", True),
+                         ("a_R2_raw.fastq.gz", True), ("a_R1_L001.fastq.gz", False),
+                         ("a_R1_trimmed.fastq.gz", False), ("campione1.fastq.gz", False)):
         assert scarica_osdr.marcatore_in_fondo(nome) is atteso, nome
 
 

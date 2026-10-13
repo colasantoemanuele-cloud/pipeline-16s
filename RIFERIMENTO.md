@@ -66,7 +66,7 @@ si può rilanciare dopo un'interruzione. L'archivio non pubblica checksum nell'e
 file: la verifica è sulla dimensione. Se la tabella descrive anche righe di un altro
 amplicone, i loro file sono scaricati con gli altri: `init` lo dice, e nomina quelli da
 togliere dalla cartella. Se nei nomi dei due file di una coppia il marcatore della lettura
-non è in fondo (`_R1_raw.fastq.gz`), lo strumento non li abbina (sezione 1.2): lo script
+non è in fondo (`_R1_L001.fastq.gz`), lo strumento non li abbina (sezione 1.2): lo script
 avverte, e la strada è quella delle sole forward.
 
 ### 1.1 Le letture
@@ -107,7 +107,7 @@ più lunghe di quanto le due letture coprono.
 **I file, in modalità appaiata.** Due file per campione nella stessa cartella, che si
 distinguono per un marcatore in fondo al nome, prima dell'estensione (`_R1` e `_R2`,
 `_1` e `_2`, `.1` e `.2`, anche seguiti da un numero di blocco di tre cifre come
-`_R1_001`): si dichiarano in `pair.file_markers`. Il file reverse ha il nome del file
+`_R1_001` o da `_raw` come `_R1_raw`): si dichiarano in `pair.file_markers`. Il file reverse ha il nome del file
 forward con il secondo marcatore al posto del primo, e la chiave del campione si estrae
 dal nome del file forward. Un file senza compagno ferma la validazione (`E-S0-23`). I due file devono
 avere le stesse letture nello stesso ordine: S1 lo verifica su tutte le letture, dal
@@ -527,7 +527,8 @@ solo con `phylo.enabled` vero (l'elenco è nella sezione 6). `init` valuta la co
 sui valori che ha rilevato, proposto o scritto come partenza; se il parametro che la
 decide non ha ancora un valore, la considera falsa: `prev.apply` è una scelta senza
 valore di partenza, quindi `prev.min_fraction` e `prev.min_count` compaiono fra i non
-richiesti finché non lo si dichiara vero. Un condizionale non richiesto si lascia in
+richiesti finché non lo si dichiara vero; `phylo.enabled` ha come partenza vero, quindi
+`phylo.max_seqs` è fra i parametri da scegliere. Un condizionale non richiesto si lascia in
 commento. Se correggendo una proposta o facendo una scelta la condizione diventa vera
 (per esempio si aggiungono le etichette dei controlli positivi), `validate` chiede il
 condizionale, e allora si scrive come ogni altra scelta.
@@ -890,7 +891,8 @@ metodo (`beta.unifrac_root`, `ord.pcoa_correction`, `ord.nmds_trymax`), i soli a
 avere un valore proposto o di partenza oltre a quelli: restano in commento con il loro
 valore, perché dichiarati senza quel metodo sono respinti, e quali distanze e quali
 ordinazioni usare è una scelta. Restano da scrivere le scelte; `eco validate` nomina
-quelle che mancano, e dopo la scelta dei metodi i parametri che questi richiedono.
+quelle che mancano, con la riga del file in cui scriverle, e dopo la scelta dei metodi i
+parametri che questi richiedono.
 
 I nomi delle colonne sono quelli della tabella dei campioni dell'oggetto, non quelli
 dei metadati di partenza: la posizione di prelievo è `posizione`, e una colonna portata
@@ -1413,12 +1415,21 @@ scriverle in maiuscolo.
 | `tax.idtaxa_strand` | filamento su cui si classifica: `both`, `top`, `bottom`; solo con `idtaxa` | `both` se le varianti possono essere nell'altro orientamento (è l'analogo di `tax.try_rc`); `top` dimezza il tempo | `both` | frazione di varianti con il phylum |
 | `filt.remove_na_phylum` | se togliere le varianti senza phylum | vero se ciò che il riferimento non riconosce è fuori bersaglio | nessuno | report, «Risultato finale»: varianti rimosse |
 | `filt.exclude_taxa` | taxa da togliere, a qualunque rango, come li scrive il riferimento; `[]` | ciò che il gene cattura senza essere l'oggetto dello studio: di solito cloroplasti, mitocondri ed eucarioti (vedi sotto) | nessuno | `12_final/intermedi/varianti_rimosse.tsv` |
-| `phylo.enabled` | se costruire l'albero delle varianti finali | vero se servono distanze filogenetiche | falso (fase facoltativa) | `09_phylogeny/` |
-| `phylo.max_seqs` | varianti oltre le quali la filogenesi si ferma; solo se `phylo.enabled` è vero | dal tempo e dalla memoria disponibili | non richiesto con `phylo.enabled` falso; altrimenti nessuno | report: varianti finali |
+| `phylo.enabled` | se costruire l'albero delle varianti finali | vero, salvo che le distanze filogenetiche non servano; se il dataset non permette l'albero (vedi sotto, «Senza albero») l'oggetto finale è consegnato senza | vero | `09_phylogeny/` |
+| `phylo.max_seqs` | varianti finali oltre le quali l'albero non si calcola; solo se `phylo.enabled` è vero | dal tempo e dalla memoria disponibili: il costo cresce rapidamente con il numero di sequenze | non richiesto con `phylo.enabled` falso; altrimenti nessuno | report: varianti finali |
 | `prev.apply` | se filtrare le varianti presenti in pochi campioni | vero se servono le varianti condivise fra campioni; falso se conta ogni variante, anche di un solo campione (vedi sotto) | nessuno | report: varianti rimosse per prevalenza |
 | `prev.min_fraction` | frazione minima di campioni in cui una variante deve comparire; solo se `prev.apply` è vero | più bassa con campioni eterogenei o numerosi (vedi sotto) | non richiesto finché `prev.apply` non è vero; poi nessuno | come sopra |
 | `prev.min_count` | letture minime perché una variante conti come presente; solo se `prev.apply` è vero | 1 conta ogni lettura; 2 non conta le varianti con una sola lettura in un campione | non richiesto finché `prev.apply` non è vero; poi nessuno | come sopra |
 | `qc.min_reads_final` | letture minime di un campione nell'oggetto finale: sotto, il campione esce | la profondità sotto la quale un campione non è confrontabile con gli altri; 0 non toglie nessuno | nessuno | report, «Risultato finale»: letture per campione, campioni esclusi |
+
+**Senza albero.** Con `phylo.enabled` vero l'albero si calcola sulle varianti finali. In
+due casi la fase si conclude senza calcolarlo, lo dichiara come degradazione (nel proprio
+manifesto e nel report) e l'oggetto finale è consegnato senza albero, con ogni altro file
+uguale: le varianti finali superano `phylo.max_seqs` (`E-S9-01`), oppure sono meno di
+quattro (`E-S9-02`), e non c'è un albero da stimare. Nel primo caso, per avere l'albero si
+alza `phylo.max_seqs` almeno al numero delle varianti finali, che è nel report, e si
+rilancia `resume`: si rifanno la filogenesi e l'oggetto finale. Senza albero le distanze
+UniFrac delle analisi ecologiche non sono disponibili.
 
 **La prevalenza.** Il filtro tiene una variante se compare, con almeno `prev.min_count`
 letture, in almeno `prev.min_fraction` dei campioni rimasti dopo i filtri precedenti,

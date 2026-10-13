@@ -63,7 +63,7 @@ import os
 import re
 import shlex
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Final
 
@@ -188,16 +188,19 @@ _GRUPPO_NEL_FILE: Final = re.compile(r"^([A-Za-z_]+):\s*(?:#.*)?$")
 _PARAMETRO_NEL_FILE: Final = re.compile(r"^  (# )?([A-Za-z_0-9]+):(.*)$")
 
 
-def righe_nel_file(testo: str) -> tuple[dict[str, list[tuple[int, bool]]], dict[str, int]]:
+def righe_nel_file(
+    testo: str, chiavi: Iterable[str] | None = None,
+) -> tuple[dict[str, list[tuple[int, bool]]], dict[str, int]]:
     """Dove sono scritti i parametri in un file di configurazione.
 
     Per ogni parametro dello schema le righe che lo portano, attive o in
     commento (numero della riga, contato da 1, e se la riga ha gia' un
     valore); per ogni gruppo, la riga della sua intestazione. Una riga di
     spiegazione che comincia con una parola e i due punti non e' un parametro:
-    conta solo cio' che lo schema conosce.
+    conta solo cio' che lo schema conosce. ``chiavi`` sono i parametri noti,
+    nella forma ``gruppo.parametro``: per difetto quelli della pipeline.
     """
-    note = interfaccia.chiavi_dello_schema()
+    note = set(interfaccia.chiavi_dello_schema() if chiavi is None else chiavi)
     parametri: dict[str, list[tuple[int, bool]]] = {}
     gruppi: dict[str, int] = {}
     gruppo = None
@@ -230,11 +233,23 @@ def dove_scriverli(violazioni: Sequence[Violazione], configurazione: Path | None
             mancanti += interfaccia.parametri_nel_testo(v.dettaglio.split(". Descrivono")[0])
         elif v.dettaglio.endswith(": parametro obbligatorio mancante"):
             mancanti += interfaccia.parametri_nel_testo(v.dettaglio)
+    return indicazioni_di_riga(mancanti, configurazione)
+
+
+def indicazioni_di_riga(
+    mancanti: Sequence[str], configurazione: Path | None, chiavi: Iterable[str] | None = None,
+) -> list[str]:
+    """Le righe da stampare sotto un rifiuto: per ogni parametro mancante, dove
+    scriverlo nel file di configurazione. ``chiavi`` sono i parametri noti allo
+    schema del file (per difetto quelli della pipeline). Senza il file, o
+    senza parametri mancanti, nessuna riga.
+    """
     mancanti = list(dict.fromkeys(mancanti))
     if not mancanti or configurazione is None:
         return []
     try:
-        parametri, gruppi = righe_nel_file(Path(configurazione).read_text(encoding="utf-8"))
+        parametri, gruppi = righe_nel_file(
+            Path(configurazione).read_text(encoding="utf-8"), chiavi)
     except (OSError, UnicodeDecodeError):
         return []
     righe = [f"  dove scriverli, in {configurazione} (parametro: riga del file):"]

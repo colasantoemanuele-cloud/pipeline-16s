@@ -120,6 +120,8 @@ STANDARD_DEL_METODO: Final[Mapping[str, str]] = MappingProxyType({
 # Insiemi chiusi con un solo valore ammesso: vanno estesi, e resi una scelta,
 # quando la pipeline realizza un'alternativa.
 
+# Il classificatore non e' fra questi: ne sono realizzati due (naive_bayes e
+# idtaxa), e questo e' il valore predefinito fra i due.
 TAX_CLASSIFIER: Final = "naive_bayes"
 # L'assegnazione della specie non e' realizzata: il solo valore ammesso e' falso.
 TAX_ASSIGN_SPECIES: Final = False

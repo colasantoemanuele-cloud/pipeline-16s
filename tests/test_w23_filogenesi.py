@@ -28,9 +28,13 @@ dopo S13 e prima di S14; albero nell'oggetto finale e negli export).
   ``phylo`` e il seme cambiano l'impronta di S9, ``phylo.enabled`` quella di
   S14, nessuno quella di S10 e delle fasi a monte;
 - ``E-S9-01``: con ``phylo.max_seqs`` sotto il numero di varianti finali la fase
-  si ferma prima di avviare il calcolo, a revisione umana, senza nuovi tentativi;
-- ``E-S9-02``: con meno di quattro varianti finali la fase si ferma allo stesso
-  modo, prima di avviare il calcolo;
+  non avvia il calcolo e si conclude senza albero, registrando la degradazione
+  e togliendo i file di un calcolo precedente;
+- ``E-S9-02``: con meno di quattro varianti finali la fase si conclude allo
+  stesso modo, senza albero;
+- S14 consegna l'oggetto finale senza albero quando il manifesto di S9 dichiara
+  una delle due degradazioni, e si ferma con ``E-S14-01`` quando l'albero manca
+  senza quella dichiarazione;
 - sul sottoinsieme di prova, con la filogenesi attiva: l'albero e' radicato, le
   sue foglie sono gli identificativi delle varianti finali, l'oggetto finale lo
   contiene senza cambiare l'ordine delle varianti, l'export Newick coincide con
@@ -341,20 +345,10 @@ def test_i_parametri_della_filogenesi(tmp_path):
     assert passi[Passo.S9].calcolata_su(prima, {}) != passi[Passo.S9].calcolata_su(seme, {})
 
 
-def test_e_s9_01_ferma_prima_di_avviare_il_calcolo(tmp_path, monkeypatch):
+def _contesto_di_s9(config, albero, monkeypatch) -> tuple[StepContext, list[dict[str, Any]]]:
+    """Il contesto di S9 con il processo R sostituito: la lista raccoglie i
+    parametri di ogni avvio, e l'avvio stesso solleva ``RuntimeError``.
     """
-    **Obiettivo**: Verificare che con piu' varianti finali di ``phylo.max_seqs``
-    S9 sollevi ``E-S9-01`` senza avviare il processo R, che con un numero di
-    varianti pari al limite lo avvii, e che il codice sia a revisione umana e
-    fuori dai codici ammessi al nuovo tentativo.
-
-    **Razionale scientifico e sistemistico**: Il costo della massima
-    verosimiglianza cresce rapidamente con il numero di sequenze: la guardia
-    deve scattare prima di allocare calcolo, e un albero richiesto non si
-    salta in silenzio.
-    """
-    config = config_ridotta(tmp_path, phylo={"enabled": True, "max_seqs": 40})
-    albero = AlberoOutput(config.io.out_root)
     avviati: list[dict[str, Any]] = []
 
     def finto(script, parametri, *argomenti, **opzioni):
@@ -365,76 +359,99 @@ def test_e_s9_01_ferma_prima_di_avviare_il_calcolo(tmp_path, monkeypatch):
     contesto = StepContext(
         risolta=risolvi(config), albero=albero, logger=ottieni("prova"), inventario=None,
     )
+    return contesto, avviati
 
-    def con_varianti(numero: int) -> None:
-        albero.prepara(Fase.FINAL_INTERMEDI)
-        (albero.cartella(Fase.FINAL_INTERMEDI) / NOME_RIEPILOGO).write_text(
-            json.dumps({"varianti": {"finali": numero}}), encoding="utf-8"
-        )
 
-    con_varianti(41)
-    with pytest.raises(ErrorePipeline) as fermata:
-        Filogenesi().calcola(contesto)
-    assert fermata.value.codice == "E-S9-01"
-    assert "41 varianti finali" in fermata.value.dettaglio and "(40)" in fermata.value.dettaglio
+def _con_varianti_finali(albero: AlberoOutput, numero: int) -> None:
+    """Scrive il riepilogo dei filtri con il numero di varianti finali dato."""
+    albero.prepara(Fase.FINAL_INTERMEDI)
+    (albero.cartella(Fase.FINAL_INTERMEDI) / NOME_RIEPILOGO).write_text(
+        json.dumps({"varianti": {"finali": numero}}), encoding="utf-8"
+    )
+
+
+def test_e_s9_01_conclude_senza_albero_prima_di_avviare_il_calcolo(tmp_path, monkeypatch):
+    """
+    **Obiettivo**: Verificare che con piu' varianti finali di ``phylo.max_seqs``
+    S9 non avvii il processo R e non si fermi: registra la degradazione
+    ``E-S9-01``, restituisce una produzione senza artefatti con le metriche
+    ``varianti`` e ``albero`` falso, e toglie dalla cartella l'albero,
+    l'allineamento e il riepilogo di un calcolo precedente; che con un numero
+    di varianti pari al limite avvii il calcolo; e che il codice sia una
+    degradazione, fuori dai codici ammessi al nuovo tentativo.
+
+    **Razionale scientifico e sistemistico**: Il costo della massima
+    verosimiglianza cresce rapidamente con il numero di sequenze: la guardia
+    deve scattare prima di allocare calcolo. L'oggetto finale resta valido
+    senza albero, purche' l'assenza sia dichiarata e nella cartella non resti
+    l'albero di altre varianti.
+    """
+    config = config_ridotta(tmp_path, phylo={"enabled": True, "max_seqs": 40})
+    albero = AlberoOutput(config.io.out_root)
+    contesto, avviati = _contesto_di_s9(config, albero, monkeypatch)
+    cartella = albero.prepara(Fase.PHYLOGENY)
+    for nome in (NOME_ALBERO, NOME_ALLINEAMENTO, NOME_FILOGENESI):
+        albero.scrivi_testo(Fase.PHYLOGENY, nome, "di un calcolo precedente\n")
+
+    _con_varianti_finali(albero, 41)
+    produzione = Filogenesi().calcola(contesto)
     assert avviati == []
+    assert produzione.superata and produzione.artefatti == ()
+    assert dict(produzione.metriche) == {"varianti": 41, "albero": False}
+    assert [d.codice for d in contesto.degradazioni] == ["E-S9-01"]
+    dettaglio = contesto.degradazioni[0].dettaglio
+    assert "41 varianti finali" in dettaglio and "(40)" in dettaglio
+    for nome in (NOME_ALBERO, NOME_ALLINEAMENTO, NOME_FILOGENESI):
+        assert not (cartella / nome).exists(), nome
+    assert albero.manifesto(Fase.PHYLOGENY) == {}
 
-    con_varianti(40)
+    _con_varianti_finali(albero, 40)
     with pytest.raises(RuntimeError, match="processo R avviato"):
         Filogenesi().calcola(contesto)
     assert avviati[0]["modello"] == "GTR+G+I" and avviati[0]["seme"] == config.run.seed
 
-    assert voce("E-S9-01").categoria is Categoria.REVISIONE_UMANA
+    assert voce("E-S9-01").categoria is Categoria.DEGRADAZIONE_AUTOMATICA
     assert not voce("E-S9-01").ammette_retry
     assert "E-S9-01" not in config.retry.whitelist and Filogenesi.aggiustamenti == {}
 
 
-def test_e_s9_02_ferma_con_troppo_poche_varianti(tmp_path, monkeypatch):
+def test_e_s9_02_conclude_senza_albero_con_troppo_poche_varianti(tmp_path, monkeypatch):
     """
-    **Obiettivo**: Verificare che con meno di quattro varianti finali S9
-    sollevi ``E-S9-02`` senza avviare il processo R, anche con zero varianti;
-    che con quattro lo avvii; e che il codice sia a revisione umana, fuori dai
-    codici ammessi al nuovo tentativo, con un messaggio che indica dove
-    guardare e le due vie d'uscita.
+    **Obiettivo**: Verificare che con meno di quattro varianti finali S9 non
+    avvii il processo R e si concluda senza albero registrando ``E-S9-02``,
+    anche con zero varianti; che con quattro avvii il calcolo; e che il codice
+    sia una degradazione, fuori dai codici ammessi al nuovo tentativo, con un
+    messaggio che indica dove guardare e che l'oggetto e' consegnato senza
+    albero.
 
     **Razionale scientifico e sistemistico**: Con tre foglie l'albero senza
     radice e' uno solo: non c'e' topologia da stimare. E' un esito prevedibile
-    di filtri severi su un dataset piccolo, e va detto all'operatore con un
-    codice del catalogo, non con un errore non catalogato del processo R.
+    di filtri severi su un dataset piccolo, e va dichiarato con un codice del
+    catalogo, non con un errore non catalogato del processo R; l'oggetto
+    finale, senza albero, resta valido.
     """
     config = config_ridotta(tmp_path, phylo={"enabled": True})
     albero = AlberoOutput(config.io.out_root)
-    avviati: list[dict[str, Any]] = []
-
-    def finto(script, parametri, *argomenti, **opzioni):
-        avviati.append(parametri)
-        raise RuntimeError("processo R avviato")
-
-    monkeypatch.setattr(s09, "esegui_script", finto)
-    contesto = StepContext(
-        risolta=risolvi(config), albero=albero, logger=ottieni("prova"), inventario=None,
-    )
-    albero.prepara(Fase.FINAL_INTERMEDI)
+    contesto, avviati = _contesto_di_s9(config, albero, monkeypatch)
     for numero in (0, 3):
-        (albero.cartella(Fase.FINAL_INTERMEDI) / NOME_RIEPILOGO).write_text(
-            json.dumps({"varianti": {"finali": numero}}), encoding="utf-8"
-        )
-        with pytest.raises(ErrorePipeline) as fermata:
-            Filogenesi().calcola(contesto)
-        assert fermata.value.codice == "E-S9-02"
-        assert f"{numero} varianti finali, meno delle 4" in fermata.value.dettaglio
-    assert avviati == []
+        _con_varianti_finali(albero, numero)
+        produzione = Filogenesi().calcola(contesto)
+        assert produzione.artefatti == ()
+        assert dict(produzione.metriche) == {"varianti": numero, "albero": False}
+        ultima = contesto.degradazioni[-1]
+        assert ultima.codice == "E-S9-02"
+        assert f"{numero} varianti finali, meno delle 4" in ultima.dettaglio
+    assert avviati == [] and len(contesto.degradazioni) == 2
 
-    (albero.cartella(Fase.FINAL_INTERMEDI) / NOME_RIEPILOGO).write_text(
-        json.dumps({"varianti": {"finali": s09.VARIANTI_MINIME}}), encoding="utf-8"
-    )
+    _con_varianti_finali(albero, s09.VARIANTI_MINIME)
     with pytest.raises(RuntimeError, match="processo R avviato"):
         Filogenesi().calcola(contesto)
 
     v = voce("E-S9-02")
-    assert v.fase == "S9" and v.categoria is Categoria.REVISIONE_UMANA and not v.ammette_retry
-    assert "E-S9-02" not in config.retry.whitelist
-    assert "filtri_riepilogo.json" in v.azione and "phylo.enabled: false" in v.azione
+    assert v.fase == "S9" and v.categoria is Categoria.DEGRADAZIONE_AUTOMATICA
+    assert not v.ammette_retry and "E-S9-02" not in config.retry.whitelist
+    assert "filtri_riepilogo.json" in v.azione and "senza albero" in v.azione
+    assert s09.CODICI_SENZA_ALBERO == ("E-S9-01", "E-S9-02")
 
 
 # --------------------------------------------------------------------------- #
@@ -601,26 +618,79 @@ def test_l_albero_e_identico_fra_due_esecuzioni_e_con_thread_diversi(
             assert _impronte(altra.albero.cartella(fase)) == impronte, (nome, fase)
 
 
-def test_e_s9_01_ferma_la_catena_prima_del_calcolo(bioc, finale_calcolata, tmp_path):
+def test_e_s9_01_conclude_la_catena_senza_albero(bioc, finale_calcolata, tmp_path):
     """
     **Obiettivo**: Verificare che con ``phylo.max_seqs`` sotto il numero di
-    varianti finali l'esecuzione si arresti in S9 con ``E-S9-01`` al primo
-    tentativo, senza che la cartella della filogenesi contenga la richiesta di
-    un processo R, e che S14 non venga eseguita.
+    varianti finali l'esecuzione si concluda: S9 e S14 sono eseguite, il
+    manifesto di S9 non elenca artefatti e riporta la degradazione ``E-S9-01``,
+    non c'e' ``albero.nwk`` ne' nella cartella della filogenesi ne' fra i file
+    consegnati, la metrica ``albero`` di S14 e' falsa, l'oggetto finale non ha
+    l'albero e gli altri file consegnati sono quelli dell'esecuzione senza
+    filogenesi.
 
-    **Razionale scientifico e sistemistico**: Un albero richiesto e non
-    costruibile non si salta: l'oggetto finale senza la componente domandata
-    sarebbe consegnato come completo.
+    **Razionale scientifico e sistemistico**: Un dataset che non permette
+    l'albero ha comunque un oggetto finale valido: lo si consegna senza
+    albero, e l'assenza resta dichiarata nel manifesto della fase che non lo
+    ha costruito.
     """
     run, esito = _con_filogenesi(finale_calcolata, tmp_path / "limite", phylo={"max_seqs": 1})
-    assert esito.conclusione is Conclusione.ARRESTATA
-    assert (esito.punto.passo, esito.punto.codice, esito.punto.tentativi) == (Passo.S9, "E-S9-01", 1)
-    assert esito.eseguite == ()
-    cartella = run.albero.cartella(Fase.PHYLOGENY)
-    assert not cartella.exists() or not any(cartella.iterdir())
-    situazioni = run.valuta().situazioni
-    assert situazioni[Passo.S9].stato is StatoPasso.DA_ESEGUIRE
-    assert situazioni[Passo.S14].motivo == "a monte da eseguire: S9"
+    assert esito.conclusione is Conclusione.COMPLETATA
+    assert [r.passo for r in esito.eseguite] == [Passo.S9, Passo.S14]
+    manifesto = run.albero.manifesto_passo(Passo.S9, Fase.PHYLOGENY)
+    assert manifesto.nomi == ()
+    assert [d["codice"] for d in manifesto.degradazioni] == ["E-S9-01"]
+    assert manifesto.metriche["albero"] is False and manifesto.metriche["varianti"] > 1
+    filogenesi, finale = run.albero.cartella(Fase.PHYLOGENY), run.albero.cartella(Fase.FINAL)
+    assert not (filogenesi / NOME_ALBERO).exists() and not (finale / NOME_ALBERO).exists()
+    assert not any(p.name.startswith(PREFISSO) for p in filogenesi.iterdir())
+    assert NOME_ALBERO not in (finale / "checksum.sha256").read_text(encoding="utf-8")
+    assert run.albero.manifesto_passo(Passo.S14, Fase.FINAL).metriche["albero"] is False
+    assert run.valuta().completa
+    senza = finale_calcolata[0].albero.cartella(Fase.FINAL)
+    for nome in ("conteggi.tsv", "tassonomia.tsv", "metadati.tsv", "sequenze.fasta"):
+        assert (finale / nome).read_bytes() == (senza / nome).read_bytes(), nome
+    letto = _r(f"""
+suppressPackageStartupMessages(library(phyloseq))
+f <- readRDS({json.dumps(str(finale / 'ps_final.rds'))})
+jsonlite::write_json(list(albero = !is.null(phy_tree(f, errorIfNULL = FALSE))), uscita, auto_unbox = TRUE)
+""", tmp_path / "r")
+    assert letto["albero"] is False
+
+
+def test_s14_senza_albero_solo_se_s9_lo_ha_dichiarato(bioc, finale_calcolata, tmp_path):
+    """
+    **Obiettivo**: Verificare che, con la filogenesi attiva, S14 si fermi con
+    ``E-S14-01`` quando il manifesto di S9 non elenca l'albero e non registra
+    alcuna degradazione, o ne registra una che non riguarda l'albero; e che
+    con lo stesso manifesto e la degradazione ``E-S9-01`` o ``E-S9-02`` S14 si
+    concluda con la metrica ``albero`` falsa.
+
+    **Razionale scientifico e sistemistico**: L'oggetto finale senza albero e'
+    legittimo solo se la fase che doveva costruirlo ha dichiarato di non
+    poterlo fare: un albero che manca senza dichiarazione e' un ingresso
+    perso, e consegnare comunque l'oggetto lo nasconderebbe.
+    """
+    run = copia_esecuzione(finale_calcolata, tmp_path / "copia", phylo={"enabled": True})
+    fase = run.fase(Passo.S14)
+
+    def s9_conclusa(*codici: str) -> None:
+        run.albero.concludi_passo(
+            Passo.S9, Fase.PHYLOGENY, (), {}, {"varianti": 0, "albero": False},
+            degradazioni=[{"codice": c} for c in codici])
+
+    def s14():
+        return fase.calcola(run.contesto(Passo.S14).ristretto(fase.parametri))
+
+    for codici in ((), ("E-S13-02",)):
+        s9_conclusa(*codici)
+        with pytest.raises(ErrorePipeline) as fermata:
+            s14()
+        assert fermata.value.codice == "E-S14-01" and NOME_ALBERO in fermata.value.dettaglio
+    for codice in s09.CODICI_SENZA_ALBERO:
+        s9_conclusa(codice)
+        produzione = s14()
+        assert produzione.metriche["albero"] is False, codice
+        assert NOME_ALBERO not in {a.nome for a in produzione.artefatti}, codice
 
 
 def test_senza_filogenesi_l_oggetto_finale_non_ha_l_albero(bioc, finale_calcolata, tmp_path):
@@ -718,7 +788,7 @@ def test_la_filogenesi_sul_dataset_completo(bioc, catena_reale, tmp_path):
     catena condivisa non venga modificata.
 
     **Razionale scientifico e sistemistico**: Sul dataset di riferimento le
-    varianti finali sono 1.753, sotto ``phylo.max_seqs``: e' il caso d'uso per
+    varianti finali stanno sotto ``phylo.max_seqs``: e' il caso d'uso per
     cui S9 e' stata collocata dopo i filtri. La copia per collegamenti fisici
     non occupa spazio, perche' ogni scrittura della pipeline sostituisce il file
     per rinomina.

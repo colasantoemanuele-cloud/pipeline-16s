@@ -251,15 +251,15 @@ def forward_di(nomi: Sequence[str]) -> List[str]:
 
 def marcatore_in_fondo(nome: str) -> bool:
     """Vero se il marcatore della lettura chiude il nome del file, prima
-    dell'estensione (anche seguito dal numero di blocco, ``_001``): e' la sola
-    forma in cui lo strumento abbina i due file di una coppia.
+    dell'estensione (anche seguito dal numero di blocco, ``_001``, o da
+    ``_raw``): e' la sola forma in cui lo strumento abbina i due file di una coppia.
     """
     radice = nome
     for estensione in ESTENSIONI:
         if nome.lower().endswith(estensione):
             radice = nome[: -len(estensione)]
             break
-    return re.search(r"[_.][Rr]?[12](?:_[0-9]+)?$", radice) is not None
+    return re.search(r"[_.][Rr]?[12](?:_[0-9]+|_raw)?$", radice) is not None
 
 
 def letture_della_tabella(tabella: Path, solo_forward: bool) -> List[str]:

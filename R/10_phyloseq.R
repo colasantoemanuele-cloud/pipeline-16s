@@ -4,7 +4,7 @@
 #
 #   ps_integrato.rds         l'oggetto phyloseq: conteggi, tassonomia, metadati
 #                            dei campioni, sequenze di riferimento; senza albero
-#                            (S9 disattivata)
+#                            (S10 lavora sempre senza: lo aggiunge S14)
 #   varianti.tsv             per variante: identificativo, sequenza, lunghezza,
 #                            letture nei biologici e in tutti i campioni
 #   varianti_accessorie.tsv  per variante: il bootstrap di ciascun rango (S8; con

@@ -21,7 +21,7 @@
 # dello strumento) sono in commento con quello: si possono lasciare cosi'.
 # Le spiegazioni cominciano con ##, le righe dei parametri in commento con #.
 #
-# Rilevati: 8; indicati: 6; proposti: 8; da scegliere: 37; non richiesti: 12.
+# Rilevati: 8; indicati: 6; proposti: 8; da scegliere: 38; non richiesti: 11.
 #
 # Finche' una riga [PROPOSTO] o [DA SCEGLIERE] resta in commento il parametro
 # non e' dichiarato: validate elenca quelli che mancano (E-G15-10).
@@ -31,21 +31,21 @@
 # meta.batch_module_column, filter.truncLen, filter.truncLen_shortfall_warn,
 # err.randomize, dada.pool, chimera.min_fold_parent_over_abundance,
 # tax.ref_name, tax.ref_version, tax.try_rc, filt.remove_na_phylum,
-# filt.exclude_taxa, phylo.enabled, ctrl.blank_override_column,
-# katharoseq.cell_count_column, decontam.threshold, decontam.min_blanks,
-# decontam.mode, prev.apply, qc.min_reads_mode, qc.max_frac_contaminant,
-# qc.min_reads_final, qc.min_frac_reads_retained, qc.max_asv_count,
-# qc.max_zeroed_samples, qc.max_frac_lost_filter, qc.max_frac_short_reads,
-# qc.warn_frac_chimeric, qc.stop_frac_chimeric, qc.min_frac_phylum,
-# qc.head_reads, qc.max_primer_hit_frac, qc.min_motif_frac, out.study_columns,
+# filt.exclude_taxa, phylo.enabled, phylo.max_seqs,
+# ctrl.blank_override_column, katharoseq.cell_count_column,
+# decontam.threshold, decontam.min_blanks, decontam.mode, prev.apply,
+# qc.min_reads_mode, qc.max_frac_contaminant, qc.min_reads_final,
+# qc.min_frac_reads_retained, qc.max_asv_count, qc.max_zeroed_samples,
+# qc.max_frac_lost_filter, qc.max_frac_short_reads, qc.warn_frac_chimeric,
+# qc.stop_frac_chimeric, qc.min_frac_phylum, qc.head_reads,
+# qc.max_primer_hit_frac, qc.min_motif_frac, out.study_columns,
 # out.batch_columns
 #
 # Non richiesti con le proposte attuali (condizionali):
-# meta.module_regex, phylo.max_seqs, ctrl.blank_override_values,
-# ctrl.min_positives, ctrl.min_positive_pass_frac, ctrl.positive_gate,
-# katharoseq.target_taxon, katharoseq.collapse_rank,
-# katharoseq.target_sensitivity, katharoseq.min_r2, prev.min_fraction,
-# prev.min_count
+# meta.module_regex, ctrl.blank_override_values, ctrl.min_positives,
+# ctrl.min_positive_pass_frac, ctrl.positive_gate, katharoseq.target_taxon,
+# katharoseq.collapse_rank, katharoseq.target_sensitivity, katharoseq.min_r2,
+# prev.min_fraction, prev.min_count
 #
 # Che cosa init non stabilisce:
 #   - decontam.threshold: la soglia di decontaminazione.
@@ -306,14 +306,20 @@ filt:
 # Costruzione dell'albero filogenetico.
 phylo:
   ## Se costruire l'albero filogenetico delle varianti finali e aggiungerlo
-  ## all'oggetto finale.
-  ## [DA SCEGLIERE] partenza: disattivata; la filogenesi e' una fase
-  ## facoltativa, che serve alle distanze filogenetiche fra campioni
-  # enabled: false
-  ## Varianti finali oltre le quali la filogenesi si ferma prima del calcolo
-  ## (E-S9-01). Serve solo con phylo.enabled vero.
-  ## [CONDIZIONALE] serve solo se phylo.enabled e' vero: con i valori di
-  ## questo file non e' richiesto e si puo' lasciare in commento
+  ## all'oggetto finale. Se il dataset non lo permette (varianti finali oltre
+  ## phylo.max_seqs, o meno di quattro) la fase si conclude senza albero e
+  ## l'oggetto finale e' consegnato senza.
+  ## [DA SCEGLIERE] partenza: attiva; l'albero si costruisce su ogni dataset e
+  ## serve alle distanze filogenetiche fra campioni; se il dataset non lo
+  ## permette la fase si conclude senza albero
+  # enabled: true
+  ## Varianti finali oltre le quali l'albero non si calcola: la fase si
+  ## conclude senza albero e lo dichiara (E-S9-01). Serve solo con
+  ## phylo.enabled vero.
+  ## [DA SCEGLIERE] serve con phylo.enabled true; dipende dal tempo e dalla
+  ## memoria disponibili (il costo dell'albero cresce rapidamente con il
+  ## numero di sequenze): le varianti finali sono nel report della prima
+  ## esecuzione
   # max_seqs:
   ## Allineatore multiplo: DECIPHER::AlignSeqs.
   ## [UNICA FORMA] la pipeline realizza questo solo valore

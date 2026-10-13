@@ -42,7 +42,7 @@ lo studio ha più tabelle del 16S le nomina e si ferma: si rilancia con `--assay
 
 **Coppie o sole forward.** Se lo studio ha due file per campione (`_R1` e `_R2`) si parte con le
 coppie. Si passa alle sole forward (i file `_R1`) in due casi: lo script avverte che nei nomi il
-marcatore non è in fondo (`_R1_raw`: lo strumento non li riconosce come coppie); oppure `init`, al
+marcatore non è in fondo (`_R1_L001`: lo strumento non li riconosce come coppie); oppure `init`, al
 passo 4, scrive la nota «Le coppie non si fondono senza basi di qualità bassa» o lascia da
 scegliere i troncamenti consigliando le forward (le reverse sono troppo corte o di qualità bassa).
 Si preparano così, e si rilancia il comando del passo 4 con `--reads /dati/letture_forward`:
@@ -55,9 +55,9 @@ cp /percorso/dei/dati/letture/*_R1*.fastq.gz /percorso/dei/dati/letture_forward/
 **Con dati propri** la cartella dei dati, fuori dal clone, contiene:
 
 - le letture, in una cartella senza sottocartelle: file `.fastq.gz` (o `.fq.gz`, `.fastq`, `.fq`),
-  uno per campione, oppure due con lo stesso nome salvo `_R1`/`_R2` (o `_1`/`_2`) in fondo. Il
-  nome di ogni file contiene una parte unica per campione, che compare anche nei metadati. Non
-  vanno messi file di campioni assenti dai metadati né di un altro amplicone (ITS, 18S);
+  uno per campione, oppure due con lo stesso nome salvo `_R1`/`_R2` (o `_1`/`_2`) in fondo, anche
+  seguito da `_001` o `_raw`. Il nome di ogni file contiene una parte unica per campione, che c'è
+  anche nei metadati. Non vanno messi file di campioni assenti dai metadati né di altri ampliconi;
 - i metadati: una tabella separata da tabulazioni, una riga per campione (colonne con il nome del
   file, il nome del campione, il tipo se ci sono controlli, le variabili), o le tabelle ISA-Tab.
 
@@ -138,6 +138,7 @@ quella marcata «consigliata». Non c'è nessuna espressione da scrivere.
 | `tax.ref_name`, `tax.ref_version` | nome e versione del riferimento, riportati con i risultati | `"SILVA"` e `"138"` per il file del passo 2 (di solito `init` li scrive da sé) |
 | `filt.remove_na_phylum` | se togliere le varianti a cui il riferimento non dà un phylum | `true`: ciò che il riferimento non riconosce di solito non è un batterio |
 | `filt.exclude_taxa` | i taxa da togliere | `["Chloroplast", "Mitochondria", "Eukaryota"]`: non sono batteri del campione |
+| `phylo.max_seqs` | la filogenesi parte attiva (`phylo.enabled: true`): le varianti finali oltre le quali l'albero non si calcola | un tetto al tempo di calcolo, per esempio `2000`. Se le varianti finali (nel report) lo superano, il risultato è consegnato senza albero e il report lo dice (`E-S9-01`): si alza il valore e si rilancia `resume`. Se l'albero non serve, `phylo.enabled: false` e questa riga resta in commento |
 | `prev.apply` | se togliere le varianti presenti in pochi campioni | `false` con poche decine di campioni, o se interessa ogni singolo campione; con `true` vanno scritti anche `prev.min_fraction` (con 20 campioni e `0.2` una variante deve comparire in 4) e `prev.min_count` (`1`) |
 | `qc.min_reads_final` | le letture sotto le quali un campione esce dal risultato | `0` alla prima esecuzione: il valore giusto lo propone il passo 8 |
 | `out.study_columns` | le colonne dei metadati da portare nel risultato: senza, le analisi ecologiche non hanno nulla da confrontare. `validate` non la chiede: va controllata comunque | le variabili dello studio, con il nome esatto dell'intestazione. In ISA-Tab sono le colonne «Factor Value[...]», e `init` le propone già; altrimenti la riga è attiva con `[]`, e si scrive l'elenco al posto di `[]`: `["Trattamento", "Tempo"]`. Il commento elenca le colonne disponibili |
@@ -258,7 +259,7 @@ Value[Tempo]` diventa `factor_value_tempo`). Tre righe vanno lette:
   mediana. La riga stessa dice che cosa fare: sopra 1.000 letture di solito nulla.
 
 Dopo ogni `resume` si rilanciano `report` ed `eco init` (con un altro `--output`).
-`eco validate` nomina le scelte che mancano (`E-ECO-02`), senza il numero della riga: ogni
+`eco validate` nomina le scelte che mancano (`E-ECO-02`) e la riga del file di ciascuna: ogni
 parametro è nel file sotto il suo gruppo (`design.variable` è `# variable:` sotto `design:`).
 
 | Parametro | Che cosa decide | Regola semplice |
