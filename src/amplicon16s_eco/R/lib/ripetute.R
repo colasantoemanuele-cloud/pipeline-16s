@@ -243,11 +243,15 @@ permanova_appaiata <- function(matrice, distanza, piano, permutazioni, livello, 
                            as.vector(s$campioni))[campioni]
   # Le disposizioni distinte entro soggetto: per ogni soggetto le permutazioni
   # dei suoi livelli.
+  # Ogni soggetto ha un campione per livello: scambiare i campioni entro
+  # soggetto e scambiare le etichette dei livelli sono la stessa cosa, e le
+  # disposizioni del test delle dispersioni sono le stesse della PERMANOVA.
   logaritmo <- nrow(s$campioni) * lgamma(ncol(s$campioni) + 1)
+  possibili <- if (logaritmo < log(1e15)) round(exp(logaritmo)) else Inf
   finto <- list(nome = piano$nome, permanova = list(
     campioni = campioni, valori = quale, gruppi = s$livelli,
     termini = piano$soggetto, stimabile = TRUE, saturo = FALSE, eseguibile = TRUE,
-    disposizioni = if (logaritmo < log(1e15)) round(exp(logaritmo)) else Inf))
+    disposizioni = possibili, disposizioni_gruppi = possibili))
   esito <- permanova(matrice, distanza, finto, stats::setNames(list(di_chi), piano$soggetto),
                      di_chi, permutazioni, livello, seme)
   tabella <- esito$tabella
