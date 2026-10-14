@@ -161,27 +161,6 @@ def test_una_configurazione_incoerente_e_respinta_da_s0_da_sola(tmp_path):
     assert info.value.categoria.value == "revisione_umana"
 
 
-def test_cambiare_qc_warn_frac_chimeric_rifa_solo_s6_e_s7(dada2, catena_calcolata, tmp_path):
-    """
-    **Obiettivo**: Verificare che, con la catena S0-S7 conclusa, cambiare
-    ``qc.warn_frac_chimeric`` lasci concluse S0-S5 e rifaccia soltanto S6 e
-    la fase che ne dipende, S7.
-
-    **Razionale scientifico e sistemistico**: S0 leggeva l'intero gruppo qc per
-    G15, e una soglia di S6 rifaceva la catena intera, S4 compresa (25 minuti
-    sul dataset completo). G15 si ripete a ogni avvio: i parametri che legge
-    solo lui non determinano i risultati di S0.
-    """
-    run = copia_esecuzione(catena_calcolata, tmp_path, qc={"warn_frac_chimeric": 0.3})
-    situazione = run.valuta().situazioni
-    for passo in (Passo.S0, Passo.S1, Passo.S2, Passo.S3, Passo.S4, Passo.S5):
-        assert situazione[passo].stato is StatoPasso.COMPLETATA, passo
-    assert situazione[Passo.S6].motivo == "configurazione cambiata"
-    esito = Esecutore(run, fino_a=Passo.S7).esegui()
-    assert esito.conclusione is Conclusione.COMPLETATA
-    assert [r.passo for r in esito.eseguite] == [Passo.S6, Passo.S7]
-
-
 def test_una_configurazione_incoerente_e_respinta_all_avvio(dada2, catena_calcolata, tmp_path):
     """
     **Obiettivo**: Verificare che, con la catena conclusa, una configurazione
@@ -287,6 +266,9 @@ def test_s6_oltre_l_avviso_registra_la_degradazione_e_prosegue(dada2, catena_cal
     run = copia_esecuzione(
         catena_calcolata, tmp_path, qc={"warn_frac_chimeric": 0.0001, "stop_frac_chimeric": 0.5}
     )
+    # Le soglie non fanno rifare una fase conclusa (valgono dal calcolo
+    # successivo): la fase si ricalcola togliendone il manifesto.
+    run.albero.rimuovi_manifesto_passo(Passo.S6, Fase.CHIMERA)
     esito = Esecutore(run, fino_a=Passo.S7).esegui()
     assert esito.conclusione is Conclusione.COMPLETATA
     assert [r.passo for r in esito.eseguite] == [Passo.S6, Passo.S7]
@@ -308,6 +290,9 @@ def test_s6_oltre_l_arresto_si_ferma_per_la_revisione(dada2, catena_calcolata, t
     run = copia_esecuzione(
         catena_calcolata, tmp_path, qc={"warn_frac_chimeric": 0.0001, "stop_frac_chimeric": 0.0002}
     )
+    # Le soglie non fanno rifare una fase conclusa (valgono dal calcolo
+    # successivo): la fase si ricalcola togliendone il manifesto.
+    run.albero.rimuovi_manifesto_passo(Passo.S6, Fase.CHIMERA)
     esito = Esecutore(run, fino_a=Passo.S7).esegui()
     assert esito.conclusione is Conclusione.ARRESTATA
     assert esito.punto.passo is Passo.S6

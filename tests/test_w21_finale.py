@@ -608,6 +608,9 @@ def test_una_frazione_trattenuta_sotto_la_soglia_ferma_con_e_s14_01(bioc, finale
     """
     copia = copia_esecuzione(finale_calcolata, tmp_path, qc={"min_frac_reads_retained": 0.9999})
     assert copia.valuta().situazioni[Passo.S13].stato is StatoPasso.COMPLETATA
+    # Le soglie non fanno rifare una fase conclusa (valgono dal calcolo
+    # successivo): la fase si ricalcola togliendone il manifesto.
+    copia.albero.rimuovi_manifesto_passo(Passo.S14, Fase.FINAL)
     esito = Esecutore(copia, fino_a=Passo.S14).esegui()
     assert esito.conclusione is Conclusione.ARRESTATA
     assert (esito.punto.passo, esito.punto.codice) == (Passo.S14, "E-S14-01")

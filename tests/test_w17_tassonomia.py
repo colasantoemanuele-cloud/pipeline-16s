@@ -783,6 +783,9 @@ def test_e_s8_02_ferma_con_una_copertura_insufficiente(dada2, tassonomia_calcola
     troppo severo: si capisce, non si ritenta.
     """
     run = copia_esecuzione(tassonomia_calcolata, tmp_path, qc={"min_frac_phylum": 0.9999})
+    # Le soglie non fanno rifare una fase conclusa (valgono dal calcolo
+    # successivo): la fase si ricalcola togliendone il manifesto.
+    run.albero.rimuovi_manifesto_passo(Passo.S8, Fase.TAXONOMY)
     esito = Esecutore(run, fino_a=Passo.S8).esegui()
     assert esito.conclusione is Conclusione.ARRESTATA
     assert esito.punto.passo is Passo.S8

@@ -591,6 +591,9 @@ def test_una_quota_di_coppie_fuse_sotto_la_soglia_ferma_la_fusione(esecuzioni, t
     uscita, config = _copia_con_altre_soglie(
         esecuzioni, tmp_path, min_merged_frac_warn=0.999, min_merged_frac_stop=0.999)
     inferenza = _manifesti(uscita)["S4"].read_bytes()
+    # Le soglie non fanno rifare una fase conclusa (valgono dal calcolo
+    # successivo): la fase si ricalcola togliendone il manifesto.
+    _manifesti(uscita)["SM"].unlink()
     chiudi()
     assert cli.main(["resume", "--config", str(config)]) == 4
     chiudi()

@@ -1462,6 +1462,9 @@ def test_una_soglia_appena_piu_stretta_della_misura_ferma_la_fase(
     dati[gruppo][nome] = float(stretta) if voce.unita is Unita.FRAZIONE else int(stretta)
     # Stessi artefatti a monte: la fase da fermare si esegue su una copia.
     shutil.copytree(base / "out", base / f"out_{passo}")
+    # Le soglie non fanno rifare una fase conclusa (valgono dal calcolo
+    # successivo): la fase si ricalcola togliendone il manifesto.
+    next((base / f"out_{passo}").rglob(f"manifest_{passo}.json")).unlink()
     chiudi()
     assert main(["resume", "--config", str(_scrivi_config(base / f"{passo}.yaml", dati))]) == 4
     chiudi()
