@@ -367,9 +367,9 @@ I comandi dei cinque passi, e quello del report, sono in [GUIDA.md](GUIDA.md), p
 `validate` scrive il suo esito nella cartella di uscita, e `run` parte solo da una
 cartella vuota: dopo `validate` si cancella la cartella di uscita, oppure si prosegue
 con `resume` al posto di `run`. La ripresa con le soglie non cambia conteggi, tassonomia,
-campioni né varianti, ma ripete i calcoli: ogni fase dichiara le soglie che applica, e
-la prima a cambiare è la validazione, da cui tutte dipendono. Dura quanto la prima
-esecuzione.
+campioni né varianti, e non rifà alcuna fase: le soglie di qualità non entrano
+nell'impronta con cui una fase si giudica da rifare, e valgono per ogni calcolo
+successivo. Rifà solo ciò che dipende da `qc.min_reads_final`, se è cambiato.
 
 L'alternativa è accettare le proposte una per una: `init` senza l'opzione scrive
 proposte e valori di partenza in commento, e nulla entra nella configurazione finché
@@ -773,7 +773,7 @@ uscita nuova o vuota: dopo un `validate` nella stessa cartella si rifiuta e indi
   comando per ripartire; corretta la causa, `resume` riparte da lì.
 - La prima esecuzione serve anche a fissare le soglie: `soglie` le propone dalle
   misure, e il report riporta le misure accanto a ciascuna (sezione 6.6). Cambiare una
-  soglia e lanciare `resume` rifà la fase che la applica e quelle che ne dipendono.
+  soglia e lanciare `resume` non rifà alcuna fase: la soglia vale dal calcolo successivo.
 - `validate` guarda le prime letture di ogni file: un file di letture inverse, o a
   blocchi, lo riconosce la fase S1, che le legge tutte (sezione 1.2).
 - Una soglia al valore che non ferma è una configurazione valida con un controllo
@@ -1218,8 +1218,7 @@ lanciare durante un'esecuzione, anche da un altro container.
   `validate`, che esegue la sola prima fase.
 - Una fase risulta conclusa se il suo manifesto esiste: se i suoi artefatti siano
   ancora integri e validi per una configurazione lo stabilisce `resume`. Durante una
-  ripresa che ricalcola le fasi (dopo `soglie`, o dopo una modifica alla
-  configurazione) i manifesti dell'esecuzione precedente restano sul disco finché la
+  ripresa che ricalcola le fasi (dopo una modifica alla configurazione) i manifesti dell'esecuzione precedente restano sul disco finché la
   fase non è rifatta: quelle fasi hanno `stato` `conclusa` e in più `da_rifare`, e
   `status` senza `--json` le mostra come `da_rifare`.
 
@@ -2110,8 +2109,9 @@ prevalenza) sono in [RAZIONALE.md](RAZIONALE.md), sezione 5.
 
 **Esecuzione.**
 
-- Dopo `soglie`, `resume` ripete tutti i calcoli (dura quanto `run`) anche se sono
-  cambiate solo soglie di qualità, che non cambiano i risultati (sezione 2).
+- Una soglia di qualità cambiata non rifà alcuna fase: si controlla dal calcolo successivo.
+  `soglie` non propone mai un valore più stretto della misura; una soglia stretta a mano
+  sotto la misura scatta solo quando la fase che la applica viene ricalcolata.
 - Su un filesystem che non realizza i blocchi due esecuzioni sulla stessa cartella non
   sono rifiutate (sezione 3).
 - L'unico ambiente supportato è l'immagine pubblicata, per l'architettura amd64.

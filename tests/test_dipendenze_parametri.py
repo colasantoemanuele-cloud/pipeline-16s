@@ -385,19 +385,14 @@ def test_run_batch_size_non_invalida_nessuna_fase(tmp_path):
     ("sezione", "variazione", "invalidate"),
     [
         ("dada", {"omega_a": 1e-20}, {Passo.S4}),
-        ("qc", {"max_asv_count": 1000}, {Passo.S5}),
         ("chimera", {"min_fold_parent_over_abundance": 1.5}, {Passo.S6}),
-        ("qc", {"warn_frac_chimeric": 0.3}, {Passo.S6}),
-        ("qc", {"stop_frac_chimeric": 0.6}, {Passo.S6}),
         ("asv", {"len_tol": 2}, {Passo.S7}),
         ("decontam", {"threshold": 0.4}, {Passo.S12}),
         ("retry", {"whitelist": ["E-S2-03"]}, set()),
-        ("qc", {"min_motif_frac": 0.1}, {Passo.S0}),
     ],
     ids=[
-        "dada.omega_a", "qc.max_asv_count", "chimera", "qc.warn_frac_chimeric",
-        "qc.stop_frac_chimeric", "asv.len_tol", "decontam.threshold",
-        "retry.whitelist", "qc.min_motif_frac",
+        "dada.omega_a", "chimera", "asv.len_tol", "decontam.threshold",
+        "retry.whitelist",
     ],
 )
 def test_i_parametri_invalidano_solo_le_fasi_che_li_usano(tmp_path, sezione, variazione, invalidate):

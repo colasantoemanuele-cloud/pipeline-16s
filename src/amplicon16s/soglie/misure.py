@@ -164,9 +164,11 @@ def letture_finali(radice: Path | str) -> list[LettureFinali] | None:
     """Le letture finali dei campioni rimasti nell'oggetto finale, nell'ordine
     della tabella; ``None`` se le tabelle dei filtri finali non ci sono.
 
-    Sono i campioni della tabella delle letture finali che la tabella delle
-    esclusioni non nomina: i soli su cui ha senso chiedersi se qualcuno ha
-    molte meno letture degli altri.
+    Sono i campioni biologici della tabella delle letture finali che la
+    tabella delle esclusioni non nomina: i soli su cui ha senso chiedersi se
+    qualcuno ha molte meno letture degli altri. I controlli compaiono nella
+    tabella con zero letture finali, perche' l'oggetto finale non li contiene:
+    contarli farebbe credere che l'oggetto abbia campioni vuoti.
     """
     radice = Path(radice)
     cartella = f"{Fase.FINAL.value}/{_INTERMEDI}"
@@ -175,11 +177,14 @@ def letture_finali(radice: Path | str) -> list[LettureFinali] | None:
     try:
         esclusi = {r["accession"] for r in _tsv(radice, f"{cartella}/{_ESCLUSIONI}")}
         relativo = f"{Fase.INPUT_VALIDATION.value}/{NOME_CROSSWALK}"
-        nomi = {r["accession"]: r.get("sample_name", "") for r in _tsv(radice, relativo)}
+        inventario = _tsv(radice, relativo)
+        nomi = {r["accession"]: r.get("sample_name", "") for r in inventario}
+        controlli = {r["accession"] for r in inventario
+                     if r.get("classe", "biologico") != "biologico"}
         return [
             LettureFinali(r["campione"], nomi.get(r["campione"], ""), int(r["letture"]))
             for r in _tsv(radice, f"{cartella}/{_LETTURE_FINALI}")
-            if r["campione"] not in esclusi
+            if r["campione"] not in esclusi and r["campione"] not in controlli
         ]
     except (KeyError, ValueError, ArtefattoNonLeggibile):
         return None

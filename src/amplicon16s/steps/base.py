@@ -70,6 +70,7 @@ from amplicon16s.metadata.models import Inventario
 from amplicon16s.runner.graph import GRAFO, Grafo, Nodo, Passo
 from amplicon16s.runner.provenienza import impronta_rigorosa, provenienza
 from amplicon16s.runner.retry import Aggiustamento
+from amplicon16s.soglie.tabella import SOGLIE
 
 __all__ = [
     "Esito",
@@ -89,6 +90,10 @@ def _impronta(valore: Any) -> str:
     return "sha256:" + hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
 
+#: Le soglie di qualita', escluse dall'impronta dei parametri delle fasi.
+_SOGLIE: frozenset[str] = frozenset(s.chiave for s in SOGLIE)
+
+
 def impronta_parametri(
     risolta: ConfigRisolta, parametri: tuple[str, ...] | None
 ) -> str:
@@ -101,6 +106,13 @@ def impronta_parametri(
     parametri restano fuori. Un nome inesistente è un errore, perché una fase
     che dichiara male i propri parametri non vedrebbe cambiare quelli che usa
     davvero; e lo è nominarne uno escluso, che non entrerebbe nell'impronta.
+
+    Restano fuori anche le soglie di qualita' (``soglie.tabella.SOGLIE``): il
+    loro solo effetto e' fermare o avvisare, non cambiano alcun artefatto, e
+    ``soglie`` non propone mai un valore piu' stretto della misura. Cosi'
+    attivarle dopo la prima esecuzione non rifa' alcuna fase: valgono per ogni
+    calcolo successivo. Una soglia stretta a mano sotto la misura si controlla
+    solo quando la fase che la applica viene ricalcolata.
     """
     if parametri is None:
         return risolta.impronta_risultati
@@ -109,11 +121,17 @@ def impronta_parametri(
     for escluso in PARAMETRI_SENZA_EFFETTO:
         gruppo, chiave = escluso.split(".")
         del mappa[gruppo][chiave]
+    for soglia in _SOGLIE:
+        gruppo, chiave = soglia.split(".")
+        if isinstance(mappa.get(gruppo), dict):
+            mappa[gruppo].pop(chiave, None)
 
     scelti: dict[str, Any] = {}
     for nome in parametri:
         if nome in PARAMETRI_SENZA_EFFETTO:
             raise ValueError(f"{nome} non incide sui risultati ed e' escluso dall'impronta")
+        if nome in _SOGLIE:
+            continue
         gruppo, _, chiave = nome.partition(".")
         if not risolta.config.appaiata and (gruppo == "pair" or nome == "io.layout"):
             # In modalita' single-end la modalita' appaiata non esiste nella

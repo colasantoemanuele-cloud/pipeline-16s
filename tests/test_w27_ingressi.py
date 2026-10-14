@@ -28,7 +28,7 @@ calcolo).
   che non li dichiara e' respinta da G15 con ``E-G15-10`` e l'elenco completo
   dei mancanti; un parametro dichiarato nullo o vuoto e' dichiarato; G15
   respinge le colonne del lotto senza il file (``E-G15-11``) e i controlli
-  positivi senza taxon o colonna delle cellule (``E-G15-12``);
+  positivi senza taxon (``E-G15-12``), anche senza colonna delle cellule;
 - l'ordine dei gate e' quello delle dipendenze: un'etichetta non dichiarata e'
   diagnosticata da G11 e non da G10;
 - G10 con ``filter.trimLeft``: primer cercato solo con il taglio a zero, motivo
@@ -441,22 +441,24 @@ def test_g15_respinge_le_colonne_del_lotto_senza_il_file_in_s0_non_in_s10(tmp_pa
         assert f"{gruppo}.{nome}" in violazioni[0].dettaglio
 
 
-def test_g15_respinge_i_controlli_positivi_senza_taxon_o_colonna_delle_cellule(tmp_path):
+def test_g15_respinge_i_controlli_positivi_senza_taxon_e_accetta_quelli_senza_cellule(tmp_path):
     """
     **Obiettivo**: Verificare che con ``ctrl.positive_values`` non vuoto e
-    ``katharoseq.target_taxon`` o ``katharoseq.cell_count_column`` nulli G15
-    respinga con ``E-G15-12``, e che con ``ctrl.positive_values`` vuoto gli
-    stessi nulli siano accettati.
+    ``katharoseq.target_taxon`` nullo G15 respinga con ``E-G15-12``; che la
+    colonna delle cellule nulla sia accettata; e che con
+    ``ctrl.positive_values`` vuoto il taxon nullo sia accettato.
 
-    **Razionale scientifico e sistemistico**: I controlli positivi dichiarati
-    ma non valutabili sarebbero ignorati in silenzio da S11: la coerenza fra i
-    parametri si verifica dove costa meno.
+    **Razionale scientifico e sistemistico**: Senza il taxon atteso i
+    controlli positivi non sono valutabili. La colonna delle cellule e'
+    facoltativa: molti depositi non la portano, e senza di essa S11 misura
+    comunque la fedelta' dei controlli e dichiara che non c'e' una soglia.
     """
     scenario = crea_scenario(tmp_path, _campioni(), con_letture=True)
-    for nome in ("target_taxon", "cell_count_column"):
-        esito = esegui_gate("G15", Contesto(_con(scenario.config, katharoseq={nome: None})))
-        assert [v.codice for v in esito.violazioni] == ["E-G15-12"]
-        assert f"katharoseq.{nome}" in esito.violazioni[0].dettaglio
+    esito = esegui_gate("G15", Contesto(_con(scenario.config, katharoseq={"target_taxon": None})))
+    assert [v.codice for v in esito.violazioni] == ["E-G15-12"]
+    assert "katharoseq.target_taxon" in esito.violazioni[0].dettaglio
+    senza_cellule = _con(scenario.config, katharoseq={"cell_count_column": None})
+    assert esegui_gate("G15", Contesto(senza_cellule)).superato
     senza = _con(scenario.config, ctrl={"positive_values": []},
                  katharoseq={"target_taxon": None, "cell_count_column": None})
     assert esegui_gate("G15", Contesto(senza)).superato

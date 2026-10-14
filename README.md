@@ -77,8 +77,9 @@ Nel repository ci sono i dataset su cui la pipeline è eseguita, tutti da Illumi
   (`container/dada2/`).
 - Un clone di questo repository (`git clone https://github.com/colasantoemanuele-cloud/pipeline-16s.git`):
   il codice si esegue dal clone montato nel container.
-- Memoria in proporzione ai dati: sul dataset di 960 campioni 13 GB di memoria di picco,
-  50 minuti con 12 processori.
+- Memoria e tempo in proporzione ai dati e ai processori: con 12 processori, 960 campioni
+  single-end circa 14 GB di memoria di picco e 45-50 minuti; 28 campioni appaiati circa 15 GB
+  e 25 minuti.
 - Spazio su disco: per un dataset proprio, nella cartella di uscita deve essere libero almeno
   quanto occupano i file delle letture; è ciò che la validazione verifica (`E-S0-14`), perché
   gli artefatti intermedi sono dello stesso ordine. Sul dataset di 960 campioni (2,5 GB di
@@ -266,7 +267,7 @@ misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in
 - Le coppie si abbinano dal marcatore in fondo al nome del file; in modalità appaiata i taxa con la regione più lunga di quanto le letture coprono non si fondono, senza errore.
 - `init` propone solo ciò che i dati sostengono senza ambiguità: riconosce i primer di un elenco, e il resto lo lascia da scegliere.
 - I controlli positivi si valutano solo come serie di diluizione di un taxon; la tassonomia non assegna la specie, e i filtri tolgono solo i taxa che il riferimento nomina.
-- Dopo `soglie`, `resume` ripete tutti i calcoli; l'unico ambiente supportato è l'immagine pubblicata.
+- Una soglia di qualità stretta a mano si controlla solo al calcolo successivo; l'unico ambiente supportato è l'immagine pubblicata.
 - Il dettaglio di ogni limite è in RIFERIMENTO.md, sezione 7; i limiti scientifici dei metodi in RAZIONALE.md, sezione 5.
 
 ## Test

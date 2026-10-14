@@ -974,6 +974,31 @@ def _conformita_dei_positivi(esecuzione: _Esecuzione, riepilogo: Mapping[str, An
     )
 
 
+#: L'esito che S12 scrive quando la decontaminazione si esegue.
+_ESITO_DECONTAM: Final = re.compile(
+    r"^(?P<modo>.*): rimuove (?P<rimossa>[0-9.]+) delle letture dei biologici, "
+    r"(?:entro|oltre) qc\.max_frac_contaminant \((?P<soglia>[^)]*)\)$"
+)
+
+
+def _esito_decontaminazione(esito: str, parametri: Mapping[str, Any] | None) -> str:
+    """L'esito della decontaminazione confrontato con la soglia in uso.
+
+    S12 scrive nel suo riepilogo la soglia con cui e' stata calcolata. Le soglie
+    di qualita' non rifanno la fase quando cambiano (``soglie`` le attiva senza
+    ricalcolo): il confronto si rifa' qui con ``qc.max_frac_contaminant`` della
+    configurazione in uso, cosi' il report non mostra il valore esplorativo.
+    """
+    soglia = (parametri or {}).get("qc.max_frac_contaminant")
+    trovato = _ESITO_DECONTAM.match(esito)
+    if trovato is None or soglia is None:
+        return esito
+    rimossa = float(trovato["rimossa"])
+    verso = "entro" if rimossa <= float(soglia) else "oltre"
+    return (f"{trovato['modo']}: rimuove {trovato['rimossa']} delle letture dei biologici, "
+            f"{verso} qc.max_frac_contaminant ({float(soglia):g})")
+
+
 def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
     """Soglia di profondità per piastra (S11) e modalità di decontaminazione (S12)."""
     soglia = esecuzione.json(Passo.S11, "soglia.json")
@@ -1053,7 +1078,7 @@ def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
         sezione.sintesi((
             ("modalità dichiarata",
              _o_non_pertinente(decontam.get("modalita_dichiarata", ""))),
-            ("esito", decontam.get("esito", "")),
+            ("esito", _esito_decontaminazione(decontam.get("esito", ""), esecuzione.parametri)),
             ("metodo e soglia", f"{decontam.get('metodo', '')}, "
                                 f"{_o_non_pertinente(decontam.get('soglia', ''))}"),
             ("contaminanti rimossi", _n(decontam.get("contaminanti_rimossi", 0))),

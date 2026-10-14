@@ -243,7 +243,6 @@ def test_i_parametri_di_s13_e_s14(tmp_path):
         ({"prev": {"min_fraction": 0.05}}, Passo.S13),
         ({"filt": {"exclude_taxa": ["Chloroplast"]}}, Passo.S13),
         ({"out": {"export_flat": False}}, Passo.S14),
-        ({"qc": {"min_frac_reads_retained": 0.5}}, Passo.S14),
     ):
         dopo = risolvi(config_ridotta(tmp_path, **variazione))
         for passo, fase in passi.items():

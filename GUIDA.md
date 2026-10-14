@@ -26,7 +26,9 @@ o un titolo fra virgolette è una sezione del riferimento.
   cd pipeline-16s
   ```
 
-- **Memoria e tempo**: per una decina di campioni pochi GB e 10-20 minuti; per 960, 13 GB e 50.
+- **Memoria e tempo**: dipendono dai campioni, dalla modalità e dai processori. Misurati con 12
+  processori: 960 campioni single-end, circa 14 GB e 45-50 minuti; 28 campioni appaiati, circa
+  15 GB e 25 minuti. Con meno memoria si riducono i processori (passo 11).
 - **Spazio su disco**: oltre ai 7,6 GB dell'immagine, nella cartella di lavoro almeno quanto
   occupano i file delle letture (lo verifica `validate`).
 
@@ -39,8 +41,8 @@ python3 scripts/scarica_osdr.py OSD-NNN /percorso/dei/dati
 ```
 
 Lo script crea `metadati/` (le tabelle ISA-Tab dello studio) e `letture/` (i file elencati nella
-tabella di assay del 16S). Prima di scaricare dice quanti file e quanti GB; alla fine stampa il
-comando di `init` del passo 4, da copiare. Si può rilanciare dopo un'interruzione: riprende. Se
+tabella di assay del 16S). Prima di scaricare dice quanti file e quanti GB; **alla fine stampa il
+comando di `init` del passo 4, da copiare.** Si può rilanciare dopo un'interruzione: riprende. Se
 lo studio ha più tabelle del 16S le nomina e si ferma: si rilancia con `--assay NOME`.
 
 **Coppie o sole forward.** Se lo studio ha due file per campione (`_R1` e `_R2`) si parte con le
@@ -64,15 +66,24 @@ cp /percorso/dei/dati/letture/*_R1*.fastq.gz /percorso/dei/dati/letture_forward/
 - i metadati: una tabella separata da tabulazioni, una riga per campione (colonne con il nome del
   file, il nome del campione, il tipo se ci sono controlli, le variabili), o le tabelle ISA-Tab.
 
-**Il riferimento tassonomico**, una volta sola, dal clone:
+**Il riferimento tassonomico.** È una raccolta di sequenze del 16S di organismi di nome noto
+(SILVA 138): lo strumento vi confronta ogni variante trovata nelle letture per darle un nome
+(phylum, famiglia, genere). È lo stesso per ogni dataset, quindi si scarica una volta sola. Lo
+script si lancia dalla radice del clone e salva il file in `dati/riferimento/` del clone, che nel
+container è `/app/dati/riferimento/` (il percorso del passo 4):
 
 ```bash
-python3 dati/riferimento/scarica_riferimento.py     # SILVA 138, 138 MB, in dati/riferimento/
+python3 dati/riferimento/scarica_riferimento.py     # 138 MB, verificato con il suo MD5
 ```
 
 ## Passo 3. Un modo solo di lanciare i comandi
 
-Nel terminale, dalla radice del clone, si definisce una volta il comando `p16s`:
+Lo strumento gira dentro l'immagine del passo 1 (un *container*), che vede solo le cartelle che le
+si collegano. Il comando `p16s`, definito qui una volta, collega tre cartelle e lancia lo
+strumento: la cartella dei dati, in sola lettura (lo strumento non può modificarla); una cartella
+di lavoro, per la configurazione e i risultati; il clone, che contiene il codice.
+
+Nel terminale, dalla radice del clone:
 
 ```bash
 IMMAGINE=ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
@@ -83,12 +94,19 @@ p16s() { docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -v "$DATI":/dat
            -v "$LAVORO":/lavoro -w /app "$IMMAGINE" python3 scripts/esegui.py "$@"; }
 ```
 
-Da qui ogni passo è una riga che comincia con `p16s`, lanciata dalla radice del clone. Dentro il
-container la cartella dei dati si chiama `/dati`, quella di lavoro `/lavoro`, il clone `/app`: nei
-comandi e nella configurazione si scrivono questi nomi, non i percorsi del proprio disco. In un
-terminale nuovo le righe qui sopra si ripetono. La cartella di lavoro va creata prima (`mkdir`):
-se la crea Docker appartiene a root. Dove un messaggio dice `python3 scripts/esegui.py ...`, si
-scrive `p16s ...`.
+- **Percorsi assoluti** in `DATI` e `LAVORO` (`/home/...` o `$HOME/...`): con un percorso relativo
+  Docker non dà errore, ma collega una cartella vuota, e lo strumento non trova i dati.
+- **La cartella di lavoro va creata prima** (`mkdir`): se la crea Docker appartiene a root, e lo
+  strumento non può scriverci.
+- **Ogni comando `p16s` si lancia dalla radice del clone**, perché `p16s` collega come clone la
+  cartella in cui si trova il terminale.
+- **In un terminale nuovo** le righe qui sopra si ripetono: `p16s` vive solo nel terminale in cui
+  è stato definito.
+
+Dentro il container la cartella dei dati si chiama `/dati`, quella di lavoro `/lavoro`, il clone
+`/app`: nei comandi e nella configurazione si scrivono questi nomi, non i percorsi del proprio
+disco. Da qui ogni passo è una riga che comincia con `p16s`. Dove un messaggio dello strumento
+dice `python3 scripts/esegui.py ...`, si scrive `p16s ...`.
 
 ## Passo 4. `init`: la configurazione di partenza
 
@@ -98,10 +116,13 @@ p16s init --reads /dati/letture --metadata /dati/metadati \
   --out-root /lavoro/esecuzione --output /lavoro/configurazione.yaml --accetta-proposte
 ```
 
-- `--metadata` è la cartella ISA-Tab, oppure la tabella dei campioni (`/dati/campioni.tsv`). Se la
-  cartella ha più tabelle di assay (16S e ITS) `init` le nomina e si aggiunge `--assay NOME`, con
-  il nome di quella del 16S: lo script del passo 2 lo scrive già nel comando che stampa. Il file
-  del lotto, se c'è, si indica con `--batch-table /dati/lotto.tsv`.
+- `--reads` sono le letture; `--metadata` la cartella ISA-Tab, oppure la tabella dei campioni
+  (`/dati/campioni.tsv`); `--out-root` la cartella dei risultati, che crea lo strumento;
+  `--output` il file che `init` scrive; `--accetta-proposte` rende attive le righe proposte. Se
+  la cartella ha più tabelle di assay (16S e ITS) si aggiunge `--assay NOME`, fra virgolette se
+  il nome ha spazi: lo script del passo 2 lo scrive già nel comando che stampa. Il file del lotto
+  (piastra di estrazione e corsa di ogni campione; di solito OSDR non lo ha), se c'è, si indica
+  con `--batch-table /dati/lotto.tsv`.
 - `init` legge letture e metadati (da decine di secondi ad alcuni minuti) e scrive
   `/lavoro/configurazione.yaml`: ciò che ha verificato e ciò che propone sono righe attive, le
   soglie di qualità sono al valore che non ferma (si fissano al passo 8), ciò che non può
@@ -142,12 +163,15 @@ quella marcata «consigliata». Non c'è nessuna espressione da scrivere.
 | `filt.remove_na_phylum` | se togliere le varianti a cui il riferimento non dà un phylum | `true`: ciò che il riferimento non riconosce di solito non è un batterio |
 | `filt.exclude_taxa` | i taxa da togliere | `["Chloroplast", "Mitochondria", "Eukaryota"]`: non sono batteri del campione |
 | `phylo.max_seqs` | la filogenesi parte attiva (`phylo.enabled: true`): le varianti finali oltre le quali l'albero non si calcola | un tetto al tempo di calcolo, per esempio `2000`. Se le varianti finali (nel report) lo superano, il risultato è consegnato senza albero e il report lo dice (`E-S9-01`): si alza il valore e si rilancia `resume`. Se l'albero non serve, `phylo.enabled: false` e questa riga resta in commento |
-| `prev.apply` | se togliere le varianti presenti in pochi campioni | `false` con poche decine di campioni, o se interessa ogni singolo campione; con `true` vanno scritti anche `prev.min_fraction` (con 20 campioni e `0.2` una variante deve comparire in 4) e `prev.min_count` (`1`) |
+| `prev.apply` | se togliere le varianti presenti in pochi campioni | `false` con poche decine di campioni, o se interessa ogni singolo campione; con `true` vanno scritti anche `prev.min_fraction` e `prev.min_count` (`1`, o `2` per non contare una sola lettura). La frazione si sceglie dal numero di campioni che deve avere una variante: con 20 campioni `0.2` vuol dire 4; con centinaia di campioni una frazione piccola (`0.01` su 800 campioni vuol dire 8) |
 | `qc.min_reads_final` | le letture sotto le quali un campione esce dal risultato | `0` alla prima esecuzione: il valore giusto lo propone il passo 8 |
 | `out.study_columns` | le colonne dei metadati da portare nel risultato: senza, le analisi ecologiche non hanno nulla da confrontare. `validate` non la chiede: va controllata comunque | le variabili dello studio, con il nome esatto dell'intestazione. In ISA-Tab sono le colonne «Factor Value[...]», e `init` le propone già; altrimenti la riga è attiva con `[]`, e si scrive l'elenco al posto di `[]`: `["Trattamento", "Tempo"]`. Il commento elenca le colonne disponibili |
 | `ctrl.column` e le tre etichette `ctrl.*_values` | quali campioni sono controlli negativi (bianchi) o positivi | se `init` le ha proposte, controllare nel commento quali campioni porta ogni valore; `null` e tre elenchi vuoti se non ci sono controlli. Colture pure e standard senza diluizioni si lasciano fra i biologici |
-| `decontam.threshold`, `decontam.min_blanks` | solo con controlli negativi: quanto è severa la decontaminazione, e quanti bianchi servono | `0.1`, il valore del metodo (più alto toglie di più, e si usa con bassa biomassa); il numero dei bianchi, non più di quelli che ci sono |
-| `katharoseq.target_taxon`, `katharoseq.target_sensitivity`, `katharoseq.min_r2`, `ctrl.min_positive_pass_frac` | solo con controlli positivi in diluizione: il genere atteso e come si calibra la profondità minima | il genere del ceppo usato; gli altri tre sono scelte dello studio, fra 0 e 1: RIFERIMENTO.md 6.5 |
+| `ctrl.blank_override_column`, `ctrl.blank_override_values` | campioni dichiarati di un altro tipo da trattare come bianchi | se i metadati descrivono materiale mai usato (provette di tampone mai aperte, bianchi di campo) in una colonna diversa da quella del tipo, la colonna e i suoi valori: quei campioni diventano controlli negativi. `init` li lascia vuoti: va guardato nei metadati (RIFERIMENTO.md 6.1) |
+| `decontam.threshold`, `decontam.min_blanks` | solo con controlli negativi: quanto è severa la decontaminazione, e quanti bianchi con letture servono per eseguirla | `0.1`, il valore del metodo; `0.5` con campioni a bassa biomassa, dove la contaminazione pesa di più (RAZIONALE.md 3.13). I bianchi: un numero piccolo, per esempio `5`; con meno bianchi con letture la decontaminazione non si esegue |
+| `katharoseq.target_taxon`, `katharoseq.target_sensitivity`, `katharoseq.min_r2`, `ctrl.min_positive_pass_frac` | solo con controlli positivi: il genere atteso e come si calibra la profondità minima | il genere del ceppo usato (nella descrizione dello studio o del protocollo); gli altri tre sono scelte dello studio, fra 0 e 1 (`dati/osd734/config_osd734.yaml` ne ha un esempio commentato): RIFERIMENTO.md 6.5. La soglia di profondità richiede le cellule seminate in ogni controllo (`katharoseq.cell_count_column`, dal file del lotto o dalla tabella di studio): senza, i controlli positivi restano separati dai campioni ma la soglia non si calcola, e il report lo dice |
+| `err.randomize`, `dada.pool` | righe già attive, con il predefinito di dada2: vanno controllate | `err.randomize: true` se l'ordine dei file segue piastre, date o gruppi (il modello d'errore si stima sui primi campioni); `dada.pool: "pseudo"` se contano le varianti rare presenti in più campioni |
+| `meta.module_column`, `meta.derive_module`, `meta.module_regex` | facoltativi: un gruppo di posizioni ricavato dal nome della posizione | se il nome di ogni posizione contiene un gruppo (un modulo, una stanza, un sito), la colonna della posizione, `true` e l'espressione che estrae il gruppo: le analisi ecologiche potranno confrontare i gruppi. Va deciso qui, prima di vedere i risultati |
 | `filter.truncLen` (con le coppie anche `pair.truncLen_reverse`, `pair.len_min`, `pair.len_max`) | dove si troncano le letture, e quanto sono lunghe le coppie fuse | di solito proposti. Se mancano, il commento riporta la raccomandazione; se consiglia le sole forward, vedi il passo 2 |
 
 **Il classificatore.** Non c'è nulla da scrivere per quello predefinito, il bayesiano ingenuo
@@ -198,9 +222,9 @@ di qualità: proteggono dai peggioramenti, non dicono se la misura è buona. Due
 p16s resume --config /lavoro/con_soglie.yaml
 ```
 
-`resume` attiva le soglie. **Ripete tutti i calcoli: dura quanto `run`**; se `qc.min_reads_final`
-non è cambiato i risultati sono gli stessi. Da qui in poi la configurazione è `con_soglie.yaml`;
-un `resume` successivo, dopo aver cambiato solo `qc.min_reads_final`, dura meno di un minuto.
+`resume` attiva le soglie: non rifà alcun calcolo per loro, perché non cambiano i risultati, e
+dura pochi secondi; se `qc.min_reads_final` è cambiato rifà i soli filtri finali, l'albero e
+l'oggetto finale, in pochi minuti. Da qui in poi la configurazione è `con_soglie.yaml`.
 
 ## Passo 9. `report`
 
@@ -232,7 +256,17 @@ Value[Tempo]` diventa `factor_value_tempo`). Tre righe vanno lette:
 - **«Gruppi delle colonne candidate»**: per ogni colonna, i gruppi e quanti campioni hanno. La
   variabile da confrontare è una di queste: quella della domanda dello studio, che si legge in
   `metadati/i_Investigation.txt` (righe «Study Title» e «Study Description») o sulla pagina
-  dello studio.
+  dello studio. Una colonna con più di otto gruppi non è elencata: i suoi gruppi si contano dal
+  file dei metadati accanto all'oggetto, sostituendo `COLONNA` con il nome della colonna:
+
+  ```bash
+  awk -F'\t' 'NR==1{for(i=1;i<=NF;i++) if($i=="COLONNA") c=i; next} {print $c}' \
+    "$LAVORO"/esecuzione/12_final/metadati.tsv | sort | uniq -c | sort -rn
+  ```
+
+  Fra i gruppi possono comparire campioni che non sono dell'ambiente studiato (aria, materiale
+  mai usato): se non sono stati dichiarati come bianchi al passo 5, si tengono fuori con
+  `design.subset`, che elenca i valori da tenere.
 - **«Variabili confuse»**: compare se due colonne dividono i campioni quasi allo stesso modo (per
   esempio tutti i campioni a terra sono radici). Un confronto sull'una misura anche l'altra: lo
   si dichiara nei risultati, oppure si restringe l'analisi con `design.subset` ai campioni di un
@@ -249,7 +283,7 @@ parametro è nel file sotto il suo gruppo (`design.variable` è `# variable:` so
 | `design.variable` | la colonna con i gruppi da confrontare | quella della domanda dello studio, fra le colonne elencate; se manca dall'oggetto si aggiunge a `out.study_columns` in `con_soglie.yaml` e si rilanciano `resume` ed `eco init` |
 | `run.seed` | il seme di rarefazione e permutazioni | un intero qualunque, per esempio `1` |
 | `comp.rank`, `comp.top_n` | il rango della composizione e quanti taxa distinguere nei grafici | il rango è di solito proposto (`"Genus"`); `10` |
-| `beta.distances` | le distanze fra campioni | `["bray", "jaccard"]` |
+| `beta.distances` | le distanze fra campioni | `["bray", "jaccard"]`; con l'albero nell'oggetto anche `"unifrac_weighted"` e `"unifrac_unweighted"`, togliendo il commento a `beta.unifrac_root` |
 | `ord.methods`, `ord.distances` | le ordinazioni, e su quali distanze (è la riga `distances:` sotto `ord:`) | `["pcoa"]` e `["bray", "jaccard"]`; con `pcoa` si toglie il commento anche a `ord.pcoa_correction`, che ha già il valore |
 | `stat.min_group_size`, `stat.significance_level` | i campioni che un gruppo deve avere per entrare nei test, e il livello di significatività | `2` (`3` se ogni gruppo da confrontare ha almeno tre campioni) e `0.05` |
 | `design.subset` | facoltativo: quali campioni entrano nelle analisi | una colonna e i valori da tenere: `subset: {factor_value_tempo: ["Giorno 1", "Giorno 7"]}` |

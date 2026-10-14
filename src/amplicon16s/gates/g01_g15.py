@@ -201,7 +201,7 @@ CONTROLLI: Final[tuple[Controllo, ...]] = (
     ),
     Controllo(
         "E-G15-12",
-        ("ctrl.positive_values", "katharoseq.target_taxon", "katharoseq.cell_count_column"),
+        ("ctrl.positive_values", "katharoseq.target_taxon"),
         "gate",
     ),
     Controllo(
@@ -515,25 +515,21 @@ def controlla_coerenza(risolta: ConfigRisolta) -> list[Violazione]:
             )
         )
 
-    # E-G15-12 : controlli positivi dichiarati, ma non valutabili.
-    if config.ctrl.positive_values:
-        nulli = [
-            nome for nome, valore in (
-                ("katharoseq.target_taxon", config.katharoseq.target_taxon),
-                ("katharoseq.cell_count_column", config.katharoseq.cell_count_column),
-            ) if valore is None
-        ]
-        if nulli:
-            violazioni.append(
-                Violazione(
-                    "E-G15-12",
-                    "ctrl.positive_values elenca {} ma {} nullo: i controlli positivi "
-                    "non sarebbero valutabili".format(
-                        config.ctrl.positive_values,
-                        " e ".join(nulli) + (" e'" if len(nulli) == 1 else " sono"),
-                    ),
-                )
+    # E-G15-12 : controlli positivi dichiarati senza il taxon atteso. La colonna
+    # delle cellule non e' richiesta: molti depositi (OSDR) non la portano, e
+    # senza di essa S11 riconosce comunque i controlli e ne misura la fedelta',
+    # ma non ne giudica la conformita' per livello ne' adatta la curva (nessuna
+    # soglia di profondita': resta qc.min_reads_final).
+    if config.ctrl.positive_values and config.katharoseq.target_taxon is None:
+        violazioni.append(
+            Violazione(
+                "E-G15-12",
+                "ctrl.positive_values elenca {} ma katharoseq.target_taxon e' nullo: "
+                "senza il taxon atteso i controlli positivi non sono valutabili".format(
+                    config.ctrl.positive_values,
+                ),
             )
+        )
 
     # E-G15-14 : un parametro che ha effetto solo insieme a un altro. Dichiarato
     # da solo verrebbe ignorato in silenzio, e chi lo ha scritto crederebbe il

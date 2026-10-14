@@ -246,13 +246,13 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "E-G15-12", "G15",
         "I parametri dei controlli positivi sono in contraddizione fra loro.",
         "Se ctrl.positive_values elenca delle etichette, katharoseq.target_taxon "
-        "e katharoseq.cell_count_column devono essere indicati: senza il taxon "
-        "atteso e le cellule seminate i controlli positivi non sono valutabili. "
-        "La colonna delle cellule si cerca nel file di arricchimento e nella "
-        "tabella di studio, ed entra nell'oggetto anche se non e' fra le "
-        "colonne richieste. Se il dataset non ha "
-        "controlli positivi, dichiara ctrl.positive_values vuoto e i due "
-        "parametri nulli.",
+        "deve essere indicato: senza il taxon atteso i controlli positivi non "
+        "sono valutabili. La colonna delle cellule (katharoseq.cell_count_column) "
+        "e' facoltativa: si cerca nel file di arricchimento e nella tabella di "
+        "studio; senza, i controlli non si giudicano per livello e non si "
+        "calcola la soglia di profondita'. Se il dataset non ha controlli "
+        "positivi, dichiara ctrl.positive_values vuoto e katharoseq.target_taxon "
+        "nullo.",
         _UMANA,
     ),
     _v(

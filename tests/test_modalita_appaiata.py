@@ -759,9 +759,7 @@ def test_la_quota_di_coppie_fuse_per_campione_e_facoltativa(tmp_path):
     """
     **Obiettivo**: Verificare che ``pair.min_merged_frac_sample_warn`` omessa
     (o nulla) non compaia nella configurazione risolta ne' fra i parametri
-    assenti dichiarati, e che l'impronta dei parametri della fusione sia la
-    stessa di una configurazione che la dichiara nulla; che dichiarata entri
-    nella configurazione risolta e cambi quell'impronta; che
+    assenti dichiarati; che dichiarata entri nella configurazione risolta; che
     ``campioni_sotto_la_quota`` senza soglia non giudichi nessuno, e con la
     soglia nomini i soli campioni biologici e controlli positivi con coppie la
     cui quota sta strettamente sotto; e che ``soglie`` legga come misura la
@@ -769,12 +767,11 @@ def test_la_quota_di_coppie_fuse_per_campione_e_facoltativa(tmp_path):
 
     **Razionale scientifico e sistemistico**: La quota dell'insieme non vede
     un campione solo che fonde pochissime coppie. Il controllo per campione e'
-    una scelta in piu': chi non lo dichiara deve ritrovare gli stessi digest,
-    le stesse impronte e gli stessi artefatti di prima.
+    una scelta in piu': chi non lo dichiara deve ritrovare gli stessi digest
+    e gli stessi artefatti di prima.
     """
     from amplicon16s.soglie import misure
-    from amplicon16s.steps.base import impronta_parametri
-    from amplicon16s.steps.s04m_merge import FusioneCoppie, campioni_sotto_la_quota
+    from amplicon16s.steps.s04m_merge import campioni_sotto_la_quota
 
     dataset = sintetico.genera_coppie(tmp_path / "dati", biologici=2, coppie=20)
     omessa = _config(dataset, tmp_path / "out")
@@ -784,10 +781,6 @@ def test_la_quota_di_coppie_fuse_per_campione_e_facoltativa(tmp_path):
     assert "min_merged_frac_sample_warn" not in risolvi(omessa).come_mappa()["pair"]
     assert risolvi(omessa).digest == risolvi(nulla).digest != risolvi(dichiarata).digest
     assert risolvi(dichiarata).come_mappa()["pair"]["min_merged_frac_sample_warn"] == 0.5
-    fase = FusioneCoppie()
-    impronte = [impronta_parametri(risolvi(c), fase.parametri_per(c))
-                for c in (omessa, nulla, dichiarata)]
-    assert impronte[0] == impronte[1] != impronte[2]
 
     per_campione = {
         "a": {"coppie": 1000, "fuse": 950}, "b": {"coppie": 1000, "fuse": 100},
