@@ -170,6 +170,7 @@ def rarefazione_bassa(letture: dict[str, int], nomi: dict[str, str] | None = Non
 
 
 def _presente(valore: str | None) -> bool:
+    """Vero se il valore non e' vuoto ne' uno dei modi di scrivere un dato assente."""
     return (valore or "").strip().casefold() not in _VALORI_ASSENTI
 
 
@@ -187,6 +188,8 @@ def confuse(campioni: list[dict[str, str]], colonne: list[str]) -> list[str]:
     di almeno due campioni, fra i campioni con un valore in entrambe.
     """
     def partizione(colonna: str) -> tuple[int, ...]:
+        """Per ogni campione, l'indice del gruppo in cui la colonna lo mette; -1
+        se il campione non ha un valore."""
         indice: dict[str, int] = {}
         return tuple(indice.setdefault(c.get(colonna, ""), len(indice)) if _presente(
             c.get(colonna)) else -1 for c in campioni)
@@ -267,6 +270,7 @@ def prepara(
     voci: dict[str, Voce] = {}
 
     def metti(chiave: str, specie: Specie, valore: Any, origine: str, *note: str) -> None:
+        """Registra la voce di un parametro: specie, valore, origine e note non vuote."""
         voci[chiave] = Voce(chiave, specie, valore, origine, tuple(n for n in note if n))
 
     colonne = descrizione["colonne"]
@@ -457,6 +461,7 @@ def testo_yaml(
     attive = [v for v in voci.values() if v.attiva]
 
     def commento(testo: str, rientro: str = "  ##") -> list[str]:
+        """Il testo, a capo entro la larghezza del file, in righe con il prefisso dato."""
         # Dentro i gruppi le spiegazioni portano ##, le righe dei parametri in
         # commento un solo #: non si scambiano fra loro.
         return [f"{rientro} {r}" for r in textwrap.wrap(

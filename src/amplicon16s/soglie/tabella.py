@@ -31,6 +31,11 @@ e per il report.
 Razionale sistemistico: qui non c'e' alcun valore di un dataset. I limiti
 vengono dagli intervalli dello schema e dalla forma dei confronti; i margini
 sono costanti con un nome e un motivo.
+
+**Chi la usa.** ``validate``, ``run`` e ``resume`` (elenco dei controlli
+spenti), il report, ``init`` (margini e valori di partenza), il sottocomando
+``soglie`` ed ``eco init``. Sole costanti e funzioni pure: nessun file letto
+o scritto.
 """
 
 from __future__ import annotations

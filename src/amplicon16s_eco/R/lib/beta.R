@@ -1,5 +1,8 @@
 # Beta diversita': matrici di distanza fra campioni.
 #
+# La usa R/analisi.R (comando eco run). Scrive, nella cartella beta/ delle
+# uscite, un file distanza_<metodo>.tsv per distanza.
+#
 # Richiede uscite.R e campioni.R. Interfaccia:
 #   clr(conteggi, pseudoconteggio)   trasformata log-rapporto centrata
 #   radica(ps, modo)                 l'oggetto con l'albero radicato per UniFrac
@@ -45,12 +48,21 @@ radica <- function(ps, modo) {
 # la distanza fra quelli analizzati.
 varianti_presenti <- function(conteggi) rowSums(conteggi) > 0
 
+# La trasformata log-rapporto centrata dei conteggi piu' lo pseudoconteggio,
+# sulle sole varianti presenti fra i campioni analizzati. Riceve la matrice
+# varianti x campioni e restituisce campioni x varianti.
 clr <- function(conteggi, pseudoconteggio) {
   # Una riga per campione: logaritmo meno la media dei logaritmi del campione.
   logaritmi <- log(t(conteggi[varianti_presenti(conteggi), , drop = FALSE]) + pseudoconteggio)
   logaritmi - rowMeans(logaritmi)
 }
 
+# La matrice di distanza fra campioni per il metodo indicato. ps serve alle
+# sole UniFrac (porta l'albero), conteggi e' la matrice varianti x campioni dei
+# campioni analizzati, pseudoconteggio serve alla sola Aitchison. Restituisce
+# una matrice quadrata con i campioni nell'ordine delle colonne di conteggi,
+# senza gli attributi dell'oggetto dist. UniFrac si calcola in un solo
+# processo.
 distanza <- function(metodo, ps, conteggi, pseudoconteggio = NULL) {
   campioni <- colnames(conteggi)
   d <- switch(
@@ -73,6 +85,11 @@ distanza <- function(metodo, ps, conteggi, pseudoconteggio = NULL) {
   m
 }
 
+# Scrive una tabella per distanza nella cartella della beta diversita'. matrici
+# e' una lista con nome (metodo -> matrice); l'intestazione di ogni tabella
+# dichiara il metodo e, dove servono, lo pseudoconteggio con il numero di
+# varianti nel CLR, o la radice dell'albero e se l'albero dell'oggetto ne aveva
+# gia' una. Restituisce i nomi dei file, relativi alla cartella di uscita.
 scrivi_distanze <- function(matrici, pseudoconteggio, varianti_nel_clr, cartella,
                             radice = NULL, radicato = NA) {
   dir.create(cartella, showWarnings = FALSE)

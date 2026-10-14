@@ -591,7 +591,7 @@ class Tax(_Gruppo):
         if self.assign_species:
             raise ValueError(
                 "assign_species: true non e' realizzato: la pipeline assegna la "
-                "tassonomia fino al genere. Imposta false"
+                "tassonomia senza l'assegnazione esatta della specie. Imposta false"
             )
         return self
     # Elenco dei taxa con un difetto noto del riferimento, nella forma
@@ -1326,6 +1326,8 @@ class Config(_Gruppo):
         }
 
         def elenco(chiavi: Iterable[str]) -> str:
+            """Le chiavi dell'elenco che il file dichiara, in un testo con il verbo
+            accordato al numero."""
             trovate = [c for c in chiavi if c in dichiarati]
             return ", ".join(trovate) + (
                 " e' dichiarato" if len(trovate) == 1 else " sono dichiarati")
@@ -1582,6 +1584,8 @@ def obbligatori_mancanti(dati: dict[str, Any]) -> list[str]:
     # tax.try_rc ammette il nullo solo perche' con IdTaxa non esiste: con il
     # bayesiano ingenuo il nullo vale come l'omissione.
     def manca(chiave: str) -> bool:
+        """Vero se la chiave non ha un valore dichiarato; il nullo di ``tax.try_rc`` vale
+        come l'omissione."""
         return chiave not in valori or (chiave == "tax.try_rc" and valori[chiave] is None)
 
     return [c for c in d.OBBLIGATORI if manca(c) and c not in non_chiesti] + (
@@ -1657,6 +1661,12 @@ class _LettoreSenzaRipetizioni(yaml.SafeLoader):
     """
 
     def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        """Costruisce la mappa dopo avere respinto le chiavi ripetute.
+
+        Le chiavi si scorrono prima di delegare al costruttore di base, che di due
+        occorrenze terrebbe l'ultima senza dirlo. L'errore porta la posizione nel
+        file della seconda occorrenza.
+        """
         viste: set[Any] = set()
         for chiave_nodo, _ in node.value:
             chiave = self.construct_object(chiave_nodo, deep=deep)

@@ -1,6 +1,10 @@
 # Scrittura delle uscite: tabelle e grafici identici byte per byte a parita' di
 # oggetto, configurazione e seme.
 #
+# La caricano i tre script del pacchetto (R/analisi.R, R/valida.R,
+# R/descrivi.R) e, attraverso di loro, ogni altra libreria: nessun file delle
+# uscite si scrive in altro modo.
+#
 # Richiede io_json.R della pipeline (scrivi_atomico). Interfaccia:
 #   reale(x)                         numeri reali in formato fisso
 #   esponenziale(x)                  p dei test analitici, in formato fisso
@@ -21,6 +25,8 @@
 
 DECIMALI <- 10L
 
+# Un numero reale come testo in formato fisso, con DECIMALI decimali; NA per un
+# valore mancante.
 reale <- function(x) {
   x <- as.numeric(x)
   # Lo zero negativo e i valori che si arrotondano a zero darebbero "-0.0000000000".
@@ -39,8 +45,12 @@ esponenziale <- function(x) {
   testo
 }
 
+# L'ordine dei valori come stringhe, byte per byte: non dipende dalla lingua
+# della macchina.
 ordine_radix <- function(x) order(as.character(x), method = "radix")
 
+# Un valore come cella di una tabella: testo, senza tabulazioni ne' a capo, NA
+# per un valore mancante.
 .cella <- function(x) {
   # Una tabulazione o un a capo dentro un valore romperebbero la tabella.
   x <- gsub("[\t\r\n]", " ", as.character(x))
@@ -48,6 +58,8 @@ ordine_radix <- function(x) order(as.character(x), method = "radix")
   x
 }
 
+# Scrive una tabella separata da tabulazioni in modo atomico, con le righe di
+# commento dell'intestazione prima dei nomi delle colonne.
 scrivi_tsv <- function(tabella, percorso, intestazione = character()) {
   # `tabella` e' un data.frame di colonne gia' in forma di testo o di interi;
   # `intestazione` sono righe di commento, scritte con il prefisso "# " prima
@@ -62,6 +74,9 @@ scrivi_tsv <- function(tabella, percorso, intestazione = character()) {
   )
 }
 
+# Una tabella con le colonne fisse seguite da una colonna per ogni colonna
+# della matrice, formattata con formato; i nomi delle colonne della matrice
+# restano quelli, qualunque siano.
 affianca <- function(fisse, matrice, formato = as.character) {
   # Le colonne della matrice (campioni o gruppi) si accostano a quelle fisse
   # senza passare per l'assegnazione per nome: un campione o un gruppo che si
@@ -72,6 +87,8 @@ affianca <- function(fisse, matrice, formato = as.character) {
   structure(tabella, class = "data.frame", row.names = .set_row_names(nrow(matrice)))
 }
 
+# La parte di un nome di file ricavata da una variabile: la sua posizione nella
+# configurazione, a due cifre, e il nome con i soli caratteri ammessi.
 nome_file <- function(indice, nome) {
   # Il nome di una colonna puo' contenere spazi o segni non ammessi in un nome
   # di file: si tengono lettere, cifre e trattino basso. L'indice, cioe' la
@@ -80,6 +97,8 @@ nome_file <- function(indice, nome) {
   sprintf("%02d_%s", indice, gsub("[^A-Za-z0-9_]", "_", nome))
 }
 
+# Apre un dispositivo grafico PNG di dimensioni in pixel date, a 200 punti per
+# pollice, su fondo bianco; chi chiama lo chiude.
 apri_png <- function(percorso, larghezza = 2400L, altezza = 1500L) {
   # PNG del dispositivo cairo di R: il file non contiene data ne' ora, e due
   # esecuzioni danno gli stessi byte. I formati vettoriali di R (pdf, svg)
@@ -94,6 +113,8 @@ NOMI_DISTANZA <- c(
   unifrac_weighted = "UniFrac pesata", unifrac_unweighted = "UniFrac non pesata"
 )
 
+# Il nome leggibile di una distanza per i titoli; il nome del metodo, se non ne
+# ha uno.
 nome_distanza <- function(metodo) {
   if (metodo %in% names(NOMI_DISTANZA)) NOMI_DISTANZA[[metodo]] else metodo
 }

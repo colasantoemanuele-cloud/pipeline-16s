@@ -1,6 +1,10 @@
 # Classificazione tassonomica con DECIPHER::IdTaxa su un classificatore
 # addestrato (l'oggetto di DECIPHER::LearnTaxa).
 #
+# La usano S8 (R/08_taxonomy.R), quando il classificatore dichiarato e' IdTaxa,
+# e la verifica del classificatore prima dell'esecuzione
+# (R/00_classificatore.R). Legge il file del classificatore; non scrive nulla.
+#
 # Richiede DECIPHER e Biostrings. Interfaccia:
 #   carica_addestrato(percorso)  -> l'oggetto addestrato; si ferma con un
 #                                   messaggio che comincia con
@@ -29,6 +33,11 @@ COLONNE_DEI_RANGHI <- list(
 # Il rango della radice dell'albero dei taxa: non e' un'assegnazione.
 RANGO_RADICE <- "rootrank"
 
+# Il classificatore addestrato letto da un file .RData. Il file si carica in un
+# ambiente proprio, per non toccare quello globale, e deve contenere un solo
+# oggetto di classe Train, con la tabella dei ranghi e almeno un rango fra
+# quelli della tassonomia. Ogni rifiuto ha un messaggio che comincia con
+# "classificatore non valido:", da cui chi chiama lo riconosce.
 carica_addestrato <- function(percorso) {
   ambiente <- new.env()
   nomi <- tryCatch(
@@ -62,10 +71,20 @@ carica_addestrato <- function(percorso) {
   addestrato
 }
 
+# I ranghi che il classificatore nomina, in minuscolo, senza ripetizioni, in
+# ordine indipendente dalle impostazioni locali.
 ranghi_dell_addestrato <- function(addestrato) {
   sort(unique(tolower(as.character(addestrato$ranks))), method = "radix")
 }
 
+# La classificazione delle varianti con DECIPHER::IdTaxa. varianti sono le
+# sequenze, soglia la confidenza minima (0-100), filamento l'orientamento da
+# provare, seme e processi quelli dell'esecuzione. Restituisce list(tax,
+# confidenza, scartati): due matrici varianti x colonne della tassonomia (il
+# nome del taxon e la sua confidenza, NA dove non assegnato) e i ranghi del
+# classificatore che non hanno una colonna. Passi: seme, classificazione, poi
+# per ogni variante e per ogni colonna il primo dei ranghi equivalenti che la
+# classificazione porta, cercato per nome.
 classifica_idtaxa <- function(varianti, addestrato, soglia, filamento, seme, processi) {
   # Il bootstrap di IdTaxa campiona i k-meri con il generatore di R.
   set.seed(as.integer(seme))

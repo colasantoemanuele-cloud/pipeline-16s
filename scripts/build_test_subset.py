@@ -141,6 +141,7 @@ def scrivi_metadati(config: Config, scelti: list[Scelto], cartella: Path) -> Non
     regex = re.compile(config.io.accession_regex)
 
     def dell_assay(riga: dict[str, str]) -> bool:
+        """Vero se la riga dell'assay appartiene a uno dei campioni scelti."""
         trovato = regex.search(riga.get(config.meta.accession_column, ""))
         return bool(trovato) and trovato.group(0) in accession
 

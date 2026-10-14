@@ -1,5 +1,9 @@
 # Tracciamento delle letture per campione, passo dopo passo.
 #
+# La usano gli script delle fasi che registrano un conteggio di letture per
+# campione; la tabella complessiva la compone la parte Python
+# (runner/tracciamento.py).
+#
 # Richiede io_json.R. Interfaccia:
 #   traccia_letture(conteggi, passo, cartella) -> nome del file scritto
 #   leggi_letture(percorso)                    -> vettore intero con nome
@@ -13,6 +17,12 @@
 #
 # Il nome restituito va incluso negli artefatti dichiarati dalla fase.
 
+# Scrive il file del tracciamento di un passo. conteggi e' un vettore con nome
+# (campione -> letture), passo il nome del passo, in minuscole, cifre e
+# trattino basso perche' entra nel nome del file. Conteggi non interi, negativi
+# o mancanti, e nomi vuoti, ripetuti o con tabulazioni fermano la scrittura:
+# una tabella malformata romperebbe il tracciamento di tutta l'esecuzione. I
+# conteggi si scrivono senza notazione esponenziale.
 traccia_letture <- function(conteggi, passo, cartella) {
   if (!is.character(passo) || length(passo) != 1L ||
       !grepl("^[a-z0-9_]+$", passo)) {
@@ -37,6 +47,8 @@ traccia_letture <- function(conteggi, passo, cartella) {
   nome
 }
 
+# Il file del tracciamento di un passo come vettore intero con nome (campione
+# -> letture).
 leggi_letture <- function(percorso) {
   tabella <- utils::read.delim(
     percorso,

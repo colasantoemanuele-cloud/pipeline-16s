@@ -8,6 +8,10 @@ questo dataset e fallirebbe sul successivo, che userà altre convenzioni.
 Un valore che non compare in nessuno dei tre elenchi non viene attribuito a
 una categoria di ripiego: resta **non mappato**, e il gate G11 ferma
 l'esecuzione. È la differenza fra non sapere e credere di sapere.
+
+**Chi lo usa.** La costruzione dell'inventario
+(:mod:`amplicon16s.metadata.crosswalk`), per ogni riga della tabella dei
+campioni. Nessun file letto o scritto.
 """
 
 from __future__ import annotations

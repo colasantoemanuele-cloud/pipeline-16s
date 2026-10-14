@@ -198,10 +198,29 @@ def leggi_finale(finale: Path, attesi: dict[str, float], famiglie: set[str],
 
 
 def _numero(valore: float | None) -> str:
+    """Il numero con sei cifre significative; vuoto se manca."""
     return "" if valore is None else f"{valore:.6g}"
 
 
 def main(argomenti: list[str] | None = None) -> int:
+    """Punto d'ingresso: confronta la composizione misurata con quella attesa.
+
+    Passi:
+
+    1. legge la composizione attesa, gli altri nomi ammessi, l'oggetto finale
+       e l'elenco dei campioni dichiarati; un ingresso non valido ferma tutto
+       con uscita 2, prima di scrivere;
+    2. valuta ogni campione dell'oggetto finale; un campione dichiarato che
+       la pipeline ha escluso non supera alcun criterio, e porta il motivo
+       dell'esclusione;
+    3. scrive ``composizione.tsv`` (una riga per campione e genere),
+       ``campioni.tsv`` (una riga per campione, esclusi compresi) e
+       ``riepilogo.json``;
+    4. stampa l'esito di ogni campione e quello d'insieme.
+
+    Uscita 0 solo se ogni campione dichiarato supera entrambi i criteri, 1
+    altrimenti.
+    """
     analizzatore = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     analizzatore.add_argument("--finale", type=Path, required=True)
     analizzatore.add_argument("--attesi", type=Path, required=True)

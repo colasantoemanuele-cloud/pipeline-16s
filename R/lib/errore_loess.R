@@ -2,6 +2,15 @@
 # (err.error_function), usate da S3 (dada2::learnErrors) e dalla seconda
 # passata di S4.
 #
+# Richiede dada2 per la sola stima standard. Interfaccia:
+#   loess_monotono(trans)   la matrice dei tassi d'errore stimata dalla matrice
+#                           delle transizioni osservate, con il vincolo di
+#                           monotonia
+#   funzione_errore(nome)   la funzione di stima che corrisponde al valore di
+#                           err.error_function
+#
+# I due valori di err.error_function:
+#
 #   loess            dada2::loessErrfun, la stima standard di dada2;
 #   loess_monotono   la variante per le qualita' raggruppate in pochi valori
 #                    (NovaSeq, NextSeq).
@@ -45,6 +54,14 @@ TASSO_MINIMO <- 1e-7
 SPAN_MONOTONO <- 2
 GRADI_MINIMI_LOESS <- 3L
 
+# La stima monotona dei tassi d'errore. trans e' la matrice delle transizioni
+# osservate (sedici righe, da A2A a T2T, una colonna per valore di qualita');
+# restituisce la matrice dei tassi nella stessa forma, che e' cio' che dada si
+# aspetta da una funzione d'errore. I passi sono quelli numerati in testa al
+# file: per ogni sostituzione adattamento sul logaritmo del tasso, previsione a
+# ogni qualita' con il valore del bordo fuori dall'intervallo osservato; poi
+# limiti dei tassi, monotonia, e composizione della matrice con la probabilita'
+# di non errore ottenuta per differenza.
 loess_monotono <- function(trans) {
   qualita <- as.numeric(colnames(trans))
   basi <- c("A", "C", "G", "T")

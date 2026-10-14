@@ -790,13 +790,19 @@ def test_la_filogenesi_sul_dataset_completo(bioc, catena_reale, tmp_path):
     **Razionale scientifico e sistemistico**: Sul dataset di riferimento le
     varianti finali stanno sotto ``phylo.max_seqs``: e' il caso d'uso per
     cui S9 e' stata collocata dopo i filtri. La copia per collegamenti fisici
-    non occupa spazio, perche' ogni scrittura della pipeline sostituisce il file
-    per rinomina.
+    non occupa spazio, perche' gli artefatti e i manifesti si scrivono su un
+    file temporaneo che sostituisce il precedente per rinomina: il file della
+    cartella di partenza resta com'e'. Fanno eccezione i log di ``99_logs/``,
+    che si scrivono in coda al file esistente: nella copia sono resi file
+    propri, altrimenti la ripresa allungherebbe anche quelli di partenza.
     """
     base, _ = catena_reale
     origine = Path(base.config.io.out_root)
     prima = {str(p.relative_to(origine)): p.stat().st_mtime_ns for p in origine.rglob("*") if p.is_file()}
     shutil.copytree(origine, tmp_path / "out", copy_function=os.link)
+    for collegato in sorted(p for p in (tmp_path / "out" / Fase.LOGS.value).rglob("*") if p.is_file()):
+        collegato.unlink()
+        shutil.copy2(origine / collegato.relative_to(tmp_path / "out"), collegato)
     dati = base.config.model_dump(mode="python")
     dati["io"]["out_root"] = str(tmp_path / "out")
     dati["phylo"]["enabled"] = True

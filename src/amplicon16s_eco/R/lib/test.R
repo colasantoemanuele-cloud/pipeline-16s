@@ -1,5 +1,9 @@
 # Test fra gruppi: alfa diversita', PERMANOVA e omogeneita' delle dispersioni.
 #
+# La usano R/valida.R (il solo disegno dei test, con i suoi avvisi) e
+# R/analisi.R (eco run). Scrive test/alfa_diversita.tsv e test/permanova.tsv;
+# il grafico alfa/gruppi_NN_<variabile>.png lo apre R/analisi.R.
+#
 # Richiede uscite.R, campioni.R e alfa.R (fissa_seme). Interfaccia:
 #   disegno_dei_test(d, parametri)   per ogni variabile, i campioni e i termini
 #                                    di ogni test, con gli avvisi: non calcola
@@ -22,11 +26,15 @@
 # stesso modo, entro gli strati: rispondono alla stessa ipotesi di
 # scambiabilita' dei campioni.
 
+# Il rango della matrice del modello che ha per termini le colonne della
+# tabella: dice quanti gradi di liberta' i termini occupano insieme. Una
+# tabella senza colonne vale 1, la sola intercetta.
 .rango <- function(tabella) {
   if (!ncol(tabella)) return(1L)
   qr(stats::model.matrix(~ ., data = tabella))$rank
 }
 
+# Una lista di vettori come tabella di fattori, per i modelli.
 .fattori <- function(tabella) {
   as.data.frame(lapply(tabella, factor), stringsAsFactors = FALSE)
 }
@@ -49,6 +57,17 @@
   nomi[ordine_radix(nomi)]
 }
 
+# Per ogni variabile, i campioni e i termini dei test fra gruppi, con gli
+# avvisi. Restituisce list(piani, avvisi, strati, valori_strati). Per ogni
+# variabile: i gruppi del confronto dell'alfa diversita', contati sui soli
+# campioni rarefatti; i campioni della PERMANOVA, che devono avere un valore
+# anche nelle variabili tecniche e negli strati, e i loro gruppi; i termini
+# tecnici del modello (quelli con un solo livello escono, quelli determinati
+# dai precedenti restano e lo si dichiara); la confusione fra la variabile e un
+# termine tecnico o uno strato; se alla variabile resta un grado di liberta' e
+# se il modello assorbe tutti i campioni; il numero di disposizioni distinte
+# dei campioni, per la PERMANOVA e per il test delle dispersioni, a confronto
+# con le permutazioni richieste. Non calcola nulla.
 disegno_dei_test <- function(d, parametri) {
   avvisi <- list()
   avviso <- function(codice, dettaglio) {
@@ -229,6 +248,9 @@ disegno_dei_test <- function(d, parametri) {
 
 # --- Alfa diversita' ------------------------------------------------------- #
 
+# Il test di Wilcoxon della somma dei ranghi fra due gruppi indipendenti, a due
+# code. Restituisce list(test, statistica, gl, p), dove test dice come e' stato
+# calcolato il p.
 .wilcoxon <- function(x, y) {
   # La regola di stats::wilcox.test (exact = NULL), applicata in modo
   # esplicito: esatto con meno di 50 campioni per gruppo e senza valori
@@ -245,6 +267,11 @@ disegno_dei_test <- function(d, parametri) {
 
 INDICI <- c("ricchezza_osservata", "shannon", "gini_simpson")
 
+# Il confronto di ogni indice di alfa diversita' fra i gruppi della variabile,
+# sui campioni del piano. Con due gruppi un test della somma dei ranghi; con
+# piu' di due il test di Kruskal-Wallis e poi un test della somma dei ranghi
+# per ogni coppia di gruppi. Il p corretto e' sulla famiglia di tutti i test
+# della variabile. Nulla con meno di due gruppi.
 test_alfa <- function(indici, piano) {
   campioni <- piano$alfa$campioni
   gruppi <- piano$alfa$gruppi
@@ -349,6 +376,9 @@ grafico_alfa <- function(indici, piano, profondita, minimo, percorso) {
 # nullo esce dal calcolo come un numero piccolissimo, di segno qualunque: si
 # confronta con la variabilita' totale, non con lo zero esatto.
 RESIDUO_TRASCURABILE <- 1e-10
+# Vero se il residuo e' positivo oltre l'errore di arrotondamento, rispetto al
+# totale; con un totale mancante o non positivo il residuo si confronta con lo
+# zero.
 residuo_positivo <- function(residuo, totale) {
   if (!length(residuo) || is.na(residuo)) return(FALSE)
   if (!length(totale) || is.na(totale) || totale <= 0) return(residuo > 0)
@@ -370,6 +400,18 @@ nota_residuo_non_positivo <- function(distanza, termini) {
          "euclidea, ", termini, " spiegano piu' della variabilita' totale")
 }
 
+# La PERMANOVA di una distanza per una variabile categorica, con il test
+# dell'omogeneita' delle dispersioni sugli stessi campioni. matrice e' la
+# distanza fra tutti i campioni analizzati, piano quello di disegno_dei_test,
+# tecnici i valori delle variabili tecniche, valori_strati gli strati entro cui
+# permutare (o nullo), livello quello di significativita'. Restituisce
+# list(tabella, dispersioni_diverse, dispersioni_valutabili, p_dispersioni);
+# nulla se il piano dice che il test non si esegue. Passi: dati del modello con
+# nomi di colonna neutri e schema di permutazione; adonis2 per termini, con le
+# variabili tecniche prima della variabile, salvo modello saturo; righe dei
+# termini, del residuo e del totale; betadisper e permutest con lo stesso
+# schema di permutazione; riga delle dispersioni con la nota che dice come
+# leggerla. Il seme si fissa prima di ciascuno dei due test.
 permanova <- function(matrice, distanza, piano, tecnici, valori_strati, permutazioni,
                       livello, seme) {
   p <- piano$permanova
@@ -517,6 +559,11 @@ permanova <- function(matrice, distanza, piano, tecnici, valori_strati, permutaz
        dispersioni_valutabili = valutabile, p_dispersioni = p_dispersioni)
 }
 
+# Scrive nella cartella dei test le due tabelle dei confronti fra gruppi,
+# l'alfa diversita' e la PERMANOVA con le dispersioni, con le intestazioni che
+# dichiarano metodo, famiglia della correzione e permutazioni. Una tabella
+# senza righe si scrive comunque, con le sole colonne. Restituisce i nomi dei
+# file, relativi alla cartella di uscita.
 scrivi_test <- function(alfa, multivariati, parametri, profondita, cartella) {
   dir.create(cartella, showWarnings = FALSE)
   vuota_alfa <- data.frame(

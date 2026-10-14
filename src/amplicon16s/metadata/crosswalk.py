@@ -20,6 +20,11 @@ dispone di quell'informazione.
 Questo modulo **legge e diagnostica, non decide**: raccoglie tutto ciò che non
 torna e lo consegna ai gate, che stabiliscono quali problemi fermano
 l'esecuzione e con quale codice.
+
+**Chi lo usa.** I gate sui metadati e, attraverso di loro, S0, che scrive
+l'inventario; ``init``, per provare le chiavi candidate; S10, per estrarre la
+chiave del campione dalla tabella. Legge le tabelle e i nomi dei file; non
+scrive.
 """
 
 from __future__ import annotations

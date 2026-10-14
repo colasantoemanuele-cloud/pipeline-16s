@@ -2,8 +2,10 @@
 """Scarica da ENA le letture forward della comunita' nota.
 
 Le cinque corse dello studio PRJNA758928 sono a letture appaiate: ENA pubblica
-per ognuna due file, ``_1`` e ``_2``, con dimensione e MD5. La pipeline tratta
-dati single-end e usa il solo file forward di ogni corsa. La regola e' in
+per ognuna due file, ``_1`` e ``_2``, con dimensione e MD5. La configurazione di
+base del dataset usa le sole letture forward, in modalita' single-end (ce n'e'
+anche una appaiata, per cui lo script scarica i due file con ``--coppie``). La
+regola e' in
 ``dati/letture_forward.py``: si tiene il file le cui letture iniziano con il
 primer forward 515F, e una corsa in cui lo porta il secondo file e' dichiarata
 invertita.

@@ -1,5 +1,8 @@
 # Descrizione dell'oggetto di partenza, per la configurazione assistita.
 #
+# Lo lancia il comando eco init (init.py, attraverso ponte.py), su una copia
+# dell'oggetto.
+#
 # Parametri: oggetto (percorso della copia) e valori_mancanti. Scrive
 # descrizione.json: non calcola nulla e non giudica, riporta cio' che l'oggetto
 # contiene.

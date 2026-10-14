@@ -10,6 +10,9 @@ La tabella completa non esiste come file: si ricompone qui leggendo, nell'ordine
 del grafo, i file di tracciamento elencati nei manifesti delle fasi concluse.
 Un file di una fase non conclusa non entra, perche' potrebbe appartenere a un
 calcolo interrotto o superato.
+
+**Chi lo usa.** Il report, per la tabella delle letture per campione e per
+fase. Legge i manifesti e le tabelle delle fasi concluse; non scrive.
 """
 
 from __future__ import annotations

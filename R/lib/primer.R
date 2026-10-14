@@ -1,14 +1,26 @@
 # Ricerca e taglio del primer nelle prime basi delle letture, per i protocolli
 # che lo fanno precedere da un numero variabile di basi.
 #
+# La usano, con il primer cercato lungo la lettura, S1 (R/01_profile.R: il
+# profilo delle letture dopo il taglio) e S2 (R/02_filter.R: il taglio prima
+# del filtro). Legge i file di letture indicati e scrive, con taglia_file,
+# quelli tagliati.
+#
 # Richiede Biostrings e ShortRead. Interfaccia:
 #   trova_primer(sequenze, primer, discordanze_massime, sfasamento_massimo)
 #       -> list(sfasamento, discordanze): un intero per lettura, NA dove il
 #          primer non si trova
-#   taglia_primer(letture, ricerca) -> list(letture, esito)
-#       le letture (ShortReadQ) tagliate dopo il primer, o tolte, secondo
-#       ricerca$senza_primer, e per ogni lettura in ingresso sfasamento e
-#       discordanze
+#   inizio_dopo_il_primer(letture, ricerca)
+#       -> l'esito di trova_primer con in piu' inizio: la prima base che
+#          resta di ogni lettura, NA dove il primer manca
+#   dopo_il_taglio(letture, esito, scarta)
+#       -> list(inizio, resta, trovato): quali letture di un blocco restano
+#   conta_posizioni(esito), somma_posizioni(a, b)
+#       -> il conteggio di sfasamenti e discordanze di un blocco, e la somma
+#          di due conteggi
+#   taglia_file(ingressi, uscite, ricerche, scarta, blocco)
+#       -> taglia il primer dai file di un campione (uno, o i due di una
+#          coppia) e scrive cio' che resta; restituisce i conteggi
 #
 # La regola, la stessa di RicercaPrimer in io_layer/reads.py:
 # - codici IUPAC nel primer, basi della lettura alla lettera: una N della
@@ -22,6 +34,14 @@
 # - fra piu' corrispondenze vale quella con meno discordanze e, a parita', la
 #   piu' a sinistra.
 
+# La posizione del primer in ogni sequenza, secondo la regola in testa al file.
+# sequenze e' un DNAStringSet, primer una stringa con codici IUPAC. Passi: si
+# prende di ogni lettura la sola finestra in cui il primer puo' cominciare; le
+# lettere che non sono basi diventano un segno che non concorda con nulla; poi,
+# dal numero di discordanze zero al massimo, si cercano le corrispondenze per
+# le sole letture ancora senza, e ciascuna prende la piu' a sinistra. Procedere
+# per livelli realizza la regola (meno discordanze, poi piu' a sinistra) senza
+# confrontare le corrispondenze una per una.
 trova_primer <- function(sequenze, primer, discordanze_massime, sfasamento_massimo) {
   n <- length(sequenze)
   lunghezza <- nchar(primer)
@@ -95,6 +115,8 @@ conta_posizioni <- function(esito) {
   table(paste(esito$sfasamento[trovato], esito$discordanze[trovato], sep = ":"))
 }
 
+# La somma di due conteggi di posizioni (vettori con nome, come quelli di
+# conta_posizioni): i nomi presenti in uno solo valgono zero nell'altro.
 somma_posizioni <- function(a, b) {
   nomi <- union(names(a), names(b))
   somma <- stats::setNames(numeric(length(nomi)), nomi)

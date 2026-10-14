@@ -18,9 +18,10 @@ disco e ricalcolati: non i manifesti, la configurazione registrata, i log e il
 report, che differiscono per costruzione fra due esecuzioni (portano date,
 identificativi dell'esecuzione e percorsi).
 
-**A quale ambiente si riferiscono.** All'immagine costruita da
-``container/Dockerfile`` del commit indicato nel README della cartella, con la
-configurazione ``config_osd734.yaml``. Con un'altra versione di R o dei
+**A quale ambiente si riferiscono.** All'immagine pubblicata, indicata per
+digest nel README della cartella (non a un'immagine costruita in proprio da
+``container/Dockerfile``, che e' un'altra immagine), con la configurazione
+``config_osd734.yaml``. Con un'altra versione di R o dei
 pacchetti i risultati possono differire negli ultimi decimali senza che
 l'esecuzione sia sbagliata: il confronto prova l'identita', non la correttezza.
 

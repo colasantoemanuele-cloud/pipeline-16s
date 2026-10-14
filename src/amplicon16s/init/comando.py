@@ -356,6 +356,7 @@ def _profilo(
         cartella = albero.cartella(Fase.QC_PROFILES)
 
         def righe(nome: str) -> list[dict[str, str]]:
+            """Le righe di una tabella TSV della cartella dei profili, una mappa per riga."""
             with open(cartella / nome, encoding="utf-8", newline="") as file:
                 return list(csv.DictReader(file, delimiter="\t"))
 
@@ -1091,11 +1092,42 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
 
     Solleva :class:`Rifiuto` se non c'e' una configurazione da proporre.
     """
+    # Indice delle parti, nell'ordine in cui compaiono (ogni parte si apre con
+    # una riga "# ---- Titolo"), con i gruppi di parametri che scrive:
+    #   Letture                  io: cartella, modalita' e modello dei nomi;
+    #                            pair: marcatori dei file
+    #   Tabelle                  io: tabella di assay, di studio, cartella di uscita
+    #   Chiave del campione      le colonne candidate a chiave, cercate sui file
+    #   Righe e file             confronto fra cio' che ogni riga dichiara e il
+    #                            primer del file collegato: note, nessuna voce
+    #   Righe di questa analisi  meta: righe della tabella di assay da tenere
+    #   File del lotto           io: file del lotto; meta e io: colonna ed
+    #                            espressione della chiave del campione
+    #   Nome del campione        meta: colonna del nome, nelle due tabelle
+    #   Tipo di campione         ctrl: colonna dei controlli, etichette,
+    #                            riclassificazione
+    #   Modulo e colonne         meta: posizione e gruppo di posizioni;
+    #                            out: colonne dello studio da portare nell'oggetto
+    #   File del lotto: colonne  decontam, err, katharoseq, meta, out: piastra,
+    #                            corsa, cellule, chiave e colonne del lotto
+    #   Primer e motivo          qc: primer e motivo conservato; filter: taglio
+    #                            fisso o primer cercato lungo la lettura
+    #   Profilo                  filter: troncamento e scarto ammesso; qc: quota
+    #                            di letture corte; err: funzione d'errore
+    #   Modalita' appaiata       pair: primer, motivo, troncamento della
+    #                            reverse, inserto e intervallo delle lunghezze
+    #   Riferimento              tax: file, MD5, nome e versione
+    #   Scelte di analisi        valori di partenza e scelte senza valore di
+    #                            err, dada, chimera, tax, filt, phylo, prev,
+    #                            ctrl, katharoseq, decontam e delle soglie qc
+    # In fondo: la verifica che ogni obbligatorio e ogni condizionale abbia la
+    # sua voce.
     voci: dict[str, Voce] = {}
     note: list[str] = []
     non_indovinati: list[str] = []
 
     def metti(chiave: str, specie: Specie, valore: Any, origine: str, *altre: str) -> None:
+        """Registra la voce di un parametro: specie, valore, origine e note non vuote."""
         voci[chiave] = Voce(chiave, specie, valore, origine, tuple(a for a in altre if a))
 
     # ---- Letture ---------------------------------------------------------
@@ -1295,6 +1327,8 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
         della_chiave = chiave
 
         def per_chiave(valore: str) -> Path | None:
+            """Il file di letture presente collegato al valore della colonna della chiave
+            scelta; ``None`` senza una chiave o senza un file che le corrisponda."""
             if della_chiave is None:
                 return None
             nome_del_file = della_chiave.file_per_chiave.get(
@@ -1495,6 +1529,8 @@ def prepara(args: argparse.Namespace, avanzamento: Callable[[str], None] = lambd
         consigliata = con_il_nome[0] if len(con_il_nome) == 1 else None
 
         def etichetta(numero: int, candidata: r.Chiave) -> str:
+            """Il titolo della coppia di righe pronte di una candidata: dice se e' la
+            consigliata e avverte quando la chiave e' debole."""
             return f"coppia {numero}" + (
                 " (consigliata: la colonna riporta il nome dei file)"
                 if candidata is consigliata else "") + (
@@ -2416,6 +2452,8 @@ def _classi_dei_campioni(
     con valori diversi.
     """
     def classe(valore: str) -> str:
+        """La classe che il tipo di controllo attribuisce a un valore: negativo,
+        positivo, non attribuito, altrimenti biologico."""
         return ("negativo" if valore in tipo.negativi else
                 "positivo" if valore in tipo.positivi else
                 "non attribuito" if valore in tipo.non_attribuiti else "biologico")

@@ -62,6 +62,7 @@ componenti <- function(ps) {
   )
 }
 
+# Il valore mancante come campo vuoto, per gli export piatti.
 vuoto <- function(x) ifelse(is.na(x), "", x)
 
 esegui_fase(function(parametri, cartella) {

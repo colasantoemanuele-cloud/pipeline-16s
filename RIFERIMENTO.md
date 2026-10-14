@@ -1,15 +1,19 @@
 # Riferimento: parametri, casi particolari e formati
 
 Il percorso passo per passo, dai file grezzi al report e alle analisi ecologiche, è in
-[GUIDA.md](GUIDA.md); il README dice che cosa fa lo strumento. Qui c'è il resto: che
-cosa significa ogni parametro e come si sceglie, i casi particolari (letture inverse,
-modalità appaiata, primer cercato lungo la lettura, IdTaxa e i nomi dei taxa, GTDB e
-Greengenes, file del lotto, controlli positivi e negativi), Apptainer, le analisi
-ecologiche nel dettaglio e i formati JSON per chi integra lo strumento.
+[GUIDA.md](GUIDA.md); il README dice che cosa fa lo strumento. Questo è il manuale di
+**ogni parametro**, della pipeline (sezione 6: obbligatori, condizionali e, nella 6.8,
+quelli con un predefinito) e delle analisi ecologiche (sezione 4, con la 4.4): che cosa
+significa e come si sceglie. Ci sono poi i casi particolari (letture inverse, modalità
+appaiata, primer cercato lungo la lettura, IdTaxa e i nomi dei taxa, GTDB e Greengenes,
+file del lotto, controlli positivi e negativi), Apptainer, i formati JSON per chi integra
+lo strumento, i limiti noti (sezione 7) e il glossario (sezione 8). Il perché scientifico
+di ogni metodo è in [RAZIONALE.md](RAZIONALE.md); come è fatto il codice, in
+[SVILUPPO.md](SVILUPPO.md).
 
-Nei messaggi dello strumento una sezione numerata («RIFERIMENTO.md, sezione 6», «GUIDA.md,
-6.3») o un titolo («Letture appaiate») è una sezione di questo documento, con lo stesso
-numero e lo stesso titolo; «GUIDA.md, passo N» è un passo della guida.
+Nei messaggi dello strumento «RIFERIMENTO.md, N.N» (o «RIFERIMENTO.md, sezione N») e un
+titolo fra virgolette («Letture appaiate») sono una sezione di questo documento, con lo
+stesso numero e lo stesso titolo; «GUIDA.md, passo N» è un passo della guida.
 
 Nei comandi `<immagine>` è l'immagine pubblicata, indicata nel README. I comandi si
 lanciano dalla radice di un clone del repository.
@@ -37,12 +41,13 @@ lanciano dalla radice di un clone del repository.
   - [4.1 Variabili continue](#41-variabili-continue)
   - [4.2 Misure ripetute](#42-misure-ripetute)
   - [4.3 Uscite](#43-uscite)
+  - [4.4 Parametri con un predefinito](#44-parametri-con-un-predefinito)
 - [5. Integrazione con altri programmi](#5-integrazione-con-altri-programmi)
   - [5.1 `schema`](#51-schema)
   - [5.2 `validate --json`](#52-validate---json)
   - [5.3 `status --json`](#53-status---json)
   - [5.4 `soglie --json`](#54-soglie---json)
-- [6. I parametri obbligatori e condizionali, uno per uno](#6-i-parametri-obbligatori-e-condizionali-uno-per-uno)
+- [6. I parametri, uno per uno](#6-i-parametri-uno-per-uno)
   - [6.1 File e campioni](#61-file-e-campioni)
   - [6.2 File del lotto](#62-file-del-lotto)
   - [6.3 Letture, primer e riferimento](#63-letture-primer-e-riferimento)
@@ -50,6 +55,9 @@ lanciano dalla radice di un clone del repository.
   - [6.5 Controlli positivi e negativi](#65-controlli-positivi-e-negativi)
   - [6.6 Soglie di qualità](#66-soglie-di-qualità)
   - [6.7 Modalità appaiata](#67-modalità-appaiata)
+  - [6.8 Parametri con un predefinito](#68-parametri-con-un-predefinito)
+- [7. Limiti noti](#7-limiti-noti)
+- [8. Glossario](#8-glossario)
 
 ## 1. Preparare i dati
 
@@ -289,7 +297,8 @@ due classificatori di SILVA addestrati dagli autori di DECIPHER, ne verifica dim
 e MD5 e stampa i due valori da dichiarare in `tax.idtaxa_trained` e
 `tax.idtaxa_trained_md5`:
 
-- `138.2` (`SILVA_SSU_r138_2_2024.RData`, SILVA SSU r138.2): per un'analisi nuova;
+- `138.2` (`SILVA_SSU_r138_2_2024.RData`, SILVA SSU r138.2): per un'analisi nuova, e
+  per confrontarsi con le tabelle della versione attuale della pipeline di GeneLab;
 - `2019` (`SILVA_SSU_r138_2019.RData`, SILVA SSU r138): per confrontarsi con tabelle
   elaborate da NASA GeneLab con le versioni A e B della sua pipeline (GL-DPPD-7104), che
   usano questo file.
@@ -501,12 +510,22 @@ Con `--accetta-proposte` le righe `[PROPOSTO]` sono attive, e compaiono due marc
 | `[PARTENZA]` | il valore di partenza di una scelta (il predefinito del metodo, o un valore ricavato dai dati), accettato | riga attiva |
 | `[ESPLORATIVA]` | una soglia di qualità al valore che non ferma: il suo controllo è spento | riga attiva; `soglie` la sostituisce dopo la prima esecuzione |
 
+Altri quattro marcatori non dicono un'origine ma la specie del parametro; `init` scrive
+il primo e il terzo, gli altri due sono del modello `config/config.example.yaml`:
+
+| Marcatore | Che cos'è | Come è scritta |
+|---|---|---|
+| `[DA INDICARE]` | un percorso obbligatorio (le letture, la tabella, la cartella di uscita, il riferimento) non indicato sulla riga di comando di `init` | riga in commento, senza valore: va scritto il percorso |
+| `[PERCORSO]` | nel modello: un file o una cartella di questa esecuzione | riga attiva con un percorso d'esempio, da sostituire |
+| `[MODALITA']` | la scelta di una modalità, che omessa vale il valore indicato: la modalità di lettura (`io.layout`, single-end), il modo di togliere il primer (`filter.primer_removal`, `fixed`), il classificatore (`tax.classifier`, `naive_bayes`) | `init` scrive la modalità che rileva; il classificatore è in commento con il suo valore. I parametri di una modalità non scelta non si dichiarano (`E-G15-15`, `E-G15-16`, `E-G15-17`) |
+| `[OBBLIGATORIO]` | nel modello: un parametro che dipende dai dati o dallo studio, senza predefinito | riga in commento, senza valore: va dichiarato; «oppure null» o «oppure []» dicono che l'assenza è ammessa. Nel file di `init` al suo posto c'è il marcatore dell'origine |
+
 Restano `[DA SCEGLIERE]`, in commento, le sole scelte senza un valore di partenza. Ogni
 riga attiva porta nel commento la sua origine e la fonte, e va comunque letta: una
 proposta può sbagliare (sezione 2.3).
 
 I parametri che hanno un predefinito (`[STANDARD]`, `[UNICA FORMA]`, `[STRUMENTO]`,
-`[FACOLTATIVO]`) sono in commento con quello: si possono lasciare così. Un parametro
+`[FACOLTATIVO]`; l'elenco è nella sezione 6.8) sono in commento con quello: si possono lasciare così. Un parametro
 `[UNICA FORMA]` ammette un solo valore, perché la pipeline realizza quella sola forma
 del metodo: `katharoseq.curve_model`, per esempio, nomina la curva di calibrazione,
 che è una, e scriverlo non cambia nulla.
@@ -700,13 +719,11 @@ identici nei due casi; che cosa cambia negli altri artefatti dipende dal paramet
   `01_input_validation/gates.json`, l'esito della decontaminazione) non lo riporta. Il
   report mostra quei campi come «non pertinente».
 
-Una proposta è ciò che i dati suggeriscono, non ciò che uno studio ha scelto: sui due
-dataset OSD-734 e OSD-276 alcune proposte differiscono dalla configurazione del repository.
-Per OSD-276 `init` propone `filter.truncLen: 151`, la lunghezza di tutte le letture,
-mentre la configurazione del repository tronca a 150 (è il valore dell'esempio, non
-una scelta degli autori dello studio): i due valori danno oggetti finali
-diversi (990 e 1.005 varianti). Chi vuole riprodurre un risultato usa i valori della
-configurazione che lo ha prodotto.
+Una proposta è ciò che i dati suggeriscono, non ciò che uno studio ha scelto: `init` può
+proporre un valore diverso da quello di una configurazione già usata (un troncamento di
+una base più lungo, per esempio), e una differenza anche piccola cambia l'oggetto finale.
+Chi vuole riprodurre un risultato usa i valori della configurazione che lo ha prodotto,
+non quelli di un nuovo `init`.
 
 ## 3. Eseguire
 
@@ -900,8 +917,11 @@ con `out.study_columns` prende un nome in minuscolo con i trattini bassi (`Facto
 Value[Spaceflight]` diventa `factor_value_spaceflight`; la corrispondenza è in
 `10_phyloseq/colonne_metadati.tsv`). `eco init` elenca i nomi che trova.
 
-Il significato di ogni parametro è in `config/eco.example.yaml`; esempi completi e
-commentati sono `dati/osd734/eco_osd734.yaml`, `dati/osd276/eco_osd276.yaml` e
+Ogni parametro delle analisi ecologiche è descritto in questa sezione: le scelte qui
+sotto, le variabili continue e le misure ripetute nelle sezioni 4.1 e 4.2, i parametri
+con un predefinito o facoltativi nella 4.4. `config/eco.example.yaml` è il modello da
+compilare, con gli stessi parametri; esempi completi e commentati sono
+`dati/osd734/eco_osd734.yaml`, `dati/osd276/eco_osd276.yaml` e
 `dati/osd170/eco_osd170.yaml`. Per le scelte senza un valore di partenza:
 
 - `design.variable` va dichiarata anche quando nessuna colonna ha gruppi ripetuti: si
@@ -918,7 +938,8 @@ commentati sono `dati/osd734/eco_osd734.yaml`, `dati/osd276/eco_osd276.yaml` e
   test (di consueto 0,05);
 - `beta.clr_pseudocount`, solo con la distanza di Aitchison: il valore sommato a ogni
   conteggio prima del logaritmo, perché gli zeri non hanno logaritmo; 1 è la scelta più
-  diffusa, e un valore più piccolo dà più peso alle varianti rare;
+  diffusa. Un valore più piccolo rende gli zeri più estremi nel log-rapporto: nella
+  distanza pesano allora di più gli zeri e le varianti con pochi conteggi;
 - `run.seed`: un intero qualunque, che fissa rarefazione e permutazioni.
 
 Completate le scelte:
@@ -997,12 +1018,11 @@ soggetti che hanno un campione in ogni livello della variabile:
   distanza non euclidea (Bray-Curtis, Jaccard) il soggetto e la variabile possono
   spiegare insieme più della variabilità totale: il test non è allora valutabile, e la
   tabella lo dice; la distanza di Aitchison non ha questo limite. Il test delle
-  dispersioni entro soggetto è un po' permissivo quando i soggetti sono pochi e
-  differiscono molto fra loro: in una simulazione senza alcuna differenza di
-  dispersione, con 6, 8 e 12 soggetti, ha segnalato dispersioni diverse in circa l'8%
-  dei casi al livello nominale del 5% (il 6% con 20 soggetti). L'errore è nel verso
-  prudente, una nota «dispersioni diverse» un po' più frequente del dovuto; la
-  PERMANOVA entro soggetto tiene il suo livello. `stat.permanova_strata` non entra in
+  dispersioni entro soggetto è un po' permissivo quando i soggetti sono pochi (una
+  decina o meno) e differiscono molto fra loro: segnala dispersioni diverse un po' più
+  spesso del livello nominale. L'errore è nel verso prudente, una nota «dispersioni
+  diverse» più frequente del dovuto, e con pochi soggetti quella nota va letta come
+  un'indicazione; la PERMANOVA entro soggetto tiene il suo livello. `stat.permanova_strata` non entra in
   questa analisi, che permuta già entro il soggetto: se è dichiarato, l'analisi lo
   dice con l'avviso `E-ECO-35` e nell'intestazione della tabella;
 - `test/soggetti.tsv`: ogni soggetto, i livelli che ha e se è completo o perché è
@@ -1034,12 +1054,64 @@ file, byte per byte, e lo stesso digest.
 ### 4.3 Uscite
 
 La cartella di uscita deve essere assente o vuota e fuori dalla cartella dell'oggetto.
-Contiene tabelle (alfa diversità, composizione, distanze, ordinazione, test), grafici
-PNG, `riepilogo.json` con gli avvisi e `manifest.json` con dimensione e SHA-256 di ogni
-altro file. A parità di oggetto, configurazione e seme i file sono identici byte per byte.
+A parità di oggetto, configurazione e seme i file sono identici byte per byte. Nei nomi
+`NN` è la posizione della variabile nella configurazione (01 per `design.variable`), e
+`<distanza>` è uno dei nomi di `beta.distances`. Il perché di ogni analisi, e come si
+legge, è in [RAZIONALE.md](RAZIONALE.md), sezione 4.
+
+| Cartella | File | Che cosa contiene |
+|---|---|---|
+| (radice) | `campioni.tsv` | ogni campione dell'oggetto: in quali analisi entra e, se è escluso, il motivo |
+| (radice) | `configurazione.json` | la configurazione usata, con il suo digest |
+| (radice) | `riepilogo.json` | la sintesi: campioni, profondità di rarefazione, stress delle NMDS, e gli avvisi `E-ECO-` con il loro dettaglio |
+| (radice) | `manifest.json` | dimensione e SHA-256 di ogni altro file |
+| `alfa/` | `alfa_diversita.tsv` | per campione: ricchezza osservata, Shannon, Gini-Simpson, sui conteggi rarefatti |
+| `alfa/` | `conteggi_rarefatti.tsv` | la tabella dei conteggi dopo la rarefazione |
+| `alfa/` | `gruppi_NN_<variabile>.png` | gli indici per gruppo, solo se il confronto si esegue |
+| `alfa/` | `continua_NN_<variabile>.png` | gli indici contro una variabile continua (sezione 4.1) |
+| `composizione/` | `abbondanze_relative.tsv` | le proporzioni di ogni taxon del rango `comp.rank`, per campione, con la categoria dei non assegnati |
+| `composizione/` | `gruppi_NN_<variabile>.tsv`, `.png` | le proporzioni medie per gruppo, e il grafico con i `comp.top_n` taxa più abbondanti |
+| `beta/` | `distanza_<distanza>.tsv` | la matrice delle distanze fra i campioni |
+| `ordinazione/` | `pcoa_<distanza>_coordinate.tsv`, `pcoa_<distanza>_autovalori.tsv` | le coordinate dei campioni e la quota di variabilità di ogni asse |
+| `ordinazione/` | `nmds_<distanza>_coordinate.tsv` | le coordinate dei campioni; lo stress è nell'intestazione |
+| `ordinazione/` | `<metodo>_<distanza>_NN_<variabile>.png` | i campioni sui primi due assi, colorati per gruppo |
+| `test/` | `alfa_diversita.tsv` | Wilcoxon o Kruskal-Wallis sugli indici, per variabile, con la p corretta |
+| `test/` | `permanova.tsv` | la PERMANOVA per variabile e distanza, con accanto il test delle dispersioni |
+| `test/` | `alfa_continua.tsv`, `permanova_continua.tsv` | con le variabili continue (sezione 4.1) |
+| `test/` | `alfa_appaiata.tsv`, `permanova_appaiata.tsv`, `soggetti.tsv` | con le misure ripetute (sezione 4.2) |
+
 Gli avvisi (`E-ECO-`) non fermano l'analisi: dichiarano una condizione che chi legge i
 risultati deve conoscere, per esempio un gruppo troppo piccolo per i test, una
 variabile che sembra continua, un'analisi entro soggetto che non si è potuta eseguire.
+Nelle tabelle dei test vale la p corretta (Benjamini-Hochberg), non quella grezza; se
+nella riga di una PERMANOVA il test delle dispersioni è significativo, la differenza fra
+i gruppi può essere di variabilità e non di composizione.
+
+### 4.4 Parametri con un predefinito
+
+I parametri delle analisi ecologiche che si possono omettere. Gli altri sono
+obbligatori (le scelte descritte sopra) o condizionali: questi ultimi vanno dichiarati
+con il metodo che li richiede e sono respinti senza.
+
+| Parametro | Predefinito | Fonte o motivo | Effetto |
+|---|---|---|---|
+| `alpha.rarefy_depth` | nullo | `phyloseq::rarefy_even_depth`, `sample.size = min(sample_sums(physeq))` | nullo: si rarefà alla profondità del campione più povero fra quelli analizzati. Dichiarata, i campioni con meno letture escono dall'alfa diversità |
+| `stat.permanova_permutations` | 999 | `vegan::adonis2`, `permutations = 999` | le permutazioni della PERMANOVA e del test delle dispersioni: fissano la p più piccola ottenibile (0,001 con 999) |
+| `stat.permanova_strata` | nullo | facoltativo: nessuno strato | la colonna entro i cui valori si permuta, nella PERMANOVA e nel test delle dispersioni; non entra nell'analisi entro soggetto (sezione 4.2) |
+| `design.other_variables` | `[]` | facoltativo: nessuna | altre variabili categoriche, analizzate una alla volta come `design.variable` |
+| `design.technical_variables` | `[]` | facoltativo: nessuna | le variabili tecniche (piastra, corsa), primi termini della PERMANOVA nell'ordine dichiarato, prima la più grossolana |
+| `design.subset` | `{}` | facoltativo: tutti i campioni | per ogni colonna i valori dei campioni da tenere; si applica prima di tutto il resto |
+| `design.continuous_variables` | `[]` | facoltativo: nessuna | le variabili continue (sezione 4.1) |
+| `design.subject` | nullo | facoltativo: campioni indipendenti | la colonna del soggetto in un disegno a misure ripetute (sezione 4.2) |
+
+I quattro condizionali:
+
+| Parametro | Richiesto con | Valori | Effetto |
+|---|---|---|---|
+| `beta.clr_pseudocount` | la distanza `aitchison` | un numero maggiore di zero; nessuna partenza (1 è la scelta più diffusa) | il valore sommato a ogni conteggio prima del log-rapporto |
+| `beta.unifrac_root` | una delle due UniFrac | `existing` (la radice che l'albero ha già: quello della pipeline è radicato al punto medio) o `midpoint` (lo radica di nuovo al punto medio); un albero senza radice con `existing`, o senza lunghezze dei rami, è respinto | la radice da cui UniFrac misura i rami |
+| `ord.pcoa_correction` | il metodo `pcoa` | `none` (partenza, `ape::pcoa`), `cailliez`, `lingoes` | la correzione degli autovalori negativi che le distanze non euclidee danno alla PCoA |
+| `ord.nmds_trymax` | il metodo `nmds` | un intero positivo; partenza 20 (`vegan::metaMDS`) | gli avvii casuali della NMDS: se non converge l'analisi avvisa, e si può alzare |
 
 ## 5. Integrazione con altri programmi
 
@@ -1186,9 +1258,11 @@ cosa è stato misurato) e `origine_della_misura` (l'artefatto); `valore_configur
 (nel file letto), `valore_suggerito` (misura e margine), `valore` (quello che il file
 scritto dichiara); `margine`, `regola` (a parole), `controllo_spento`, `note`.
 
-## 6. I parametri obbligatori e condizionali, uno per uno
+## 6. I parametri, uno per uno
 
-Per ogni parametro: che cosa significa; come si ricava dai propri dati; il valore di
+Le sezioni da 6.1 a 6.7 trattano i parametri obbligatori e condizionali, quelli che vanno
+scritti; la 6.8 elenca i parametri con un predefinito, che si possono omettere. Per ogni
+parametro delle prime: che cosa significa; come si ricava dai propri dati; il valore di
 partenza che `init` scrive, con la sua fonte; che cosa guardare nel report della prima
 esecuzione per confermarlo. «Nessuno» nella colonna della partenza vuol dire che `init`
 lascia la riga senza valore: non c'è un valore difendibile senza conoscere lo studio.
@@ -1229,12 +1303,12 @@ nota, tabella dei campioni in TSV semplice).
 | `ctrl.blank_values` | valori dei controlli negativi; `[]` se non ce ne sono; solo se `ctrl.column` non è nullo | copiati dalla colonna | proposti (blank, negative, NTC, no template) | conteggi per classe |
 | `ctrl.positive_values` | valori dei controlli positivi; `[]` se non ce ne sono; solo se `ctrl.column` non è nullo | copiati dalla colonna | proposti (positive, mock) | conteggi per classe |
 | `ctrl.biological_values` | valori dei campioni biologici; solo se `ctrl.column` non è nullo | copiati dalla colonna | proposti: i valori senza parole di controllo | conteggi per classe |
-| `ctrl.blank_override_column` | colonna con cui trattare come controlli negativi campioni dichiarati di un altro tipo; nullo: nessuna | solo conoscendo lo studio (materiale mai usato, tamponi non aperti) | nullo (assenza) | `crosswalk.tsv`: classe e materiale |
+| `ctrl.blank_override_column` | colonna con cui trattare come controlli negativi campioni dichiarati di un altro tipo; nullo: nessuna | solo conoscendo lo studio (per esempio materiale di campionamento mai usato, dichiarato come campione) | nullo (assenza) | `crosswalk.tsv`: classe e materiale |
 | `ctrl.blank_override_values` | i valori di quella colonna che riclassificano; solo se `ctrl.blank_override_column` non è nullo | come sopra | non richiesto senza la colonna | come sopra |
-| `meta.module_column` | colonna con la posizione di prelievo; nullo | la colonna della posizione, se lo studio ne ha una | nullo (assenza) | `crosswalk.tsv`, colonna `posizione` |
+| `meta.module_column` | colonna con la posizione di prelievo del campione (il punto, il sito, l'organo da cui viene); nullo | la colonna della posizione, se lo studio ne ha una | nullo (assenza) | `crosswalk.tsv`, colonna `posizione` |
 | `meta.derive_module` | se derivare il gruppo di posizioni dalla posizione | vero se le posizioni hanno un prefisso comune per gruppo | falso (assenza) | `crosswalk.tsv`, colonna `modulo` |
 | `meta.module_regex` | espressione con un gruppo di cattura che estrae il gruppo dalla posizione; nullo; solo se `meta.derive_module` è vero | guardando i valori della posizione | non richiesto con `meta.derive_module` falso | come sopra |
-| `meta.non_surface_positions` | posizioni che non appartengono a un gruppo (aria, materiale non usato); `[]` | dai valori della posizione | `[]` (assenza) | come sopra |
+| `meta.non_surface_positions` | valori della posizione che non sono campioni dell'ambiente studiato (per esempio un materiale di campionamento non usato) e non appartengono a un gruppo di posizioni; `[]` | dai valori della posizione | `[]` (assenza) | come sopra |
 | `out.study_columns` | colonne della tabella dei campioni da portare nell'oggetto; `[]` | le variabili che le analisi a valle useranno | `[]`; il commento elenca le colonne | `10_phyloseq/colonne_metadati.tsv` |
 
 ### 6.2 File del lotto
@@ -1424,8 +1498,8 @@ scriverle in maiuscolo.
 
 **Senza albero.** Con `phylo.enabled` vero l'albero si calcola sulle varianti finali. In
 due casi la fase si conclude senza calcolarlo, lo dichiara come degradazione (nel proprio
-manifesto e nel report) e l'oggetto finale è consegnato senza albero, con ogni altro file
-uguale: le varianti finali superano `phylo.max_seqs` (`E-S9-01`), oppure sono meno di
+manifesto e nel report) e l'oggetto finale è consegnato senza albero, con gli stessi
+conteggi, tassonomia, metadati e sequenze: le varianti finali superano `phylo.max_seqs` (`E-S9-01`), oppure sono meno di
 quattro (`E-S9-02`), e non c'è un albero da stimare. Nel primo caso, per avere l'albero si
 alza `phylo.max_seqs` almeno al numero delle varianti finali, che è nel report, e si
 rilancia `resume`: si rifanno la filogenesi e l'oggetto finale. Senza albero le distanze
@@ -1479,17 +1553,16 @@ l'altro: la configurazione è respinta (`E-G15-17`). Come scegliere:
   quelle ottenute con la versione con cui è stato pubblicato. La versione di DECIPHER
   dell'immagine è in `renv.lock`.
 
-Sui dataset del repository IdTaxa è eseguito con i due classificatori di SILVA (r138 e
-r138.2) su varianti da letture Illumina MiSeq: della regione V4 dalle sole forward (da
-137 a 251 basi) e della regione V3-V4 da coppie fuse. Sui due standard di composizione
-nota (`dati/comunita_nota/`, `dati/comunita_nota_v3v4/`) con la soglia 60 alcuni generi
-che il bayesiano ingenuo assegna restano alla famiglia, o senza assegnazione, e sulle
-sole forward della regione V4 sono di più che sulle coppie fuse della V3-V4: prima di
-scegliere IdTaxa per un'analisi al livello di genere conviene eseguire su quei dati le
-due configurazioni e la verifica della composizione, e guardare quali generi cambiano.
-Per un'analisi al livello di genere la prima scelta resta il bayesiano ingenuo: IdTaxa
-con il classificatore SILVA r138.2 non ha superato la prova sulle comunità a
-composizione nota.
+**Quale dei due per un'analisi al livello di genere.** La prima scelta è il bayesiano
+ingenuo: assegna più generi. IdTaxa, più prudente, lascia alla famiglia o senza
+assegnazione una parte dei generi che il bayesiano assegna, tanto più quanto più corte
+sono le sequenze (le sole forward di una regione più delle coppie fuse). Prima di
+scegliere IdTaxa conviene eseguire le due configurazioni su una comunità di composizione
+nota, sequenziata come i propri campioni, e confrontare i generi trovati: il repository
+ne ha due, con le configurazioni dei due classificatori e lo script di verifica
+(`dati/comunita_nota/`, regione V4; `dati/comunita_nota_v3v4/`, regione V3-V4). IdTaxa è
+il classificatore della pipeline di NASA GeneLab, e serve a chi vuole confrontarsi con le
+sue tabelle: quale dei due file addestrati usare è nella sezione 1.5.
 
 **I nomi dei taxa con IdTaxa.** La tassonomia riporta i nomi come li scrive il
 classificatore, e ogni confronto per nome (i filtri, il taxon atteso dei controlli
@@ -1499,8 +1572,9 @@ suffisso numerico: i cloroplasti sono `Chloroplast_2`, i mitocondri `Mitochondri
 *Pseudomonas* è `Pseudomonas_2`, *Escherichia* è `Escherichia-Shigella_2`; il
 classificatore r138 scrive `Chloroplast`, `Mitochondria`, `Pseudomonas`. Un nome di
 `filt.exclude_taxa` senza il suffisso non toglie nulla: la validazione lo segnala
-(`E-S0-32`) e suggerisce il nome con il suffisso. I nomi di un classificatore si leggono
-dal suo file:
+(`E-S0-32`) e suggerisce il nome con il suffisso. Con il classificatore r138.2 i taxa da
+togliere di solito si scrivono quindi `["Chloroplast_2", "Mitochondria_2", "Eukaryota"]`.
+I nomi di un classificatore si leggono dal suo file:
 
 ```bash
 Rscript -e 'load("SILVA_SSU_r138_2_2024.RData"); t <- trainingSet$taxa
@@ -1814,10 +1888,8 @@ precedono, togliendo a ogni coppia ciò che il taglio toglie alle sue due lettur
 
 **L'intervallo delle lunghezze.** In modalità appaiata l'intervallo ammesso è quello
 dichiarato: `asv.len_tol`, la tolleranza attorno al troncamento della modalità single-end,
-non ha effetto, e cambiarla non rifà alcuna fase. (Il filtro di lunghezza dichiara per
-questo, in modalità appaiata, il solo intervallo: su un'esecuzione appaiata fatta con una
-versione precedente dello strumento `resume` rifà una volta il filtro di lunghezza e le
-fasi che ne dipendono, con gli stessi risultati.) `pair.expected_merged_len`, se non è
+non ha effetto, e cambiarla non rifà alcuna fase: il filtro di lunghezza dichiara, in
+modalità appaiata, il solo intervallo. `pair.expected_merged_len`, se non è
 nulla, deve stare nell'intervallo: fuori, la configurazione è respinta (`E-G15-15`),
 perché le sequenze della lunghezza attesa uscirebbero dalla tabella. `init` propone `pair.len_min` e `pair.len_max` dai
 percentili dell'inserto misurato: descrivono le coppie del dataset, non la regione. Se
@@ -1857,3 +1929,237 @@ riprendere rifà la fusione e le fasi successive, non il filtro né l'inferenza:
 fusione legge ciò che l'inferenza ha conservato per ogni campione, non le letture. Fa
 eccezione un'esecuzione conclusa con `run.keep_filtered_fastq: false`: le letture
 filtrate tolte alla fine si rigenerano, e con esse l'inferenza.
+
+### 6.8 Parametri con un predefinito
+
+I parametri che si possono omettere: omessi valgono il predefinito, e il report li
+riporta con l'origine «predefinito». Sono di quattro specie, le stesse dei marcatori del
+file (sezione 2.1) e del campo `specie` di `schema` (sezione 5.1): lo **standard del
+metodo** (il valore del pacchetto che realizza il calcolo, o la raccomandazione dei suoi
+autori, con la fonte), l'**unica forma** (la pipeline realizza quel solo valore), il
+parametro **dello strumento** (governa come si esegue o in che forma si scrive, non che
+cosa si conclude dai dati) e il **facoltativo** (omesso, ciò che governa non si applica).
+Un predefinito non viene mai da un dataset. Uno standard si cambia solo con una ragione,
+dichiarata con i risultati.
+
+**Standard del metodo.**
+
+| Parametro | Predefinito | Fonte | Effetto |
+|---|---|---|---|
+| `filter.maxEE` | 2 | tutorial di dada2, «standard filtering parameters» (il predefinito del pacchetto è nessun filtro) | errori attesi massimi per lettura: una lettura che ne ha di più è scartata. Più basso scarta più letture |
+| `filter.truncQ` | 2 | `dada2::filterAndTrim`, `truncQ = 2` | la lettura è troncata alla prima base con questa qualità o meno; se diventa più corta di `filter.truncLen` è scartata |
+| `filter.maxN` | 0 | `dada2::filterAndTrim`, `maxN = 0` | basi indeterminate ammesse: l'inferenza non ne ammette, quindi resta 0 |
+| `filter.rm_phix` | vero | `dada2::filterAndTrim`, `rm.phix = TRUE` | scarta le letture del genoma di controllo PhiX |
+| `err.error_function` | `loess` | `dada2::learnErrors`, `errorEstimationFunction = loessErrfun` | la funzione che stima i tassi d'errore; `loess_monotono` per le qualità raggruppate in pochi valori (`init` lo propone se le riconosce) |
+| `err.nbases` | 1e8 | `dada2::learnErrors`, `nbases = 1e8` | le basi minime su cui si stima ogni modello d'errore; il valore usato è nel manifesto della fase |
+| `err.max_consist` | 10 | `dada2::learnErrors`, `MAX_CONSIST = 10` | le iterazioni massime della stima; un modello che non converge ferma (`E-S3-01`) |
+| `dada.omega_a` | 1e-40 | `dada2::setDadaOpt`, `OMEGA_A` | la soglia di significatività con cui una sequenza è riconosciuta come variante: più alta, più varianti e più falsi positivi |
+| `chimera.method` | `consensus` | `dada2::removeBimeraDenovo`, `method = "consensus"` | le chimere si giudicano campione per campione, e decide il consenso |
+| `chimera.min_parent_abundance` | 2 | `dada2::isBimeraDenovoTable`, `minParentAbundance = 2` | le letture minime di un genitore |
+| `chimera.min_sample_fraction` | 0,9 | `dada2::isBimeraDenovoTable`, `minSampleFraction = 0.9` | la frazione dei campioni in cui una variante deve risultare chimerica per essere tolta |
+| `chimera.allow_one_off` | falso | `dada2::isBimeraDenovoTable`, `allowOneOff = FALSE` | se ammettere una differenza dal modello a due genitori |
+| `tax.min_boot` | 50 | `dada2::assignTaxonomy`, `minBoot = 50` | il bootstrap minimo per assegnare un rango, con `naive_bayes`: più alto, meno assegnazioni e meno errori. Con `idtaxa` non si dichiara |
+| `decontam.batch_combine` | `minimum` | `decontam::isContaminant`, `batch.combine = "minimum"` | come si combinano i punteggi delle piastre nella modalità per piastra: con il minimo basta una piastra perché una variante sia un contaminante |
+| `pair.maxEE_reverse` | 2 | tutorial di dada2, `maxEE = c(2,2)` | come `filter.maxEE`, per le letture reverse |
+| `pair.min_overlap` | 12 | `dada2::mergePairs`, `minOverlap = 12` | la sovrapposizione minima perché una coppia si fonda (sezione 6.7) |
+| `pair.max_mismatch` | 0 | `dada2::mergePairs`, `maxMismatch = 0` | le discordanze ammesse nella sovrapposizione |
+
+**Scelte di modalità.** Omesse valgono il predefinito; i parametri della modalità non
+scelta non si dichiarano.
+
+| Parametro | Predefinito | Motivo | Effetto |
+|---|---|---|---|
+| `io.layout` | `single-end` | la modalità di un file per campione | `paired-end` attiva il gruppo `pair` e la fusione delle coppie (sezioni 1.2 e 6.7). Omesso, non compare nella configurazione registrata |
+| `filter.primer_removal` | `fixed` | il taglio a posizione fissa di `dada2::filterAndTrim` | `search` cerca il primer lungo la lettura (sezione 6.3). Omesso, non compare nella configurazione registrata |
+| `tax.classifier` | `naive_bayes` | il classificatore del flusso di dada2 | `idtaxa` usa un classificatore addestrato di DECIPHER (sezione 6.4, «I due classificatori») |
+
+**Unica forma.** Il solo valore ammesso è il predefinito: scriverli non cambia nulla, e
+servono a dichiarare nella configurazione registrata quale forma del metodo è stata usata.
+
+| Parametro | Valore | Che cosa dichiara |
+|---|---|---|
+| `tax.assign_species` | falso | l'assegnazione esatta della specie (`dada2::assignSpecies`) non è realizzata |
+| `phylo.aligner` | `decipher` | l'allineamento multiplo è di `DECIPHER::AlignSeqs` |
+| `phylo.model` | `GTR+G+I` | il modello evolutivo dell'albero di massima verosimiglianza |
+| `katharoseq.curve_model` | `allosteric_sigmoid` | la forma della curva di calibrazione dei controlli positivi |
+| `katharoseq.read_stage` | `nonchimeric` | profondità e fedeltà si misurano sulle letture senza chimere, e lì si applica la soglia |
+| `decontam.method` | `prevalence` | la decontaminazione è per prevalenza nei controlli negativi |
+| `pair.trim_overhang` | vero | nella fusione le code di una lettura oltre l'inizio dell'altra si tolgono sempre |
+| `out.serialization` | `rds` | il formato dell'oggetto finale |
+| `out.asv_id_scheme` | `abundance_rank` | le varianti si nominano per abbondanza decrescente nei campioni biologici |
+| `out.taxa_are_rows` | vero | nella tabella dei conteggi le varianti sono sulle righe |
+| `out.sample_id_source` | `accession` | i campioni dell'oggetto si chiamano con la chiave del campione; il nome resta fra i metadati |
+
+**Parametri dello strumento.**
+
+| Parametro | Predefinito | Motivo | Effetto |
+|---|---|---|---|
+| `asv.len_tol` | 0 | in single-end ogni variante ha per costruzione la lunghezza del troncamento meno il taglio | la tolleranza del filtro di lunghezza attorno a quel valore; in modalità appaiata non ha effetto (sezione 6.7) |
+| `retry.enabled` | vero | un errore transitorio non deve fermare un'esecuzione lunga | se ritentare da sé gli errori ammessi |
+| `retry.max_attempts` | 2 | un solo nuovo tentativo | il numero totale di tentativi, compreso il primo |
+| `retry.whitelist` | `["E-S2-03", "E-S4-02"]` | i soli codici la cui azione correttiva non cambia alcuna assunzione dell'analisi | i codici per cui un nuovo tentativo è ammesso: l'elenco si può solo restringere |
+| `out.export_flat` | vero | il risultato deve essere leggibile anche fuori da R | se scrivere accanto all'oggetto finale gli stessi dati in testo |
+| `run.lockfile` | `renv.lock` | il file delle versioni dei pacchetti R del repository | entra nel digest: dichiara con quali versioni si è eseguito |
+| `run.seed` | 100 | un valore arbitrario, fisso perché due esecuzioni diano gli stessi risultati | il seme di ogni passo casuale; cambiarlo cambia i risultati entro la variabilità del metodo |
+| `run.batch_size` | 24 | la memoria dell'inferenza cresce con i campioni elaborati insieme | i campioni per lotto: governa la memoria, non i risultati |
+| `run.keep_filtered_fastq` | vero | le letture filtrate servono a una ripresa dell'inferenza | con falso sono tolte a esecuzione conclusa, e una ripresa che ne ha bisogno le rigenera |
+| `run.strict_provenance` | falso | lo sviluppo e le prove lavorano su un clone con modifiche | con vero l'esecuzione parte solo da un clone senza modifiche non committate in `src/` e `R/` e in un ambiente R identico a `renv.lock`: è il modo di produrre risultati da consegnare |
+
+`run.threads`, `run.r_timeout_s`, `run.batch_size`, `run.keep_filtered_fastq`,
+`io.out_root`, `retry.enabled` e `retry.max_attempts` non entrano nell'impronta dei
+risultati: cambiarli non rifà alcuna fase.
+
+**Facoltativi.** Il predefinito è l'assenza.
+
+| Parametro | Predefinito | Effetto |
+|---|---|---|
+| `io.study_table` | nullo | la tabella di studio, con il tipo e le variabili dei campioni; nullo: si leggono dalla tabella di assay (sezione 1.3) |
+| `io.batch_table` | nullo | il file del lotto (sezione 1.4); nullo: una sola corsa e nessuna piastra |
+| `meta.study_sample_id_column` | nullo | la colonna del nome del campione nella tabella di studio, se si chiama diversamente da `meta.sample_id_column` |
+| `meta.assay_keep_column`, `meta.assay_keep_values` | assenti | le righe della tabella di assay da tenere (sezione 6.1) |
+| `tax.ref_bad_taxa` | nullo | l'elenco dei taxa con un difetto noto del riferimento (sezione 1.5): le assegnazioni che vi ricadono sono marcate, non corrette |
+| `pair.min_merged_frac_sample_warn` | assente | la soglia per campione sulla quota di coppie fuse (sezione 6.6) |
+| `run.container` | nullo | l'immagine con cui si dichiara di eseguire, per digest: è registrata nella provenienza, non sceglie l'immagine |
+| `run.threads` | nullo | i processori da usare; nullo: quelli utilizzabili dal processo. Non cambia i risultati |
+| `run.r_timeout_s` | nullo | il tempo massimo in secondi di ogni processo R, oltre il quale l'esecuzione si ferma (`E-R-05`); nullo: nessun limite |
+
+**I percorsi.** `io.fastq_dir` (la cartella delle letture), `io.assay_table` (la tabella
+di assay, o dei campioni) e `io.out_root` (la cartella di uscita) non hanno predefinito:
+si scrivono sempre, e `init` li riporta dalla riga di comando. Così il riferimento
+(`tax.ref_fasta` e `tax.ref_md5`, o con IdTaxa `tax.idtaxa_trained` e il suo MD5).
+
+## 7. Limiti noti
+
+Ciò che lo strumento non fa, o fa entro un limite, per argomento. I limiti dei metodi
+(abbondanze relative, rarefazione, albero su letture corte, decontaminazione per
+prevalenza) sono in [RAZIONALE.md](RAZIONALE.md), sezione 5.
+
+**Letture e coppie.**
+
+- Le letture inverse prese per forward si riconoscono dal contenuto (`E-S1-07`), con il
+  motivo conservato o con il primer nelle basi tagliate. Non si riconoscono: con il
+  motivo nullo e senza taglio; in un file con meno di 500 letture o di un controllo
+  negativo; se il motivo è stato ricavato da file in maggioranza inversi; se la libreria
+  mescola i due versi in ogni file (sezione 1.2).
+- In modalità single-end un file con il nome di una seconda lettura (`R2`, `_2`) è
+  respinto per il nome solo dove il contenuto non si può giudicare (sezione 1.2); lo è
+  un dataset le cui letture portano tutte il marcatore `/2`.
+- In modalità appaiata i taxa con la regione più lunga di quanto le letture troncate
+  coprono non si fondono, senza alcun errore (sezione 6.7).
+- Le coppie si riconoscono dal marcatore in fondo al nome del file, anche seguito da un
+  numero di blocco di tre cifre o da `_raw`; con il marcatore in un altro punto del nome
+  (`_R1_L001`) non sono abbinate, e si usano le sole forward (sezione 1.2).
+- Byte estranei dopo la fine dell'archivio gzip di un FASTQ fermano S0 o S1, anche se
+  altri strumenti leggono il file.
+
+**Primer e motivo.**
+
+- `init` riconosce il primer solo se è in un elenco di primer 16S comuni (sezione 6.3);
+  un altro si indica con `--primer`.
+- Il primer cercato lungo la lettura ammette sole sostituzioni, non inserzioni né
+  delezioni, e non toglie il primer dell'altra estremità in coda alle letture (sezione 6.3).
+- Con `filter.trimLeft` maggiore di zero `qc.conserved_motif` si cerca dopo le basi
+  tagliate (un'espressione che guarda all'indietro non trova nulla) e il primer non si
+  cerca: in `letture_ispezionate.tsv` la colonna `frazione_primer` vale 0.
+
+**`init` e i metadati.**
+
+- La chiave del campione è rilevata solo se una colonna corrisponde uno a uno ai file (o
+  alle righe che ne hanno uno); altrimenti resta da scegliere (sezione 2.3).
+- In modalità appaiata `init` non propone troncamenti e intervallo se non misura la
+  sovrapposizione né riconosce i due primer (sezione 2, «In modalità appaiata»).
+- Una riga dei metadati collegata al file sbagliato si riconosce (`E-S0-30`) solo se i
+  metadati dichiarano per riga amplicone o primer e il file porta il primer di un altro
+  amplicone: uno scambio fra due campioni dello stesso amplicone non si vede dal
+  contenuto (sezione 1.3).
+
+**Controlli.**
+
+- I controlli positivi si valutano solo come serie di diluizione di un taxon: colture
+  pure di specie diverse, o uno standard senza diluizioni, si dichiarano fra i biologici
+  e si tolgono dalle analisi ecologiche con `design.subset` (sezione 6.5).
+- Il testo generale «che cosa fare» di alcuni codici descrive solo il caso più frequente
+  (quelli sui controlli negativi citano `decontam.min_blanks` anche se omesso): fa fede
+  il dettaglio del messaggio.
+
+**Tassonomia e albero.**
+
+- Un riferimento senza cloroplasti, mitocondri ed eucarioti (GTDB) non permette di
+  toglierli per nome (sezione 6.4).
+- La tassonomia arriva al rango più fine del riferimento, con IdTaxa al genere;
+  l'assegnazione esatta della specie non è realizzata.
+- IdTaxa richiede un classificatore già addestrato (la pipeline non addestra), può
+  lasciare vuoto un rango sopra ranghi assegnati e riporta i nomi del classificatore, che
+  in SILVA r138.2 hanno spesso un suffisso (`Chloroplast_2`): un nome senza suffisso non
+  toglie nulla, e l'avvio lo segnala con `E-S0-32` (sezione 6.4).
+- L'albero di S9 serve alle distanze fra campioni: su letture corte le relazioni profonde
+  sono poco sostenute. Oltre `phylo.max_seqs` varianti, o con meno di quattro, l'oggetto
+  è consegnato senza albero (sezione 6.4, «Senza albero»).
+
+**Analisi ecologiche.**
+
+- Una variabile è continua, e un disegno è a misure ripetute, solo se dichiarati
+  (`design.continuous_variables`, `design.subject`: sezioni 4.1 e 4.2).
+- Con una distanza non euclidea la PERMANOVA entro soggetto può non essere valutabile, e
+  con pochi soggetti il test delle dispersioni entro soggetto è un po' permissivo
+  (sezione 4.2).
+- Un'analisi respinta non lascia nulla nella cartella di uscita: `eco status` non la
+  riporta, il codice lo dà il comando.
+- Gli avvisi di `eco init` su rarefazione e variabili confuse richiedono gli export
+  accanto all'oggetto (sezione 4).
+
+**Esecuzione.**
+
+- Dopo `soglie`, `resume` ripete tutti i calcoli (dura quanto `run`) anche se sono
+  cambiate solo soglie di qualità, che non cambiano i risultati (sezione 2).
+- Su un filesystem che non realizza i blocchi due esecuzioni sulla stessa cartella non
+  sono rifiutate (sezione 3).
+- L'unico ambiente supportato è l'immagine pubblicata, per l'architettura amd64.
+
+## 8. Glossario
+
+- **Artefatto**: un file che una fase scrive nella propria cartella e dichiara nel
+  manifesto, con dimensione e SHA-256.
+- **ASV** (variante esatta di sequenza): una sequenza distinta dagli errori di
+  sequenziamento fino alla singola base; è l'unità dei conteggi. Si chiama `ASV1`,
+  `ASV2`, ... per abbondanza decrescente nei campioni biologici.
+- **Chiave del campione**: la parte del nome di un file unica per campione (un accession,
+  un codice di libreria), con cui file, metadati e file del lotto si agganciano.
+- **Controllo spento** (soglia esplorativa): una soglia di qualità al valore che non può
+  far scattare il suo controllo. La configurazione è valida, e ogni comando lo segnala.
+- **Corsa**: una corsa di sequenziamento. Ogni corsa ha il proprio modello d'errore.
+- **Degradazione**: un avviso con cui l'esecuzione prosegue rinunciando a qualcosa (un
+  albero, una soglia propria, un filtro), registrato nel manifesto della fase e nel report.
+- **Digest**: l'impronta SHA-256 di un contenuto. Della configurazione: identifica i
+  valori risolti. Dell'immagine: identifica i suoi byte (`@sha256:...`).
+- **Fase**: un passo della catena (S0-S14, SM), con la sua cartella di uscita e il suo
+  manifesto.
+- **Fedeltà** (KatharoSeq): in un controllo positivo, la quota di letture assegnate al
+  taxon atteso.
+- **Gate**: uno dei quindici controlli della validazione (G01-G15) su configurazione,
+  metadati, file e risorse, prima di ogni calcolo.
+- **Inserto**: il frammento amplificato di cui le due letture di una coppia sono le
+  estremità; la sua lunghezza decide se le coppie si fondono.
+- **Lotto** (file del lotto): la tabella che dichiara per ogni campione la piastra di
+  estrazione e la corsa di sequenziamento.
+- **Manifesto**: il file `manifest_<fase>.json` che chiude una fase: elenca gli artefatti
+  con le loro impronte e ciò da cui sono stati calcolati (parametri, fasi a monte,
+  versione). Una fase senza manifesto valido si rifà.
+- **Motivo conservato**: un'espressione regolare sulle prime basi della regione
+  amplificata, dopo il primer; dice che le letture coprono la regione attesa, e nel verso
+  atteso.
+- **Parametro condizionale**: un parametro obbligatorio solo quando una condizione è
+  vera (per esempio la soglia di decontaminazione, solo con controlli negativi);
+  altrimenti si omette.
+- **Piastra**: la piastra di estrazione. È l'unità della soglia di profondità e, nella
+  modalità per piastra, della decontaminazione.
+- **Punto di ripresa**: ciò che un arresto lascia in `99_logs/`: la fase, il codice, che
+  cosa fare e il comando con cui ripartire.
+- **Regola rigorosa sulla provenienza** (`run.strict_provenance`): l'esecuzione parte
+  solo da un clone senza modifiche non committate al codice e in un ambiente R identico a
+  `renv.lock`; sorgente, file di blocco e immagine entrano nell'impronta di ogni fase.
+- **Riferimento tassonomico**: l'insieme di sequenze di tassonomia nota (o il
+  classificatore addestrato su di esse) da cui le varianti prendono il nome; se ne
+  dichiarano nome, versione e MD5.
+- **Soglia di profondità**: le letture sotto le quali un campione esce dal risultato,
+  ricavata per piastra dai controlli positivi in diluizione.

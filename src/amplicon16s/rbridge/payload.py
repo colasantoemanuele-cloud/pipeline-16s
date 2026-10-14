@@ -43,6 +43,11 @@ Forma della dichiarazione::
 codice dichiarato) oppure ``errore_non_catalogato`` (un errore R che lo
 script non ha ricondotto a un codice; ``messaggio`` è quello di R). Le
 funzioni R che scrivono la dichiarazione sono in ``R/lib/errors.R``.
+
+**Chi lo usa.** Il ponte (:mod:`amplicon16s.rbridge.runner`) e quello delle
+analisi ecologiche (:mod:`amplicon16s_eco.ponte`). Scrive il file della
+richiesta e legge quello della dichiarazione d'esito, nella cartella che il
+chiamante indica.
 """
 
 from __future__ import annotations

@@ -19,6 +19,10 @@ vanno eseguiti. L'ordine non è quello numerico:
 dipendono dai precedenti, e proseguire produrrebbe errori derivati che
 confonderebbero la diagnosi invece di arricchirla. I gate non eseguiti sono
 riportati come tali, non come superati.
+
+**Chi lo usa.** La fase S0 (:mod:`amplicon16s.steps.s00_validate`), che
+esegue la sequenza e ne registra l'esito fra i suoi artefatti, e il report,
+che ne legge l'elenco dei gate. Il registro non legge e non scrive file.
 """
 
 from __future__ import annotations

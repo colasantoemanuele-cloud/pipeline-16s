@@ -348,8 +348,9 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
     _v(
         "E-S0-07", "S0",
         "I dati non hanno un layout single-end.",
-        "Seleziona il sottoinsieme single-end oppure usa una pipeline "
-        "paired-end: questa tratta solo letture singole. Se un file contiene le "
+        "Con dati a letture appaiate le strade sono due: separa le due letture in "
+        "due file per campione e dichiara io.layout: paired-end (RIFERIMENTO.md, "
+        "1.2), oppure estrai le sole letture forward. Se un file contiene le "
         "due letture di ogni coppia (lo dicono le intestazioni: /1 e /2, 1:N: e "
         "2:N: nel commento, lo stesso nome due volte, oppure letture consecutive "
         "che si distinguono per il solo marcatore 1 e 2, o R1 e R2, in fondo "
@@ -696,7 +697,8 @@ _VOCI: Final[tuple[VoceCatalogo, ...]] = (
         "oppure letture consecutive che si distinguono per il solo marcatore 1 e "
         "2, o R1 e R2, in fondo all'identificativo), o quasi sole seconde letture "
         "(intestazioni con /2), estrai le sole letture forward in un file per "
-        "campione: questa pipeline tratta solo letture singole.",
+        "campione, oppure separa le due letture in due file per campione e "
+        "dichiara io.layout: paired-end (RIFERIMENTO.md, 1.2).",
         _UMANA,
     ),
     _v(

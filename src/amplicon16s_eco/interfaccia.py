@@ -8,6 +8,9 @@ Un'analisi ecologica e' un solo calcolo, senza fasi e senza ripresa: lo stato
 di una cartella e' ``non_avviata``, ``in_corso``, ``interrotta`` o
 ``conclusa``. Un rifiuto non lascia nulla nella cartella di uscita: lo riporta
 il comando stesso, con il suo codice, e ``validate --json`` lo anticipa.
+
+**Chi lo usa.** La riga di comando (``schema``, ``validate --json``,
+``status``). Legge la cartella di uscita; non scrive.
 """
 
 from __future__ import annotations
@@ -103,6 +106,7 @@ def esito_validazione(
 
 
 def _json(percorso: Path) -> Any | None:
+    """Il contenuto di un file JSON, o ``None`` se manca o non si interpreta."""
     try:
         return json.loads(percorso.read_text(encoding="utf-8"))
     except (OSError, ValueError):

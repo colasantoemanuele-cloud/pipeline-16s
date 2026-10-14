@@ -28,6 +28,12 @@ Alcuni di essi servono solo a una parte dell'analisi (i controlli positivi e
 negativi, la filogenesi, il filtro di prevalenza): sono **condizionali**
 (:data:`CONDIZIONALI`), obbligatori quando la condizione che li rende
 pertinenti è vera e omissibili altrimenti.
+
+**Chi lo usa.** Lo schema (i predefiniti dei campi), il gate G15 (parametri
+obbligatori e condizionali), ``init`` e il modello di configurazione che scrive,
+lo schema JSON di :mod:`amplicon16s.interfaccia`, il report (origine di ogni
+valore), il pacchetto delle soglie e la riga di comando. Sole costanti: nessun
+file letto o scritto.
 """
 
 from __future__ import annotations

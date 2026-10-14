@@ -1,7 +1,8 @@
-"""Pipeline 16S rRNA: single-end Illumina.
+"""Pipeline 16S rRNA: Illumina, single-end o appaiato.
 
-Pacchetto di produzione: orchestrazione in Python delle 15 fasi (S0-S14) che
-terminano producendo l'oggetto phyloseq serializzato ``ps_final.rds``. I calcoli
+Pacchetto di produzione: orchestrazione in Python delle 16 fasi (S0-S14 e SM,
+la fusione delle coppie, eseguita solo in modalita' appaiata) che terminano
+producendo l'oggetto phyloseq serializzato ``ps_final.rds``. I calcoli
 scientifici sono delegati a R come processi separati; il confine fra i due
 linguaggi passa per il filesystem (parametri JSON in ingresso, artefatti su disco
 in uscita).

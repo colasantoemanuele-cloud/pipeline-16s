@@ -1,6 +1,10 @@
 # Disegno a misure ripetute: i test entro soggetto per ogni variabile
 # categorica, quando la colonna del soggetto e' dichiarata (design.subject).
 #
+# La usano R/valida.R (il solo piano, con i suoi avvisi) e R/analisi.R (eco
+# run). Scrive test/soggetti.tsv, test/alfa_appaiata.tsv e
+# test/permanova_appaiata.tsv.
+#
 # Richiede uscite.R, campioni.R, alfa.R (fissa_seme) e test.R (INDICI,
 # permanova). Interfaccia:
 #   piano_appaiato(d, parametri)       per ogni variabile i soggetti completi di
@@ -75,6 +79,14 @@ minimo_di_soggetti <- function(livello) {
        numero = stats::setNames(as.integer(rowSums(conta)), nomi))
 }
 
+# Per ogni variabile, i soggetti completi di ogni analisi entro soggetto e se
+# l'analisi si esegue. Restituisce list(piani, avvisi); senza la colonna del
+# soggetto i piani sono vuoti. Passi: avviso sui campioni senza soggetto;
+# avviso se ci sono soggetti con piu' campioni, che i test fra gruppi contano
+# come indipendenti; per ogni variabile i soggetti dell'alfa diversita' (fra i
+# campioni rarefatti) e della PERMANOVA (fra tutti gli analizzati), ciascuno
+# con il giudizio di eseguibilita' e il suo motivo; infine l'avviso sugli
+# strati, che entro soggetto non si applicano. Non calcola nulla.
 piano_appaiato <- function(d, parametri) {
   avvisi <- list()
   avviso <- function(codice, dettaglio) {
@@ -160,6 +172,9 @@ piano_appaiato <- function(d, parametri) {
 
 # --- Alfa diversita' -------------------------------------------------------- #
 
+# Il test di Wilcoxon dei ranghi con segno fra due vettori appaiati, a due
+# code. Restituisce list(test, statistica, gl, p), dove test dice come e' stato
+# calcolato il p.
 .wilcoxon_con_segno <- function(x, y) {
   # La regola di stats::wilcox.test (exact = NULL) per dati appaiati, applicata
   # in modo esplicito: esatto con meno di 50 coppie, senza differenze nulle e
@@ -181,6 +196,12 @@ piano_appaiato <- function(d, parametri) {
   )
 }
 
+# Il confronto entro soggetto di ogni indice di alfa diversita' fra i livelli
+# della variabile, sui soggetti completi del piano. Con due livelli un test dei
+# ranghi con segno; con piu' di due il test di Friedman e poi un test dei
+# ranghi con segno per ogni coppia di livelli. Il p corretto e' sulla famiglia
+# di tutti i test della variabile. Nulla se il piano dice che il confronto non
+# si esegue.
 test_alfa_appaiato <- function(indici, piano) {
   a <- piano$alfa
   if (!a$eseguibile) return(NULL)
@@ -300,6 +321,11 @@ permanova_appaiata <- function(matrice, distanza, piano, permutazioni, livello, 
     analisi_eseguita = character(), stringsAsFactors = FALSE)
 }
 
+# Scrive nella cartella dei test le tre tabelle delle misure ripetute: i
+# soggetti di ogni analisi con il loro stato, il confronto dell'alfa diversita'
+# entro soggetto e la PERMANOVA entro soggetto. Una tabella senza righe si
+# scrive comunque, con le sole colonne. Restituisce i nomi dei file, relativi
+# alla cartella di uscita.
 scrivi_appaiati <- function(alfa, multivariati, piani, parametri, profondita, cartella) {
   dir.create(cartella, showWarnings = FALSE)
   minimo <- minimo_di_soggetti(parametri$stat$significance_level)

@@ -132,6 +132,7 @@ def dichiarazione(
 
 
 def _e_un_file_di_letture(nome: str) -> bool:
+    """Vero se il nome ha un'estensione di file FASTQ, senza distinguere le maiuscole."""
     return nome.casefold().endswith(ESTENSIONI_FASTQ)
 
 

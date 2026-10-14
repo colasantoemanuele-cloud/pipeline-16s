@@ -2,6 +2,10 @@
 
 Qui stanno le sole conoscenze generali che il rilevamento usa: nessuna viene da
 un dataset. Ogni elenco dice la sua fonte o la sua ragione.
+
+**Chi lo usa.** Il rilevamento e il comando di ``init``, e il confronto fra
+righe dei metadati e file di :mod:`amplicon16s.metadata.ampliconi`. Sole
+costanti: nessun file letto o scritto.
 """
 
 from __future__ import annotations

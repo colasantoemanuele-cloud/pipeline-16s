@@ -1,5 +1,8 @@
 # Alfa diversita' su conteggi rarefatti.
 #
+# La usa R/analisi.R (comando eco run). Scrive, nella cartella alfa/ delle
+# uscite, alfa_diversita.tsv e conteggi_rarefatti.tsv.
+#
 # Richiede uscite.R. Interfaccia:
 #   fissa_seme(seme)                 generatore e seme, prima di ogni operazione
 #                                    casuale
@@ -15,6 +18,9 @@
 # rarefazione (trimOTUs = FALSE): la tabella rarefatta ha le stesse righe di
 # quella di partenza.
 
+# Dichiara il generatore di numeri casuali e ne fissa il seme. Va chiamata
+# prima di ogni operazione casuale: ognuna riparte cosi' dallo stesso stato,
+# qualunque cosa sia stata calcolata prima.
 fissa_seme <- function(seme) {
   # Il generatore e' dichiarato, non ereditato: il predefinito di R e' cambiato
   # fra versioni (sample.kind "Rounding" prima della 3.6).
@@ -22,6 +28,10 @@ fissa_seme <- function(seme) {
   set.seed(as.integer(seme))
 }
 
+# I conteggi rarefatti, senza reinserimento, dei campioni indicati alla
+# profondita' indicata. Restituisce la matrice varianti x campioni, con le
+# colonne nell'ordine di campioni e tutte le varianti dell'oggetto, anche
+# quelle rimaste senza letture.
 rarefai <- function(ps, campioni, profondita, seme) {
   sotto <- phyloseq::prune_samples(campioni, ps)
   fissa_seme(seme)
@@ -33,6 +43,9 @@ rarefai <- function(ps, campioni, profondita, seme) {
   m[, campioni, drop = FALSE]
 }
 
+# Gli indici di alfa diversita' di ogni campione dalla matrice rarefatta
+# (varianti x campioni): ricchezza osservata, Shannon con il logaritmo naturale
+# e Gini-Simpson. Restituisce una tabella con una riga per campione.
 indici_alfa <- function(rarefatti) {
   per_campione <- t(rarefatti)
   data.frame(
@@ -46,6 +59,11 @@ indici_alfa <- function(rarefatti) {
   )
 }
 
+# Scrive nella cartella dell'alfa diversita' la tabella degli indici e quella
+# dei conteggi rarefatti, ciascuna con un'intestazione che dichiara
+# profondita', sua origine e seme. letture sono le letture dei campioni prima
+# della rarefazione. Restituisce i nomi dei due file, relativi alla cartella di
+# uscita.
 scrivi_alfa <- function(indici, rarefatti, letture, profondita, origine, seme, cartella) {
   dir.create(cartella, showWarnings = FALSE)
   scrivi_tsv(

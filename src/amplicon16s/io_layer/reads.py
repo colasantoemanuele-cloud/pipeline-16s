@@ -23,6 +23,11 @@ pagare a chi la usa.
 non di tutto il file. Un file le cui letture più corte stiano oltre quelle
 esaminate darebbe un minimo sovrastimato. È il prezzo del vincolo di costo, e
 va tenuto presente da chi usa :attr:`StatisticheFile.lunghezza_minima`.
+
+**Chi lo usa.** Oltre ai gate: S1 (coppie e orientamento delle letture), S2
+(ricerca del primer), ``init`` (rilevamento sui file), il sottocomando
+``soglie`` e il confronto fra righe dei metadati e file collegati. Legge i
+file FASTQ; non scrive nulla.
 """
 
 from __future__ import annotations

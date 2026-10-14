@@ -1,7 +1,12 @@
 #!/usr/bin/env Rscript
 # Installa i pacchetti R richiesti dalla pipeline.
 #
-# Eseguito durante la costruzione dell'immagine. Usa il repository di binari
+# Eseguito durante la costruzione dell'immagine (container/Dockerfile), con le
+# variabili BIOCONDUCTOR_VERSION e CRAN_SNAPSHOT; non scrive file oltre alle
+# librerie installate. Lo stesso elenco di pacchetti e' in
+# container/snapshot_renv_lock.R, che ne registra le versioni.
+#
+# Usa il repository di binari
 # precompilati per questa immagine Bioconductor: evita di ricompilare da
 # sorgente e rende l'esito determinato dalla release Bioconductor anziché dallo
 # stato del compilatore locale.
@@ -39,12 +44,14 @@ pipeline <- c(
   "phangorn", "Biostrings", "ShortRead"
 )
 
-# Pacchetti delle analisi ecologiche a valle (amplicon16s_eco): abbondanza
-# differenziale, ordinamento e diversita', classificazione. Stanno
-# nell'immagine perche' quelle analisi girino nello stesso ambiente bloccato
-# della pipeline; il loro codice R si esegue dal repository montato, non
-# dall'immagine. vegan e' gia' una dipendenza di phyloseq: e' elencato perche'
-# le analisi lo usano direttamente.
+# Pacchetti delle analisi a valle. vegan (ordinamento e diversita') e' usato
+# dal codice delle analisi ecologiche dello strumento (amplicon16s_eco): e'
+# gia' una dipendenza di phyloseq, ed e' elencato perche' quel codice lo usa
+# direttamente. DESeq2 (abbondanza differenziale) e randomForest
+# (classificazione) non sono usati dal codice dello strumento: restano
+# nell'immagine per le analisi a valle dell'utente, che girano cosi' nello
+# stesso ambiente bloccato della pipeline. Il codice R delle analisi
+# ecologiche si esegue dal repository montato, non dall'immagine.
 ecologia <- c("DESeq2", "vegan", "randomForest")
 
 # Strumenti di servizio: renv produce il file di lock, jsonlite lo rilegge in

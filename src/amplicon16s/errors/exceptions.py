@@ -10,6 +10,10 @@ distinguere i casi con ``except`` invece di ispezionare una stringa. La
 scelta della sottoclasse non è però lasciata a chi solleva l'errore:
 :func:`errore` la deriva dal catalogo, e costruire direttamente la sottoclasse
 sbagliata viene respinto.
+
+**Chi lo usa.** I gate, ogni fase, il ponte verso R (che traduce in queste
+eccezioni gli esiti degli script) e l'esecutore, che le cattura per decidere
+come proseguire. Nessun file letto o scritto.
 """
 
 from __future__ import annotations

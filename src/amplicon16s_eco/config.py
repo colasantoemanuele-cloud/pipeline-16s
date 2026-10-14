@@ -17,6 +17,10 @@ sono quelle della pipeline:
 La validazione qui riguarda il solo file. Cio' che dipende dall'oggetto
 (colonne, gruppi, ranghi, albero) si verifica in R, prima di ogni calcolo
 (:mod:`amplicon16s_eco.esecuzione`).
+
+**Chi lo usa.** La riga di comando (``validate``, ``run``, ``schema``),
+l'esecuzione, che passa a R i parametri e registra il digest, ed
+``eco init``. Legge il file YAML; non scrive.
 """
 
 from __future__ import annotations
@@ -165,6 +169,16 @@ class Design(_Gruppo):
 
     @model_validator(mode="after")
     def _senza_ripetizioni(self) -> "Design":
+        """Respinge un disegno in cui una colonna ha piu' di un ruolo.
+
+        Controlli, nell'ordine: nessuna variabile biologica ripetuta; nessuna
+        tecnica ripetuta; nessuna colonna insieme biologica e tecnica; nessuna
+        continua ripetuta; nessuna continua che sia anche categorica o tecnica;
+        il soggetto non e' una variabile dell'analisi (identifica chi e' stato
+        campionato piu' volte, non si confronta); ogni colonna del sottoinsieme
+        ha almeno un valore ammesso. Una colonna con due ruoli entrerebbe due
+        volte nello stesso modello.
+        """
         biologiche = (self.variable, *self.other_variables)
         ripetute = sorted({n for n in biologiche if biologiche.count(n) > 1})
         if ripetute:
@@ -244,6 +258,7 @@ class Beta(_Gruppo):
 
     @model_validator(mode="after")
     def _senza_ripetizioni(self) -> "Beta":
+        """Respinge un elenco di distanze con un valore ripetuto."""
         ripetute = sorted({d for d in self.distances if self.distances.count(d) > 1})
         if ripetute:
             raise ValueError(f"distanze ripetute: {ripetute}")
@@ -270,6 +285,8 @@ class Ord(_Gruppo):
 
     @model_validator(mode="after")
     def _coerente(self) -> "Ord":
+        """Respinge metodi o distanze ripetuti, e un elenco dichiarato senza
+        l'altro: un'ordinazione chiede insieme un metodo e una distanza."""
         for nome in ("methods", "distances"):
             valori = getattr(self, nome)
             ripetuti = sorted({v for v in valori if valori.count(v) > 1})
@@ -315,6 +332,8 @@ class ConfigEco(_Gruppo):
 
     @model_validator(mode="after")
     def _distanze_ordinate(self) -> "ConfigEco":
+        """Respinge un'ordinazione su una distanza che il gruppo delle distanze non
+        calcola."""
         estranee = [d for d in self.ord.distances if d not in self.beta.distances]
         if estranee:
             raise ValueError(
@@ -444,6 +463,7 @@ def valida(dati: Any) -> ConfigEco:
         gia_detti = {_chiave(p["loc"]) for p in problemi}
 
         def dai_dati(chiave: str) -> Any:
+            """Il valore dichiarato nel file per la chiave ``gruppo.parametro``, o ``None``."""
             gruppo, nome = chiave.split(".")
             valori = dati.get(gruppo)
             return valori.get(nome) if isinstance(valori, dict) else None
@@ -455,6 +475,7 @@ def valida(dati: Any) -> ConfigEco:
              if r[0] == "E-ECO-02"]) from None
 
     def dal_modello(chiave: str) -> Any:
+        """Il valore della chiave ``gruppo.parametro`` nella configurazione validata."""
         gruppo, nome = chiave.split(".")
         return getattr(getattr(config, gruppo), nome)
 
@@ -471,6 +492,8 @@ class _SenzaChiaviRipetute(yaml.SafeLoader):
 
 
 def _mappa_senza_ripetizioni(lettore: yaml.SafeLoader, nodo: yaml.MappingNode) -> dict[Any, Any]:
+    """Costruisce una mappa YAML dopo avere respinto le chiavi dichiarate piu'
+    volte, che il lettore di base terrebbe in silenzio con l'ultimo valore."""
     chiavi = [lettore.construct_object(chiave, deep=True) for chiave, _ in nodo.value]
     ripetute = sorted({str(c) for c in chiavi if chiavi.count(c) > 1})
     if ripetute:

@@ -24,6 +24,11 @@ manifesto esiste e si legge: e' cio' che l'esecuzione ha dichiarato, e basta a
 seguire un'esecuzione in corso senza contendere il disco con essa. Se quegli
 artefatti siano ancora integri e validi per una data configurazione lo
 stabilisce ``resume``, che li rilegge.
+
+**Chi lo usa.** La riga di comando (``schema``, ``validate --json``,
+``status``), l'esecutore, che tiene aggiornato il file di stato in
+``99_logs``, il sottocomando ``soglie`` e il pacchetto delle analisi
+ecologiche, che ne riusa i formati.
 """
 
 from __future__ import annotations
@@ -118,9 +123,15 @@ class StatoInCorso:
 
     @staticmethod
     def _adesso() -> str:
+        """L'istante corrente in UTC, in formato ISO con la precisione del secondo."""
         return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     def _scrivi(self) -> None:
+        """Aggiorna l'istante del documento di stato e lo scrive sul file.
+
+        Sotto il blocco, perche' scrivono sia il filo del battito sia chi cambia
+        fase; per sostituzione, cosi' che chi osserva legga sempre un file intero.
+        """
         with self._blocco:
             self._documento["aggiornato"] = self._adesso()
             self._documento["aggiornato_epoch"] = round(time.time(), 3)
@@ -130,6 +141,8 @@ class StatoInCorso:
             os.replace(temporaneo, self._percorso)
 
     def _batti(self) -> None:
+        """Corpo del filo del battito: riscrive lo stato a ogni intervallo, finche'
+        non arriva il segnale di fine."""
         while not self._fine.wait(self._intervallo):
             try:
                 self._scrivi()
@@ -452,6 +465,8 @@ def _configurazione_registrata(radice: Path) -> dict[str, Any] | None:
         return None
 
     def ordine(percorso: Path) -> int:
+        """Il numero d'ordine di una configurazione risolta, dal nome del file; 1
+        per quella senza numero."""
         trovato = re.fullmatch(r"resolved_(\d+)\.yaml", percorso.name)
         return int(trovato.group(1)) if trovato else 1
 

@@ -204,6 +204,8 @@ def impronta_dati_grezzi(config: Config) -> str:
     """
 
     def descrivi(percorso: Path) -> list[Any]:
+        """Percorso, dimensione e istante di modifica di un file; «assente» al
+        posto degli ultimi due se non si puo' leggerne lo stato."""
         try:
             stato = percorso.stat()
         except OSError:

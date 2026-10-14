@@ -1,5 +1,9 @@
 # Composizione tassonomica: abbondanze relative agglomerate a un rango.
 #
+# La usa R/analisi.R (comando eco run). Scrive, nella cartella composizione/
+# delle uscite, abbondanze_relative.tsv e, per ogni variabile, una tabella e
+# un grafico gruppi_NN_<variabile>.
+#
 # Richiede uscite.R e campioni.R. Interfaccia:
 #   agglomera(ps, campioni, rango)   conteggi per taxon del rango, con il
 #                                    lignaggio e la categoria dei non assegnati
@@ -16,6 +20,11 @@
 NON_ASSEGNATO <- "non assegnato"
 ALTRI <- "altri"
 
+# I conteggi dei campioni indicati sommati per taxon del rango. Restituisce
+# list(conteggi, lignaggio, taxon): la matrice taxa x campioni, il lignaggio di
+# ogni riga fino al rango e il nome al rango. Passi: fusione delle varianti con
+# lo stesso lignaggio; riconoscimento delle varianti senza assegnazione al
+# rango; somma per lignaggio, con una sola riga per tutti i non assegnati.
 agglomera <- function(ps, campioni, rango) {
   sotto <- phyloseq::prune_samples(campioni, ps)
   # tax_glom fonde le varianti con lo stesso lignaggio fino al rango; con
@@ -44,10 +53,19 @@ agglomera <- function(ps, campioni, rango) {
   list(conteggi = somma, lignaggio = rownames(somma), taxon = unname(nome[primo]))
 }
 
+# Le proporzioni per campione: ogni colonna divisa per la sua somma.
 abbondanze_relative <- function(conteggi) {
   sweep(conteggi, 2L, colSums(conteggi), "/")
 }
 
+# Scrive le tabelle e i grafici della composizione. agglomerato e' l'esito di
+# agglomera, disegno quello di esamina, top_n il numero di taxa mostrati per
+# variabile. Passi: tabella completa delle abbondanze relative, con i taxa in
+# ordine decrescente di abbondanza media; poi, per ogni variabile con almeno un
+# gruppo, la media per gruppo dei primi taxa, con i rimanenti riuniti in una
+# sola voce, in una tabella e in un grafico a barre. Un taxon il cui nome si
+# ripete in lignaggi diversi e' etichettato con il lignaggio. Restituisce i
+# nomi dei file, relativi alla cartella di uscita.
 scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella) {
   dir.create(cartella, showWarnings = FALSE)
   relative <- abbondanze_relative(agglomerato$conteggi)
@@ -110,6 +128,9 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella) {
   prodotti
 }
 
+# Il grafico a barre impilate della composizione media per gruppo di una
+# variabile: una barra per gruppo, un colore per taxon, grigio per la voce dei
+# rimanenti; sotto ogni barra il gruppo con il numero dei suoi campioni.
 grafico_composizione <- function(mostrati, nomi, gruppi, v, rango, percorso) {
   colori <- c(colori_gruppi(length(nomi) - 1L), "grey70")
   # Con molti gruppi l'immagine si allarga: le barre non si stringono.

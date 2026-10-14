@@ -1,5 +1,39 @@
 # Analisi ecologiche di base sull'oggetto finale della pipeline.
 #
+# Lo lancia il comando eco run (esecuzione.py, attraverso ponte.py), dopo la
+# validazione di R/valida.R, su una copia dell'oggetto.
+#
+# L'ORDINE DELLE ANALISI e i file che ciascuna scrive nella cartella di uscita
+# (la funzione che scrive e' fra parentesi; NN e' la posizione della variabile
+# nella configurazione):
+#   1. esame dell'oggetto e piani dei test (lib/campioni.R, lib/test.R,
+#      lib/continua.R, lib/ripetute.R): nessun calcolo; un rifiuto ferma qui
+#        campioni.tsv
+#   2. alfa diversita' sui conteggi rarefatti (lib/alfa.R)
+#        alfa/alfa_diversita.tsv, alfa/conteggi_rarefatti.tsv
+#   3. composizione al rango dichiarato (lib/composizione.R)
+#        composizione/abbondanze_relative.tsv
+#        composizione/gruppi_NN_<variabile>.tsv e .png
+#   4. distanze fra campioni (lib/beta.R)
+#        beta/distanza_<metodo>.tsv
+#   5. ordinazioni, con almeno quattro campioni (lib/ordinazione.R)
+#        ordinazione/<metodo>_<distanza>_coordinate.tsv
+#        ordinazione/pcoa_<distanza>_autovalori.tsv
+#        ordinazione/<metodo>_<distanza>_NN_<variabile>.png
+#   6. test fra gruppi: alfa diversita', PERMANOVA e dispersioni (lib/test.R)
+#        test/alfa_diversita.tsv, test/permanova.tsv
+#        alfa/gruppi_NN_<variabile>.png, solo se il confronto si esegue
+#   7. variabili continue, se dichiarate (lib/continua.R)
+#        test/alfa_continua.tsv, test/permanova_continua.tsv
+#        alfa/continua_NN_<variabile>.png, solo se la correlazione si esegue
+#   8. misure ripetute, se il soggetto e' dichiarato (lib/ripetute.R)
+#        test/soggetti.tsv, test/alfa_appaiata.tsv, test/permanova_appaiata.tsv
+#   9. riepilogo.json: disegno, profondita', esito di ogni analisi, avvisi,
+#      versioni di R e dei pacchetti, elenco dei file prodotti
+# L'ordine conta: gli indici del passo 2 servono ai passi 6, 7 e 8, le matrici
+# del passo 4 ai passi 5, 6, 7 e 8. Gli altri file della cartella di uscita
+# (manifesto, configurazione risolta) li scrive la parte Python.
+#
 # Parametri: oggetto (percorso della copia), uscita (cartella in cui scrivere),
 # la configurazione risolta e valori_mancanti. L'oggetto si legge e non si
 # scrive mai. Ogni file prodotto e' elencato in riepilogo.json insieme al

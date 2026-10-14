@@ -6,17 +6,19 @@ della Stazione Spaziale Internazionale, regione V4 del gene 16S rRNA (primer
 515F-806R), Illumina MiSeq. E' il dataset su cui si verifica che la pipeline non
 presupponga la struttura di OSD-734, il dataset di riferimento del progetto.
 
-## Le letture sono paired-end: si usano le sole forward
+## Letture appaiate in un solo file per corsa: prima vanno separate
 
-OSD-276 non e' un dataset single-end. E' depositato come PAIRED, e ENA distribuisce
-per ciascuna delle 15 corse **un solo file** che contiene le due letture di ogni
-coppia, in due blocchi: i record la cui intestazione termina con `/1` e quelli che
-terminano con `/2`; in 8 corse viene prima il blocco `/1`, in 7 il blocco `/2`. La
-configurazione di questa cartella e' single-end: **qui si usano le sole letture
-forward come dato single-end**. E' un uso legittimo (la lettura forward di un
-amplicone V4 e' cio' che un sequenziamento single-end produrrebbe) ma va dichiarato:
-i risultati non sono confrontabili con un'analisi paired-end dello stesso dataset, che
-ricostruisce l'intero amplicone.
+OSD-276 e' depositato come PAIRED, e ENA distribuisce per ciascuna delle 15 corse **un
+solo file** che contiene le due letture di ogni coppia, in due blocchi: i record la cui
+intestazione termina con `/1` e quelli che terminano con `/2`; in 8 corse viene prima il
+blocco `/1`, in 7 il blocco `/2`. La pipeline non accetta un file cosi' (vedi sotto): le
+due letture vanno prima separate, e lo fa `scarica_letture.py`. La configurazione di base
+di questa cartella usa le **sole letture forward**, in modalita' single-end; la modalita'
+appaiata (`io.layout: paired-end`) si usa sui due file per corsa che lo script ricava con
+`--coppie`. Le sole forward sono un uso legittimo (la lettura forward di un amplicone V4
+e' cio' che un sequenziamento single-end produrrebbe) ma va dichiarato: i risultati non
+sono confrontabili con un'analisi appaiata dello stesso dataset, che ricostruisce
+l'intero amplicone.
 
 `scarica_letture.py` scarica il file di ENA, lo verifica con l'MD5 dichiarato da ENA e
 ne ricava le forward (i record `/1`) senza modificarle. Prima conta i record `/1`, i
@@ -37,27 +39,18 @@ viene toccata.
 python3 dati/osd276/scarica_letture.py --coppie   # 30 file in dati/osd276/fastq_coppie/
 ```
 
-### Confronto con i file pubblicati da OSDR
+### I file pubblicati da OSDR
 
 OSDR pubblica per ogni campione due file,
-`GLDS-276_GAmplicon_<campione>_R1_raw.fastq.gz` e `..._R2_raw.fastq.gz`. Il 7 ottobre
-2026 sono stati scaricati tutti e 30 e confrontati con i due blocchi dei 15 file di
-ENA, record per record (sequenze e qualita', nello stesso ordine; le intestazioni
-differiscono per formato):
-
-- ogni blocco di ENA coincide con uno dei due file di OSDR, in tutte le 15 corse;
-- le forward ricavate qui (il blocco `/1`) coincidono con il file **R1** di OSDR in 7
-  corse (SP2, SP4, SP5, SP7, SP9, SP10, SP13) e con il file **R2** in 8 (SP1, SP3,
-  SP6, SP8, SP11, SP12, SP14, SP15): il file R1 di OSDR e' sempre il secondo blocco
-  del file di ENA, qualunque etichetta porti;
-- il motivo conservato a valle del primer 515F apre dal 26% al 73% delle letture del
-  blocco `/1` e lo 0% di quelle del blocco `/2`, in tutte le 15 corse.
-
-L'etichetta `/1` di ENA individua quindi in ogni corsa la lettura che parte dal lato
-del 515F, quella che la pipeline si attende; il nome R1 dei file di OSDR no, e usare
-i file R1 di OSDR avrebbe mescolato le due estremita' dell'amplicone in 8 campioni su
-15. Una verifica precedente, fatta sul solo campione SP9, aveva concluso che le
-forward ricavate coincidono con gli R1 di OSDR: vale per 7 corse, non per tutte.
+`GLDS-276_GAmplicon_<campione>_R1_raw.fastq.gz` e `..._R2_raw.fastq.gz`. Ogni blocco dei
+file di ENA coincide con uno dei due file di OSDR, ma **il nome R1 non individua la
+lettura forward**: l'etichetta `/1` di ENA individua in ogni corsa la lettura che parte
+dal lato del primer 515F, quella che la pipeline si attende (lo conferma il motivo
+conservato a valle del primer, presente nel solo blocco `/1`); il file R1 di OSDR in
+alcune corse e' la lettura forward e in altre la reverse. `corse_invertite_osdr.txt`
+elenca i campioni in cui i due file di OSDR sono scambiati: usare per tutti il file R1
+di OSDR mescolerebbe le due estremita' dell'amplicone, e per quei campioni la tabella
+elaborata da GeneLab non e' confrontabile (`dati/confronto_genelab/`).
 
 I file di ENA cosi' come sono **non vanno dati alla pipeline**, che li respinge
 tutti e 15. La fase di validazione riconosce un file con le due letture di ogni
@@ -79,7 +72,7 @@ caratteristiche critiche (lunghezza delle letture, primer nelle letture, assenza
 controlli positivi, assenza del file del lotto, formato dei nomi dei file e degli
 accession) e, a parita', il piu' piccolo.
 
-Candidati esaminati il 7 ottobre 2026 su OSDR e su ENA:
+Candidati esaminati su OSDR e su ENA:
 
 | Che cosa | OSD-276 | OSD-146 |
 |---|---|---|
@@ -123,6 +116,8 @@ In che cosa OSD-276 differisce da OSD-734:
 | `config_osd276.yaml` | si' | la configurazione della pipeline per questo dataset |
 | `config_osd276_forward_idtaxa.yaml` | si' | la stessa con IdTaxa e il classificatore SILVA SSU r138 |
 | `eco_osd276.yaml` | si' | la configurazione d'esempio delle analisi ecologiche di base |
+| `corse_invertite_osdr.txt` | si' | i campioni in cui i file R1 e R2 pubblicati da OSDR sono scambiati rispetto alle letture forward e reverse |
+| `abbinamento_genelab.tsv` | si' | per ogni campione, il nome con cui compare nella tabella elaborata da GeneLab (per `dati/confronto_genelab/`) |
 | `FONTI.tsv` | si' | fonte, licenza e controllo di ogni file |
 | `ena/`, `fastq/` | no | i file di ENA (196 MB) e le forward ricavate (91 MB) |
 | `fastq_coppie/` | no | le due letture di ogni corsa, ricavate con `--coppie` |
@@ -158,9 +153,8 @@ etichetta; le scelte restano da scrivere, e quelle di questo dataset sono in
 `config_osd276.yaml`. Una proposta differisce dalla configurazione di questa cartella:
 `init` propone `filter.truncLen: 151`, la lunghezza di tutte le letture, mentre qui si
 tronca a 150 per togliere l'ultima base (una scelta di questo esempio, non degli autori
-dello studio). Con 151 la catena arriva in fondo ma l'oggetto finale
-e' un altro (990 varianti invece di 1.005): per riprodurre il risultato di questa
-cartella il troncamento e' 150. Il primer non e' nelle letture, e i metadati ne
+dello studio). I due valori danno oggetti finali diversi: per riprodurre il risultato di
+questa cartella il troncamento e' 150. Il primer non e' nelle letture, e i metadati ne
 riportano solo il nome (515F-806R): la sequenza va scritta, o indicata con `--primer`.
 
 Le analisi ecologiche di base sull'oggetto finale:
@@ -191,8 +185,5 @@ classificatore che GeneLab ha usato per la tabella elaborata di questo dataset
 sulla provenienza (`run.strict_provenance: true`) e scrive in una cartella propria sotto
 `output/`.
 
-## Stato della prova
-
-Con questa configurazione la pipeline arriva in fondo alla catena: l'oggetto finale ha
-15 campioni e 1.005 varianti. Gli avvisi dichiarati sono quelli attesi per un dataset
-senza controlli e senza file del lotto: due `E-S0-17`, `E-S11-05` ed `E-S12-03`.
+Gli avvisi attesi con questa configurazione sono quelli di un dataset senza controlli e
+senza file del lotto: due `E-S0-17`, `E-S11-05` ed `E-S12-03`.

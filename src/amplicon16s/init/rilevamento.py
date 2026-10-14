@@ -12,6 +12,9 @@ Le regole sono riusate, non riscritte: la chiave del campione si estrae con
 :func:`~amplicon16s.metadata.crosswalk.chiave_dalla_tabella`, le coppie si
 riconoscono con la scansione di S0 e S1 e con la regola sui nomi di G07, il
 profilo e' quello dello script di S1, il troncamento quello del report.
+
+**Chi lo usa.** Il solo :mod:`amplicon16s.init.comando`. Legge i file di
+letture e le tabelle dei metadati; non scrive nulla.
 """
 
 from __future__ import annotations
@@ -301,6 +304,7 @@ def stima_dell_inserto(
         return None
 
     def percentile(quota: float) -> int:
+        """La lunghezza misurata che sta alla quota indicata dell'elenco ordinato."""
         return misurate[min(len(misurate) - 1, max(0, round(quota * (len(misurate) - 1))))]
 
     return Inserto(len(tutte), len(misurate), percentile(0.5), percentile(0.005),
@@ -745,6 +749,7 @@ _SEPARATORI = "_.-"
 
 
 def _senza_estensione(nome: str) -> str:
+    """Il nome del file senza l'estensione riconosciuta; invariato se non ne ha una."""
     estensione = estensione_di(nome)
     return nome[: -len(estensione)] if estensione else nome
 
@@ -755,6 +760,8 @@ def _forma(chiavi: Sequence[str]) -> str | None:
     ``[0-9]+``. ``None`` se le chiavi non hanno la stessa struttura.
     """
     def tratti(chiave: str) -> list[tuple[str, str]]:
+        """Scompone la chiave in tratti consecutivi di lettere (L), cifre (C) e
+        altri caratteri (A), ciascuno con il suo testo."""
         return [
             ("L" if t[0].isalpha() else "C" if t[0].isdigit() else "A", t)
             for t in re.findall(r"[A-Za-z]+|[0-9]+|[^A-Za-z0-9]+", chiave)
@@ -1037,6 +1044,9 @@ def colonna_del_campione(
         return []
 
     def aggancia(colonna_assay: str, colonna_studio: str) -> bool:
+        """Vero se ogni riga dell'assay ha nella colonna un valore non vuoto che nello
+        studio compare una volta sola: le due colonne collegano le tabelle senza
+        ambiguita'."""
         nello_studio = Counter(r.get(colonna_studio, "") for r in studio)
         valori = [r.get(colonna_assay, "") for r in assay]
         return bool(valori) and all(x and nello_studio.get(x) == 1 for x in valori)
@@ -1113,14 +1123,18 @@ def colonne_del_lotto(
     numero.
     """
     def raggruppa(colonna: str) -> bool:
+        """Vero se la colonna non e' la chiave e ha valori ripetuti (o la tabella
+        non ha righe): puo' raggruppare i campioni."""
         valori = [r.get(colonna, "") for r in righe if r.get(colonna, "")]
         return colonna != chiave and (not righe or len(set(valori)) < len(valori))
 
     def numerica(colonna: str) -> bool:
+        """Vero se ogni valore non vuoto della colonna e' un numero senza segno."""
         valori = [r.get(colonna, "") for r in righe if r.get(colonna, "")]
         return all(re.fullmatch(r"[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?", x) for x in valori)
 
     def nome(colonna: str) -> str:
+        """Il nome della colonna con gli spazi al posto dei trattini bassi."""
         return colonna.replace("_", " ")
 
     piastre = [c for c in colonne if _contiene(nome(c), v.PAROLE_PIASTRA) and raggruppa(c)]

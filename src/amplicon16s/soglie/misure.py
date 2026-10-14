@@ -20,6 +20,10 @@ Una misura puo' mancare per due ragioni distinte, che chi legge deve poter
 distinguere: il controllo non ha prodotto una misura in questa esecuzione
 (``assente``), oppure la misura esiste ma gli artefatti non bastano a
 ricostruirla (``non_leggibile``).
+
+**Chi lo usa.** Il sottocomando ``soglie``
+(:mod:`amplicon16s.soglie.comando`); la riga di comando, per il numero dei
+campioni controllati con cui riconosce i controlli spenti.
 """
 
 from __future__ import annotations
@@ -226,6 +230,17 @@ def _letture_ispezionate(
 
 
 def _primer(radice: Path, valori: Mapping[str, Any], reverse: bool = False) -> Misura:
+    """La misura per la soglia sulla frazione di letture che iniziano con il
+    primer: della lettura forward, o della reverse con ``reverse``.
+
+    Passi: legge le righe dei file ispezionati delle classi controllate; se il
+    controllo non e' stato eseguito con questi valori, o nessun file e' stato
+    ispezionato, la misura e' assente con il motivo; altrimenti e' il massimo
+    delle frazioni per file. Il massimo perche' la soglia e' un tetto che il
+    controllo applica file per file; la tolleranza di lettura e' la piu' larga
+    fra quelle dei file. Una tabella che non si interpreta solleva
+    :class:`ArtefattoNonLeggibile`.
+    """
     statistica = ("massimo, fra i file dei campioni biologici e dei controlli positivi, della "
                   "frazione delle prime letture che iniziano con il primer")
     if reverse:
@@ -252,6 +267,14 @@ def _primer(radice: Path, valori: Mapping[str, Any], reverse: bool = False) -> M
 
 
 def _motivo(radice: Path, valori: Mapping[str, Any]) -> Misura:
+    """La misura per la soglia sulla frazione di letture con il motivo
+    conservato.
+
+    Stessi passi della misura del primer, ma la statistica e' la mediana fra
+    i file delle classi controllate: e' la mediana che il controllo confronta
+    con la soglia. La tolleranza di lettura e' la piu' larga fra quelle dei
+    file.
+    """
     statistica = ("mediana, fra i file dei campioni biologici e dei controlli positivi, della "
                   "frazione delle prime letture con il motivo conservato")
     relativo, righe = _letture_ispezionate(radice)
@@ -411,6 +434,9 @@ def _corte_per_campione(
 
 
 def _scarto(radice: Path, valori: Mapping[str, Any], reverse: bool = False) -> Misura:
+    """Le basi fra la lettura piu' corta, su tutte le letture, e il troncamento
+    dichiarato (zero se il troncamento e' piu' lungo); con ``reverse`` per la
+    lettura reverse. Dal riepilogo dei profili."""
     riepilogo = nome_reverse(RIEPILOGO_PROFILO) if reverse else RIEPILOGO_PROFILO
     parametro = "pair.truncLen_reverse" if reverse else "filter.truncLen"
     relativo = f"{Fase.QC_PROFILES.value}/{riepilogo}"
@@ -422,6 +448,8 @@ def _scarto(radice: Path, valori: Mapping[str, Any], reverse: bool = False) -> M
 
 
 def _fusione(radice: Path) -> Misura:
+    """La quota di coppie fuse sulle coppie delle classi controllate, dal
+    riepilogo della fusione; assente se nessuna coppia e' entrata nella fusione."""
     relativo = f"{Fase.PAIR_MERGE.value}/{RIEPILOGO_FUSIONE}"
     statistica = ("quota di coppie fuse, sulle coppie dei campioni biologici e dei controlli "
                   "positivi entrate nella fusione")
@@ -455,6 +483,12 @@ def _fusione_per_campione(radice: Path) -> Misura:
 
 
 def _filtro(radice: Path) -> tuple[Misura, Misura]:
+    """Le due misure del filtro, dal manifesto della fase: i campioni delle
+    classi controllate rimasti senza letture, e la perdita media di letture.
+
+    La perdita e' assente se nessun campione controllato aveva letture. La sua
+    tolleranza e' meta' dell'ultima cifra con cui il manifesto la riporta.
+    """
     relativo = f"{Fase.FILTERED.value}/{nome_manifesto_passo('S2')}"
     metriche = _campo(_json(radice, relativo), relativo, "metriche")
     azzerati = _campo(metriche, relativo, "azzerati")
@@ -472,6 +506,9 @@ def _filtro(radice: Path) -> tuple[Misura, Misura]:
 
 
 def _senza_primer(radice: Path) -> Misura:
+    """La quota di letture senza il primer cercato, sull'insieme delle classi
+    controllate, dal manifesto del filtro; assente se non c'erano letture.
+    Calcolata dai due conteggi e non dalla quota scritta, che e' arrotondata."""
     relativo = f"{Fase.FILTERED.value}/{nome_manifesto_passo('S2')}"
     metriche = _campo(_json(radice, relativo), relativo, "metriche")
     statistica = ("quota di letture senza il primer cercato, sull'insieme dei campioni "
@@ -487,12 +524,15 @@ def _senza_primer(radice: Path) -> Misura:
 
 
 def _varianti(radice: Path) -> Misura:
+    """Il numero di varianti distinte, dal riepilogo della tabella delle sequenze."""
     relativo = f"{Fase.SEQTAB.value}/{RIEPILOGO_TABELLA}"
     return Misura(Fraction(int(_campo(_json(radice, relativo), relativo, "varianti"))),
                   "varianti distinte nella tabella delle sequenze", relativo)
 
 
 def _chimere(radice: Path) -> Misura:
+    """La frazione chimerica delle letture delle classi controllate, dal
+    riepilogo della rimozione delle chimere; assente se non c'erano letture."""
     relativo = f"{Fase.CHIMERA.value}/{RIEPILOGO_CHIMERE}"
     statistica = ("frazione chimerica delle letture dei campioni biologici e dei controlli "
                   "positivi")
@@ -504,6 +544,12 @@ def _chimere(radice: Path) -> Misura:
 
 
 def _phylum(radice: Path) -> Misura:
+    """Il minimo, fra le classi controllate, della frazione di varianti con il
+    phylum assegnato, dal riepilogo della tassonomia.
+
+    Il minimo perche' il controllo giudica ogni classe da sola. Una classe
+    senza varianti non entra; assente se non ne entra nessuna.
+    """
     relativo = f"{Fase.TAXONOMY.value}/{RIEPILOGO_TASSONOMIA}"
     statistica = ("minimo, fra le classi biologico e controllo positivo, della frazione di "
                   "varianti con il phylum assegnato")
@@ -521,6 +567,17 @@ def _phylum(radice: Path) -> Misura:
 
 
 def _contaminanti(radice: Path, valori: Mapping[str, Any]) -> Misura:
+    """La frazione delle letture dei campioni biologici rimossa come
+    contaminante, dal riepilogo della decontaminazione.
+
+    Passi: se il controllo non e' stato eseguito con questi valori la misura e'
+    assente; lo e' anche se i controlli negativi con letture sono meno del
+    minimo dichiarato, perche' allora la decontaminazione non c'e' stata;
+    altrimenti si legge la frazione rimossa dalla modalita' dichiarata (per
+    piastra o aggregata), che e' quella che il controllo confronta con la
+    soglia, e non dall'altra, riportata solo come diagnostica. Assente anche
+    senza letture di campioni biologici nel confronto.
+    """
     relativo = f"{Fase.CONTROLS.value}/{RIEPILOGO_DECONTAM}"
     statistica = ("frazione delle letture dei campioni biologici rimossa come contaminante "
                   "dalla modalita' dichiarata")
@@ -545,6 +602,9 @@ def _contaminanti(radice: Path, valori: Mapping[str, Any]) -> Misura:
 
 
 def _conformi(radice: Path, valori: Mapping[str, Any]) -> Misura:
+    """La frazione dei controlli positivi valutabili conformi al loro livello,
+    dal riepilogo dei controlli; assente se il controllo non e' stato eseguito
+    o nessun controllo positivo e' valutabile."""
     relativo = f"{Fase.CONTROLS.value}/{RIEPILOGO_CONTROLLI}"
     statistica = "frazione dei controlli positivi valutabili conformi al loro livello"
     motivo = non_eseguito(soglia("ctrl.min_positive_pass_frac"), valori)
@@ -558,6 +618,9 @@ def _conformi(radice: Path, valori: Mapping[str, Any]) -> Misura:
 
 
 def _trattenute(radice: Path) -> Misura:
+    """Le letture finali sulle letture senza chimere, nell'insieme dei campioni
+    finali, dal riepilogo dei filtri finali; zero senza letture di partenza,
+    come confronta la fase."""
     relativo = f"{Fase.FINAL.value}/{_INTERMEDI}/{RIEPILOGO_FILTRI}"
     letture = _campo(_json(radice, relativo), relativo, "letture")
     finali = int(_campo(letture, relativo, "finali"))
@@ -588,6 +651,16 @@ def leggi(radice: Path | str, valori: Mapping[str, Any]) -> dict[str, Misura]:
 
 
 def _leggi(radice: Path, valori: Mapping[str, Any]) -> dict[str, Misura]:
+    """La misura di ogni soglia, come mappa dalla chiave del parametro.
+
+    Passi: le misure che servono a due soglie (filtro, chimere, fusione) si
+    leggono una volta sola; le soglie delle coppie entrano solo in modalita'
+    appaiata e quella sulle letture senza primer solo con il taglio cercato,
+    perche' negli altri casi i loro artefatti non esistono; le altre si
+    leggono sempre. L'avviso e l'arresto delle chimere, e quelli della
+    fusione, condividono la stessa misura: cambia solo la soglia con cui si
+    confronta.
+    """
     azzerati, perdita = _filtro(radice)
     chimere = _chimere(radice)
     delle_coppie: dict[str, Misura] = {}

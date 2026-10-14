@@ -298,6 +298,8 @@ class Esecutore:
         esiti: list[dict[str, Any]] = []
 
         def registra(gate: str, violazioni: list[Any]) -> None:
+            """Aggiunge agli esiti quello di un gate eseguito: superato se non ha
+            violazioni, con il codice e il dettaglio di ciascuna."""
             esiti.append({
                 "gate": gate,
                 "eseguito": True,

@@ -443,6 +443,8 @@ class ProfiloLetture(PipelineStep):
             quali = ""
 
         def nome(file: str) -> str:
+            """Il nome del file, nella variante della lettura reverse quando si giudica
+            quella."""
             return nome_reverse(file) if reverse else file
 
         # Le righe vuote in fondo a un file sono tollerate, ma il lettore a
@@ -571,9 +573,11 @@ class ProfiloLetture(PipelineStep):
             self.cartella, nome_reverse(NOME_COPPIE), self._tsv_coppie(coppie_reverse))
 
         def nomi(campione: str) -> str:
+            """I nomi dei due file della coppia di un campione, in una frase."""
             return f"{coppie[campione].nome} e {coppie_reverse[campione].nome}"
 
         def elenca(voci: dict[str, str], quanti: int = 5) -> str:
+            """Le prime voci come «campione: motivo», con il numero di quelle taciute."""
             testo = "; ".join(f"{c}: {m}" for c, m in list(voci.items())[:quanti])
             return testo + ("" if len(voci) <= quanti else f"; e altri {len(voci) - quanti}")
 

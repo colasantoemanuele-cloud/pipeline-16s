@@ -55,20 +55,34 @@ File e metadati si agganciano con una chiave estratta dal nome di ogni file, uni
 campione (`io.accession_regex`). Come preparare letture e tabelle, e come scaricare uno studio di OSDR
 (`scripts/scarica_osdr.py`), è in GUIDA.md, passo 2, e in RIFERIMENTO.md, sezione 1.
 
-Nel repository ci sono i dataset su cui la pipeline è eseguita, con dati, configurazioni e istruzioni: `dati/osd734/`
-(960 campioni, controlli e file del lotto), `dati/osd276/` (15, senza controlli), `dati/osd170/` (30, soli controlli negativi),
-`dati/comunita_nota/` e `dati/comunita_nota_v3v4/` (uno standard noto, regioni V4 e V3-V4); tutti da Illumina MiSeq (RIFERIMENTO.md, 1.2, 6.4).
+Nel repository ci sono i dataset su cui la pipeline è eseguita, tutti da Illumina MiSeq, ciascuno con il suo README:
+
+| Cartella | Che cosa contiene |
+|---|---|
+| `dati/osd734/` | il dataset di riferimento: 960 campioni, controlli negativi e positivi, file del lotto, impronte attese |
+| `dati/osd276/` | 15 campioni, senza controlli; configurazioni forward e con IdTaxa |
+| `dati/osd170/` | 30 campioni, soli controlli negativi; configurazioni forward, appaiata e con IdTaxa |
+| `dati/osd191/` | letture lunghe (2 x 300) della regione V3-V4: soli dati e scarico, nessuna configurazione |
+| `dati/comunita_nota/`, `dati/comunita_nota_v3v4/` | uno standard di composizione nota, regioni V4 e V3-V4, con lo script che ne verifica la composizione |
+| `dati/confronto_genelab/` | lo script che confronta, al livello di genere, un'esecuzione con le tabelle elaborate da NASA GeneLab |
+| `dati/riferimento/` | scarico e impronte del riferimento tassonomico (SILVA) e dei classificatori addestrati per IdTaxa |
+| `dati/scaricamento.py`, `dati/letture_forward.py` | funzioni comuni agli script di scarico: scarico verificato e riprendibile, scelta del file forward dal primer |
 
 ## Requisiti
 
 - **Docker** (o Apptainer, RIFERIMENTO.md 3.1) e l'immagine pubblicata (1,86 GB da scaricare, 7,6 GB su
-  disco). È l'unica via supportata: l'immagine porta Python 3.11, R 4.5.2, Bioconductor 3.21 e i
+  disco), per l'architettura `linux/amd64`. È l'unica via supportata: l'immagine porta Python 3.11, R 4.5.2, Bioconductor 3.21 e i
   pacchetti alle versioni di `renv.lock`, fra cui dada2 1.36.0.1, cioè dada2 1.36.0 con
   una correzione che rende ripetibile la tassonomia nei pareggi fra generi
   (`container/dada2/`).
-- Un clone di questo repository: il codice si esegue dal clone montato nel container.
-- Memoria e spazio in proporzione ai dati: sul dataset di 960 campioni 13 GB di memoria
-  di picco, 2,3 GB di uscite, 50 minuti con 12 processori.
+- Un clone di questo repository (`git clone https://github.com/colasantoemanuele-cloud/pipeline-16s.git`):
+  il codice si esegue dal clone montato nel container.
+- Memoria in proporzione ai dati: sul dataset di 960 campioni 13 GB di memoria di picco,
+  50 minuti con 12 processori.
+- Spazio su disco: per un dataset proprio, nella cartella di uscita deve essere libero almeno
+  quanto occupano i file delle letture; è ciò che la validazione verifica (`E-S0-14`), perché
+  gli artefatti intermedi sono dello stesso ordine. Sul dataset di 960 campioni (2,5 GB di
+  letture) le uscite occupano 2,3 GB.
 
 ## Esecuzione
 
@@ -127,35 +141,20 @@ Le uscite sono in `output/avvio_rapido/` (oggetto finale in `12_final/`, report 
 
 ## Configurazione
 
-Un file YAML. `config/config.example.yaml` è il modello: elenca ogni parametro e dice,
-per ciascuno, che cosa significa e come si sceglie. Il modo consigliato di cominciare
-è **`init`**, che scrive il file a partire dalle proprie letture e dai propri metadati:
+Un file YAML, che di solito scrive **`init`** a partire dalle proprie letture e dai propri
+metadati: lo strumento propone, chi conduce l'analisi conferma, e nessun valore entra senza
+un gesto. Il percorso, con i comandi, è in GUIDA.md, passi 4-8; ogni parametro, i marcatori
+del file e i parametri con un predefinito sono in RIFERIMENTO.md (sezioni 2 e 6).
+`config/config.example.yaml` è il modello con tutti i parametri, e le configurazioni in
+`dati/` sono esempi commentati.
 
-```bash
-docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
-  python3 scripts/esegui.py init --reads <cartella delle letture> \
-    --metadata <tabella dei campioni o cartella ISA-Tab> --output <configurazione.yaml>
-```
-
-Nel file ogni valore dichiara da dove viene: **rilevato** sui file (riga attiva), **proposto** da
-un'euristica o **da scegliere** (righe in commento, con il valore proposto o di partenza quando
-c'è). Nessun valore entra senza un gesto: si toglie il commento riga per riga, oppure si accettano
-tutti con `--accetta-proposte`. Il percorso breve: `init ... --accetta-proposte` (proposte e
-valori di partenza attivi, soglie di qualità al valore che non ferma); si scrivono le scelte che
-`validate` elenca; `run`; `soglie --config <configurazione.yaml> --output <nuova.yaml>
---accetta-proposte` propone le soglie dalle misure di quell'esecuzione, e `resume --config
-<nuova.yaml>` le attiva, ripetendo i calcoli. Una soglia proposta protegge dai peggioramenti, non giudica la misura.
-Passi in GUIDA.md, dettagli in RIFERIMENTO.md (2 e 6.6); le configurazioni in `dati/` sono esempi commentati.
-
-- I parametri che dipendono dai dati o dallo studio sono **obbligatori**, senza predefinito
-  (lo hanno solo standard del metodo, forme uniche e parametri di esecuzione): se uno manca
-  la pipeline li elenca e si ferma (`E-G15-10`). I **condizionali** si omettono se non
-  pertinenti: omessi o dichiarati con un valore danno gli stessi conteggi, tassonomia, campioni
-  e varianti ma un digest diverso; sette, se omessi, sono nulli nei riepiloghi (RIFERIMENTO.md, 2.5).
+- I parametri che dipendono dai dati o dallo studio sono **obbligatori**, senza predefinito:
+  se uno manca la pipeline li elenca e si ferma (`E-G15-10`). I **condizionali** si omettono
+  se non pertinenti (RIFERIMENTO.md, 2.5).
 - Lo schema rifiuta le chiavi che non conosce: un refuso ferma l'esecuzione.
-- `run.strict_provenance: true` fa partire l'esecuzione solo da un clone senza
-  modifiche non committate in `src/` e `R/` e in un ambiente R identico a `renv.lock`:
-  è il modo di produrre risultati da consegnare.
+- `run.strict_provenance: true` fa partire l'esecuzione solo da un clone senza modifiche non
+  committate in `src/` e `R/` e in un ambiente R identico a `renv.lock`: è il modo di
+  produrre risultati da consegnare.
 
 ## Uscite
 
@@ -173,6 +172,7 @@ artefatto; `99_logs/` con il log, il registro degli avvii e il punto di ripresa;
 
 Le varianti si chiamano `ASV1`, `ASV2`, ... per abbondanza decrescente nei biologici;
 i nomi non cambiano dopo i filtri, quindi la numerazione finale ha dei vuoti.
+Gli artefatti di ogni fase e a che cosa servono: RAZIONALE.md, sezione 3.
 
 ## Come si legge il report
 
@@ -262,31 +262,12 @@ misurati sono in `dati/osd734/README.md`; ogni altro dataset ha il suo README in
 
 ## Limiti noti
 
-- Le letture inverse prese per forward si riconoscono dal contenuto (`E-S1-07`), con il motivo
-  conservato o con il primer nelle basi tagliate: non con il motivo nullo e senza taglio, non in un file con meno di 500 letture o di un controllo negativo, non se il motivo è stato ricavato da
-  file in maggioranza inversi, non se la libreria mescola i due versi (RIFERIMENTO.md, 1.2).
-- In modalità single-end un file con il nome di una seconda lettura (`R2`, `_2`) è respinto per il
-  nome solo dove il contenuto non si può giudicare (RIFERIMENTO.md, 1.2); lo è un dataset le cui letture portano tutte il marcatore `/2`. In modalità appaiata i taxa con la regione più lunga di quanto
-  le letture troncate coprono non si fondono, senza alcun errore (RIFERIMENTO.md, 6.7).
-- `init` riconosce il primer solo se è in un elenco di primer 16S comuni; la chiave del campione solo se una colonna corrisponde uno a uno ai file (o alle righe che ne hanno uno);
-  in modalità appaiata non propone troncamenti e intervallo se non misura la sovrapposizione né riconosce i due primer (RIFERIMENTO.md, 2). Il primer cercato lungo la lettura ammette sole sostituzioni, non
-  inserzioni né delezioni, e non toglie il primer dell'altra estremità in coda alle letture (RIFERIMENTO.md, 6.3).
-- Una riga dei metadati collegata al file sbagliato si riconosce (`E-S0-30`) solo se i metadati dichiarano per riga amplicone o primer e il file porta il primer di un altro amplicone: uno scambio fra due campioni dello stesso amplicone non si vede dal contenuto (RIFERIMENTO.md, 1.3).
-- I controlli positivi si valutano solo come serie di diluizione di un taxon: colture pure di specie diverse, o uno standard senza diluizioni, si dichiarano fra i biologici e si tolgono dalle analisi ecologiche con `design.subset` (RIFERIMENTO.md, 6.5).
-- Con `filter.trimLeft` maggiore di zero `qc.conserved_motif` si cerca dopo le basi tagliate (un'espressione che guarda
-  all'indietro non trova nulla) e il primer non si cerca: in `letture_ispezionate.tsv` la colonna `frazione_primer` vale 0.
-- Byte estranei dopo la fine dell'archivio gzip di un FASTQ fermano S0 o S1, anche se altri strumenti leggono il file.
-- Il testo generale «che cosa fare» di alcuni codici descrive solo il caso più frequente (quelli
-  sui controlli negativi citano `decontam.min_blanks` anche se omesso): fa fede il dettaglio.
-- Un riferimento senza cloroplasti, mitocondri ed eucarioti (GTDB) non permette di toglierli per nome. La tassonomia
-  arriva al rango più fine del riferimento, con IdTaxa al genere. IdTaxa richiede un classificatore già addestrato, può lasciare vuoto un rango sopra
-  ranghi assegnati e riporta i nomi del classificatore, che in SILVA r138.2 hanno spesso un suffisso (`Chloroplast_2`: un nome senza suffisso non toglie nulla, e l'avvio lo segnala con `E-S0-32`; RIFERIMENTO.md, 6.4). L'albero di S9 serve alle distanze fra campioni.
-- Nelle analisi ecologiche una variabile è continua, e un disegno è a misure ripetute, solo se
-  dichiarati (`design.continuous_variables`, `design.subject`: RIFERIMENTO.md, 4.1 e 4.2). Con una
-  distanza non euclidea la PERMANOVA entro soggetto può non essere valutabile. Un'analisi respinta
-  non lascia nulla nella cartella di uscita: `eco status` non la riporta, il codice lo dà il comando.
-  Gli avvisi di `eco init` su rarefazione e variabili confuse richiedono gli export accanto all'oggetto.
-- Dopo `soglie`, `resume` ripete tutti i calcoli (dura quanto `run`) anche se sono cambiate solo soglie di qualità, che non cambiano i risultati.
+- Le letture inverse prese per forward e i file scambiati si riconoscono dal contenuto solo con un motivo conservato o un primer da cercare.
+- Le coppie si abbinano dal marcatore in fondo al nome del file; in modalità appaiata i taxa con la regione più lunga di quanto le letture coprono non si fondono, senza errore.
+- `init` propone solo ciò che i dati sostengono senza ambiguità: riconosce i primer di un elenco, e il resto lo lascia da scegliere.
+- I controlli positivi si valutano solo come serie di diluizione di un taxon; la tassonomia non assegna la specie, e i filtri tolgono solo i taxa che il riferimento nomina.
+- Dopo `soglie`, `resume` ripete tutti i calcoli; l'unico ambiente supportato è l'immagine pubblicata.
+- Il dettaglio di ogni limite è in RIFERIMENTO.md, sezione 7; i limiti scientifici dei metodi in RAZIONALE.md, sezione 5.
 
 ## Test
 
@@ -297,3 +278,22 @@ Nell'immagine, dalla radice del clone (senza R i test che lo richiedono si salta
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e PYTHONPATH=/app/src \
   -e AMPLICON16S_R_DIR=/app/R -v "$(pwd)":/app -w /app <immagine> pytest -o cache_dir=/tmp/.pytest_cache
 ```
+
+## Segnalare un problema
+
+Si apre una issue su GitHub, nel repository da cui viene il clone, allegando l'uscita di
+`status --out <cartella> --json`, il file `99_logs/punto_di_ripresa.txt` (se c'è) e
+`00_config/resolved.yaml`.
+
+## Versioni
+
+Una versione dello strumento è un commit (o un tag) di questo repository insieme al digest
+della sua immagine: i due insieme identificano i risultati.
+
+## Documenti
+
+- `README.md`: che cos'è lo strumento.
+- [GUIDA.md](GUIDA.md): l'uso passo per passo.
+- [RIFERIMENTO.md](RIFERIMENTO.md): ogni parametro, i formati, i casi particolari, il glossario.
+- [RAZIONALE.md](RAZIONALE.md): il perché scientifico di ogni metodo e i suoi limiti.
+- [SVILUPPO.md](SVILUPPO.md): il codice.

@@ -63,6 +63,10 @@
 
 Z_MAX <- 3.5
 
+# Lo z modificato di ogni valore rispetto alla mediana del vettore, con la
+# deviazione assoluta mediana; con questa nulla, con la deviazione assoluta
+# media; con entrambe nulle (valori tutti uguali) z vale zero. I valori
+# mancanti restano mancanti e non entrano in mediana e deviazioni.
 z_robusto <- function(v) {
   z <- rep(NA_real_, length(v))
   ok <- !is.na(v)
@@ -78,6 +82,15 @@ z_robusto <- function(v) {
   z
 }
 
+# La conformita' di ogni controllo positivo rispetto agli altri del suo livello
+# di concentrazione. livello, fedelta e profondita hanno un elemento per
+# controllo; min_controlli e' il minimo di controlli perche' un livello sia
+# confrontabile. Restituisce una tabella con z_fedelta, z_profondita, esito
+# (conforme, non conforme, non valutabile) e motivo. Per ogni livello: se i
+# controlli sono pochi restano non valutabili con il motivo; altrimenti si
+# calcolano i due z e si elencano le cause di non conformita'. La fedelta'
+# conta solo se bassa (un controllo piu' fedele degli altri non e' un difetto),
+# la profondita' nei due versi.
 conformita <- function(livello, fedelta, profondita, min_controlli) {
   n <- length(livello)
   z_f <- rep(NA_real_, n)
@@ -109,6 +122,14 @@ conformita <- function(livello, fedelta, profondita, min_controlli) {
              stringsAsFactors = FALSE)
 }
 
+# La curva di fedelta' in funzione della profondita'. profondita e fedelta sono
+# i punti (un controllo ciascuno), sensibilita la fedelta' a cui si legge la
+# soglia. Restituisce una lista con converge, punti, h, x50, k, r2, rmse, aic,
+# soglia e motivo; se la curva non si stima converge e' falso, i numeri sono NA
+# e motivo dice perche'. Passi: rifiuto con meno di tre punti o con fedelta'
+# costante; valori iniziali dalla retta sul logit; adattamento con nls; bonta'
+# e AIC; soglia dalla formula in testa al file. Un errore di nls non ferma la
+# fase: diventa il motivo.
 adatta_curva <- function(profondita, fedelta, sensibilita) {
   esito <- list(converge = FALSE, punti = length(profondita), h = NA_real_,
                 x50 = NA_real_, k = NA_real_, r2 = NA_real_, rmse = NA_real_,
@@ -173,6 +194,11 @@ adatta_curva <- function(profondita, fedelta, sensibilita) {
 # alle due estremita', e l'intervallo risulta stretto proprio dove i dati non
 # dicono nulla.
 
+# Se la soglia della curva e' sostenuta da osservazioni. profondita sono le
+# profondita' dei punti della curva, curva l'esito di adatta_curva. Restituisce
+# list(punto_medio, osservazioni, determinata, motivo); il motivo, quando la
+# soglia non e' determinata, riporta anche l'osservazione piu' vicina sotto il
+# tratto vuoto.
 soglia_determinata <- function(profondita, curva) {
   esito <- list(punto_medio = NA_real_, osservazioni = 0L, determinata = FALSE, motivo = "")
   if (!isTRUE(curva$converge)) {

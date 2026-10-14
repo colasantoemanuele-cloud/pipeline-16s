@@ -347,6 +347,7 @@ def confronta(
 
 
 def _numero(valore: float | None) -> str:
+    """Il numero con sei cifre significative; vuoto se manca."""
     return "" if valore is None else f"{valore:.6g}"
 
 
@@ -384,6 +385,20 @@ def scrivi(esito: dict, uscita: Path, in_piu: dict) -> None:
 
 
 def main(argomenti: list[str] | None = None) -> int:
+    """Punto d'ingresso: confronta l'oggetto finale con la tabella di GeneLab.
+
+    Passi:
+
+    1. legge l'abbinamento dei campioni, le due tabelle e, se indicato,
+       l'elenco dei campioni da escludere (che l'abbinamento deve conoscere);
+       un ingresso non valido ferma tutto con uscita 2, prima di scrivere;
+    2. confronta le due tabelle sui campioni comuni non esclusi;
+    3. scrive le tabelle e il riepilogo, con i campioni rimasti fuori dal
+       confronto e il motivo (esclusi, presenti in una sola tabella);
+    4. stampa i conteggi dei campioni e l'esito dei due criteri.
+
+    Uscita 0 solo se entrambi i criteri sono superati, 1 altrimenti.
+    """
     analizzatore = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     analizzatore.add_argument("--finale", type=Path, required=True)
     analizzatore.add_argument("--genelab", type=Path, required=True)

@@ -111,27 +111,30 @@ meta:
   # Omessi: ogni riga della tabella e' un campione.
   # assay_keep_column:                                # [FACOLTATIVO]
   # assay_keep_values:                                # [FACOLTATIVO]
-  # Se derivare il modulo (il gruppo di posizioni a cui il campione appartiene)
-  # dalla posizione dichiarata, con module_regex, quando il file del lotto non
-  # lo dichiara. true se le posizioni hanno un prefisso che identifica il
-  # gruppo; false se non c'e' un raggruppamento da derivare.
+  # Se derivare il gruppo di posizioni a cui il campione appartiene (nelle
+  # uscite la colonna si chiama modulo) dalla posizione dichiarata, con
+  # module_regex, quando il file del lotto non lo dichiara. true se le
+  # posizioni hanno un prefisso che identifica il gruppo; false se non c'e' un
+  # raggruppamento da derivare.
   # derive_module:                                    # [OBBLIGATORIO]
-  # Espressione regolare, con un gruppo di cattura, che estrae il modulo dalla
-  # posizione. Si scrive guardando i valori di module_column.
+  # Espressione regolare, con un gruppo di cattura, che estrae il gruppo di
+  # posizioni dalla posizione. Si scrive guardando i valori di module_column.
   # module_regex:                     # [CONDIZIONALE] se meta.derive_module e' vero
-  # Colonna della tabella di studio con la posizione di prelievo. E' la
-  # posizione dichiarata, non il nome del campione.
+  # Colonna della tabella di studio con la posizione di prelievo del campione
+  # (il punto, il sito o l'organo da cui viene). E' la posizione dichiarata,
+  # non il nome del campione.
   # module_column:                                    # [OBBLIGATORIO] oppure null
-  # Valori di module_column che non sono superfici (aria, materiale non usato):
-  # i campioni che li riportano non appartengono a un modulo. I valori vuoti e
-  # i marcatori di "non applicabile" sono gia' trattati come posizione assente.
+  # Valori di module_column che non sono campioni dell'ambiente studiato (per
+  # esempio un materiale di campionamento non usato): i campioni che li
+  # riportano non appartengono a un gruppo di posizioni. I valori vuoti e i
+  # marcatori di "non applicabile" sono gia' trattati come posizione assente.
   # non_surface_positions:                            # [OBBLIGATORIO] oppure []
   # Colonna con cui il file del lotto identifica il campione. Deve contenere
   # la stessa chiave estratta da io.accession_regex, non il nome del campione,
   # che si ripete fra repliche.
   # batch_key_column:                                 # [OBBLIGATORIO] oppure null
-  # Colonna del file del lotto che dichiara il modulo; ha la precedenza sulla
-  # derivazione da module_regex.
+  # Colonna del file del lotto che dichiara il gruppo di posizioni; ha la
+  # precedenza sulla derivazione da module_regex.
   # batch_module_column:                              # [OBBLIGATORIO] oppure null
 
 # --------------------------------------------------------------------------- #

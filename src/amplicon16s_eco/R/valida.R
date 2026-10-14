@@ -1,5 +1,8 @@
 # Validazione dell'analisi sull'oggetto, prima di ogni calcolo.
 #
+# Lo lancia esecuzione.py, attraverso ponte.py: da solo con il comando eco
+# validate, e prima di R/analisi.R con eco run.
+#
 # Parametri: oggetto (percorso della copia), la configurazione risolta
 # (design, run, alpha, comp, beta, ord, stat) e valori_mancanti. Scrive
 # validazione.json con gli errori, gli avvisi e il riepilogo del disegno: non

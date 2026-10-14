@@ -1,3 +1,24 @@
+# Integrazione continua: la suite dei test a ogni push e a ogni pull request.
+#
+# Due job indipendenti, che girano insieme:
+#
+#   test       l'ambiente rapido. Python con le dipendenze di sviluppo e R con
+#              il solo jsonlite, alle versioni del container. Esegue l'intera
+#              suite: i test del ponte verso R girano sugli script doppioni, e
+#              quelli che chiedono i pacchetti di calcolo si saltano.
+#   container  l'ambiente di riferimento. Costruisce l'immagine da
+#              container/Dockerfile (la costruzione verifica i pacchetti R
+#              contro renv.lock) ed esegue la suite dentro l'immagine, dove R
+#              e Bioconductor sono richiesti e nessun test di calcolo si salta.
+#              La matrice `parte` divide la suite in due, su due runner:
+#              `calcolo` esegue i moduli elencati in MODULI_DI_CALCOLO, `resto`
+#              tutti gli altri. L'elenco e' uno solo, e un modulo nuovo cade
+#              nel resto senza toccare questo file.
+#
+# I test sui dati reali si saltano in entrambi i job: chiedono dati che non
+# stanno nel repository. Runner e azioni sono ancorati a versioni esplicite; le
+# ragioni di ogni scelta sono nei commenti accanto ai passi.
+
 name: CI
 
 on:

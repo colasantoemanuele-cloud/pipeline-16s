@@ -21,12 +21,18 @@
 # le righe devono essere gli identificativi delle varianti, le colonne gli
 # accession, o il contrario con taxa_are_rows falso.
 
+# I primi nomi di un elenco, per un messaggio d'errore: al piu' quanti, con i
+# puntini se ce ne sono altri.
 .descrivi_nomi <- function(x, quanti = 3L) {
   if (is.null(x)) return("nessun nome")
   testa <- utils::head(x, quanti)
   paste0(paste(testa, collapse = ", "), if (length(x) > quanti) ", ..." else "")
 }
 
+# Si ferma con il codice della fase se i nomi trovati non sono esattamente
+# quelli attesi, nello stesso ordine. Il messaggio distingue l'ordine diverso
+# dai nomi mancanti o estranei, di cui riporta i primi. cosa nomina nel
+# messaggio l'oggetto verificato.
 verifica_nomi <- function(trovati, attesi, cosa) {
   if (identical(as.character(trovati), as.character(attesi))) return(invisible(TRUE))
   mancanti <- setdiff(attesi, trovati)
@@ -42,6 +48,10 @@ verifica_nomi <- function(trovati, attesi, cosa) {
   errore_catalogo("E-S10-01", sprintf("%s: %s", cosa, dettaglio))
 }
 
+# Si ferma con il codice della fase se la matrice non ha varianti e campioni
+# dove out.taxa_are_rows dice. Riconosce per primo il caso della matrice
+# trasposta, che ha un messaggio proprio; negli altri casi lascia a
+# verifica_nomi il dettaglio, prima sulle righe e poi sulle colonne.
 verifica_orientamento <- function(matrice, varianti, campioni, taxa_are_rows, cosa) {
   righe <- rownames(matrice)
   colonne <- colnames(matrice)
@@ -63,6 +73,9 @@ verifica_orientamento <- function(matrice, varianti, campioni, taxa_are_rows, co
   verifica_nomi(colonne, attese_colonne, paste(cosa, "- colonne"))
 }
 
+# Si ferma con il codice della fase se fra i nomi ce n'e' uno che R altererebbe
+# costruendo un data.frame (make.names): un nome alterato non corrisponderebbe
+# piu' a quello degli altri componenti dell'oggetto.
 verifica_sintattici <- function(nomi, cosa) {
   alterati <- nomi[make.names(nomi, unique = TRUE) != nomi]
   if (length(alterati) > 0L) {

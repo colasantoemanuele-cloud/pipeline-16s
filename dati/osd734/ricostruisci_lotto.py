@@ -127,6 +127,7 @@ def mappa_lotto(righe: list[dict[str, str]]) -> list[dict[str, str]]:
 
 
 def _numero(accession: str) -> int:
+    """La parte numerica di un accession, tolto il prefisso di lettere."""
     return int(re.sub(r"^[A-Z]+", "", accession))
 
 

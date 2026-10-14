@@ -275,7 +275,7 @@ def registro() -> list[Passo]:
 
 @pytest.fixture
 def eseguita(scenario, registro):
-    """Un'esecuzione completa, con la filogenesi disattivata come per difetto."""
+    """Un'esecuzione completa, con la filogenesi disattivata nella configurazione di prova."""
     run = ProjectRun(scenario.config, passi=_passi(registro))
     riprendi(run, registro)
     return run

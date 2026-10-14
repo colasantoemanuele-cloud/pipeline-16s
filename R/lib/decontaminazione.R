@@ -21,6 +21,13 @@
 # parametro batch non sa esprimere; che la combinazione coincida con quella di
 # decontam quando ogni piastra ha il suo confronto e' verificato nei test.
 
+# La probabilita' di decontam per ogni variante, nel confronto fra i controlli
+# negativi e gli altri campioni. conteggi e' la matrice campioni x varianti,
+# negativo un vettore logico per campione. I campioni senza letture si tolgono
+# prima della chiamata. La soglia passata a decontam non conta: di decontam si
+# usa la sola probabilita' (detailed = TRUE), e la decisione sul contaminante
+# la prende chi chiama, con la soglia della configurazione. Restituisce un
+# vettore con i nomi delle varianti, NA dove decontam non calcola.
 probabilita_prevalenza <- function(conteggi, negativo) {
   presenti <- rowSums(conteggi) > 0
   esito <- decontam::isContaminant(
@@ -30,6 +37,11 @@ probabilita_prevalenza <- function(conteggi, negativo) {
   stats::setNames(esito$p, colnames(conteggi))
 }
 
+# Le probabilita' di piu' confronti combinate in una per variante. p e' una
+# matrice varianti x confronti (un vettore vale come un solo confronto), regola
+# e' minimum, product o fisher, con il trattamento dei valori mancanti
+# descritto in testa al file. Restituisce un vettore con i nomi delle varianti;
+# una regola sconosciuta ferma il calcolo.
 combina_probabilita <- function(p, regola) {
   if (is.null(dim(p))) p <- matrix(p, ncol = 1L, dimnames = list(names(p), NULL))
   combinate <- switch(

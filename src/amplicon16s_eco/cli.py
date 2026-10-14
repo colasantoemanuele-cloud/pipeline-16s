@@ -98,6 +98,7 @@ def build_parser(programma: str = "python3 -m amplicon16s_eco") -> argparse.Argu
 
 
 def _json(documento: dict) -> None:
+    """Scrive il documento sullo standard output, in JSON leggibile."""
     print(json.dumps(documento, ensure_ascii=False, indent=2), flush=True)
 
 
@@ -161,6 +162,9 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 
 def _stampa_esito(esito: Esito) -> None:
+    """Stampa il riassunto di un'analisi conclusa: impronta dell'oggetto, digest
+    della configurazione, campioni analizzati, profondita' di rarefazione e
+    avvisi, uno per riga."""
     campioni = esito.riepilogo.get("campioni", {})
     alfa = esito.riepilogo.get("alfa", {})
     print(f"oggetto di partenza: {esito.oggetto_sha256}")

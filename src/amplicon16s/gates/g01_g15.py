@@ -700,6 +700,8 @@ def righe_e_file(config: Config, analisi: Analisi) -> tuple[
     espressione = re.compile(config.io.accession_regex)
 
     def per_chiave(valore: str) -> Path | None:
+        """Il file collegato al valore della colonna della chiave; ``None`` se la
+        chiave non si estrae o nessun file le corrisponde."""
         try:
             return analisi.file_per_accession.get(chiave_dalla_tabella(valore, espressione))
         except AccessionNonEstraibile:
@@ -1353,8 +1355,9 @@ def _g07_layout_single_end(contesto: Contesto) -> tuple[list[Violazione], list[A
         violazioni.append(
             Violazione(
                 "E-S0-07",
-                "{} file sembrano letture inverse: {}. Questa pipeline tratta "
-                "solo dati single-end".format(len(inverse), _elenca(inverse)),
+                "{} file sembrano letture inverse: {}. In modalita' single-end "
+                "servono le sole letture forward; per usare le due letture, due "
+                "file per campione e io.layout: paired-end".format(len(inverse), _elenca(inverse)),
             )
         )
 
@@ -2259,6 +2262,7 @@ def _adatta(controllo: Any) -> Any:
     """Adatta al contesto i gate sui metadati, che lavorano sull'analisi."""
 
     def eseguito(contesto: Contesto) -> tuple[list[Violazione], list[Avviso]]:
+        """Esegue il controllo sull'analisi dei metadati del contesto, senza avvisi."""
         return controllo(contesto.analisi), []
 
     eseguito.__name__ = getattr(controllo, "__name__", "gate")

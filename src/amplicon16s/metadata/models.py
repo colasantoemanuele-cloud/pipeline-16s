@@ -9,6 +9,10 @@ modello d'errore e il denominatore dei filtri di prevalenza.
 umana: può ripetersi fra repliche ed essere riusato per i controlli. Usarlo
 come chiave produce appaiamenti fra file e metadati che nessun controllo a
 valle è in grado di rilevare, perché il risultato resta plausibile.
+
+**Chi lo usa.** Tutto il codice che tratta campioni: gate, inventario, fasi
+(per le classi su cui giudicano i controlli), report e sottocomando
+``soglie``. Sole strutture di dati.
 """
 
 from __future__ import annotations

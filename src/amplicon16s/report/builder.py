@@ -24,6 +24,9 @@ registrano (manifesti, ``soglia.json``, ``decontam_riepilogo.json``,
 ``esclusioni.tsv``), non ricostruite.
 
 Ogni tabella del documento è scritta anche come file TSV in ``report/tabelle``.
+
+**Chi lo usa.** Il sottocomando ``report``; ``init`` ne riusa la regola del
+troncamento suggerito.
 """
 
 from __future__ import annotations
@@ -441,6 +444,7 @@ def _avvii(eventi: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
     avvii: list[dict[str, Any]] = []
 
     def nuovo(evento: Mapping[str, Any]) -> dict[str, Any]:
+        """Apre un avvio con i campi ancora vuoti, lo mette in elenco e lo restituisce."""
         avvii.append({
             "istante": evento.get("istante", ""), "controlli": None, "fino_a": None,
             "blocco_r": None, "rigorosa": None, "configurazione": None, "fasi": [],
@@ -978,6 +982,8 @@ def _decisioni_controlli(esecuzione: _Esecuzione, sezione: _Sezione) -> None:
         mediana = soglia.get("mediana")
 
         def numero(valore: Any, cifre: int) -> str:
+            """Il valore con le cifre decimali chieste e la virgola; «non calcolabile» se
+            manca."""
             return "non calcolabile" if valore is None else f"{valore:.{cifre}f}".replace(".", ",")
 
         # Senza una piastra con abbastanza controlli non esiste un modello per
@@ -1427,6 +1433,7 @@ def _troncamento_di_una_lettura(
 
     # La sintesi codifica gia' i valori per l'HTML: qui restano testo semplice.
     def o_assente(valore: Any) -> Any:
+        """Il valore, oppure «non calcolabile» se manca."""
         return valore if valore is not None else "non calcolabile"
 
     peggiore = esito["campione_peggiore"]

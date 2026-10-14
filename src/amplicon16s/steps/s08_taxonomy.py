@@ -188,7 +188,8 @@ class AssegnazioneTassonomica(PipelineStep):
         tax = config.tax
         if tax.assign_species:
             raise RuntimeError(
-                "tax.assign_species vero non e' realizzato: S8 assegna fino al genere"
+                "tax.assign_species vero non e' realizzato: S8 assegna la tassonomia "
+                "senza l'assegnazione esatta della specie"
             )
         # Gli artefatti propri dell'altro classificatore, se la fase era gia'
         # stata calcolata con quello, non sono di questa esecuzione.

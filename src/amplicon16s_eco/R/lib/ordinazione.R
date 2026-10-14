@@ -1,5 +1,9 @@
 # Ordinazione: PCoA e NMDS sulle matrici di distanza.
 #
+# La usa R/analisi.R (comando eco run). Scrive, nella cartella ordinazione/
+# delle uscite, per ogni metodo e distanza le coordinate, per la PCoA gli
+# autovalori, e un grafico per variabile.
+#
 # Richiede uscite.R e alfa.R (fissa_seme). Interfaccia:
 #   pcoa_di(matrice, correzione)     coordinate, autovalori, frazioni
 #   nmds_di(matrice, trymax, seme)   coordinate, stress, convergenza
@@ -15,6 +19,8 @@
 
 SOGLIA_STRESS <- 0.2
 
+# Le coordinate con il segno di ogni asse fissato: l'elemento di modulo massimo
+# della colonna e' positivo.
 .fissa_segno <- function(coordinate) {
   for (j in seq_len(ncol(coordinate))) {
     massimo <- which.max(abs(coordinate[, j]))
@@ -23,6 +29,12 @@ SOGLIA_STRESS <- 0.2
   coordinate
 }
 
+# L'analisi delle coordinate principali di una matrice di distanza. correzione
+# e' quella dichiarata per gli autovalori negativi. Restituisce
+# list(coordinate, autovalori, correzione, applicata, negativi, frazione):
+# applicata dice se la correzione e' servita (ape la applica solo con
+# autovalori negativi), e la frazione di varianza e' sugli autovalori corretti
+# quando lo e', altrimenti su tutti.
 pcoa_di <- function(matrice, correzione) {
   esito <- ape::pcoa(stats::as.dist(matrice), correction = correzione)
   valori <- esito$values
@@ -50,6 +62,11 @@ pcoa_di <- function(matrice, correzione) {
   )
 }
 
+# Lo scaling multidimensionale non metrico in due dimensioni di una matrice di
+# distanza, con trymax avvii casuali dal seme indicato. Restituisce
+# list(coordinate, stress, quasi_nullo, convergente, avvii): quasi_nullo
+# raccoglie l'avviso di stress quasi nullo, che non deve arrivare a chi chiama
+# come avviso imprevisto.
 nmds_di <- function(matrice, trymax, seme) {
   fissa_seme(seme)
   # Con pochi campioni, o con gruppi compatti e ben separati che si riducono
@@ -79,6 +96,10 @@ nmds_di <- function(matrice, trymax, seme) {
        convergente = as.numeric(esito$converged) > 0, avvii = as.integer(trymax))
 }
 
+# Il grafico dei campioni sui primi due assi di un'ordinazione, colorati per
+# gruppo della variabile v; i campioni senza valore non compaiono. La legenda
+# sta a destra, in una o due colonne, oppure in un pannello sotto il grafico,
+# secondo il numero dei gruppi: l'area dei punti resta la stessa.
 .grafico_ordinazione <- function(coordinate, v, titolo, etichette, percorso) {
   con_valore <- names(v$valori)[!is.na(v$valori)]
   gruppi <- names(v$dimensioni)
@@ -123,6 +144,13 @@ nmds_di <- function(matrice, trymax, seme) {
   }
 }
 
+# Calcola e scrive le ordinazioni dichiarate: per ogni distanza e per ogni
+# metodo le coordinate, per la PCoA anche gli autovalori, e un grafico per
+# variabile. Restituisce list(file, riepilogo, avvisi): i nomi dei file
+# relativi alla cartella di uscita, una voce di riepilogo per ordinazione e gli
+# avvisi. Un'ordinazione che non si puo' fare (distanze tutte nulle, un solo
+# asse positivo) si salta con un avviso; stress alto, stress quasi nullo e
+# mancata convergenza della NMDS sono avvisi e il risultato si scrive.
 scrivi_ordinazioni <- function(matrici, disegno, parametri, seme, cartella) {
   dir.create(cartella, showWarnings = FALSE)
   metodi <- as.character(unlist(parametri$ord$methods))

@@ -72,6 +72,9 @@ INVARIANTI_INIZIALI <- 0.2
 # (E-S9-02): qui resta come invariante.
 VARIANTI_MINIME <- 4L
 
+# Un numero con le cifre significative delle lunghezze dei rami del file
+# Newick: i valori riportati in filogenesi.json hanno la precisione dell'albero
+# scritto, e non dipendono dalle ultime cifre della virgola mobile.
 arrotonda <- function(x) signif(as.numeric(x), CIFRE_NEWICK)
 
 esegui_fase(function(parametri, cartella) {

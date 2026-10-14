@@ -100,6 +100,9 @@ STADI <- list(
                        "dopo il filtro di lunghezza (S7)")
 )
 
+# Un numero come testo per le tabelle: cifre significative indicate (sei se
+# non dette), senza spazi, campo vuoto per un valore mancante. Il formato e'
+# fisso, cosi' le tabelle non cambiano con le opzioni della sessione.
 numero <- function(x, cifre = 6L) {
   ifelse(is.na(x), "", trimws(formatC(signif(x, cifre), digits = cifre, format = "g")))
 }

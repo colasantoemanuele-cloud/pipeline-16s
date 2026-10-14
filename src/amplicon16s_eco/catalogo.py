@@ -13,6 +13,10 @@ sono di due specie:
 Un rifiuto e un avviso non condividono mai lo stesso codice. Il catalogo e'
 separato da quello della pipeline: il pacchetto lavora a valle dell'oggetto
 consegnato e non partecipa alle fasi che lo producono.
+
+**Chi lo usa.** La riga di comando e l'esecuzione (messaggi e codici di
+uscita), la validazione della configurazione, i documenti JSON e il ponte, che
+vi cerca il codice dichiarato da uno script R.
 """
 
 from __future__ import annotations

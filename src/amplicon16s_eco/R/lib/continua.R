@@ -1,6 +1,11 @@
 # Analisi di una variabile continua: correlazione con l'alfa diversita',
 # PERMANOVA con un termine numerico, grafico di dispersione.
 #
+# La usano R/valida.R (il solo piano, con i suoi avvisi) e R/analisi.R (eco
+# run), quando design.continuous_variables e' dichiarato. Scrive
+# test/alfa_continua.tsv e test/permanova_continua.tsv; il grafico
+# alfa/continua_NN_<variabile>.png lo apre R/analisi.R.
+#
 # Richiede uscite.R, campioni.R, alfa.R (fissa_seme) e test.R (.rango,
 # .fattori, INDICI, TITOLO_INDICE). Interfaccia:
 #   piano_continue(d, parametri)       per ogni variabile continua i campioni di
@@ -34,6 +39,14 @@ minimo_per_la_correlazione <- function(livello) {
 # fra gruppi, non una correlazione.
 VALORI_DISTINTI_MINIMI <- 3L
 
+# Per ogni variabile continua, i campioni di ogni analisi e se l'analisi si
+# esegue. Restituisce list(piani, avvisi, valori_strati). Per ogni variabile: i
+# campioni rarefatti con un valore, per la correlazione; i campioni con un
+# valore anche nelle variabili tecniche e negli strati, per la PERMANOVA; il
+# giudizio di eseguibilita' sul numero di campioni e di valori distinti; poi i
+# termini tecnici del modello (quelli con un solo livello escono), se alla
+# variabile resta un grado di liberta' dopo i termini tecnici, e se il modello
+# assorbe tutti i campioni. Non calcola nulla.
 piano_continue <- function(d, parametri) {
   avvisi <- list()
   avviso <- function(codice, dettaglio) {
@@ -157,6 +170,8 @@ piano_continue <- function(d, parametri) {
 # enumera le permutazioni; oltre usa una serie di Edgeworth.
 CAMPIONI_ENUMERATI_SPEARMAN <- 9L
 
+# La correlazione per ranghi di Spearman fra due vettori, a due code.
+# Restituisce list(test, rho, p), dove test dice come e' stato calcolato il p.
 .spearman <- function(x, y) {
   # La regola di stats::cor.test (exact = NULL), applicata in modo esplicito:
   # senza valori ripetuti (e con meno di 1290 campioni, il limite
@@ -183,6 +198,9 @@ CAMPIONI_ENUMERATI_SPEARMAN <- 9L
     rho = unname(esito$estimate), p = p)
 }
 
+# La correlazione di ogni indice di alfa diversita' con la variabile, sui
+# campioni del piano: una riga per indice, con il p corretto sulla famiglia dei
+# tre indici. Nulla se il piano dice che la correlazione non si esegue.
 correlazione_alfa <- function(indici, piano) {
   a <- piano$alfa
   if (!a$eseguibile) return(NULL)
@@ -225,6 +243,15 @@ grafico_continua <- function(indici, piano, profondita, percorso) {
 
 # --- PERMANOVA -------------------------------------------------------------- #
 
+# La PERMANOVA di una distanza con la variabile continua come termine numerico,
+# dopo le variabili tecniche. matrice e' la distanza fra tutti i campioni
+# analizzati, piano quello di piano_continue, tecnici i valori delle variabili
+# tecniche, valori_strati gli strati entro cui permutare (o nullo). Restituisce
+# le righe della tabella: una per termine, il residuo, il totale e la riga che
+# dichiara il test delle dispersioni non eseguito; nulla se la PERMANOVA non si
+# esegue. Passi: dati del modello con nomi di colonna neutri; se il modello e'
+# saturo o senza termini, la sola riga con il motivo; altrimenti seme, adonis2
+# per termini, e righe dei termini con F e p solo se il residuo e' positivo.
 permanova_continua <- function(matrice, distanza, piano, tecnici, valori_strati,
                                permutazioni, seme) {
   p <- piano$permanova
@@ -297,6 +324,11 @@ permanova_continua <- function(matrice, distanza, piano, tecnici, valori_strati,
   do.call(rbind, righe)
 }
 
+# Scrive nella cartella dei test le due tabelle delle variabili continue, la
+# correlazione con l'alfa diversita' e la PERMANOVA, con le intestazioni che
+# dichiarano metodo, famiglia della correzione e condizioni di esecuzione. Una
+# tabella senza righe si scrive comunque, con le sole colonne. Restituisce i
+# nomi dei file, relativi alla cartella di uscita.
 scrivi_continue <- function(alfa, multivariati, parametri, profondita, cartella) {
   dir.create(cartella, showWarnings = FALSE)
   vuota_alfa <- data.frame(

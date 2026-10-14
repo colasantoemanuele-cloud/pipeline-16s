@@ -36,10 +36,9 @@ python3 dati/riferimento/scarica_riferimento.py   # SILVA 138 per dada2, circa 1
 python3 dati/osd734/ricostruisci_lotto.py         # il file del lotto, dalla fonte degli autori
 ```
 
-Lo scarico delle letture e' il passo lungo: i file si scaricano uno alla volta, e la
-durata dipende dal collegamento con ENA. Nella riproduzione del 5 ottobre 2026 ha
-impiegato 2 ore e 48 minuti, senza interruzioni; il riferimento 44 secondi, il file del
-lotto meno di un secondo. Lo si puo' interrompere e rilanciare: riprende dal punto a cui
+Lo scarico delle letture e' il passo lungo: i file si scaricano quattro alla volta
+(`--connessioni` cambia il numero), e la durata dipende dal collegamento con ENA: puo'
+richiedere alcune ore. Lo si puo' interrompere e rilanciare: riprende dal punto a cui
 era arrivato.
 
 Gli script sono ripetibili: a ogni avvio controllano tutti i file e scaricano solo cio'
@@ -85,8 +84,7 @@ e `<immagine>` e' allora `amplicon16s:locale`. **Due costruzioni non sono identi
 byte per byte**: date dei file, ordine di compressione e metadati cambiano, quindi
 un'immagine costruita in locale ha un altro identificativo e non e' l'immagine
 pubblicata. Contiene pero' gli stessi pacchetti alle stesse versioni, verificati contro
-`renv.lock` durante la costruzione, e nelle prove fatte ha dato gli stessi risultati
-(vedi sotto).
+`renv.lock` durante la costruzione.
 
 **2. Adattare la configurazione** `config_osd734.yaml`, prima dell'esecuzione. I suoi
 percorsi sono relativi alla radice del repository, da cui il comando va lanciato: la
@@ -114,10 +112,18 @@ riga di comando li rende assoluti al caricamento, e la configurazione registrata
   Chi vuole provare una modifica al codice porta il parametro a `false`: i risultati
   non saranno certificati rispetto al codice, e le fasi gia' calcolate con la regola
   vengono rifatte.
-- I valori di `katharoseq.target_sensitivity`, `decontam.threshold`, `decontam.mode`,
-  `decontam.batch_combine` e `prev.min_fraction` sono dichiarati in modo esplicito:
-  sono quelli scelti con l'analisi di sensibilita', e
-  cambiarli cambia i risultati.
+- Cinque valori decidono quali campioni e quali varianti restano, e cambiarli cambia i
+  risultati. Il criterio di ciascuno, in una riga:
+  - `katharoseq.target_sensitivity: 0.90`: nei campioni piu' poveri si accetta al piu'
+    un decimo di letture estranee al campione;
+  - `decontam.threshold: 0.5`: bassa biomassa, con controlli negativi di profondita'
+    paragonabile ai biologici; e' contaminante cio' che e' piu' prevalente nei negativi;
+  - `decontam.mode: aggregate`: le piastre hanno da 5 a 8 controlli negativi, e per
+    piastra, con questa soglia, la decontaminazione toglierebbe una parte troppo grande
+    delle letture dei biologici;
+  - `decontam.batch_combine: minimum`: il predefinito di `decontam`, dichiarato;
+  - `prev.min_fraction: 0.01`: i campioni vengono da oltre cento posizioni distinte, e
+    una variante propria di poche posizioni e' segnale, non rumore.
 - `run.container` dichiara gia' l'immagine pubblicata, con il suo digest di registro, e
   con quella non va toccato. Il valore non sceglie l'immagine da eseguire, che e'
   quella passata a `docker run`: dichiara con quale immagine i risultati sono stati
@@ -163,48 +169,6 @@ Un'esecuzione interrotta si riprende con lo stesso comando e `resume` al posto d
 `run` (un arresto stampa il comando di ripresa); `validate` esegue solo i controlli di
 avvio e la fase S0, in meno di un minuto.
 
-**La procedura e' stata eseguita da zero** il 5 ottobre 2026: repository clonato da
-GitHub (commit `59ef39d`), immagine costruita dal suo `container/Dockerfile` senza
-cache (4 minuti e 37 secondi), dati scaricati con i tre script in una cartella vuota,
-catena S0-S14 con il comando qui sopra e `run.threads: 12`. Tutti i 1.031 artefatti
-dei manifesti di fase sono risultati identici, byte per byte, a quelli dell'esecuzione
-di riferimento precedente, prodotta su un'altra copia dei dati e con un'immagine
-costruita in un altro momento. I checksum pubblicati qui sono stati ricavati da
-quell'esecuzione.
-
-**Con l'immagine pubblicata** la catena completa e' stata rieseguita il 6 ottobre 2026
-sugli stessi dati scaricati, in una cartella di output nuova: 1.031 artefatti
-identici ai checksum pubblicati, in 48 minuti e 11 secondi, con 12,6 GB di memoria di
-picco. L'immagine pubblicata contiene, rispetto a quella della riproduzione, tre
-pacchetti R in piu' per le analisi ecologiche (DESeq2, locfit, randomForest) e nessuna
-versione cambiata fra i 206 pacchetti gia' presenti.
-
-**Con la configurazione congelata** (i valori scelti con l'analisi di sensibilita' e la
-regola rigorosa sulla provenienza attiva) la catena completa e' stata rieseguita da
-zero il 6 ottobre 2026 da un clone al commit `af82ef9`, nell'immagine pubblicata, con
-il comando qui sopra e `run.threads: 12`: 1.031 artefatti identici ai checksum
-pubblicati, in 48 minuti e 39 secondi. All'avvio la regola ha verificato il commit,
-l'assenza di modifiche al codice e la corrispondenza fra `renv.lock` e l'ambiente R
-installato (R 4.5.2, 109 pacchetti); una ripresa successiva non ha ricalcolato nulla.
-E' stata l'esecuzione di riferimento fino al 7 ottobre 2026.
-
-**Con la soglia di profondita' omogenea** la catena completa e' stata rieseguita da
-zero l'8 ottobre 2026 da un clone al commit `f99ca84`, nell'immagine pubblicata, con
-la configurazione pubblicata cosi' com'e' (`run.threads` non impostato, dodici
-processori) e la regola rigorosa attiva: 52 minuti e 19 secondi, 1.033 artefatti.
-E' questa l'esecuzione di riferimento, e i checksum pubblicati sono i suoi. I valori
-congelati sono gli stessi: l'analisi di sensibilita', ripetuta su questa esecuzione,
-li ha mantenuti tutti. Il risultato e' cambiato per la sola
-regola della soglia: 451 campioni, 1.737 varianti, 20.922.721 letture.
-
-La prova ha fatto emergere un difetto, corretto: al commit `59ef39d` i percorsi
-relativi di `config_osd734.yaml` superavano S0 ma fermavano S1 con `E-R-02`, perche' il
-processo R di una fase parte nella cartella della fase e non trovava i propri
-ingressi. La riproduzione e' stata completata indicando nella configurazione i
-percorsi assoluti del container (`/app/dati/osd734/...`, `/app/output/osd734`); dalla
-versione successiva la riga di comando rende assoluti i percorsi relativi, che danno
-la stessa configurazione registrata, e il caso e' coperto da un test.
-
 ## Come verificare i risultati
 
 Dalla radice del repository, a esecuzione conclusa:
@@ -228,39 +192,20 @@ Non si confrontano i manifesti, la configurazione registrata in `00_config/`, i 
 il report: portano date, identificativi dell'esecuzione e percorsi, e differiscono per
 costruzione fra due esecuzioni.
 
-**A quale ambiente si riferiscono i checksum.** All'immagine pubblicata,
-`ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`,
-con il codice del repository e la configurazione `config_osd734.yaml`, filogenesi
-disattivata; `run.threads` non incide sui risultati. Un'immagine costruita da
-`container/Dockerfile` (immagine di partenza ancorata per digest, pacchetti R
-dell'istantanea datata e di `renv.lock`, dada2 1.36.0.1) non e' la stessa immagine, ma
-ha dato finora gli stessi byte: tre immagini costruite in momenti diversi, quella
-pubblicata compresa, coincidono su tutti gli artefatti. Fuori dal container, con un'altra versione di R o dei pacchetti,
-i risultati possono differire senza che l'esecuzione sia sbagliata: il confronto prova
-l'identita', non la correttezza.
+**A che cosa si riferiscono i checksum.** All'esecuzione di riferimento, con la
+configurazione e l'immagine indicate: `config_osd734.yaml` cosi' com'e' (filogenesi
+disattivata, regola rigorosa sulla provenienza attiva), il codice del repository e
+l'immagine pubblicata,
+`ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`.
+`run.threads` non incide sui risultati. Un'immagine costruita da `container/Dockerfile`
+(immagine di partenza ancorata per digest, pacchetti R dell'istantanea datata e di
+`renv.lock`, dada2 1.36.0.1) non e' la stessa immagine: ha gli stessi pacchetti alle
+stesse versioni, ma le impronte si riferiscono a quella pubblicata. Fuori dal container,
+con un'altra versione di R o dei pacchetti, i risultati possono differire senza che
+l'esecuzione sia sbagliata: il confronto prova l'identita', non la correttezza.
 
-### Che cosa e' cambiato rispetto ai checksum precedenti
-
-I checksum pubblicati sono stati rigenerati l'8 ottobre 2026 dall'esecuzione di
-riferimento con la soglia di profondita' omogenea (commit `f99ca84`), e una seconda
-esecuzione completa, da un altro clone al commit che li pubblica, li riproduce tutti
-(1.033 artefatti identici). Sostituiscono quelli
-dell'esecuzione del commit `af82ef9`, da cui differiscono per due ragioni distinte.
-
-Differenze di risultato, dovute alla regola della soglia: le piastre 1 e 2, che non hanno una curva valida, usano la mediana delle
-soglie delle altre piastre (15.049 letture senza chimere) invece di 1.000 letture
-grezze. Cambiano gli artefatti di S11 che riportano la soglia (`soglia.json`,
-`curve.tsv`, `profondita_campioni.tsv`, `riepilogo.json`), tutti quelli di S13 e i
-file consegnati da S14: l'oggetto finale ha 451 campioni e 1.737 varianti invece di 492
-e 1.753. `ps_controlli.rds` ha gli stessi byte di prima.
-
-Differenze per costruzione, senza effetto sui risultati: `gates.json` (S0) elenca i
-gate nell'ordine delle dipendenze; gli intermedi di S13 stanno in
-`12_final/intermedi/`; `ps_controlli.rds` e' scritto da S14 ed elencato in
-`checksum.sha256` e in `checksum_finali.sha256`, che ha quindi sei righe; S1 ha due
-artefatti nuovi, `valori_qualita.tsv` e `coppie.tsv`. Gli artefatti sono 1.033 invece
-di 1.031. Tutti gli artefatti delle fasi S2-S10 e di S12 hanno gli stessi byte di
-prima.
+L'oggetto finale di riferimento ha 451 campioni e 1.737 varianti; gli artefatti dei
+manifesti di fase sono 1.033, e i file consegnati di `12_final/` sei.
 
 ### Se i risultati non coincidono
 
@@ -283,47 +228,25 @@ prima.
    configurazione registrata: e' un difetto di riproducibilita' della pipeline, non un
    errore di chi la esegue.
 
-## Requisiti misurati
+## Requisiti
 
-Misure sulla macchina di sviluppo (Intel Xeon W-10855M, 12 processori logici, 30 GB di
-memoria), con dodici processori. Dove non e' detto altrimenti vengono dalla
-riproduzione da zero del 5 ottobre 2026 (codice del commit `59ef39d`, immagine costruita
-dal suo Dockerfile); durata, memoria e uscite sono delle due esecuzioni dell'8 ottobre
-2026 con l'immagine pubblicata e la soglia di profondita' omogenea.
+Misure indicative, con dodici processori e l'immagine pubblicata.
 
-| Che cosa | Misura | Fonte |
-|---|---|---|
-| Letture FASTQ | 2,52 GB (2.515.101.383 byte), 960 file | somma delle dimensioni dichiarate da ENA in `letture_ena.tsv`, uguale ai byte scaricati |
-| Riferimento SILVA 138 | 138 MB (137.973.851 byte) | `dati/riferimento/scarica_riferimento.py` |
-| Durata dello scarico | 2 ore e 48 minuti le letture, 44 secondi il riferimento, meno di un secondo il lotto | i tre script, in una cartella vuota; dipende dal collegamento con ENA |
-| Immagine pubblicata | 1,86 GB da scaricare (1.863.204.352 byte compressi, 34 strati); 7,6 GB su disco, strati dell'immagine di partenza di Bioconductor compresi | manifesto del registro; `docker image ls` (colonna DISK USAGE) |
-| Costruzione dell'immagine, in alternativa | 4 minuti e 37 secondi senza cache | `docker build --no-cache`; dipende dalla rete |
-| Uscite dell'esecuzione completa | 2,27 GB, di cui 2,24 GB di letture filtrate (`03_filtered/`) e 32 MB di tutto il resto; 1.033 artefatti nei manifesti di fase | `output/osd734/` a catena conclusa (esecuzione di riferimento dell'8 ottobre 2026) |
-| Durata dell'esecuzione completa | 52 minuti e 19 secondi per la catena S0-S14 nell'esecuzione di riferimento dell'8 ottobre 2026, 47 minuti e 54 secondi nella seconda; la fase S4 (denoising) ne occupa 24, S2 da 8 a 10, S1 da 5,5 a 6,5 (con il conteggio dei segni di coppia), S8 5, S3 da 3 a 3,5 | il comando di esecuzione qui sopra, con l'immagine pubblicata e dodici processori; nelle esecuzioni precedenti da 48 a 64 minuti |
-| Memoria di picco della pipeline | 13,1 GB (12,2 GiB; 13.093.236.736 byte) nella seconda esecuzione dell'8 ottobre 2026; 12,3 e 12,6 GB nelle misure precedenti | `memory.peak` del cgroup del container, letto al termine della catena, con il limite a 24 GB |
-
-Lo spazio dell'immagine e' misurato con Docker 29.1.3, che usa l'archivio di immagini
-di containerd. Dei 7,59 GB, 5,67 sono strati condivisi con altre immagini della
-macchina (quella di Bioconductor da cui l'immagine e' costruita, 6,55 GB da sola, e le
-versioni precedenti della pipeline); la parte propria dell'immagine e' 1,92 GB (misura
-della settimana 21). `docker image inspect --format '{{.Size}}'` riporta
-invece 1,86 GB: con l'archivio di containerd e' la dimensione del contenuto, cioe'
-degli strati compressi che si scaricano da un registro (colonna CONTENT SIZE di
-`docker image ls`), non lo spazio occupato su disco. La cache di
-costruzione non e' compresa, e su una costruzione isolata non e' stata misurata; non e'
-stato misurato nemmeno lo spazio complessivo su una macchina che parte da zero.
+| Che cosa | Misura |
+|---|---|
+| Letture FASTQ | 2,52 GB, 960 file (le dimensioni dichiarate da ENA in `letture_ena.tsv`) |
+| Riferimento SILVA 138 | 138 MB |
+| Immagine pubblicata | 1,86 GB da scaricare, 7,6 GB su disco |
+| Uscite dell'esecuzione completa | 2,3 GB, quasi tutti di letture filtrate (`03_filtered/`); 1.033 artefatti nei manifesti di fase |
+| Durata dell'esecuzione completa | circa 50 minuti per la catena S0-S14; l'inferenza delle varianti (S4) ne occupa circa meta', il filtro (S2) da 8 a 10 |
+| Memoria di picco | 13 GB, per l'intero container, cache dei file compresa |
 
 Le letture filtrate si conservano con `run.keep_filtered_fastq: true`, il predefinito;
 con `false` si rimuovono quando tutte le fasi sono concluse, quindi lo spazio serve
 comunque durante l'esecuzione. I controlli di avvio richiedono, sul volume di
-`io.out_root`, almeno lo spazio occupato dalle letture. La durata con meno processori
-non e' stata misurata.
-
-La memoria di picco e' quella dell'intero container durante la sola catena, cache dei
-file compresa: 12,3 GB su una macchina da 30 GB. Il limite di 24 GB del comando lascia
-quindi margine; con meno di 16 GB di memoria l'esecuzione non e' stata provata. La
-suite di test con i dati reali, che esegue la catena e altri test uno dopo l'altro,
-arriva a 16,9 GB.
+`io.out_root`, almeno lo spazio occupato dalle letture. Il limite di 24 GB del comando di
+esecuzione lascia margine sulla memoria di picco; con meno di 16 GB di memoria, e con
+meno processori, l'esecuzione non e' stata misurata.
 
 ## Le analisi ecologiche d'esempio
 

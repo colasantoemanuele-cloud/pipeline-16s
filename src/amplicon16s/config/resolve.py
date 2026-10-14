@@ -29,6 +29,10 @@ in ``dichiarati`` i parametri impostati nel file di ingresso
 esecuzione conclusa un valore predefinito sarebbe indistinguibile da una scelta
 deliberata. L'elenco non entra nel digest, che identifica i valori e non il
 modo in cui sono stati dati.
+
+**Chi lo usa.** L'esecutore e :mod:`amplicon16s.runner.project` (risoluzione
+e registrazione in ``00_config``), la classe base delle fasi (impronta dei
+risultati), il gate G15, la fase S0, il report e il sottocomando ``soglie``.
 """
 
 from __future__ import annotations

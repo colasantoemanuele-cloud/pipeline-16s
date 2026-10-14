@@ -27,14 +27,24 @@
 
 CIFRE_NEWICK <- 8L
 
+# L'albero come testo Newick su una riga, con le lunghezze dei rami a
+# CIFRE_NEWICK cifre significative: e' la sola forma in cui l'albero si scrive
+# e si confronta.
 testo_newick <- function(albero) {
   ape::write.tree(albero, file = "", digits = CIFRE_NEWICK)
 }
 
+# L'albero (classe phylo di ape) letto da un file Newick.
 leggi_newick <- function(percorso) {
   ape::read.tree(file = percorso)
 }
 
+# Lo stesso albero con le foglie numerate nell'ordine indicato. ordine e'
+# l'elenco degli identificativi delle varianti, e deve contenere esattamente le
+# foglie dell'albero: altrimenti la funzione si ferma. Cambia solo la
+# numerazione interna delle foglie (le righe di edge che puntano a una foglia e
+# tip.label): topologia e lunghezze dei rami restano quelle, e phyloseq, unendo
+# l'albero all'oggetto, non riordina piu' le varianti.
 foglie_in_ordine <- function(albero, ordine) {
   n <- length(albero$tip.label)
   if (!setequal(albero$tip.label, ordine) || n != length(ordine)) {
@@ -47,6 +57,11 @@ foglie_in_ordine <- function(albero, ordine) {
   albero
 }
 
+# Che cosa non va nell'albero rispetto alle varianti dell'oggetto: un vettore
+# di frasi, vuoto se l'albero e' accettabile. Controlla, in quest'ordine:
+# foglie ripetute, foglie diverse dalle varianti (mancanti o estranee), radice
+# assente, lunghezze dei rami assenti, mancanti o negative. Raccoglie tutti i
+# difetti invece di fermarsi al primo: chi chiama li dichiara insieme.
 difetti_albero <- function(albero, varianti) {
   difetti <- character()
   foglie <- albero$tip.label

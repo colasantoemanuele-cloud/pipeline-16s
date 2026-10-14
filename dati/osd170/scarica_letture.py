@@ -2,8 +2,10 @@
 """Scarica da OSDR le letture forward di OSD-170.
 
 OSD-170 e' un sequenziamento a letture appaiate: OSDR pubblica per ognuno dei
-30 campioni due file, R1 e R2. La pipeline tratta dati single-end e usa il solo
-file forward di ogni campione. La regola e' in ``dati/letture_forward.py``: si
+30 campioni due file, R1 e R2. La configurazione di base del dataset usa le sole
+letture forward, in modalita' single-end (ce n'e' anche una appaiata, per cui lo
+script scarica i due file con ``--coppie``). La regola e' in
+``dati/letture_forward.py``: si
 tiene il file le cui letture iniziano con il primer forward dichiarato nei
 metadati; se nessuno dei due lo porta si tiene l'R1 e lo si dichiara. Le
 letture di questo dataset sono depositate senza primer: lo script lo riporta

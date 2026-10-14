@@ -25,8 +25,10 @@ Le letture (`fastq/`, 966 MB) non sono nel repository.
 
 ## Le letture
 
-OSDR pubblica per ogni campione due file, R1 e R2. La pipeline tratta dati single-end e
-usa il solo file forward:
+OSDR pubblica per ogni campione due file, R1 e R2. La configurazione di base
+(`config_osd170.yaml`) usa le sole letture forward, in modalita' single-end; quella
+appaiata (`config_osd170_appaiata_naive_bayes.yaml`) usa i due file, scaricati con
+`--coppie`. Per le sole forward:
 
 ```bash
 python3 dati/osd170/scarica_letture.py                  # 30 file in dati/osd170/fastq/

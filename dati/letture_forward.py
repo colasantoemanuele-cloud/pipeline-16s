@@ -1,7 +1,9 @@
 """Scarico delle letture forward di un dataset depositato a letture appaiate.
 
-La pipeline tratta dati single-end: di ogni corsa appaiata usa il solo file le
-cui letture partono dal primer forward. Il nome del file nel deposito (R1,
+La configurazione di base di questi dataset usa le sole letture forward, in
+modalita' single-end (ce n'e' anche una appaiata, sui due file di ogni corsa): di
+ogni corsa appaiata serve allora il solo file le cui letture partono dal primer
+forward. Il nome del file nel deposito (R1,
 ``_1``) lo dice quasi sempre, ma non sempre: in alcuni depositi i due file di
 una corsa sono scambiati. Questo modulo, comune agli script dei dataset,
 

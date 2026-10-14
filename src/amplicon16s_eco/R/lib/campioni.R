@@ -1,6 +1,11 @@
 # Oggetto di partenza, campioni e variabili: cio' che si verifica prima di ogni
 # calcolo, e cio' che ogni analisi usa per sapere quali campioni entrano.
 #
+# La usano R/valida.R (eco validate, e la validazione che precede eco run),
+# R/analisi.R (eco run) e R/descrivi.R (eco init). Legge l'oggetto dalla copia;
+# non scrive file: campioni.tsv lo scrive R/analisi.R con la tabella costruita
+# qui.
+#
 # Richiede uscite.R. Interfaccia:
 #   leggi_oggetto(percorso)          l'oggetto phyloseq, o NULL con il motivo
 #   conteggi_di(ps)                  matrice varianti x campioni
@@ -22,6 +27,13 @@
 MINIMO_VALORI_CONTINUA <- 10L
 QUOTA_VALORI_CONTINUA <- 0.8
 
+# L'oggetto di partenza letto dal file, o il motivo per cui non si puo' usare.
+# Restituisce list(oggetto, motivo), con uno dei due nullo: non si ferma, cosi'
+# la validazione puo' riportare il rifiuto insieme agli altri e l'analisi
+# dichiararlo con il suo codice. Controlla, in quest'ordine: che il file si
+# legga come RDS, che contenga un oggetto phyloseq, che abbia conteggi,
+# campioni e tassonomia, che i conteggi siano numeri interi non negativi senza
+# mancanti, che le varianti siano almeno due.
 leggi_oggetto <- function(percorso) {
   letto <- tryCatch(
     list(riuscito = TRUE, valore = readRDS(percorso)),
@@ -64,12 +76,16 @@ leggi_oggetto <- function(percorso) {
   list(oggetto = ps, motivo = NULL)
 }
 
+# La matrice dei conteggi con le varianti sulle righe e i campioni sulle
+# colonne, qualunque sia l'orientamento nell'oggetto.
 conteggi_di <- function(ps) {
   m <- methods::as(phyloseq::otu_table(ps), "matrix")
   if (!phyloseq::taxa_are_rows(ps)) m <- t(m)
   m
 }
 
+# La tabella dei campioni dell'oggetto come data.frame di solo testo, con i
+# nomi di colonna veri e i campioni come nomi di riga.
 tabella_campioni <- function(ps) {
   # La conversione in data.frame riscrive i nomi di colonna non sintattici
   # (spazi, cifre iniziali): quelli veri sono i nomi delle variabili
@@ -81,13 +97,18 @@ tabella_campioni <- function(ps) {
   structure(testo, class = "data.frame", row.names = phyloseq::sample_names(ps))
 }
 
+# Quali valori di una colonna sono mancanti: NA, oppure uno dei marcatori
+# dichiarati, confrontati senza distinguere maiuscole e spazi ai lati.
 e_mancante <- function(x, marcatori) {
   x <- as.character(x)
   is.na(x) | tolower(trimws(x)) %in% marcatori
 }
 
+# Un errore o un avviso come coppia codice e dettaglio, la forma in cui
+# finiscono nella validazione e nel riepilogo.
 .avviso <- function(codice, dettaglio) list(codice = codice, dettaglio = dettaglio)
 
+# Un elenco di nomi per un messaggio: i primi massimo, e quanti altri restano.
 .elenco <- function(x, massimo = 10L) {
   x <- as.character(x)
   if (length(x) > massimo) {
@@ -115,6 +136,18 @@ gruppi_di <- function(valori, minimo) {
   )
 }
 
+# L'esame dell'oggetto rispetto alla configurazione, prima di ogni calcolo.
+# Restituisce list(errori, avvisi, disegno): il disegno e' nullo se c'e' un
+# errore che rende impossibile proseguire, altrimenti porta cio' che ogni
+# analisi usa (campioni analizzati, letture, profondita' di rarefazione con la
+# sua origine, variabili con valori e gruppi, variabili tecniche, continue,
+# soggetto). Passi, nell'ordine: colonne dichiarate, rango e albero (gli errori
+# di questo passo si raccolgono tutti, poi ci si ferma); sottoinsieme e
+# campioni senza letture; profondita' di rarefazione; valori mancanti e gruppi
+# di ogni variabile; variabili continue, che devono essere numeri decimali;
+# soggetto del disegno a misure ripetute. Non calcola alcuna analisi: serve
+# tale e quale alla validazione e all'esecuzione, che cosi' giudicano allo
+# stesso modo.
 esamina <- function(ps, parametri) {
   errori <- list()
   avvisi <- list()
@@ -344,6 +377,12 @@ stato_per_variabile <- function(v, campioni) {
   stato
 }
 
+# La tabella campioni.tsv: una riga per campione dell'oggetto, anche se
+# escluso, con le letture, lo stato generale, lo stato nell'alfa diversita' e,
+# per ogni variabile, il valore e lo stato nelle sue analisi. d e' il disegno
+# di esamina; piani, se dati, sono i piani dei test fra gruppi, da cui vengono
+# le colonne dello stato nel confronto dell'alfa e nella PERMANOVA. Le colonne
+# delle variabili continue e del soggetto ci sono solo se dichiarate.
 tabella_dei_campioni <- function(d, piani = list()) {
   tutti <- d$nell_oggetto[ordine_radix(d$nell_oggetto)]
   generale <- rep("analizzato", length(tutti))

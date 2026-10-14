@@ -1,5 +1,8 @@
 # Lettura e scrittura dei file JSON del contratto con l'orchestratore.
 #
+# La caricano tutti gli script, delle fasi e delle analisi ecologiche, e
+# R/lib/errors.R: ogni file che uno script R scrive passa da qui.
+#
 # Interfaccia:
 #   leggi_json(percorso)            -> lista
 #   scrivi_json(oggetto, percorso)  scrittura atomica, restituisce il percorso
@@ -22,6 +25,7 @@
 # sessione non lo e', perche' gli stessi dati diano gli stessi byte su
 # qualunque macchina.
 
+# Un file JSON come lista R.
 leggi_json <- function(percorso) {
   # I vettori JSON diventano vettori R, gli oggetti liste con nome; le tabelle
   # restano liste, perche' una conversione implicita in data.frame
@@ -34,6 +38,10 @@ leggi_json <- function(percorso) {
   )
 }
 
+# Scrive righe di testo in UTF-8 nel percorso indicato, per rinomina di un file
+# temporaneo della stessa cartella (stesso file system: la rinomina e'
+# atomica). Il temporaneo si toglie in ogni caso all'uscita. Restituisce il
+# percorso, in modo invisibile.
 scrivi_atomico <- function(righe, percorso) {
   temporaneo <- tempfile(pattern = ".scrittura-", tmpdir = dirname(percorso))
   on.exit(unlink(temporaneo), add = TRUE)
@@ -46,6 +54,9 @@ scrivi_atomico <- function(righe, percorso) {
   invisible(percorso)
 }
 
+# Un oggetto R come file JSON leggibile, scritto in modo atomico: valori nulli
+# e mancanti come null, numeri con tutte le cifre (digits = NA), cosi' che un
+# valore riletto sia quello scritto.
 scrivi_json <- function(oggetto, percorso) {
   # auto_unbox: un valore singolo diventa uno scalare JSON. Un elenco che deve
   # restare un vettore JSON anche con un solo elemento va passato come lista.
@@ -60,6 +71,11 @@ scrivi_json <- function(oggetto, percorso) {
   scrivi_atomico(testo, percorso)
 }
 
+# Un oggetto R come file .rds, scritto in modo atomico e con l'intestazione
+# indipendente dalle impostazioni locali: se la sessione non e' in UTF-8 si
+# imposta LC_CTYPE su una localizzazione UTF-8 per la sola scrittura, e la si
+# ripristina all'uscita; se nessuna e' disponibile la funzione si ferma,
+# perche' il file avrebbe byte diversi da quelli di un'altra macchina.
 salva_rds <- function(oggetto, percorso) {
   if (!isTRUE(l10n_info()[["UTF-8"]])) {
     prima <- Sys.getlocale("LC_CTYPE")

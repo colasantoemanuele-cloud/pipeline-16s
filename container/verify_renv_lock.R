@@ -1,6 +1,9 @@
 #!/usr/bin/env Rscript
 # Verifica che i pacchetti R installati nell'immagine corrispondano a renv.lock.
 #
+# E' l'ultimo passo di container/Dockerfile: legge renv.lock e le librerie
+# installate, non scrive nulla, e fa fallire la costruzione a ogni discordanza.
+#
 # renv.lock viene generato dall'immagine già costruita, quindi alla primissima
 # build non esiste ancora e la verifica viene saltata. Una volta versionato, il
 # file diventa vincolante: ogni build successiva fallisce se una versione non

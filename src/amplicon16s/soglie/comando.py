@@ -130,6 +130,7 @@ class Esito:
 
     @property
     def chiave(self) -> str:
+        """La chiave del parametro della soglia."""
         return self.voce.chiave
 
     @property
@@ -169,6 +170,8 @@ def _numero(valore: Fraction, voce: Soglia) -> float | int:
 
 
 def _esatto(valore: Any) -> Fraction:
+    """Il valore come frazione esatta, dalla sua scrittura decimale: cosi' il
+    confronto non eredita l'errore binario di un numero in virgola mobile."""
     return Fraction(Decimal(str(valore)))
 
 
@@ -314,11 +317,14 @@ _LARGHEZZA: Final = 78
 
 
 def _commento(testo: str, rientro: str) -> list[str]:
+    """Il testo, a capo entro la larghezza del file, in righe di spiegazione
+    (``##``) con il rientro dato."""
     return [f"{rientro}## {riga}" for riga in textwrap.wrap(
         testo, _LARGHEZZA - len(rientro) - 3, break_long_words=False, break_on_hyphens=False)]
 
 
 def _testo_misura(esito: Esito) -> str:
+    """La misura di un esito in una frase (valore, statistica, origine), o «nessuna misura»."""
     misura = esito.misura
     if misura is None or misura.valore is None:
         return "nessuna misura"
@@ -417,6 +423,7 @@ def _intestazione(esiti: list[Esito], attive: bool, cartella: Path) -> str:
     barra = "# " + "=" * (_LARGHEZZA - 2)
 
     def blocco(testo: str) -> list[str]:
+        """Il testo, a capo entro la larghezza del file, in righe di commento."""
         return [f"# {r}" for r in textwrap.wrap(testo, _LARGHEZZA - 2, break_long_words=False,
                                                 break_on_hyphens=False)]
 
@@ -456,6 +463,8 @@ def _senza_intestazione(testo: str) -> str:
 
 
 def _dati(testo: str) -> dict[str, Any]:
+    """Legge il testo YAML della configurazione; rifiuta cio' che non e' una
+    mappa di gruppi."""
     dati = yaml.safe_load(testo)
     if not isinstance(dati, dict):
         raise Rifiuto("il file di configurazione non contiene una mappa di gruppi")
@@ -746,6 +755,16 @@ def aggiungi_argomenti(parser: argparse.ArgumentParser) -> None:
 def _documento(args: argparse.Namespace, cartella: Path | None, esiti: list[Esito],
                uscita: int, rifiuto: str | None,
                minime: LettureMinime | None = None) -> dict[str, Any]:
+    """Il documento JSON con l'esito del comando.
+
+    Contiene, nell'ordine: il formato e il comando, la configurazione letta e
+    la cartella dell'esecuzione, il file scritto (solo con uscita 0), se le
+    proposte sono state accettate, il codice di uscita e il motivo del rifiuto,
+    una voce per soglia, le chiavi dei controlli spenti e l'avvertenza (solo
+    se c'e' almeno un esito). La chiave ``letture_minime`` compare solo con una
+    proposta: senza, il documento ha le stesse chiavi che avrebbe se la
+    proposta non esistesse.
+    """
     return {
         # Solo se c'e' una proposta: senza, il documento e' quello di sempre.
         **({"letture_minime": minime.documento()} if minime is not None else {}),
@@ -765,6 +784,20 @@ def _documento(args: argparse.Namespace, cartella: Path | None, esiti: list[Esit
 
 
 def _riga_console(esito: Esito) -> list[str]:
+    """Le righe che descrivono un esito sulla console.
+
+    I casi, nell'ordine in cui si riconoscono:
+
+    1. soglia omessa perche' non pertinente: una riga sola;
+    2. senza misura o esclusa: il valore che resta, poi le note;
+    3. non proposta: la misura se c'e', il valore che resta, la regola e le
+       note;
+    4. negli altri casi: misura, valore della configurazione e proposta (o
+       valore tenuto, con il suggerimento), poi statistica e origine, regola e
+       note.
+
+    Un controllo spento e' segnalato sulla prima riga, dove si legge per primo.
+    """
     testa = f"  {esito.chiave}: "
     if esito.esito == OMESSA:
         return [testa + "omessa (condizionale non pertinente): resta omessa"]

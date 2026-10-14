@@ -233,6 +233,7 @@ def forward_di(nomi: Sequence[str]) -> List[str]:
     senza compagno resta com'e'.
     """
     def radice(nome: str) -> str:
+        """Il nome del file senza l'estensione riconosciuta delle letture."""
         for estensione in ESTENSIONI:
             if nome.lower().endswith(estensione):
                 return nome[: -len(estensione)]
@@ -282,6 +283,7 @@ def letture_della_tabella(tabella: Path, solo_forward: bool) -> List[str]:
 
 
 def _gb(byte: int) -> str:
+    """La dimensione in gigabyte, con due decimali e la virgola."""
     return f"{byte / 1e9:.2f}".replace(".", ",") + " GB"
 
 
@@ -367,6 +369,8 @@ def esegui(args: argparse.Namespace, stampa: Callable[[str], None] = print,
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Gli argomenti della riga di comando: lo studio, la cartella dei dati e
+    le opzioni sulla tabella di assay, sulle sole forward e sulle connessioni."""
     parser = argparse.ArgumentParser(
         description="Scarica da OSDR i metadati ISA-Tab e le letture 16S di uno studio.")
     parser.add_argument("studio", metavar="OSD-NNN", help="l'identificativo dello studio")
@@ -383,6 +387,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Punto d'ingresso: esegue lo scarico e traduce gli esiti in codici di
+    uscita.
+
+    Un argomento non valido o un rifiuto danno il codice del rifiuto; un
+    guasto di rete quello del guasto, con l'invito a rilanciare (lo scarico
+    riprende); un'interruzione da tastiera 130, senza messaggio.
+    """
     args = build_parser().parse_args(argv)
     if args.connessioni < 1:
         print("scarica_osdr: --connessioni deve essere almeno 1", file=sys.stderr)

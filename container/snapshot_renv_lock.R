@@ -1,6 +1,9 @@
 #!/usr/bin/env Rscript
 # Genera renv.lock dalle versioni effettivamente installate nell'immagine.
 #
+# Lo lancia scripts/genera_renv_lock.sh dentro l'immagine costruita; scrive il
+# file indicato da RENV_LOCK_OUT.
+#
 # Il file di lock non elenca versioni desiderate: registra ciò che
 # l'installazione ha realmente prodotto. Per questo viene prodotto dentro il
 # container, a installazione conclusa, e non scritto a mano.

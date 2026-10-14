@@ -1,5 +1,10 @@
 # Dichiarazione dell'esito verso l'orchestratore, con i codici del catalogo.
 #
+# Lo caricano tutti gli script lanciati dal ponte: quelli delle fasi, i due
+# che non sono fasi (00_ambiente.R, 00_classificatore.R) e quelli delle analisi
+# ecologiche. Non legge e non scrive file propri: legge la richiesta e scrive
+# la dichiarazione d'esito, nei percorsi che la richiesta indica.
+#
 # Richiede io_json.R. Interfaccia:
 #   esegui_fase(principale)          punto d'ingresso di ogni script di fase
 #   errore_catalogo(codice, messaggio)  interrompe dichiarando un codice
@@ -106,6 +111,11 @@ verifica_figli <- function(risultati, nomi = names(risultati)) {
 # del catalogo e' nella dichiarazione.
 USCITA_ERRORE_DICHIARATO <- 3L
 
+# Interrompe la fase dichiarando un codice del catalogo. codice deve avere la
+# forma dei codici (E-, la fase, due cifre): un codice malformato e' un errore
+# di programmazione e ferma con un errore comune. Solleva una condizione di
+# classe errore_catalogo, che esegui_fase riconosce e trascrive nella
+# dichiarazione d'esito con il codice e il messaggio.
 errore_catalogo <- function(codice, messaggio = "") {
   if (!is.character(codice) || length(codice) != 1L ||
       !grepl("^E-[A-Z0-9]+-[0-9]{2}$", codice)) {
@@ -118,6 +128,15 @@ errore_catalogo <- function(codice, messaggio = "") {
   stop(condizione)
 }
 
+# Il punto d'ingresso di ogni script. principale e' una funzione (parametri,
+# cartella) che fa il lavoro della fase e restituisce i nomi degli artefatti,
+# relativi alla cartella. Passi: legge il file della richiesta, unico argomento
+# della riga di comando, e ne verifica il protocollo; da' ai parametri la
+# classe che rifiuta la lettura di un nome non ricevuto; esegue principale
+# raccogliendo l'esito (riuscito, errore del catalogo, errore non catalogato);
+# scrive la dichiarazione d'esito per ultima e in modo atomico, con
+# l'identificativo dell'invocazione ricevuto; esce con 0 se riuscito, con
+# USCITA_ERRORE_DICHIARATO altrimenti. Non restituisce: termina il processo.
 esegui_fase <- function(principale) {
   # Gli avvisi vanno sull'uscita di errore appena si presentano, cosi' il log
   # strutturato li raccoglie nell'ordine in cui sono avvenuti.

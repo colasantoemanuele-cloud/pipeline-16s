@@ -3,10 +3,11 @@
 Per chi sa usare un terminale e ha un dataset 16S Illumina, proprio o di OSDR (l'archivio aperto
 della NASA). Si seguono i passi nell'ordine: ogni passo dà il comando, che cosa si vede e che cosa
 si scrive. Per un'analisi normale non serve altro: [RIFERIMENTO.md](RIFERIMENTO.md) spiega ogni
-parametro e i casi rari.
+parametro, i casi rari e, in fondo, un glossario dei termini; [RAZIONALE.md](RAZIONALE.md) il
+perché di ogni metodo.
 
-Nei messaggi dello strumento «GUIDA.md, passo N» è un passo di questa guida; una sezione numerata
-(«RIFERIMENTO.md, sezione 6», «GUIDA.md, 6.3») o un titolo fra virgolette è in RIFERIMENTO.md.
+Nei messaggi dello strumento, «GUIDA.md, passo N» è un passo di questa guida; «RIFERIMENTO.md, N.N»
+o un titolo fra virgolette è una sezione del riferimento.
 
 ## Passo 1. Requisiti
 
@@ -26,6 +27,8 @@ Nei messaggi dello strumento «GUIDA.md, passo N» è un passo di questa guida; 
   ```
 
 - **Memoria e tempo**: per una decina di campioni pochi GB e 10-20 minuti; per 960, 13 GB e 50.
+- **Spazio su disco**: oltre ai 7,6 GB dell'immagine, nella cartella di lavoro almeno quanto
+  occupano i file delle letture (lo verifica `validate`).
 
 ## Passo 2. Preparare i dati
 
@@ -148,30 +151,8 @@ quella marcata «consigliata». Non c'è nessuna espressione da scrivere.
 | `filter.truncLen` (con le coppie anche `pair.truncLen_reverse`, `pair.len_min`, `pair.len_max`) | dove si troncano le letture, e quanto sono lunghe le coppie fuse | di solito proposti. Se mancano, il commento riporta la raccomandazione; se consiglia le sole forward, vedi il passo 2 |
 
 **Il classificatore.** Non c'è nulla da scrivere per quello predefinito, il bayesiano ingenuo
-(`tax.classifier: naive_bayes`): è la scelta consigliata per un'analisi al livello di genere,
-perché assegna più generi. L'alternativa è IdTaxa (`tax.classifier: idtaxa`), più prudente: assegna
-meno generi ma sbaglia meno quando il batterio non è nel riferimento. È il classificatore della
-pipeline di NASA GeneLab, e serve per confrontarsi con le sue tabelle: il file `2019` (SILVA r138)
-corrisponde alle versioni precedenti di quella pipeline, il `138.2` a quella attuale. Per usarlo:
-
-```bash
-python3 dati/riferimento/scarica_addestrato.py 2019     # oppure 138.2; stampa percorso e MD5
-```
-
-Nel file, sotto `tax:`, si mettono in commento (`# ` davanti) le righe `ref_fasta`, `ref_md5` e
-`try_rc`, e si aggiungono queste, con l'MD5 stampato dallo script (per il `138.2` il file è
-`SILVA_SSU_r138_2_2024.RData`, e `ref_version` diventa `"138.2"`):
-
-```yaml
-  classifier: idtaxa
-  idtaxa_trained: "/app/dati/riferimento/SILVA_SSU_r138_2019.RData"
-  idtaxa_trained_md5: "<MD5 stampato dallo script>"
-  idtaxa_threshold: 60
-  idtaxa_strand: both
-```
-
-Con il file `138.2` i taxa da togliere si scrivono `["Chloroplast_2", "Mitochondria_2",
-"Eukaryota"]`: quel classificatore li nomina con il suffisso.
+(`tax.classifier: naive_bayes`), che è la scelta consigliata. L'alternativa, IdTaxa, e le righe da
+scrivere per usarla sono in RIFERIMENTO.md, 6.4, «I due classificatori».
 
 ## Passo 6. `validate`, finché passa
 
@@ -180,17 +161,18 @@ avvisi (`WARNING`) non fermano. Sono attesi, qui e durante `run`: i controlli di
 (passo 8); `E-S0-17` ed `E-S12-03` senza controlli negativi o positivi; `E-S0-31`, le righe di un
 altro amplicone, escluse. `E-S0-32` va corretto: quel taxon di `filt.exclude_taxa` non toglie nulla.
 
-## Passo 7. `run` e `status`
+## Passo 7. L'esecuzione: `resume` e `status`
 
 ```bash
-rm -r "$LAVORO/esecuzione"      # validate vi ha scritto, e run parte solo da una cartella vuota
-p16s run --config /lavoro/configurazione.yaml
+p16s resume --config /lavoro/configurazione.yaml
 p16s status --out /lavoro/esecuzione
 ```
 
-`status` si può lanciare da un altro terminale, dopo le righe del passo 3. Se `run` si ferma dice
-la fase, il codice e che cosa fare (passo 11); corretta la causa si riparte con `p16s resume
---config /lavoro/configurazione.yaml`. Il risultato è in `/lavoro/esecuzione/12_final/`.
+`validate` ha già scritto il suo esito nella cartella di uscita: `resume` prosegue da lì ed esegue
+tutte le fasi che mancano. (`run` fa lo stesso in un solo comando, validazione compresa, ma parte
+solo da una cartella vuota.) `status` si può lanciare da un altro terminale, dopo le righe del
+passo 3. Se l'esecuzione si ferma dice la fase, il codice e che cosa fare (passo 11); corretta la
+causa si rilancia lo stesso `resume`. Il risultato è in `/lavoro/esecuzione/12_final/`.
 
 ## Passo 8. `soglie` e `resume`
 
@@ -278,8 +260,16 @@ p16s eco run --object /lavoro/esecuzione/12_final/ps_final.rds --config /lavoro/
 
 `eco run` vuole una cartella di uscita assente o vuota. In `/lavoro/analisi` scrive tabelle
 (`.tsv`) e grafici (`.png`) in `alfa`, `composizione`, `beta`, `ordinazione` e `test`, e
-`riepilogo.json` con gli avvisi (`E-ECO-`): non fermano, dicono che cosa non si è potuto calcolare
-o va letto con cautela. Variabili continue, misure ripetute, UniFrac, NMDS: RIFERIMENTO.md, 4.
+`riepilogo.json`. Per leggere i risultati:
+
+1. gli avvisi `E-ECO-` in `riepilogo.json` (gli stessi della console) non fermano: dicono che
+   cosa non si è potuto calcolare, o che cosa va letto con cautela;
+2. in `test/permanova.tsv`, se accanto alla PERMANOVA il test delle dispersioni è significativo,
+   la differenza fra i gruppi può essere di variabilità e non di composizione;
+3. nei test vale la p corretta per i confronti multipli, non quella grezza.
+
+Che cosa contiene ogni file: RIFERIMENTO.md, 4.3; il perché di ogni analisi: RAZIONALE.md,
+sezione 4. Variabili continue, misure ripetute, UniFrac, NMDS: RIFERIMENTO.md, 4.
 
 ## Passo 11. Se qualcosa va storto
 
@@ -297,5 +287,5 @@ Ogni arresto porta un codice, il dettaglio e che cosa fare: va letto per intero.
 | `E-S1-07`, `E-S1-09` | un file non contiene le letture che il nome dichiara (inverse, o scambiate) | il dettaglio dice il caso e il file: sostituirlo, o scambiare i nomi dei due file |
 | `E-S7-02` | con le coppie: nessuna sequenza fusa ha una lunghezza fra `pair.len_min` e `pair.len_max` | guardare `05_pair_merge/lunghezze_fuse.tsv` e correggere l'intervallo |
 | `E-S13-04` | nessun campione resta nel risultato | guardare `12_final/intermedi/esclusioni.tsv`; abbassare `qc.min_reads_final` |
-| `run` dice che la cartella non è vuota | `validate` o un'esecuzione vi ha già scritto | cancellarla (passo 7), oppure usare `resume` |
+| `run` dice che la cartella non è vuota | `validate` o un'esecuzione vi ha già scritto | usare `resume` (passo 7), oppure indicare in `io.out_root` una cartella nuova |
 | l'esecuzione finisce la memoria (il processo è terminato dal sistema) | troppi processi per la memoria disponibile | scrivere `threads: 4` sotto `run:` e rilanciare `resume` |

@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "amplicon16s"
 version = "0.1.0"
-description = "Pipeline per l'analisi di dati 16S rRNA da sequenziamento Illumina single-end"
+description = "Pipeline per l'analisi di dati 16S rRNA da sequenziamento Illumina, single-end o appaiato"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Proprietary" }

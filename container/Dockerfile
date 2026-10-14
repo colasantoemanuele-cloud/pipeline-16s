@@ -7,6 +7,26 @@
 # essere riassegnato a un'immagine diversa, un digest no. Aggiornare l'ambiente
 # significa quindi cambiare esplicitamente un digest qui sotto, mai subire un
 # cambiamento deciso a monte.
+#
+# Chi lo usa: la CI lo costruisce a ogni push per eseguire la suite (job
+# container di .github/workflows/ci.yml), e da questo file viene l'immagine
+# pubblicata indicata nel README.
+#
+# Struttura, nell'ordine delle istruzioni:
+#   1. le due immagini di partenza: quella di uv, da cui si copia il solo
+#      eseguibile, e quella di Bioconductor, su cui si costruisce;
+#   2. le versioni bloccate (Python, Bioconductor, istantanea di CRAN) e le
+#      variabili d'ambiente;
+#   3. l'interprete Python in un ambiente virtuale;
+#   4. i pacchetti R (container/install_r_packages.R) e dada2 compilato dai
+#      sorgenti (container/dada2/);
+#   5. il repository: pacchetto Python, test, configurazione di esempio,
+#      script e script R, e l'installazione del pacchetto;
+#   6. la verifica dei pacchetti R contro renv.lock
+#      (container/verify_renv_lock.R), che fa fallire la costruzione se una
+#      versione non coincide.
+# L'ordine va da cio' che cambia di rado a cio' che cambia spesso: una modifica
+# al codice del repository riusa dalla cache i passi 1-4.
 
 # bioconductor/bioconductor_docker:RELEASE_3_21 : Ubuntu 24.04, R 4.5, Bioconductor 3.21
 ARG BIOCONDUCTOR_IMAGE=bioconductor/bioconductor_docker@sha256:359702d482e70e343d2a436731b7c6deffd1ec184a1f1700de5d64b0c97cacba

@@ -25,6 +25,9 @@ li scrive tali, e sono gli script di calcolo a fermarsi se un nullo servisse.
 ``ParametroNonDichiarato`` non deriva da ``AttributeError`` di proposito: un
 ``getattr(vista, nome, predefinito)`` o un ``hasattr`` lo inghiottirebbero, e
 la dipendenza dimenticata tornerebbe silenziosa.
+
+**Chi la usa.** La classe base delle fasi (:mod:`amplicon16s.steps.base`),
+che consegna al calcolo di ogni fase la sua vista. Nessun file letto o scritto.
 """
 
 from __future__ import annotations

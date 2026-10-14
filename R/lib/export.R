@@ -11,11 +11,20 @@
 # conteggi, testo tutto il resto, il campo vuoto come valore mancante, nessun
 # nome di colonna alterato (check.names = FALSE).
 
+# Una tabella degli export letta come testo con i tipi dichiarati in classi:
+# nessuna interpretazione delle virgolette ne' dei commenti, campo vuoto come
+# valore mancante, nomi di colonna lasciati come sono.
 leggi_tabella <- function(percorso, classi) {
   utils::read.delim(percorso, colClasses = classi, quote = "", comment.char = "",
                     check.names = FALSE, na.strings = "", encoding = "UTF-8")
 }
 
+# L'oggetto phyloseq ricostruito dai soli export piatti di una cartella. Passi:
+# i conteggi, letti come interi dopo aver contato le colonne dall'intestazione;
+# la tassonomia e i metadati, letti come testo; le sequenze dal FASTA; l'unione
+# dei quattro componenti; infine l'albero, se il file Newick c'e', con le
+# foglie numerate nell'ordine delle varianti come fa la fase che scrive
+# l'oggetto. Il confronto con l'oggetto serializzato lo fa chi chiama.
 ricostruisci <- function(cartella) {
   intestazione <- strsplit(readLines(file.path(cartella, "conteggi.tsv"), n = 1L,
                                      encoding = "UTF-8"), "\t", fixed = TRUE)[[1]]

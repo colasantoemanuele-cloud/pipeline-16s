@@ -29,6 +29,11 @@ origine nel commento. Compaiono allora due specie in piu':
 Razionale sistemistico: le descrizioni dei parametri sono quelle dello schema
 (:mod:`amplicon16s.config.schema`), le stesse che ``schema`` esporta: una sola
 fonte per il modulo di un programma esterno, per questo file e per la guida.
+
+**Chi lo usa.** :mod:`amplicon16s.init.comando`, che consegna le voci e
+riceve il testo del file; ``eco init`` per le specie e le voci; il
+sottocomando ``soglie`` per la scrittura dei valori in YAML. Il modulo
+compone testo: su disco lo scrive chi lo chiama.
 """
 
 from __future__ import annotations

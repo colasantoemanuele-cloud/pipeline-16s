@@ -67,6 +67,9 @@ valori_di_qualita <- function(file, basta = 1L) {
 STIMA_FALLITA <- "Error matrix is NULL"
 MEMORIA_ESAURITA <- "cannot allocate|memory exhausted|std::bad_alloc"
 
+# La funzione di stima avvolta in una chiusura che, quando fallisce, registra
+# il messaggio originale in registro$causa (un ambiente, condiviso con chi
+# chiama) e rilancia lo stesso errore.
 con_causa <- function(funzione, registro) {
   function(trans) {
     tryCatch(funzione(trans), error = function(e) {

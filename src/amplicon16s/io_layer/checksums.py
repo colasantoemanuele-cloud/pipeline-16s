@@ -9,6 +9,10 @@ guardare se esiste.
 La lettura avviene a blocchi: gli artefatti della pipeline arrivano ai
 gigabyte e caricarli in memoria per calcolarne l'impronta sarebbe un modo di
 esaurirla.
+
+**Chi lo usa.** I manifesti di :mod:`amplicon16s.io_layer.artifacts`, la
+valutazione dello stato, il report, S14 per il file dei checksum consegnato e
+le analisi ecologiche per l'impronta dell'oggetto. Legge soltanto.
 """
 
 from __future__ import annotations

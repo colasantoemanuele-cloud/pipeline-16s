@@ -54,6 +54,3 @@ figshare dal gruppo di elaborazione dati di GeneLab (DOI 10.6084/m9.figshare.285
 10.6084/m9.figshare.25799980, licenza CC BY 4.0) e ne verifica la dimensione e l'MD5
 pubblicati da figshare. Che la copia del 2019 sia il file allora distribuito da DECIPHER
 lo dichiara chi l'ha archiviata. I file scaricati sono esclusi da git.
-
-Chi ha gia' i file nella collocazione precedente (`dati/osd734/riferimento/`) puo'
-spostarli qui: lo script li riconosce dall'MD5 e non li scarica di nuovo.

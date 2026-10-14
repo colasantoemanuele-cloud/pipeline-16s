@@ -1,9 +1,9 @@
 """Scarico verificato e riprendibile dei file pubblici dei dataset e del riferimento.
 
-Usato dagli script ``scarica_letture.py`` dei dataset e da
-``riferimento/scarica_riferimento.py``; solo libreria
-standard, perche' gli script devono girare prima che l'ambiente della pipeline
-esista.
+Usato dagli script ``scarica_letture.py`` dei dataset (direttamente o
+attraverso ``letture_forward.py``) e da ``riferimento/scarica_riferimento.py``
+e ``riferimento/scarica_addestrato.py``; solo libreria standard, perche' gli
+script devono girare prima che l'ambiente della pipeline esista.
 
 **Ogni file ha un checksum dichiarato dalla fonte** (MD5 di ENA o di Zenodo):
 un file e' presente solo se la dimensione e l'MD5 corrispondono. Un file con il
@@ -183,6 +183,8 @@ def scarica_in_parallelo(
     Un guasto su un file non ferma gli altri.
     """
     def uno(posizione: int) -> tuple[int, ErroreScarico | None]:
+        """Scarica la voce alla posizione data e restituisce la posizione con
+        l'eventuale guasto; la pausa segue comunque, anche dopo un guasto."""
         atteso, destinazione = voci[posizione]
         try:
             scarica(atteso, destinazione, tentativi=tentativi)

@@ -41,6 +41,18 @@ for (f in c("io_json.R", "errors.R", "letture.R", "primer.R")) {
 # Punteggi Phred possibili: da 0 a 93 nella codifica Sanger.
 PUNTEGGI <- 94L
 
+# Il profilo di un file di letture: quante sono, quante per ogni lunghezza e,
+# per ogni posizione, quante basi hanno ciascun punteggio di qualita'. percorso
+# e' il file FASTQ, blocco il numero di letture lette per volta, taglio la
+# ricerca del primer (nullo con il taglio fisso). Restituisce list(letture,
+# lunghezze, qualita): letture conta quelle del file, anche le scartate dal
+# taglio; lunghezze[i] e' il numero di letture lunghe i; qualita e' una matrice
+# posizioni x punteggi. Il file si legge a blocchi e si accumulano i soli
+# istogrammi, cosi' la memoria non cresce con il numero di letture: i quantili
+# si ricavano poi dagli istogrammi, senza tenere i valori. Passi di ogni
+# blocco: conteggio, taglio del primer se richiesto, istogramma delle
+# lunghezze, istogramma dei punteggi posizione per posizione; vettore e matrice
+# si allungano quando un blocco porta letture piu' lunghe delle precedenti.
 profila <- function(percorso, blocco, taglio = NULL) {
   lettore <- ShortRead::FastqStreamer(percorso, n = blocco)
   on.exit(close(lettore))
@@ -92,6 +104,11 @@ quantile_istogramma <- function(conteggi, frazione) {
   which(cumsum(conteggi) >= frazione * totale)[1L] - 1L
 }
 
+# Le righe di qualita.tsv di un campione, una per posizione: letture che
+# arrivano a quella posizione, media e cinque quantili del punteggio, ricavati
+# dall'istogramma della posizione. La media e' scritta con tre decimali in
+# formato fisso, i quantili sono interi: il testo non dipende dalle opzioni
+# della sessione.
 righe_qualita <- function(campione, qualita) {
   valori <- 0:(PUNTEGGI - 1L)
   vapply(seq_len(nrow(qualita)), function(posizione) {
@@ -108,6 +125,8 @@ righe_qualita <- function(campione, qualita) {
   }, character(1))
 }
 
+# La lunghezza piu' frequente, dato il vettore dei conteggi per lunghezza (a
+# parita' la piu' corta: which.max prende il primo massimo).
 moda <- function(lunghezze) which.max(lunghezze)
 
 esegui_fase(function(parametri, cartella) {

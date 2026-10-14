@@ -12,6 +12,9 @@ Gli script caricano le funzioni condivise della pipeline (scrittura atomica,
 dichiarazione dell'esito) dalla cartella indicata da ``AMPLICON16S_R_LIB`` e
 quelle del pacchetto da ``AMPLICON16S_ECO_R_LIB``: le due variabili le imposta
 questo modulo nel solo processo figlio.
+
+**Chi lo usa.** L'esecuzione dell'analisi (``valida.R``, ``analisi.R``) ed
+``eco init`` (``descrivi.R``).
 """
 
 from __future__ import annotations

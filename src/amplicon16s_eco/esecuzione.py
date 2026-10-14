@@ -11,6 +11,10 @@ Le uscite non contengono date, durate, percorsi ne' identificativi di
 esecuzione: a parita' di oggetto, configurazione e seme i file sono identici
 byte per byte. I file del contratto con R, che portano l'identificativo
 dell'invocazione, restano nella cartella temporanea.
+
+**Chi lo usa.** I sottocomandi ``validate`` e ``run``; ``eco init`` ne riusa
+la copia dell'oggetto e il calcolo della sua impronta. Lancia ``R/valida.R``
+e ``R/analisi.R`` attraverso :mod:`amplicon16s_eco.ponte`.
 """
 
 from __future__ import annotations

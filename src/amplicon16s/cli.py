@@ -641,7 +641,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Costruisce il parser della riga di comando."""
     parser = argparse.ArgumentParser(
         prog="amplicon16s",
-        description="Pipeline per l'analisi di dati 16S rRNA da sequenziamento Illumina single-end.",
+        description="Pipeline per l'analisi di dati 16S rRNA da sequenziamento Illumina, single-end o appaiato.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
