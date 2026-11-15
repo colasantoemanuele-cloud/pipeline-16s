@@ -8,9 +8,25 @@ sui risultati, un commento o una riorganizzazione, non deve far ricalcolare la
 catena.
 
 Accanto alla versione il manifesto registra la **provenienza**: l'impronta del
-sorgente della fase, il commit del repository e l'immagine dichiarata. Non
-decide la validità: una provenienza diversa a parità di versione produce un
-avviso alla ripresa, non un ricalcolo (:mod:`amplicon16s.runner.project`).
+sorgente della fase, il commit del repository, l'immagine dichiarata in
+``run.container`` e l'immagine in esecuzione come l'ha passata chi ha lanciato
+il container (:func:`immagine_in_esecuzione`). Non decide la validità: una
+provenienza diversa a parità di versione produce un avviso alla ripresa, non
+un ricalcolo (:mod:`amplicon16s.runner.project`).
+
+**L'immagine in esecuzione.** Dall'interno del container il digest
+dell'immagine non è conoscibile; chi lancia il container lo conosce e lo passa
+con due variabili d'ambiente, :data:`VARIABILE_ID_IMMAGINE` (l'identificativo,
+``docker image inspect --format '{{.Id}}'``) e :data:`VARIABILE_DIGEST_IMMAGINE`
+(il digest del registro, ``{{index .RepoDigests 0}}``). Sono metadati: entrano
+nella provenienza del manifesto di ogni fase e nell'evento dei controlli di
+avvio di ``99_logs/avvii.jsonl``, mai nell'impronta di una fase, con o senza la
+regola rigorosa; un'esecuzione già fatta resta quindi valida per la ripresa.
+Se mancano nulla si ferma e il valore registrato è :data:`NON_DICHIARATO`. Se
+``run.container`` dichiara un digest diverso da quello passato, l'avvio lo
+segnala con un avviso, senza fermarsi (:func:`confronto_immagine`). Ciò che le
+variabili dicono resta una dichiarazione di chi lancia il container, come
+``run.container``: la pipeline la registra, non la verifica.
 
 **Il sorgente di una fase** è il suo modulo Python, i moduli in cui vive il suo
 calcolo (:func:`moduli_del_calcolo`), il suo script R e i file di ``R/lib`` che
@@ -51,8 +67,11 @@ letta distinguendo ciò che la pipeline **verifica** da ciò che può solo
 * *dichiarato, l'immagine*: ``run.container`` entra nell'impronta di ogni fase,
   ma dall'interno del container il digest dell'immagine in esecuzione non è
   conoscibile. È una dichiarazione di chi lancia l'esecuzione: ciò che la
-  sostiene è la verifica dell'ambiente R, non il digest. Non sono verificate le
-  librerie di sistema dell'immagine, che il file di blocco non descrive.
+  sostiene è la verifica dell'ambiente R, non il digest. Le variabili
+  dell'immagine in esecuzione sono registrate e confrontate con
+  ``run.container`` anche qui, ma non entrano nell'impronta. Non sono
+  verificate le librerie di sistema dell'immagine, che il file di blocco non
+  descrive.
 
 Se una verifica fallisce l'esecuzione non parte (``E-PROV-01``, ``E-PROV-02``,
 ``E-PROV-03``): in particolare, se git non è leggibile la regola rifiuta,
@@ -98,6 +117,11 @@ __all__ = [
     "ECCEZIONI_PER_FASE",
     "ESCLUSI",
     "calcolata_con_idtaxa",
+    "confronto_immagine",
+    "immagine_in_esecuzione",
+    "NON_DICHIARATO",
+    "VARIABILE_DIGEST_IMMAGINE",
+    "VARIABILE_ID_IMMAGINE",
     "file_del_sorgente",
     "impronta_sorgente",
     "moduli_del_calcolo",
@@ -552,6 +576,75 @@ def calcolata_con_idtaxa(fase: PipelineStep, registrata: Mapping[str, Any]) -> b
     return any(f"R/{nome}" in file for nome in fase.script_r_con_idtaxa)
 
 
+# --------------------------------------------------------------------------- #
+# L'immagine in esecuzione, dichiarata da chi lancia il container              #
+# --------------------------------------------------------------------------- #
+
+#: Le variabili d'ambiente con cui chi lancia il container passa l'identita'
+#: dell'immagine. Dall'interno il digest non e' conoscibile; fuori lo e':
+#: ``docker image inspect --format '{{.Id}}'`` (sempre disponibile, anche per
+#: un'immagine costruita in locale) e ``{{index .RepoDigests 0}}`` (solo per
+#: un'immagine scaricata da un registro o pubblicata). Con Apptainer al posto
+#: del digest si passa l'impronta del file ``.sif`` (``sha256sum``) come
+#: identificativo. Sono metadati: non entrano in alcuna impronta di fase.
+VARIABILE_ID_IMMAGINE: Final = "AMPLICON16S_IMMAGINE_ID"
+VARIABILE_DIGEST_IMMAGINE: Final = "AMPLICON16S_IMMAGINE_DIGEST"
+#: Il valore registrato per una variabile assente o vuota: esplicito, perche'
+#: un campo mancante non si distinguerebbe da un manifesto scritto prima che il
+#: campo esistesse.
+NON_DICHIARATO: Final = "non dichiarato"
+
+#: Un'impronta SHA-256 nella forma di Docker (``sha256:<64 cifre esadecimali>``),
+#: dentro un identificativo, un digest o un riferimento ``nome@sha256:...``.
+_SHA256: Final = re.compile(r"sha256:([0-9a-f]{64})")
+
+
+def immagine_in_esecuzione(ambiente: Mapping[str, str] | None = None) -> dict[str, str]:
+    """L'immagine in esecuzione come la dichiarano le variabili d'ambiente.
+
+    ``id`` e ``digest`` portano il valore passato, senza spazi ai lati, oppure
+    :data:`NON_DICHIARATO`: un'esecuzione lanciata senza le variabili non si
+    ferma, e il manifesto dice che l'immagine non e' stata dichiarata.
+    ``ambiente`` e' l'ambiente da leggere; nullo, quello del processo.
+    """
+    valori = os.environ if ambiente is None else ambiente
+    return {
+        "id": valori.get(VARIABILE_ID_IMMAGINE, "").strip() or NON_DICHIARATO,
+        "digest": valori.get(VARIABILE_DIGEST_IMMAGINE, "").strip() or NON_DICHIARATO,
+    }
+
+
+def _sha256_in(testo: str | None) -> str | None:
+    """Le cifre dell'impronta SHA-256 contenuta in un testo, o ``None``."""
+    trovato = _SHA256.search(testo or "")
+    return trovato.group(1) if trovato else None
+
+
+def confronto_immagine(dichiarata: str | None, in_esecuzione: Mapping[str, str]) -> str:
+    """Il confronto fra l'immagine dichiarata in ``run.container`` e quella in
+    esecuzione: ``coincide``, ``diversa``, ``non dichiarata`` o ``non confrontabile``.
+
+    Si confrontano le sole impronte SHA-256. ``run.container`` senza digest
+    (un nome con un'etichetta, che puo' essere spostata) non e' confrontabile.
+    Coincide se il digest dichiarato e' quello del digest passato o
+    dell'identificativo (con l'archivio delle immagini di containerd i due sono
+    lo stesso). E' diversa solo se il digest passato ne ha un altro:
+    l'identificativo da solo non basta a dirlo, perche' con l'archivio classico
+    di Docker e' l'impronta della configurazione dell'immagine, diversa dal
+    digest del registro anche quando l'immagine e' la stessa.
+    """
+    if dichiarata is None:
+        return "non dichiarata"
+    attesa = _sha256_in(dichiarata)
+    digest = _sha256_in(in_esecuzione.get("digest"))
+    identificativo = _sha256_in(in_esecuzione.get("id"))
+    if attesa is None or (digest is None and identificativo is None):
+        return "non confrontabile"
+    if attesa in (digest, identificativo):
+        return "coincide"
+    return "diversa" if digest is not None else "non confrontabile"
+
+
 def provenienza(
     fase: PipelineStep, config: Config, idtaxa: bool | None = None
 ) -> dict[str, Any]:
@@ -560,6 +653,11 @@ def provenienza(
     ``sorgente`` è calcolata sui file effettivamente usati: i moduli importati
     e gli script nella cartella che il ponte esegue. ``idtaxa`` dice se
     comprendervi gli script del solo IdTaxa; nullo, lo dice la configurazione.
+    ``immagine`` è la dichiarazione della configurazione (``run.container``),
+    ``immagine_in_esecuzione`` ciò che ha passato chi ha lanciato il container
+    (:func:`immagine_in_esecuzione`): la seconda non entra mai nell'impronta
+    della fase, e nessuna delle due decide se la fase è da rifare senza la
+    regola rigorosa.
     """
     from amplicon16s.rbridge.runner import cartella_r
 
@@ -573,6 +671,7 @@ def provenienza(
         "commit": commit,
         "modifiche_non_committate": modifiche,
         "immagine": config.run.container,
+        "immagine_in_esecuzione": immagine_in_esecuzione(),
     }
 
 

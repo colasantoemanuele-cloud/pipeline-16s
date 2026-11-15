@@ -27,7 +27,10 @@ regola rigorosa sulla provenienza).
   modifiche non committate (``E-PROV-02``), con ambiente R diverso dal file di
   blocco (``E-PROV-03``); esito positivo nell'ambiente dell'immagine;
 - con la regola attiva un'immagine dichiarata diversa rende la fase da rifare,
-  senza la regola resta conclusa; il report riporta l'esito della regola.
+  senza la regola resta conclusa; il report riporta l'esito della regola;
+- l'immagine in esecuzione, passata con due variabili d'ambiente: registrata
+  nei manifesti e negli avvii («non dichiarato» se manca), mai nell'impronta;
+  un digest diverso da ``run.container`` e' un avviso, non un arresto.
 
 4. Comandi Bash e scenari di esecuzione
 ---------------------------------------
@@ -570,3 +573,229 @@ def test_i_codici_della_regola_dicono_che_cosa_fare():
         voce = CATALOGO[codice]
         assert voce.fase == "PROV" and voce.categoria is Categoria.REVISIONE_UMANA
         assert "run.strict_provenance" in voce.azione and rimedio in voce.azione, codice
+
+
+# --------------------------------------------------------------------------- #
+# 3. L'immagine in esecuzione, dichiarata da chi lancia il container           #
+# --------------------------------------------------------------------------- #
+
+DIGEST_A = "sha256:" + "a" * 64
+DIGEST_B = "sha256:" + "b" * 64
+
+
+def _immagine_nel_manifesto(radice: Path) -> dict[str, Any]:
+    """La provenienza dell'immagine nel manifesto di S0."""
+    manifesto = json.loads(
+        (Path(radice) / Fase.INPUT_VALIDATION.value / "manifest_S0.json").read_text(encoding="utf-8"))
+    return manifesto["provenienza"]
+
+
+def _avvisi(radice: Path) -> list[dict[str, Any]]:
+    """Gli avvisi sull'immagine nel log strutturato."""
+    righe = (Path(radice) / Fase.LOGS.value / NOME_FILE_LOG).read_text(encoding="utf-8").splitlines()
+    return [e for e in map(json.loads, righe) if e.get("avviso") == "immagine_diversa"]
+
+
+def test_l_immagine_in_esecuzione_si_legge_dalle_variabili_e_si_confronta_sui_digest():
+    """
+    **Obiettivo**: Verificare che l'immagine in esecuzione si legga dalle due
+    variabili d'ambiente, senza spazi ai lati, e che una variabile assente o
+    vuota sia registrata come «non dichiarato»; e che il confronto con
+    ``run.container`` dia «coincide» quando il digest dichiarato e' quello del
+    digest passato o dell'identificativo (anche con un nome di registro
+    diverso), «diversa» solo quando il digest passato ne ha un altro, «non
+    confrontabile» con un'immagine dichiarata per etichetta, senza variabili o
+    con il solo identificativo diverso, «non dichiarata» con ``run.container``
+    nullo.
+
+    **Razionale scientifico e sistemistico**: Dall'interno del container il
+    digest non e' conoscibile e lo passa chi lo lancia; l'identificativo di
+    Docker con l'archivio classico e' l'impronta della configurazione
+    dell'immagine, diversa dal digest del registro anche per la stessa
+    immagine: trattarlo come un digest darebbe avvisi falsi.
+    """
+    letta = provenienza.immagine_in_esecuzione({
+        provenienza.VARIABILE_ID_IMMAGINE: f" {DIGEST_A}\n",
+        provenienza.VARIABILE_DIGEST_IMMAGINE: f"ghcr.io/x/y@{DIGEST_A}"})
+    assert letta == {"id": DIGEST_A, "digest": f"ghcr.io/x/y@{DIGEST_A}"}
+    nessuna = {"id": provenienza.NON_DICHIARATO, "digest": provenienza.NON_DICHIARATO}
+    assert provenienza.immagine_in_esecuzione({}) == nessuna
+    assert provenienza.immagine_in_esecuzione({
+        provenienza.VARIABILE_ID_IMMAGINE: "", provenienza.VARIABILE_DIGEST_IMMAGINE: "  "}) == nessuna
+    assert provenienza.NON_DICHIARATO == "non dichiarato"
+
+    confronta = provenienza.confronto_immagine
+    dichiarata = f"amplicon16s@{DIGEST_A}"
+    assert confronta(dichiarata, {"id": DIGEST_B, "digest": f"ghcr.io/x/y@{DIGEST_A}"}) == "coincide"
+    assert confronta(dichiarata, {"id": DIGEST_A, "digest": provenienza.NON_DICHIARATO}) == "coincide"
+    assert confronta(dichiarata, {"id": DIGEST_A, "digest": f"altro@{DIGEST_B}"}) == "coincide"
+    assert confronta(dichiarata, {"id": DIGEST_B, "digest": f"altro@{DIGEST_B}"}) == "diversa"
+    assert confronta(dichiarata, {"id": DIGEST_B, "digest": provenienza.NON_DICHIARATO}) == (
+        "non confrontabile")
+    assert confronta(dichiarata, nessuna) == "non confrontabile"
+    assert confronta(dichiarata, {"id": "sha256:corto", "digest": "senza digest"}) == (
+        "non confrontabile")
+    assert confronta("amplicon16s:locale", {"id": DIGEST_A, "digest": f"x@{DIGEST_B}"}) == (
+        "non confrontabile")
+    assert confronta(None, {"id": DIGEST_A, "digest": f"x@{DIGEST_A}"}) == "non dichiarata"
+
+
+def test_l_immagine_passata_va_nel_manifesto_e_negli_avvii_fuori_dall_impronta(
+    scenario, tmp_path, monkeypatch, capsys
+):
+    """
+    **Obiettivo**: Verificare che, con le due variabili passate, la
+    provenienza del manifesto di S0 registri ``immagine_in_esecuzione`` con i
+    loro valori accanto a ``immagine`` (``run.container``) e che l'evento dei
+    controlli di avvio riporti l'immagine dichiarata, quella in esecuzione e
+    il confronto; che senza le variabili l'esecuzione non si fermi e registri
+    «non dichiarato»; e che la fase calcolata con le variabili resti conclusa,
+    senza avvisi di provenienza, quando le variabili mancano o cambiano, con e
+    senza la regola rigorosa: ``calcolata_su`` non le contiene.
+
+    **Razionale scientifico e sistemistico**: L'identita' dell'immagine e' un
+    metadato dell'esecuzione: deve restare accanto ai risultati, ma un
+    risultato non diventa da rifare perche' chi riprende un'esecuzione passa
+    o non passa le variabili.
+    """
+    monkeypatch.setenv(provenienza.VARIABILE_ID_IMMAGINE, DIGEST_A)
+    monkeypatch.setenv(provenienza.VARIABILE_DIGEST_IMMAGINE, f"amplicon16s@{DIGEST_A}")
+    config = _scrivi_config(scenario, tmp_path / "con.yaml", container=f"amplicon16s@{DIGEST_A}")
+    assert _cli("validate", "--config", str(config), capsys=capsys) == 0
+    radice = scenario.config.io.out_root
+    registrata = _immagine_nel_manifesto(radice)
+    assert registrata["immagine"] == f"amplicon16s@{DIGEST_A}"
+    assert registrata["immagine_in_esecuzione"] == {
+        "id": DIGEST_A, "digest": f"amplicon16s@{DIGEST_A}"}
+    assert _controlli(radice)["immagine"] == {
+        "dichiarata": f"amplicon16s@{DIGEST_A}", "id": DIGEST_A,
+        "digest": f"amplicon16s@{DIGEST_A}", "confronto": "coincide"}
+    assert not _avvisi(radice)
+    manifesto = json.loads(
+        (Path(radice) / Fase.INPUT_VALIDATION.value / "manifest_S0.json").read_text(encoding="utf-8"))
+    assert "immagine_in_esecuzione" not in json.dumps(manifesto["calcolata_su"])
+
+    fasi = {Passo.S0: ValidazioneIngressi()}
+    for valori in ({}, {provenienza.VARIABILE_ID_IMMAGINE: DIGEST_B,
+                        provenienza.VARIABILE_DIGEST_IMMAGINE: f"altra@{DIGEST_B}"}):
+        monkeypatch.delenv(provenienza.VARIABILE_ID_IMMAGINE, raising=False)
+        monkeypatch.delenv(provenienza.VARIABILE_DIGEST_IMMAGINE, raising=False)
+        for nome, valore in valori.items():
+            monkeypatch.setenv(nome, valore)
+        situazione = ProjectRun(carica(config), passi=fasi).valuta().situazioni[Passo.S0]
+        assert situazione.stato is StatoPasso.COMPLETATA, valori
+        assert situazione.avviso is None, valori
+
+    monkeypatch.delenv(provenienza.VARIABILE_ID_IMMAGINE)
+    monkeypatch.delenv(provenienza.VARIABILE_DIGEST_IMMAGINE)
+    attiva = carica(_scrivi_config(scenario, tmp_path / "attiva.yaml", strict_provenance=True))
+    senza = ValidazioneIngressi().calcolata_su(risolvi(attiva), {})
+    monkeypatch.setenv(provenienza.VARIABILE_ID_IMMAGINE, DIGEST_B)
+    monkeypatch.setenv(provenienza.VARIABILE_DIGEST_IMMAGINE, f"altra@{DIGEST_B}")
+    assert ValidazioneIngressi().calcolata_su(risolvi(attiva), {}) == senza
+
+
+def test_senza_le_variabili_si_registra_non_dichiarato(scenario, tmp_path, monkeypatch, capsys):
+    """
+    **Obiettivo**: Verificare che un avvio senza le due variabili (il comando
+    di prima) si concluda come sempre, che il manifesto registri «non
+    dichiarato» per identificativo e digest e che l'evento dei controlli di
+    avvio dica «non dichiarata» con ``run.container`` nullo, senza avvisi.
+
+    **Razionale scientifico e sistemistico**: Le variabili sono facoltative:
+    il comando documentato prima continua a funzionare, e il valore esplicito
+    distingue un'immagine non dichiarata da un manifesto scritto prima che il
+    campo esistesse.
+    """
+    monkeypatch.delenv(provenienza.VARIABILE_ID_IMMAGINE, raising=False)
+    monkeypatch.delenv(provenienza.VARIABILE_DIGEST_IMMAGINE, raising=False)
+    config = _scrivi_config(scenario, tmp_path / "senza.yaml", container=None)
+    assert _cli("validate", "--config", str(config), capsys=capsys) == 0
+    radice = scenario.config.io.out_root
+    nessuna = {"id": "non dichiarato", "digest": "non dichiarato"}
+    assert _immagine_nel_manifesto(radice)["immagine_in_esecuzione"] == nessuna
+    assert _controlli(radice)["immagine"] == {
+        "dichiarata": None, **nessuna, "confronto": "non dichiarata"}
+    assert not _avvisi(radice)
+
+
+def test_un_digest_diverso_da_quello_dichiarato_e_un_avviso_non_un_arresto(
+    scenario, tmp_path, monkeypatch, capsys
+):
+    """
+    **Obiettivo**: Verificare che con ``run.container`` dichiarato e un digest
+    passato diverso la validazione si concluda (uscita 0, S0 conclusa), che il
+    log porti un avviso che nomina i due digest e che cosa fare, che
+    l'evento dei controlli di avvio registri il confronto «diversa», e che
+    l'avviso non porti un codice del catalogo.
+
+    **Razionale scientifico e sistemistico**: Dichiarazione e digest sono due
+    affermazioni di chi lancia il container: la pipeline non puo' dire quale
+    sia sbagliata, quindi non ferma; ma registrare in silenzio un risultato
+    con un'immagine diversa da quella dichiarata lo renderebbe non
+    riproducibile da chi si fida della configurazione.
+    """
+    monkeypatch.setenv(provenienza.VARIABILE_ID_IMMAGINE, DIGEST_B)
+    monkeypatch.setenv(provenienza.VARIABILE_DIGEST_IMMAGINE, f"altra@{DIGEST_B}")
+    config = _scrivi_config(scenario, tmp_path / "diversa.yaml", container=IMMAGINE_DIVERSA)
+    assert cli.main(["validate", "--config", str(config)]) == 0
+    console = capsys.readouterr()
+    radice = scenario.config.io.out_root
+    assert (Path(radice) / Fase.INPUT_VALIDATION.value / "manifest_S0.json").is_file()
+    avvisi = _avvisi(radice)
+    assert len(avvisi) == 1 and avvisi[0]["livello"] == "WARNING"
+    assert IMMAGINE_DIVERSA in avvisi[0]["messaggio"] and DIGEST_B in avvisi[0]["messaggio"]
+    assert "run.container" in avvisi[0]["messaggio"] and "codice" not in avvisi[0]
+    assert "immagine in esecuzione diversa" in console.out + console.err
+    assert _controlli(radice)["immagine"]["confronto"] == "diversa"
+
+
+def test_una_fase_conclusa_senza_il_campo_resta_conclusa_e_il_report_lo_dice(
+    scenario, tmp_path, monkeypatch, capsys
+):
+    """
+    **Obiettivo**: Verificare che una fase il cui manifesto non ha il campo
+    ``immagine_in_esecuzione`` (scritto da una versione dello strumento che
+    non lo registrava) resti conclusa e senza avvisi di provenienza per
+    questa versione, con e senza le variabili; e che il report la mostri come
+    «non registrata» nella colonna dell'immagine in esecuzione, e con
+    l'immagine passata quando il campo c'e'.
+
+    **Razionale scientifico e sistemistico**: Le esecuzioni gia' fatte devono
+    restare valide per la ripresa: registrare un dato in piu' non puo'
+    rendere da rifare cio' che e' stato calcolato prima.
+    """
+    import amplicon16s.steps.base as base
+
+    originale = base.provenienza
+
+    def senza_campo(*argomenti, **opzioni):
+        """La provenienza come la registrava lo strumento prima del campo."""
+        registrata = originale(*argomenti, **opzioni)
+        registrata.pop("immagine_in_esecuzione")
+        return registrata
+
+    monkeypatch.setattr(base, "provenienza", senza_campo)
+    config = _scrivi_config(scenario, tmp_path / "prima.yaml")
+    assert _cli("validate", "--config", str(config), capsys=capsys) == 0
+    radice = scenario.config.io.out_root
+    assert "immagine_in_esecuzione" not in _immagine_nel_manifesto(radice)
+    monkeypatch.setattr(base, "provenienza", originale)
+
+    fasi = {Passo.S0: ValidazioneIngressi()}
+    for digest in (None, f"amplicon16s@{DIGEST_A}"):
+        if digest:
+            monkeypatch.setenv(provenienza.VARIABILE_DIGEST_IMMAGINE, digest)
+        situazione = ProjectRun(carica(config), passi=fasi).valuta().situazioni[Passo.S0]
+        assert situazione.stato is StatoPasso.COMPLETATA and situazione.avviso is None
+
+    assert _cli("report", "--config", str(config), capsys=capsys) == 0
+    tabella = _tsv(Path(radice) / CARTELLA_REPORT / CARTELLA_TABELLE / "provenienza.tsv")
+    assert [r["immagine in esecuzione"] for r in tabella] == ["non registrata"]
+
+    (Path(radice) / Fase.INPUT_VALIDATION.value / "manifest_S0.json").unlink()
+    assert _cli("validate", "--config", str(config), capsys=capsys) == 0
+    assert _cli("report", "--config", str(config), capsys=capsys) == 0
+    tabella = _tsv(Path(radice) / CARTELLA_REPORT / CARTELLA_TABELLE / "provenienza.tsv")
+    assert [r["immagine in esecuzione"] for r in tabella] == [
+        f"amplicon16s@{DIGEST_A} (digest)"]

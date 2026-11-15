@@ -148,6 +148,8 @@ docker run --rm \
   -u "$(id -u):$(id -g)" \
   -v "$(pwd)":/app \
   -w /app \
+  -e AMPLICON16S_IMMAGINE_ID="$(docker image inspect --format '{{.Id}}' <immagine>)" \
+  -e AMPLICON16S_IMMAGINE_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' <immagine>)" \
   <immagine> \
   python3 scripts/esegui.py run --config dati/osd734/config_osd734.yaml
 ```
@@ -160,6 +162,10 @@ docker run --rm \
   eseguirebbe invece il codice copiato quando l'immagine e' stata costruita, e la
   regola rigorosa sulla provenienza, attiva in questa configurazione, lo rifiuterebbe
   dicendolo (`E-PROV-01`);
+- `-e AMPLICON16S_IMMAGINE_ID`, `-e AMPLICON16S_IMMAGINE_DIGEST` (facoltative): l'immagine
+  in esecuzione, che dall'interno del container non si conosce; finiscono nella
+  provenienza dei manifesti e nel registro degli avvii, fuori da ogni impronta, e un
+  digest diverso da `run.container` da' un avviso (RIFERIMENTO.md, 3.2);
 - `-u`: i file prodotti appartengono all'utente e non a root, con i permessi della sua
   umask;
 - `--memory=24g --memory-swap=24g`: un esaurimento della memoria ferma il container e

@@ -14,7 +14,11 @@ A ogni avvio, prima di qualunque fase:
 
 L'esito dei tre controlli di avvio (G15, G14 e G12, il riferimento tassonomico
 contro ``tax.ref_md5``) va nel log a ogni avvio come evento strutturato, con
-cio' che il file di blocco dei pacchetti R dichiara su dada2. Questo evento,
+cio' che il file di blocco dei pacchetti R dichiara su dada2 e con l'immagine:
+quella dichiarata in ``run.container`` e quella in esecuzione, passata da chi
+lancia il container con le variabili d'ambiente di
+:mod:`amplicon16s.runner.provenienza` (un digest diverso da quello dichiarato
+e' un avviso, non un arresto). Questo evento,
 quello della configurazione in uso, quelli delle fasi eseguite e quello della
 conclusione finiscono anche nel registro degli avvii, ``99_logs/avvii.jsonl``,
 che a differenza del log non ruota.
@@ -82,7 +86,14 @@ from amplicon16s.logging.logger import SOLO_NEL_FILE, registra_errore
 from amplicon16s.runner.graph import Passo
 from amplicon16s.runner.project import ProjectRun, StatoPasso, Valutazione
 from amplicon16s.rbridge.runner import cartella_r, esegui_script
-from amplicon16s.runner.provenienza import blocco_r, discordanze_ambiente, verifica_git
+from amplicon16s.runner.provenienza import (
+    VARIABILE_DIGEST_IMMAGINE,
+    blocco_r,
+    confronto_immagine,
+    discordanze_ambiente,
+    immagine_in_esecuzione,
+    verifica_git,
+)
 from amplicon16s.runner.retry import (
     RITENTARE_INUTILE,
     Motivo,
@@ -383,12 +394,41 @@ class Esecutore:
                 "fino_a": str(self.fino_a) if self.fino_a else None,
                 "blocco_r": _blocco_r(self.config.run.lockfile),
                 "provenienza_rigorosa": rigorosa,
+                "immagine": self._immagine(),
             },
         )
         if coerenza:
             raise ErroreGate("G15", coerenza)
         if arresto is not None:
             raise arresto
+
+    def _immagine(self) -> dict[str, Any]:
+        """L'immagine dichiarata in ``run.container`` e quella in esecuzione, come
+        l'ha passata chi ha lanciato il container, con l'esito del confronto.
+
+        Va nell'evento dei controlli di avvio a ogni avvio, superati o no: e'
+        un metadato dell'esecuzione, non entra in alcuna impronta di fase. Un
+        digest passato diverso da quello dichiarato e' un avviso, non un
+        arresto: la dichiarazione e il digest sono entrambi affermazioni di chi
+        lancia il container, e la pipeline non puo' dire quale sia sbagliata.
+        L'avviso non ha un codice del catalogo: il catalogo e' nel sorgente di
+        S0, e aggiungervi un codice renderebbe da rifare, con la regola
+        rigorosa, ogni esecuzione gia' conclusa.
+        """
+        dichiarata = self.config.run.container
+        in_esecuzione = immagine_in_esecuzione()
+        confronto = confronto_immagine(dichiarata, in_esecuzione)
+        if confronto == "diversa":
+            self.log.warning(
+                f"immagine in esecuzione diversa da quella dichiarata: run.container "
+                f"dichiara {dichiarata}, {VARIABILE_DIGEST_IMMAGINE} vale "
+                f"{in_esecuzione['digest']}. L'esecuzione prosegue e registra entrambe; "
+                "se l'immagine giusta e' quella in esecuzione, correggi run.container "
+                "(con la regola rigorosa la correzione rifa' tutte le fasi), altrimenti "
+                "rilancia con l'immagine dichiarata.",
+                extra={"avviso": "immagine_diversa"},
+            )
+        return {"dichiarata": dichiarata, **in_esecuzione, "confronto": confronto}
 
     def _provenienza_rigorosa(self) -> tuple[dict[str, Any], tuple[str, str] | None]:
         """Le verifiche della regola rigorosa: che cosa e' risultato, e il codice

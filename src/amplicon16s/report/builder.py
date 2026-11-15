@@ -80,6 +80,7 @@ from amplicon16s.runner.graph import GRAFO, Passo
 from amplicon16s.runner.project import avviso_di_provenienza, passi_realizzati
 from amplicon16s.soglie.tabella import controlli_spenti
 from amplicon16s.runner.provenienza import (
+    NON_DICHIARATO,
     calcolata_con_idtaxa,
     file_del_sorgente,
     impronta_sorgente,
@@ -791,6 +792,22 @@ def _sezione_configurazione(esecuzione: _Esecuzione) -> _Sezione:
     return sezione
 
 
+def _immagine_in_esecuzione(registrata: Mapping[str, Any]) -> str:
+    """L'immagine in esecuzione registrata nella provenienza di una fase: il
+    digest se e' stato passato, altrimenti l'identificativo; «non dichiarata»
+    se chi ha lanciato il container non ha passato nessuno dei due, «non
+    registrata» se il manifesto e' di prima che lo strumento la registrasse.
+    """
+    immagine = registrata.get("immagine_in_esecuzione")
+    if not isinstance(immagine, Mapping):
+        return "non registrata"
+    for chiave in ("digest", "id"):
+        valore = immagine.get(chiave)
+        if valore and valore != NON_DICHIARATO:
+            return f"{valore} ({chiave})"
+    return "non dichiarata"
+
+
 def _sezione_provenienza(esecuzione: _Esecuzione) -> tuple[_Sezione, list[tuple[str, str]]]:
     """La provenienza registrata di ogni fase conclusa, e gli avvisi."""
     sezione = _Sezione("provenienza", "Provenienza delle fasi")
@@ -826,7 +843,8 @@ def _sezione_provenienza(esecuzione: _Esecuzione) -> tuple[_Sezione, list[tuple[
             passo, registrata.get("versione", ""), _corta(registrata.get("sorgente")),
             registrata.get("commit") or "non registrato",
             _si_no(registrata.get("modifiche_non_committate")),
-            registrata.get("immagine", ""), manifesto.conclusa, avviso or "",
+            registrata.get("immagine", ""), _immagine_in_esecuzione(registrata),
+            manifesto.conclusa, avviso or "",
         ))
     sezione.testo(
         "Per ogni fase conclusa il manifesto registra la versione del calcolo, l'impronta "
@@ -834,7 +852,12 @@ def _sezione_provenienza(esecuzione: _Esecuzione) -> tuple[_Sezione, list[tuple[
         "condivise), il commit del repository e l'immagine dichiarata in "
         "<code>run.container</code>. Il commit non è registrato quando il codice non sta in "
         "un repository git, come nell'immagine. L'immagine è una dichiarazione: dall'interno "
-        "del container il suo digest non è verificabile. Con la regola rigorosa sulla "
+        "del container il suo digest non è verificabile. L'immagine in esecuzione è quella "
+        "che ha passato chi ha lanciato il container, con le variabili "
+        "<code>AMPLICON16S_IMMAGINE_DIGEST</code> e <code>AMPLICON16S_IMMAGINE_ID</code>: "
+        "anch'essa una dichiarazione, registrata e mai entrata nell'impronta della fase "
+        "(«non registrata» per le fasi concluse prima che lo strumento la registrasse). "
+        "Con la regola rigorosa sulla "
         "provenienza (<code>run.strict_provenance</code>, riportata per ogni avvio nella "
         'sezione <a href="#configurazione">Configurazione</a>) il codice e l\'ambiente R '
         "sono invece verificati a ogni avvio. L'avviso confronta il sorgente e l'immagine "
@@ -846,7 +869,7 @@ def _sezione_provenienza(esecuzione: _Esecuzione) -> tuple[_Sezione, list[tuple[
     sezione.tabella(_tabella(
         "provenienza", "Provenienza registrata nei manifesti di fase",
         ("fase", "versione", "sorgente", "commit", "modifiche non committate",
-         "immagine dichiarata", "conclusa", "avviso di provenienza"),
+         "immagine dichiarata", "immagine in esecuzione", "conclusa", "avviso di provenienza"),
         righe,
     ))
 

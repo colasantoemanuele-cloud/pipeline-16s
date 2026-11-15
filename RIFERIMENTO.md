@@ -37,6 +37,7 @@ lanciano dalla radice di un clone del repository.
   - [2.5 Completare il file](#25-completare-il-file)
 - [3. Eseguire](#3-eseguire)
   - [3.1 Eseguire con Apptainer](#31-eseguire-con-apptainer)
+  - [3.2 Registrare l'immagine in esecuzione](#32-registrare-limmagine-in-esecuzione)
 - [4. Analisi ecologiche di base](#4-analisi-ecologiche-di-base)
   - [4.1 Variabili continue](#41-variabili-continue)
   - [4.2 Misure ripetute](#42-misure-ripetute)
@@ -68,10 +69,32 @@ che la sua colonna `Raw Data File` elenca: una cella può nominare i due file di
 separati da una virgola. `--solo-forward` scarica di ogni coppia il solo file della prima
 lettura (i due nomi differiscono per il marcatore, 1 e 2, dopo un separatore o una R);
 `--connessioni N` cambia le connessioni aperte insieme (4). Lo script usa la sola libreria
-standard, dichiara file e GB prima di scaricare, non riscarica un file presente con la
-dimensione che l'archivio dichiara e riprende quelli rimasti a metà (`<nome>.parziale`):
-si può rilanciare dopo un'interruzione. L'archivio non pubblica checksum nell'elenco dei
-file: la verifica è sulla dimensione. Se la tabella descrive anche righe di un altro
+standard, dichiara file e GB prima di scaricare e riprende i file rimasti a metà
+(`<nome>.parziale`): si può rilanciare dopo un'interruzione.
+
+**Le impronte dei file scaricati.** L'elenco JSON dei file dell'archivio porta la sola
+dimensione; molti studi però pubblicano fra i loro file uno o più elenchi MD5 dei file
+grezzi (sottocategoria «MD5 Checksums», nomi come `GLDS-NNN_Amplicon_raw_md5sum_GLAmpSeq.txt`),
+in cui ogni file è nominato senza il prefisso `GLDS-NNN_..._` che OSDR aggiunge. Lo script
+li legge e, per ogni file che vi compare:
+
+- un file già presente è completo, e non si riscarica, solo se dimensione e MD5 coincidono;
+- dopo lo scarico verifica l'MD5; se è diverso cancella il file e lo riscarica una volta, da
+  capo; se è ancora diverso non lo tiene, lo dice e chiude con il codice di uscita 1.
+
+Per i file che nessun elenco nomina (o nominati con due MD5 diversi) resta la verifica della
+dimensione, e lo script dice per quanti. L'MD5 di ENA non si usa: GeneLab ricomprime i file,
+che hanno dimensione e MD5 diversi da quelli di ENA. In ogni caso lo script scrive
+`CARTELLA/impronte.tsv`: per ogni file presente (l'archivio ISA-Tab e le letture) il percorso
+relativo a `CARTELLA`, i byte, l'SHA-256 calcolato e, se pubblicato, l'MD5 con l'elenco che lo
+dichiara. Serve a verificare i file in seguito, senza l'archivio; `init` e la pipeline non
+lo leggono (guardano solo i file di letture):
+
+```bash
+cd CARTELLA && awk -F'\t' 'NR > 1 {print $3 "  " $1}' impronte.tsv | sha256sum -c
+```
+
+Se la tabella descrive anche righe di un altro
 amplicone, i loro file sono scaricati con gli altri: `init` lo dice, e nomina quelli da
 togliere dalla cartella. Se nei nomi dei due file di una coppia il marcatore della lettura
 non è in fondo (`_R1_L001.fastq.gz`), lo strumento non li abbina (sezione 1.2): lo script
@@ -733,9 +756,14 @@ argomenti.
 
 ```bash
 docker run --rm -u "$(id -u):$(id -g)" \
-  -v "$(pwd)":/app -v /percorso/dei/dati:/dati:ro -v /percorso/di/lavoro:/lavoro -w /app <immagine> \
-  python3 scripts/esegui.py validate --config /lavoro/configurazione.yaml
+  -v "$(pwd)":/app -v /percorso/dei/dati:/dati:ro -v /percorso/di/lavoro:/lavoro -w /app \
+  -e AMPLICON16S_IMMAGINE_ID="$(docker image inspect --format '{{.Id}}' <immagine>)" \
+  -e AMPLICON16S_IMMAGINE_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' <immagine>)" \
+  <immagine> python3 scripts/esegui.py validate --config /lavoro/configurazione.yaml
 ```
+
+Le due opzioni `-e` sono facoltative: registrano quale immagine esegue (sezione 3.2) e
+non cambiano i risultati; senza, il comando funziona lo stesso.
 
 | Passo | Sottocomando | Che cosa fa |
 |---|---|---|
@@ -821,9 +849,19 @@ Il comando `p16s` di GUIDA.md, passo 3, con Apptainer si definisce così (`IMMAG
 serve; `DATI` e `LAVORO` restano):
 
 ```bash
+IMMAGINE_ID="sha256:$(sha256sum amplicon16s.sif | cut -d' ' -f1)"
+IMMAGINE_DIGEST=<immagine>      # il riferimento @sha256:... da cui il file è stato costruito
 p16s() { apptainer exec --cleanenv --containall --bind "$(pwd)":/app --bind "$DATI":/dati:ro \
-           --bind "$LAVORO":/lavoro --pwd /app amplicon16s.sif python3 scripts/esegui.py "$@"; }
+           --bind "$LAVORO":/lavoro --pwd /app --env AMPLICON16S_IMMAGINE_ID="$IMMAGINE_ID" \
+           --env AMPLICON16S_IMMAGINE_DIGEST="$IMMAGINE_DIGEST" \
+           amplicon16s.sif python3 scripts/esegui.py "$@"; }
 ```
+
+Con Apptainer non c'è un `docker image inspect`: l'identificativo è l'impronta SHA-256
+del file `.sif` (si calcola una volta, ed è diversa per ogni file costruito, anche dalla
+stessa immagine) e il digest è il riferimento passato ad `apptainer build`. `--env`
+passa le due variabili anche con `--cleanenv`. Le due righe sono facoltative, come con
+Docker (sezione 3.2).
 
 La regola rigorosa sulla provenienza (`run.strict_provenance: true`) vale con Apptainer
 come con Docker, senza opzioni in più: il clone montato su `/app` è letto da git con
@@ -831,6 +869,41 @@ l'utente di chi lancia, e l'ambiente R verificato è quello del file `.sif`. Il 
 essere montato in sola lettura (`--bind "$(pwd)":/app:ro`), con la cartella di uscita
 montata a parte; un clone con modifiche non committate in `src/` o in `R/` è rifiutato
 con `E-PROV-02`, come con Docker.
+
+### 3.2 Registrare l'immagine in esecuzione
+
+Dall'interno del container lo strumento non può conoscere il digest dell'immagine che
+lo esegue: `run.container` è ciò che la configurazione dichiara, non una misura. Chi
+lancia il container invece lo conosce, e lo passa con due variabili d'ambiente:
+
+| Variabile | Valore | Da dove |
+|---|---|---|
+| `AMPLICON16S_IMMAGINE_ID` | l'identificativo dell'immagine (`sha256:...`) | `docker image inspect --format '{{.Id}}' <immagine>`: c'è sempre, anche per un'immagine costruita in locale |
+| `AMPLICON16S_IMMAGINE_DIGEST` | il digest del registro (`nome@sha256:...`) | `docker image inspect --format '{{index .RepoDigests 0}}' <immagine>`: solo per un'immagine scaricata o pubblicata; per una costruita in locale il comando fallisce e la variabile resta vuota |
+
+Che cosa ne fa lo strumento:
+
+- **Le registra** nella provenienza del manifesto di ogni fase, nel campo
+  `immagine_in_esecuzione` (`id` e `digest`, accanto a `immagine`, che è `run.container`),
+  e nell'evento dei controlli di avvio di `99_logs/avvii.jsonl`, nel campo `immagine`
+  (`dichiarata`, `id`, `digest` e l'esito del `confronto`). Il report le mostra nella
+  tabella «Provenienza delle fasi», colonna «immagine in esecuzione».
+- **Non le mette in alcuna impronta**, con o senza la regola rigorosa: non decidono se una
+  fase è da rifare, e un'esecuzione fatta senza le variabili si riprende con le variabili
+  (o viceversa) senza rifare nulla. I manifesti scritti prima che lo strumento registrasse
+  l'immagine non hanno il campo, e il report scrive «non registrata».
+- **Se mancano non si ferma**: una variabile assente o vuota è registrata come
+  «non dichiarato».
+- **Le confronta con `run.container`**, sulle sole impronte SHA-256: «coincide» se il
+  digest dichiarato è quello del digest passato o dell'identificativo; «diversa» se il
+  digest passato è un altro, e allora l'avvio scrive un avviso su console e log e
+  prosegue; «non confrontabile» se `run.container` non contiene un digest (un nome con
+  un'etichetta) o se è stato passato il solo identificativo e non coincide (con
+  l'archivio classico di Docker l'identificativo è l'impronta della configurazione
+  dell'immagine, diversa dal digest del registro anche per la stessa immagine); «non
+  dichiarata» se `run.container` è nullo. L'avviso non ha un codice del catalogo.
+- **Restano dichiarazioni** di chi lancia il container, come `run.container`: lo strumento
+  le registra, non le verifica.
 
 ## 4. Analisi ecologiche di base
 
@@ -2018,7 +2091,7 @@ risultati: cambiarli non rifà alcuna fase.
 | `meta.assay_keep_column`, `meta.assay_keep_values` | assenti | le righe della tabella di assay da tenere (sezione 6.1) |
 | `tax.ref_bad_taxa` | nullo | l'elenco dei taxa con un difetto noto del riferimento (sezione 1.5): le assegnazioni che vi ricadono sono marcate, non corrette |
 | `pair.min_merged_frac_sample_warn` | assente | la soglia per campione sulla quota di coppie fuse (sezione 6.6) |
-| `run.container` | nullo | l'immagine con cui si dichiara di eseguire, per digest: è registrata nella provenienza, non sceglie l'immagine |
+| `run.container` | nullo | l'immagine con cui si dichiara di eseguire, per digest: è registrata nella provenienza, non sceglie l'immagine; è confrontata con il digest passato da chi lancia il container (sezione 3.2) |
 | `run.threads` | nullo | i processori da usare; nullo: quelli utilizzabili dal processo. Non cambia i risultati |
 | `run.r_timeout_s` | nullo | il tempo massimo in secondi di ogni processo R, oltre il quale l'esecuzione si ferma (`E-R-05`); nullo: nessun limite |
 
@@ -2131,7 +2204,8 @@ prevalenza) sono in [RAZIONALE.md](RAZIONALE.md), sezione 5.
 - **Degradazione**: un avviso con cui l'esecuzione prosegue rinunciando a qualcosa (un
   albero, una soglia propria, un filtro), registrato nel manifesto della fase e nel report.
 - **Digest**: l'impronta SHA-256 di un contenuto. Della configurazione: identifica i
-  valori risolti. Dell'immagine: identifica i suoi byte (`@sha256:...`).
+  valori risolti. Dell'immagine: identifica i suoi byte (`@sha256:...`); quello
+  dell'immagine in esecuzione lo passa chi lancia il container (sezione 3.2).
 - **Fase**: un passo della catena (S0-S14, SM), con la sua cartella di uscita e il suo
   manifesto.
 - **Fedeltà** (KatharoSeq): in un controllo positivo, la quota di letture assegnate al
@@ -2144,7 +2218,9 @@ prevalenza) sono in [RAZIONALE.md](RAZIONALE.md), sezione 5.
   estrazione e la corsa di sequenziamento.
 - **Manifesto**: il file `manifest_<fase>.json` che chiude una fase: elenca gli artefatti
   con le loro impronte e ciò da cui sono stati calcolati (parametri, fasi a monte,
-  versione). Una fase senza manifesto valido si rifà.
+  versione). Una fase senza manifesto valido si rifà. Registra anche la provenienza
+  (sorgente, commit, immagine dichiarata e immagine in esecuzione), che non decide se la
+  fase è da rifare.
 - **Motivo conservato**: un'espressione regolare sulle prime basi della regione
   amplificata, dopo il primer; dice che le letture coprono la regione attesa, e nel verso
   atteso.

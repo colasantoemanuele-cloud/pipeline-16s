@@ -113,7 +113,10 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
 | `schema` | esporta in JSON lo schema della configurazione |
 | `eco ...` | le analisi ecologiche di base: `eco init`, `eco validate`, `eco run`, `eco status`, `eco schema` |
 
-Non servono variabili d'ambiente. I dati devono essere raggiungibili dal container:
+Non servono variabili d'ambiente. Due sono facoltative e registrano nei manifesti quale
+immagine ha prodotto i risultati, che dall'interno del container non si può sapere:
+`-e AMPLICON16S_IMMAGINE_ID=...` e `-e AMPLICON16S_IMMAGINE_DIGEST=...`, con i valori di
+`docker image inspect` (GUIDA.md, passo 3; RIFERIMENTO.md, 3.2). I dati devono essere raggiungibili dal container:
 sotto la radice del clone, oppure montati con un altro `-v` (RIFERIMENTO.md, 2). I
 percorsi relativi della configurazione valgono rispetto alla cartella da cui il comando
 è lanciato. `scripts/esegui.py` esegue il codice e gli script R del clone; il comando
@@ -251,8 +254,10 @@ python3 dati/osd734/scarica_letture.py            # 960 file FASTQ da ENA, 2,52 
 python3 dati/riferimento/scarica_riferimento.py   # riferimento tassonomico da Zenodo
 python3 dati/osd734/ricostruisci_lotto.py         # file del lotto dalla fonte degli autori
 
-docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
-  python3 scripts/esegui.py run --config dati/osd734/config_osd734.yaml
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app \
+  -e AMPLICON16S_IMMAGINE_ID="$(docker image inspect --format '{{.Id}}' <immagine>)" \
+  -e AMPLICON16S_IMMAGINE_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' <immagine>)" \
+  <immagine> python3 scripts/esegui.py run --config dati/osd734/config_osd734.yaml
 
 python3 dati/osd734/confronta_risultati.py        # 1.033 artefatti, fase per fase
 ```

@@ -6,12 +6,15 @@ file di letture elencati nella tabella di assay del 16S (anche quando una
 cella nomina i due file di una coppia), le sole prime letture con
 ``--solo-forward``; che dichiari quanti file e quanti GB prima di scaricare;
 che un file gia' presente con la dimensione dichiarata non si riscarichi e uno
-rimasto a meta' riprenda; e che con piu' tabelle candidate chieda ``--assay``
-invece di scegliere.
+rimasto a meta' riprenda; che con piu' tabelle candidate chieda ``--assay``
+invece di scegliere; che verifichi ogni file con l'MD5 pubblicato dall'archivio,
+quando c'e', riscaricando una volta un file diverso; e che scriva l'elenco
+degli SHA-256 dei file scaricati.
 """
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import json
@@ -53,6 +56,9 @@ class Archivio:
         self.richieste: list[tuple[str, int]] = []
         #: Per nome di file, dopo quanti byte la prima risposta si interrompe.
         self.interrompi: dict[str, int] = {}
+        #: Per nome di file, quante risposte portano un byte alterato, con la
+        #: dimensione giusta: un trasferimento guasto che la dimensione non vede.
+        self.guasta: dict[str, int] = {}
 
     def elenco(self) -> bytes:
         return json.dumps({"studies": {f"OSD-{STUDIO}": {"study_files": [
@@ -68,6 +74,9 @@ class Archivio:
         nome = url.split("file=")[1]
         self.richieste.append((nome, da))
         dati = self.contenuti[nome][da:]
+        if self.guasta.get(nome):
+            self.guasta[nome] -= 1
+            dati = bytes([dati[0] ^ 0xFF]) + dati[1:]
         taglio = self.interrompi.pop(nome, None)
         return _Risposta(dati, 206 if da else 200, taglio)
 
@@ -297,3 +306,189 @@ def test_con_piu_tabelle_candidate_chiede_assay_e_non_sceglie(tmp_path, senza_at
     senza_colonna = Archivio({"a_studio_16s.txt": "Sample Name\tAltro\nC1\tx\n"}, {})
     with pytest.raises(scarica_osdr.Rifiuto, match="Raw Data File"):
         _lancia(senza_colonna, tmp_path / "colonna")
+
+
+# --------------------------------------------------------------------------- #
+# Le impronte dei file: l'MD5 pubblicato e l'elenco degli SHA-256              #
+# --------------------------------------------------------------------------- #
+
+PREFISSO = f"GLDS-{STUDIO}_Amplicon_"
+ELENCO_MD5 = f"GLDS-{STUDIO}_Amplicon_raw_md5sum_GLAmpSeq.txt"
+
+
+def _md5(dati: bytes) -> str:
+    return hashlib.md5(dati).hexdigest()
+
+
+def _studio_con_md5(letture: dict[str, bytes], md5: dict[str, str]) -> Archivio:
+    """Uno studio i cui file portano il prefisso dell'archivio, con un elenco
+    MD5 che li nomina senza prefisso, come quelli pubblicati da OSDR."""
+    elenco = "".join(f"{valore}  {nome}\n" for nome, valore in md5.items())
+    righe = [(f"C{i}", PREFISSO + nome) for i, nome in enumerate(letture)]
+    return Archivio({"a_studio_16s.txt": _assay(righe)},
+                    {**{PREFISSO + n: d for n, d in letture.items()},
+                     ELENCO_MD5: elenco.encode()})
+
+
+def _impronte(cartella: Path) -> list[dict[str, str]]:
+    righe = (cartella / scarica_osdr.ELENCO_IMPRONTE).read_text(encoding="utf-8").splitlines()
+    intestazione = righe[0].split("\t")
+    return [dict(zip(intestazione, r.split("\t"))) for r in righe[1:]]
+
+
+def test_con_l_md5_pubblicato_ogni_file_e_verificato_e_l_elenco_ha_lo_sha256(
+        tmp_path, senza_attese):
+    """
+    **Obiettivo**: Verificare che, con un elenco MD5 fra i file dello studio
+    che nomina i file senza il prefisso dell'archivio, lo script lo legga,
+    abbini ogni file al suo MD5, dica quanti file ne hanno uno, scarichi i
+    file una volta sola e scriva ``impronte.tsv`` con percorso, byte, SHA-256
+    calcolato, MD5 pubblicato ed elenco di provenienza per l'archivio ISA-Tab
+    e per ogni lettura; che un file che l'elenco non nomina abbia le colonne
+    dell'MD5 vuote; che un secondo lancio non chieda alcun file di letture e
+    riscriva lo stesso elenco, byte per byte.
+
+    **Razionale scientifico e sistemistico**: La dimensione non vede un
+    trasferimento guasto che ne lascia invariata la lunghezza: l'MD5 che
+    l'archivio pubblica e' la sola verifica del contenuto. L'elenco degli
+    SHA-256 permette di verificare i file in seguito senza l'archivio.
+    """
+    letture = {"A_raw.fastq.gz": b"letture a " * 50, "B_raw.fastq.gz": b"letture b " * 30,
+               "C_raw.fastq.gz": b"letture c " * 10}
+    archivio = _studio_con_md5(
+        letture, {n: _md5(d) for n, d in letture.items() if n != "C_raw.fastq.gz"})
+    cartella = tmp_path / "dati"
+    esito, righe = _lancia(archivio, cartella)
+    assert esito == 0
+    testo = "\n".join(righe)
+    assert f"Impronte: 2 file su 3 con l'MD5 pubblicato da OSDR ({ELENCO_MD5})" in testo
+    assert "per 1 l'archivio non pubblica un MD5" in testo
+    assert sorted(n for n, _ in archivio.richieste if n.endswith(".fastq.gz")) == sorted(
+        PREFISSO + n for n in letture)
+    attese = {f"letture/{PREFISSO}{n}": d for n, d in letture.items()}
+    attese[f"metadati/{ARCHIVIO}"] = archivio.contenuti[ARCHIVIO]
+    voci = _impronte(cartella)
+    assert [v["file"] for v in voci] == sorted(attese)
+    for voce in voci:
+        dati = attese[voce["file"]]
+        assert voce["byte"] == str(len(dati))
+        assert voce["sha256"] == hashlib.sha256(dati).hexdigest()
+        con_md5 = voce["file"].startswith("letture/") and not voce["file"].endswith("C_raw.fastq.gz")
+        assert voce["md5_pubblicato"] == (_md5(dati) if con_md5 else "")
+        assert voce["elenco_md5"] == (ELENCO_MD5 if con_md5 else "")
+    assert not list(cartella.rglob("*.parziale"))
+
+    primo = (cartella / scarica_osdr.ELENCO_IMPRONTE).read_bytes()
+    archivio.richieste.clear()
+    esito, righe = _lancia(archivio, cartella)
+    assert esito == 0
+    assert not [n for n, _ in archivio.richieste if n.endswith(".fastq.gz")]
+    assert "gia' presenti 3, da scaricare 0" in "\n".join(righe)
+    assert (cartella / scarica_osdr.ELENCO_IMPRONTE).read_bytes() == primo
+
+
+def test_un_md5_diverso_si_riscarica_una_volta_poi_e_un_errore(tmp_path, senza_attese):
+    """
+    **Obiettivo**: Verificare che un file arrivato con la dimensione giusta ma
+    un MD5 diverso da quello pubblicato sia cancellato e scaricato di nuovo da
+    capo, una volta, e tenuto se il secondo trasferimento coincide; che se
+    anche il secondo e' diverso il file non resti sul disco ne' nell'elenco
+    delle impronte, lo script lo dica nominando l'elenco MD5 e chiuda con il
+    codice del guasto, senza fermare gli altri file; e che un file gia'
+    presente con la dimensione giusta ma un MD5 diverso non conti come
+    completo e venga riscaricato.
+
+    **Razionale scientifico e sistemistico**: Un FASTQ alterato si legge
+    spesso senza errori e cambia i conteggi delle letture: un file che non
+    corrisponde all'impronta dichiarata non deve entrare nell'analisi con il
+    nome giusto. Un solo nuovo tentativo distingue un guasto del trasferimento
+    da un file pubblicato diverso dal suo MD5, che rilanciare non corregge.
+    """
+    letture = {"A_raw.fastq.gz": b"letture a " * 50, "B_raw.fastq.gz": b"letture b " * 30}
+    archivio = _studio_con_md5(letture, {n: _md5(d) for n, d in letture.items()})
+    archivio.guasta[PREFISSO + "A_raw.fastq.gz"] = 1
+    cartella = tmp_path / "una_volta"
+    esito, _ = _lancia(archivio, cartella)
+    assert esito == 0
+    assert [d for n, d in archivio.richieste if n == PREFISSO + "A_raw.fastq.gz"] == [0, 0]
+    assert (cartella / "letture" / (PREFISSO + "A_raw.fastq.gz")).read_bytes() == (
+        letture["A_raw.fastq.gz"])
+
+    sbagliato = _studio_con_md5(letture, {"A_raw.fastq.gz": "0" * 32,
+                                          "B_raw.fastq.gz": _md5(letture["B_raw.fastq.gz"])})
+    cartella = tmp_path / "sempre"
+    esito, righe = _lancia(sbagliato, cartella)
+    testo = "\n".join(righe)
+    assert esito == scarica_osdr.USCITA_GUASTO
+    assert [d for n, d in sbagliato.richieste if n == PREFISSO + "A_raw.fastq.gz"] == [0, 0]
+    assert not (cartella / "letture" / (PREFISSO + "A_raw.fastq.gz")).exists()
+    assert (cartella / "letture" / (PREFISSO + "B_raw.fastq.gz")).is_file()
+    assert ELENCO_MD5 in testo and "1 file con un MD5 diverso" in testo
+    assert [v["file"] for v in _impronte(cartella)] == [
+        f"letture/{PREFISSO}B_raw.fastq.gz", f"metadati/{ARCHIVIO}"]
+    assert not list(cartella.rglob("*.parziale"))
+
+    cartella = tmp_path / "presente"
+    (cartella / "letture").mkdir(parents=True)
+    alterato = bytearray(letture["B_raw.fastq.gz"])
+    alterato[0] ^= 0xFF
+    (cartella / "letture" / (PREFISSO + "B_raw.fastq.gz")).write_bytes(bytes(alterato))
+    esito, righe = _lancia(_studio_con_md5(letture, {n: _md5(d) for n, d in letture.items()}),
+                           cartella)
+    assert esito == 0 and "gia' presenti 0, da scaricare 2" in "\n".join(righe)
+    assert (cartella / "letture" / (PREFISSO + "B_raw.fastq.gz")).read_bytes() == (
+        letture["B_raw.fastq.gz"])
+
+
+def test_senza_md5_pubblicato_si_verifica_la_dimensione_e_l_elenco_ha_lo_sha256(
+        tmp_path, senza_attese):
+    """
+    **Obiettivo**: Verificare che, con uno studio che non pubblica elenchi MD5,
+    lo scarico proceda verificando la sola dimensione, lo dica, e scriva
+    comunque ``impronte.tsv`` con lo SHA-256 di ogni file e le colonne
+    dell'MD5 vuote; e che le regole di abbinamento e di lettura degli elenchi
+    reggano i casi limite: nome identico, suffisso piu' lungo dopo un trattino
+    basso, nome senza separatore (non abbinato), nome con due MD5 diversi
+    (ambiguo, quindi nessun MD5), forma binaria di ``md5sum``, righe non valide
+    ignorate, elenco riconosciuto dalla sottocategoria dell'archivio.
+
+    **Razionale scientifico e sistemistico**: Non tutti gli studi pubblicano
+    l'MD5: lo scarico non deve fermarsi, ma dichiarare che cosa ha potuto
+    verificare. Un abbinamento sbagliato fra nome e MD5 rifiuterebbe file
+    integri; uno ambiguo non deve decidere a caso.
+    """
+    archivio = _studio_appaiato()
+    cartella = tmp_path / "dati"
+    esito, righe = _lancia(archivio, cartella)
+    assert esito == 0
+    assert "Impronte: 0 file su 6 con l'MD5 pubblicato da OSDR; per 6 l'archivio non " in (
+        "\n".join(righe))
+    voci = _impronte(cartella)
+    assert len(voci) == 7
+    for voce in voci:
+        dati = (cartella / voce["file"]).read_bytes()
+        assert voce["sha256"] == hashlib.sha256(dati).hexdigest()
+        assert voce["md5_pubblicato"] == voce["elenco_md5"] == ""
+
+    pubblicati = {"ERX1_raw.fastq.gz": ("1" * 32, "e1.txt"),
+                  "X_ERX1_raw.fastq.gz": ("2" * 32, "e1.txt"),
+                  "doppio.fastq.gz": (None, "e2.txt")}
+    trova = scarica_osdr.md5_del_file
+    assert trova("ERX1_raw.fastq.gz", pubblicati) == ("1" * 32, "e1.txt")
+    assert trova("GLDS-1_Amplicon_ERX1_raw.fastq.gz", pubblicati) == ("1" * 32, "e1.txt")
+    assert trova("GLDS-1_Amplicon_X_ERX1_raw.fastq.gz", pubblicati) == ("2" * 32, "e1.txt")
+    assert trova("GLDS-1_AmpliconERX1_raw.fastq.gz", pubblicati) is None
+    assert trova("GLDS-1_doppio.fastq.gz", pubblicati) is None
+    assert scarica_osdr.leggi_elenco_md5(
+        f"{'A' * 32} *a.fq.gz\nnon e' una riga\n{'b' * 32}  b c.fq.gz\n") == {
+        "a.fq.gz": ["a" * 32], "b c.fq.gz": ["b" * 32]}
+    due_elenchi = Archivio({}, {"a_md5sum_1.txt": f"{'1' * 32}  f.fq.gz\n".encode(),
+                                "b_md5sum_2.txt": f"{'2' * 32}  f.fq.gz\n{'3' * 32}  g.fq.gz\n"
+                                .encode()})
+    letti = scarica_osdr.md5_pubblicati(
+        STUDIO, scarica_osdr.file_dello_studio(STUDIO, due_elenchi.apri), due_elenchi.apri)
+    assert letti == {"f.fq.gz": (None, "b_md5sum_2.txt"), "g.fq.gz": ("3" * 32, "b_md5sum_2.txt")}
+    assert scarica_osdr.md5_del_file("f.fq.gz", letti) is None
+    assert scarica_osdr.elenchi_md5({
+        "x.txt": {"subcategory": "MD5 Checksums"}, "y_md5sum_z.txt": {},
+        "letture.fastq.gz": {"subcategory": "Raw sequence data"}}) == ["x.txt", "y_md5sum_z.txt"]

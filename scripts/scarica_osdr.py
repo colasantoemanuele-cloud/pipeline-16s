@@ -23,6 +23,19 @@ Razionale sistemistico:
 * **il nome definitivo si assegna solo a trasferimento concluso**, con la
   dimensione verificata: un'interruzione non lascia un file incompleto con il
   nome giusto;
+* **l'impronta si verifica con l'MD5 che OSDR pubblica**: l'elenco JSON dei
+  file non porta checksum, ma molti studi pubblicano fra i loro file uno o piu'
+  elenchi MD5 dei file grezzi (sottocategoria ``MD5 Checksums``, nomi come
+  ``GLDS-NNN_Amplicon_raw_md5sum_GLAmpSeq.txt``), in cui ogni file e' nominato
+  senza il prefisso ``GLDS-NNN_..._`` che OSDR aggiunge. Un file con l'MD5
+  pubblicato e' completo solo se dimensione e MD5 coincidono; uno scaricato
+  con un MD5 diverso si cancella e si riscarica una volta, poi e' un errore.
+  Senza MD5 pubblicato resta la verifica della dimensione. Non si usa l'MD5 di
+  ENA: GeneLab ricomprime i file, che non coincidono byte per byte con quelli
+  di ENA;
+* **un elenco delle impronte** (``impronte.tsv`` nella cartella dei dati):
+  l'SHA-256 calcolato di ogni file scaricato, con la dimensione e l'MD5
+  pubblicato se c'e', per verificare i file in seguito senza l'archivio;
 * **poche connessioni alla volta**: l'archivio e' pubblico, e aprirne molte in
   parallelo e' un modo di abusarne.
 
@@ -37,6 +50,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import functools
+import hashlib
 import http.client
 import json
 import re
@@ -60,6 +75,14 @@ COLONNA_DEI_FILE = "Raw Data File"
 #: Le estensioni dei file di letture.
 ESTENSIONI = (".fastq.gz", ".fq.gz", ".fastq", ".fq")
 
+#: La sottocategoria con cui l'elenco dell'archivio marca gli elenchi MD5 dei
+#: file grezzi; li si riconosce anche dal nome, che contiene ``md5sum``.
+SOTTOCATEGORIA_MD5 = "MD5 Checksums"
+#: L'elenco delle impronte dei file scaricati, nella cartella dei dati.
+ELENCO_IMPRONTE = "impronte.tsv"
+#: Quante volte si scarica un file il cui MD5 non coincide con quello pubblicato.
+SCARICHI_PER_MD5 = 2
+
 BLOCCO = 1024 * 1024
 TEMPO_MASSIMO = 60
 CONNESSIONI = 4
@@ -72,6 +95,10 @@ USCITA_GUASTO = 1
 
 class Rifiuto(Exception):
     """La richiesta non si puo' soddisfare: il messaggio dice perche' e che cosa fare."""
+
+
+class ImprontaDiversa(OSError):
+    """Un file scaricato due volte ha un MD5 diverso da quello pubblicato."""
 
 
 def numero_dello_studio(testo: str) -> str:
@@ -112,6 +139,85 @@ def archivio_dei_metadati(file: Dict[str, dict]) -> str:
     return trovati[0]
 
 
+def elenchi_md5(file: Dict[str, dict]) -> List[str]:
+    """I nomi degli elenchi MD5 fra i file dello studio, in ordine."""
+    return sorted(n for n, voce in file.items()
+                  if voce.get("subcategory") == SOTTOCATEGORIA_MD5
+                  or ("md5sum" in n.lower() and n.lower().endswith(".txt")))
+
+
+def leggi_elenco_md5(testo: str) -> Dict[str, List[str]]:
+    """Gli MD5 delle righe ``<md5>  <nome>`` (o ``<md5> *<nome>``, la forma
+    binaria di ``md5sum``) di un elenco, per nome: piu' d'uno se il nome
+    compare piu' volte. Le altre righe si ignorano."""
+    voci: Dict[str, List[str]] = {}
+    for riga in testo.splitlines():
+        trovata = re.fullmatch(r"\s*([0-9a-fA-F]{32})\s+\*?(.+?)\s*", riga)
+        if trovata:
+            voci.setdefault(trovata.group(2), []).append(trovata.group(1).lower())
+    return voci
+
+
+def md5_pubblicati(numero: str, file: Dict[str, dict],
+                   apri_url: Callable = apri) -> Dict[str, Tuple[Optional[str], str]]:
+    """Gli MD5 che lo studio pubblica, per nome nell'elenco: valore ed elenco
+    di provenienza. Un nome con due MD5 diversi vale ``None``: e' ambiguo, e
+    per quel file resta la sola verifica della dimensione."""
+    pubblicati: Dict[str, Tuple[Optional[str], str]] = {}
+    for elenco in elenchi_md5(file):
+        with apri_url(indirizzo(numero, file[elenco])) as risposta:
+            testo = risposta.read().decode("utf-8", errors="replace")
+        for nome, valori in leggi_elenco_md5(testo).items():
+            precedenti = [pubblicati[nome][0]] if nome in pubblicati else []
+            distinti = set(valori + precedenti)
+            pubblicati[nome] = (distinti.pop() if len(distinti) == 1 else None, elenco)
+    return pubblicati
+
+
+def md5_del_file(nome: str, pubblicati: Dict[str, Tuple[Optional[str], str]]
+                 ) -> Optional[Tuple[str, str]]:
+    """L'MD5 pubblicato di un file dell'archivio e l'elenco che lo dichiara, o
+    ``None``.
+
+    Gli elenchi nominano i file senza il prefisso che OSDR aggiunge
+    (``GLDS-653_Amplicon_ERX1_raw.fastq.gz`` e' ``ERX1_raw.fastq.gz``): vale il
+    nome identico, altrimenti il nome piu' lungo con cui il file finisce dopo
+    un trattino basso.
+    """
+    candidati = [n for n in pubblicati if n == nome or nome.endswith("_" + n)]
+    if not candidati:
+        return None
+    valore, elenco = pubblicati[max(candidati, key=len)]
+    return None if valore is None else (valore, elenco)
+
+
+@functools.lru_cache(maxsize=None)
+def _impronte(percorso: str, byte: int, modificato: int, inode: int) -> Tuple[str, str]:
+    """MD5 e SHA-256 di un file, letto una volta a blocchi; la chiave comprende
+    dimensione, istante di modifica e inode, quindi un file riscritto si
+    rilegge."""
+    md5, sha256 = hashlib.md5(), hashlib.sha256()
+    with open(percorso, "rb") as ingresso:
+        for blocco in iter(lambda: ingresso.read(BLOCCO), b""):
+            md5.update(blocco)
+            sha256.update(blocco)
+    return md5.hexdigest(), sha256.hexdigest()
+
+
+def impronte(percorso: Path) -> Tuple[str, str]:
+    """MD5 e SHA-256 del file, calcolati una volta per versione del file."""
+    stato = percorso.stat()
+    return _impronte(str(percorso), stato.st_size, stato.st_mtime_ns, stato.st_ino)
+
+
+def completo(percorso: Path, byte: int, md5: Optional[str] = None) -> bool:
+    """Vero se il file c'e' con la dimensione dichiarata e, se l'MD5 e'
+    pubblicato, con quell'MD5."""
+    if not percorso.is_file() or percorso.stat().st_size != byte:
+        return False
+    return md5 is None or impronte(percorso)[0] == md5
+
+
 def indirizzo(numero: str, voce: dict) -> str:
     """L'indirizzo di scarico di un file dell'elenco."""
     relativo = voce.get("remote_url")
@@ -120,14 +226,38 @@ def indirizzo(numero: str, voce: dict) -> str:
     return SCARICO.format(numero=numero, nome=urllib.parse.quote(voce["file_name"]))
 
 
-def scarica(url: str, destinazione: Path, byte: int, apri_url: Callable = apri) -> bool:
+def scarica(url: str, destinazione: Path, byte: int, apri_url: Callable = apri,
+            md5: Optional[Tuple[str, str]] = None) -> bool:
     """Porta il file a destinazione; restituisce falso se c'era gia', integro.
 
-    Il trasferimento avviene su ``<nome>.parziale`` e riprende da dove si era
-    interrotto; il nome definitivo arriva solo con la dimensione dichiarata.
+    ``md5`` e' l'MD5 pubblicato con l'elenco che lo dichiara, o ``None``. Il
+    file gia' presente e' integro se ha la dimensione dichiarata e, con
+    ``md5``, quell'MD5. Scaricato un file con un MD5 diverso, lo si cancella
+    e lo si scarica di nuovo, da capo: un trasferimento puo' essersi guastato
+    senza cambiare la dimensione. Se anche il secondo e' diverso il file non
+    si tiene, e l'errore e' :class:`ImprontaDiversa`.
     """
-    if destinazione.is_file() and destinazione.stat().st_size == byte:
+    atteso = None if md5 is None else md5[0]
+    if completo(destinazione, byte, atteso):
         return False
+    for _ in range(SCARICHI_PER_MD5):
+        trasferisci(url, destinazione, byte, apri_url)
+        calcolato = None if atteso is None else impronte(destinazione)[0]
+        if calcolato == atteso:
+            return True
+        destinazione.unlink()
+    raise ImprontaDiversa(
+        f"{destinazione.name}: l'MD5 del file scaricato ({calcolato}) non coincide con "
+        f"quello pubblicato da OSDR in {md5[1]} ({atteso}), anche scaricandolo "
+        f"{SCARICHI_PER_MD5} volte: il file non e' stato tenuto. Se rilanciando l'esito "
+        "non cambia, l'archivio serve un file diverso da quello di cui pubblica l'MD5: "
+        "va segnalato a OSDR")
+
+
+def trasferisci(url: str, destinazione: Path, byte: int, apri_url: Callable = apri) -> None:
+    """Trasferisce il file su ``<nome>.parziale``, riprendendo da dove si era
+    interrotto, e gli da' il nome definitivo solo con la dimensione dichiarata.
+    """
     parziale = destinazione.with_name(destinazione.name + ".parziale")
     ultimo: Optional[BaseException] = None
     for tentativo in range(TENTATIVI):
@@ -153,7 +283,7 @@ def scarica(url: str, destinazione: Path, byte: int, apri_url: Callable = apri) 
             continue
         if parziale.stat().st_size == byte:
             parziale.replace(destinazione)
-            return True
+            return
         ultimo = OSError(f"ricevuti {parziale.stat().st_size} byte su {byte}")
     raise OSError(f"{destinazione.name}: non scaricato dopo {TENTATIVI} tentativi ({ultimo}). "
                   "Rilancia lo stesso comando: riprende da dove si e' fermato")
@@ -287,9 +417,32 @@ def _gb(byte: int) -> str:
     return f"{byte / 1e9:.2f}".replace(".", ",") + " GB"
 
 
+def scrivi_impronte(cartella: Path, scaricati: Sequence[Path],
+                    md5: Dict[Path, Optional[Tuple[str, str]]]) -> Path:
+    """Scrive ``impronte.tsv`` nella cartella dei dati: per ogni file presente
+    il percorso relativo alla cartella, i byte, l'SHA-256 calcolato e l'MD5
+    pubblicato con l'elenco che lo dichiara (vuoti se l'archivio non lo
+    pubblica). Le righe sono in ordine di percorso, e la scrittura passa da un
+    file provvisorio: rilanciare lo script riscrive lo stesso elenco.
+    """
+    righe = ["file\tbyte\tsha256\tmd5_pubblicato\telenco_md5"]
+    for percorso in sorted(p for p in scaricati if p.is_file()):
+        pubblicato = md5.get(percorso)
+        righe.append("\t".join((
+            percorso.relative_to(cartella).as_posix(), str(percorso.stat().st_size),
+            impronte(percorso)[1], pubblicato[0] if pubblicato else "",
+            pubblicato[1] if pubblicato else "")))
+    elenco = cartella / ELENCO_IMPRONTE
+    provvisorio = elenco.with_name(elenco.name + ".parziale")
+    provvisorio.write_text("\n".join(righe) + "\n", encoding="utf-8")
+    provvisorio.replace(elenco)
+    return elenco
+
+
 def esegui(args: argparse.Namespace, stampa: Callable[[str], None] = print,
            apri_url: Callable = apri) -> int:
-    """Scarica metadati e letture e stampa il comando di ``init``."""
+    """Scarica metadati e letture, verifica e registra le impronte e stampa il
+    comando di ``init``."""
     numero = numero_dello_studio(args.studio)
     cartella: Path = args.cartella
     metadati, letture = cartella / "metadati", cartella / "letture"
@@ -297,10 +450,12 @@ def esegui(args: argparse.Namespace, stampa: Callable[[str], None] = print,
 
     stampa(f"OSD-{numero}: elenco dei file dall'archivio...")
     file = file_dello_studio(numero, apri_url)
+    pubblicati = md5_pubblicati(numero, file, apri_url)
     nome_archivio = archivio_dei_metadati(file)
     archivio = metadati / nome_archivio
+    md5 = {archivio: md5_del_file(nome_archivio, pubblicati)}
     scarica(indirizzo(numero, file[nome_archivio]), archivio,
-            int(file[nome_archivio]["file_size"]), apri_url)
+            int(file[nome_archivio]["file_size"]), apri_url, md5[archivio])
     estratti = estrai(archivio, metadati)
     stampa(f"Metadati in {metadati}: " + ", ".join(estratti))
 
@@ -313,20 +468,30 @@ def esegui(args: argparse.Namespace, stampa: Callable[[str], None] = print,
             "dello studio: " + ", ".join(assenti[:5]) + ("..." if len(assenti) > 5 else ""))
     letture.mkdir(exist_ok=True)
     dimensioni = {n: int(file[n]["file_size"]) for n in nomi}
-    presenti = [n for n in nomi
-                if (letture / n).is_file() and (letture / n).stat().st_size == dimensioni[n]]
+    for n in nomi:
+        md5[letture / n] = md5_del_file(n, pubblicati)
+    con_md5 = [n for n in nomi if md5[letture / n] is not None]
+    presenti = [n for n in nomi if completo(
+        letture / n, dimensioni[n], None if md5[letture / n] is None else md5[letture / n][0])]
     da_scaricare = [n for n in nomi if n not in presenti]
     stampa(f"Tabella di assay: {tabella.name}")
     stampa(f"Letture: {len(nomi)} file, {_gb(sum(dimensioni.values()))}"
            + (" (le sole prime letture di ogni coppia)" if args.solo_forward else "")
            + f"; gia' presenti {len(presenti)}, da scaricare {len(da_scaricare)} "
            f"({_gb(sum(dimensioni[n] for n in da_scaricare))})")
+    elenchi = sorted({md5[letture / n][1] for n in con_md5})
+    stampa(f"Impronte: {len(con_md5)} file su {len(nomi)} con l'MD5 pubblicato da OSDR"
+           + (f" ({', '.join(elenchi)})" if elenchi else "")
+           + (", verificati con dimensione e MD5" if con_md5 else "")
+           + (f"; per {len(nomi) - len(con_md5)} l'archivio non pubblica un MD5, e si "
+              "verifica la sola dimensione" if len(con_md5) < len(nomi) else ""))
 
     falliti: List[str] = []
+    diversi: List[str] = []
     with ThreadPoolExecutor(max_workers=args.connessioni) as gruppo:
         in_corso = {
             gruppo.submit(scarica, indirizzo(numero, file[n]), letture / n, dimensioni[n],
-                          apri_url): n for n in da_scaricare}
+                          apri_url, md5[letture / n]): n for n in da_scaricare}
         try:
             for fatti, futuro in enumerate(as_completed(in_corso), 1):
                 nome = in_corso[futuro]
@@ -334,16 +499,23 @@ def esegui(args: argparse.Namespace, stampa: Callable[[str], None] = print,
                     futuro.result()
                     stampa(f"  [{fatti}/{len(da_scaricare)}] {nome}")
                 except OSError as guasto:
-                    falliti.append(nome)
+                    (diversi if isinstance(guasto, ImprontaDiversa) else falliti).append(nome)
                     stampa(f"  [{fatti}/{len(da_scaricare)}] NON SCARICATO: {guasto}")
         except KeyboardInterrupt:
             for futuro in in_corso:
                 futuro.cancel()
             stampa("Interrotto: rilancia lo stesso comando per riprendere.")
             raise
+    elenco = scrivi_impronte(cartella, [archivio] + [letture / n for n in nomi], md5)
+    stampa(f"SHA-256 di ogni file presente in {elenco}.")
     if falliti:
         stampa(f"{len(falliti)} file non scaricati: rilancia lo stesso comando, che riprende "
                "da dove si e' fermato.")
+    if diversi:
+        stampa(f"{len(diversi)} file con un MD5 diverso da quello pubblicato da OSDR, anche "
+               "scaricati due volte, e non tenuti: " + ", ".join(diversi[:5])
+               + ("..." if len(diversi) > 5 else ""))
+    if falliti or diversi:
         return USCITA_GUASTO
 
     appaiate = not args.solo_forward and len(forward_di(nomi)) < len(nomi)
@@ -392,7 +564,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     Un argomento non valido o un rifiuto danno il codice del rifiuto; un
     guasto di rete quello del guasto, con l'invito a rilanciare (lo scarico
-    riprende); un'interruzione da tastiera 130, senza messaggio.
+    riprende), e cosi' un MD5 diverso da quello pubblicato, con il suo
+    messaggio; un'interruzione da tastiera 130, senza messaggio.
     """
     args = build_parser().parse_args(argv)
     if args.connessioni < 1:
@@ -403,6 +576,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except Rifiuto as rifiuto:
         print(f"scarica_osdr: {rifiuto}", file=sys.stderr)
         return USCITA_RIFIUTO
+    except ImprontaDiversa as diversa:
+        print(f"scarica_osdr: {diversa}", file=sys.stderr)
+        return USCITA_GUASTO
     except GUASTI_DI_RETE as guasto:
         print(f"scarica_osdr: l'archivio non risponde ({guasto}). Controlla la rete e "
               "rilancia lo stesso comando: riprende da dove si e' fermato", file=sys.stderr)

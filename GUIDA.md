@@ -42,7 +42,9 @@ python3 scripts/scarica_osdr.py OSD-NNN /percorso/dei/dati
 
 Lo script crea `metadati/` (le tabelle ISA-Tab dello studio) e `letture/` (i file elencati nella
 tabella di assay del 16S). Prima di scaricare dice quanti file e quanti GB; **alla fine stampa il
-comando di `init` del passo 4, da copiare.** Si può rilanciare dopo un'interruzione: riprende. Se
+comando di `init` del passo 4, da copiare.** Si può rilanciare dopo un'interruzione: riprende.
+Verifica ogni file con l'MD5 che OSDR pubblica, quando c'è (altrimenti con la dimensione), e
+scrive `impronte.tsv` con l'SHA-256 di ogni file scaricato (RIFERIMENTO.md, 1). Se
 lo studio ha più tabelle del 16S le nomina e si ferma: si rilancia con `--assay NOME`.
 
 **Coppie o sole forward.** Se lo studio ha due file per campione (`_R1` e `_R2`) si parte con le
@@ -90,8 +92,12 @@ IMMAGINE=ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3
 DATI=/percorso/dei/dati        # la cartella dei dati del passo 2
 LAVORO=/percorso/di/lavoro     # una cartella nuova, per configurazione e uscite
 mkdir -p "$LAVORO"
+IMMAGINE_ID=$(docker image inspect --format '{{.Id}}' "$IMMAGINE")
+IMMAGINE_DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMMAGINE" 2>/dev/null)
 p16s() { docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -v "$DATI":/dati:ro \
-           -v "$LAVORO":/lavoro -w /app "$IMMAGINE" python3 scripts/esegui.py "$@"; }
+           -v "$LAVORO":/lavoro -w /app -e AMPLICON16S_IMMAGINE_ID="$IMMAGINE_ID" \
+           -e AMPLICON16S_IMMAGINE_DIGEST="$IMMAGINE_DIGEST" \
+           "$IMMAGINE" python3 scripts/esegui.py "$@"; }
 ```
 
 - **Percorsi assoluti** in `DATI` e `LAVORO` (`/home/...` o `$HOME/...`): con un percorso relativo
@@ -102,6 +108,10 @@ p16s() { docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -v "$DATI":/dat
   cartella in cui si trova il terminale.
 - **In un terminale nuovo** le righe qui sopra si ripetono: `p16s` vive solo nel terminale in cui
   è stato definito.
+- **`IMMAGINE_ID` e `IMMAGINE_DIGEST`** dicono allo strumento quale immagine sta eseguendo, che
+  dall'interno non può saperlo: le scrive nei manifesti di ogni fase e nel registro degli avvii,
+  e avvisa se il digest non è quello di `run.container`. Non cambiano i risultati. Senza le due
+  righe `-e` il comando funziona lo stesso e registra «non dichiarato» (RIFERIMENTO.md, 3.2).
 
 Dentro il container la cartella dei dati si chiama `/dati`, quella di lavoro `/lavoro`, il clone
 `/app`: nei comandi e nella configurazione si scrivono questi nomi, non i percorsi del proprio
