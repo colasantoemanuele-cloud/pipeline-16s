@@ -417,17 +417,21 @@ def _gb(byte: int) -> str:
     return f"{byte / 1e9:.2f}".replace(".", ",") + " GB"
 
 
-def scrivi_impronte(cartella: Path, scaricati: Sequence[Path],
+def scrivi_impronte(cartella: Path, dimensioni: Dict[Path, int],
                     md5: Dict[Path, Optional[Tuple[str, str]]]) -> Path:
-    """Scrive ``impronte.tsv`` nella cartella dei dati: per ogni file presente
-    il percorso relativo alla cartella, i byte, l'SHA-256 calcolato e l'MD5
-    pubblicato con l'elenco che lo dichiara (vuoti se l'archivio non lo
-    pubblica). Le righe sono in ordine di percorso, e la scrittura passa da un
-    file provvisorio: rilanciare lo script riscrive lo stesso elenco.
+    """Scrive ``impronte.tsv`` nella cartella dei dati: per ogni file completo
+    (dimensione dichiarata e, se pubblicato, MD5) il percorso relativo alla
+    cartella, i byte, l'SHA-256 calcolato e l'MD5 pubblicato con l'elenco che
+    lo dichiara (vuoti se l'archivio non lo pubblica). Un file rimasto
+    incompleto per un guasto non vi compare. Le righe sono in ordine di
+    percorso, e la scrittura passa da un file provvisorio: rilanciare lo
+    script riscrive lo stesso elenco.
     """
     righe = ["file\tbyte\tsha256\tmd5_pubblicato\telenco_md5"]
-    for percorso in sorted(p for p in scaricati if p.is_file()):
+    for percorso in sorted(dimensioni):
         pubblicato = md5.get(percorso)
+        if not completo(percorso, dimensioni[percorso], pubblicato[0] if pubblicato else None):
+            continue
         righe.append("\t".join((
             percorso.relative_to(cartella).as_posix(), str(percorso.stat().st_size),
             impronte(percorso)[1], pubblicato[0] if pubblicato else "",
@@ -506,8 +510,10 @@ def esegui(args: argparse.Namespace, stampa: Callable[[str], None] = print,
                 futuro.cancel()
             stampa("Interrotto: rilancia lo stesso comando per riprendere.")
             raise
-    elenco = scrivi_impronte(cartella, [archivio] + [letture / n for n in nomi], md5)
-    stampa(f"SHA-256 di ogni file presente in {elenco}.")
+    elenco = scrivi_impronte(
+        cartella, {archivio: int(file[nome_archivio]["file_size"]),
+                   **{letture / n: dimensioni[n] for n in nomi}}, md5)
+    stampa(f"SHA-256 di ogni file scaricato e verificato in {elenco}.")
     if falliti:
         stampa(f"{len(falliti)} file non scaricati: rilancia lo stesso comando, che riprende "
                "da dove si e' fermato.")

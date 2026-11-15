@@ -441,12 +441,12 @@ def test_un_md5_diverso_si_riscarica_una_volta_poi_e_un_errore(tmp_path, senza_a
 
 
 def test_senza_md5_pubblicato_si_verifica_la_dimensione_e_l_elenco_ha_lo_sha256(
-        tmp_path, senza_attese):
+        tmp_path, senza_attese, monkeypatch):
     """
     **Obiettivo**: Verificare che, con uno studio che non pubblica elenchi MD5,
     lo scarico proceda verificando la sola dimensione, lo dica, e scriva
     comunque ``impronte.tsv`` con lo SHA-256 di ogni file e le colonne
-    dell'MD5 vuote; e che le regole di abbinamento e di lettura degli elenchi
+    dell'MD5 vuote, senza un file rimasto a meta' per un guasto; e che le regole di abbinamento e di lettura degli elenchi
     reggano i casi limite: nome identico, suffisso piu' lungo dopo un trattino
     basso, nome senza separatore (non abbinato), nome con due MD5 diversi
     (ambiguo, quindi nessun MD5), forma binaria di ``md5sum``, righe non valide
@@ -469,6 +469,16 @@ def test_senza_md5_pubblicato_si_verifica_la_dimensione_e_l_elenco_ha_lo_sha256(
         dati = (cartella / voce["file"]).read_bytes()
         assert voce["sha256"] == hashlib.sha256(dati).hexdigest()
         assert voce["md5_pubblicato"] == voce["elenco_md5"] == ""
+
+    # Un file rimasto a meta' per un guasto di rete non entra nell'elenco.
+    monkeypatch.setattr(scarica_osdr, "TENTATIVI", 1)
+    guasto = _studio_appaiato()
+    guasto.interrompi["S1_R1_001.fastq.gz"] = 3
+    esito, _ = _lancia(guasto, tmp_path / "guasto")
+    assert esito == scarica_osdr.USCITA_GUASTO
+    assert (tmp_path / "guasto" / "letture" / "S1_R1_001.fastq.gz.parziale").is_file()
+    assert "letture/S1_R1_001.fastq.gz" not in [v["file"] for v in _impronte(tmp_path / "guasto")]
+    assert len(_impronte(tmp_path / "guasto")) == 6
 
     pubblicati = {"ERX1_raw.fastq.gz": ("1" * 32, "e1.txt"),
                   "X_ERX1_raw.fastq.gz": ("2" * 32, "e1.txt"),

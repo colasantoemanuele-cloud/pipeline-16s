@@ -85,7 +85,8 @@ li legge e, per ogni file che vi compare:
 Per i file che nessun elenco nomina (o nominati con due MD5 diversi) resta la verifica della
 dimensione, e lo script dice per quanti. L'MD5 di ENA non si usa: GeneLab ricomprime i file,
 che hanno dimensione e MD5 diversi da quelli di ENA. In ogni caso lo script scrive
-`CARTELLA/impronte.tsv`: per ogni file presente (l'archivio ISA-Tab e le letture) il percorso
+`CARTELLA/impronte.tsv`: per ogni file completo (l'archivio ISA-Tab e le letture; non un file
+rimasto a metà per un guasto) il percorso
 relativo a `CARTELLA`, i byte, l'SHA-256 calcolato e, se pubblicato, l'MD5 con l'elenco che lo
 dichiara. Serve a verificare i file in seguito, senza l'archivio; `init` e la pipeline non
 lo leggono (guardano solo i file di letture):
