@@ -20,7 +20,8 @@
 #        alfa/alfa_diversita.tsv, alfa/profondita.tsv
 #   3. composizione al rango dichiarato (lib/composizione.R)
 #        composizione/abbondanze_relative.tsv
-#        composizione/gruppi_NN_<variabile>.tsv e .png
+#        composizione/gruppi_NN_<variabile>.tsv e .png, per le variabili
+#        di comp.group_by o, senza, per quelle del disegno
 #   4. distanze fra campioni (lib/beta.R)
 #        beta/distanza_<metodo>.tsv
 #   5. ordinazioni, con almeno quattro campioni (lib/ordinazione.R)

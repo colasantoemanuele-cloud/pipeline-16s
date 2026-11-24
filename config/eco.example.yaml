@@ -127,6 +127,13 @@ comp:
   # [OBBLIGATORIO] Numero di taxa mostrati nei grafici; i rimanenti in «altri».
   # top_n:
 
+  # [FACOLTATIVO] Colonne o gruppi derivati per cui disegnare le barre della
+  # composizione (abbondanza relativa media per gruppo, dopo phyloseq::tax_glom
+  # al rango, con i non assegnati in una voce propria). Vuoto: le variabili del
+  # disegno. Cosi' si ha la composizione per un'altra colonna, o per un gruppo
+  # derivato, senza cambiare la variabile dei test.
+  # group_by: []
+
 beta:
   # [OBBLIGATORIO] Distanze da calcolare, fra: bray, jaccard, aitchison,
   # unifrac_weighted, unifrac_unweighted. Le due UniFrac richiedono un albero

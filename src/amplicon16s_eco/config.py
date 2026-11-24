@@ -158,6 +158,7 @@ FACOLTATIVI: Final[tuple[str, ...]] = (
     "design.groupings",
     "filter.min_relative_abundance",
     "ord.color_by",
+    "comp.group_by",
     "stat.permanova_strata",
 )
 
@@ -171,6 +172,7 @@ ASSENTI_SE_NON_DICHIARATI: Final[tuple[str, ...]] = (
     "design.subject",
     "design.groupings",
     "ord.color_by",
+    "comp.group_by",
     "filter.min_relative_abundance",
     "filter.scope",
 )
@@ -403,6 +405,18 @@ class Comp(_Gruppo):
         "Rango tassonomico a cui agglomerare, fra quelli dell'oggetto."))
     top_n: _Positivo = Field(description=(
         "Numero di taxa mostrati nei grafici; i rimanenti in «altri»."))
+    #: Variabili delle barre della composizione; vuoto: quelle del disegno.
+    group_by: tuple[_Nome, ...] = Field((), description=(
+        "Colonne o gruppi derivati per cui disegnare le barre della composizione (media "
+        "per gruppo). Vuoto: le variabili del disegno."))
+
+    @model_validator(mode="after")
+    def _senza_ripetizioni(self) -> "Comp":
+        """Respinge una variabile ripetuta in group_by."""
+        ripetute = sorted({v for v in self.group_by if self.group_by.count(v) > 1})
+        if ripetute:
+            raise ValueError(f"comp.group_by con valori ripetuti: {ripetute}")
+        return self
 
 
 class Beta(_Gruppo):

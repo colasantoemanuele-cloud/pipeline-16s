@@ -1,8 +1,9 @@
 # Composizione tassonomica: abbondanze relative agglomerate a un rango.
 #
 # La usa R/analisi.R (comando eco run). Scrive, nella cartella composizione/
-# delle uscite, abbondanze_relative.tsv e, per ogni variabile, una tabella e
-# un grafico gruppi_NN_<variabile>.
+# delle uscite, abbondanze_relative.tsv e, per ogni variabile della
+# composizione (comp.group_by; senza, le variabili del disegno), una tabella e
+# un grafico gruppi_NN_<variabile>, con NN la posizione nell'elenco.
 #
 # Richiede uscite.R e campioni.R. Interfaccia:
 #   agglomera(ps, campioni, rango)   conteggi per taxon del rango, con il
@@ -61,7 +62,8 @@ abbondanze_relative <- function(conteggi) {
 # Scrive le tabelle e i grafici della composizione. agglomerato e' l'esito di
 # agglomera, disegno quello di esamina, top_n il numero di taxa mostrati per
 # variabile. Passi: tabella completa delle abbondanze relative, con i taxa in
-# ordine decrescente di abbondanza media; poi, per ogni variabile con almeno un
+# ordine decrescente di abbondanza media; poi, per ogni variabile della
+# composizione (comp.group_by, o le variabili del disegno) con almeno un
 # gruppo, la media per gruppo dei primi taxa, con i rimanenti riuniti in una
 # sola voce, in una tabella e in un grafico a barre. Un taxon il cui nome si
 # ripete in lignaggi diversi e' etichettato con il lignaggio. Restituisce i
@@ -95,7 +97,7 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella) {
   ripetuti <- etichette %in% etichette[duplicated(etichette)]
   etichette[ripetuti] <- lignaggio[ripetuti]
   indice <- 0L
-  for (v in disegno$variabili) {
+  for (v in disegno$composizione) {
     indice <- indice + 1L
     gruppi <- names(v$dimensioni)
     if (!length(gruppi)) next

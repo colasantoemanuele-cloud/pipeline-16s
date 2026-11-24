@@ -126,6 +126,9 @@ NOTE_DEI_PARAMETRI: Final[dict[str, tuple[str, ...]]] = {
     "ord.color_by": (
         "per le figure descrittive, per esempio un raggruppamento visto dopo aver "
         "guardato i dati: nessun test, e il titolo lo dice; " + _RIMANDO,),
+    "comp.group_by": (
+        "le barre della composizione per gruppo; vuoto: le variabili del disegno; "
+        + _RIMANDO,),
     "plot.palette": (
         "un nome di grDevices::hcl.pals() (\"Dark 3\" e' quella di sempre), \"Okabe-Ito\" "
         "(adatta ai daltonici), un nome di RColorBrewer (\"Set2\", \"Dark2\"...) o di "

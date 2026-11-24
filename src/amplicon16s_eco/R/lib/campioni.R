@@ -288,6 +288,7 @@ esamina <- function(ps, parametri) {
   raggruppamenti <- design$groupings
   if (is.null(raggruppamenti)) raggruppamenti <- list()
   colori <- as.character(unlist(parametri$ord$color_by))
+  per_composizione <- as.character(unlist(parametri$comp$group_by))
   del_grafico <- facoltativo(parametri, "plot", list())
 
   # --- Gruppi derivati: nuove colonne, prima di ogni altro controllo. --------
@@ -302,7 +303,7 @@ esamina <- function(ps, parametri) {
   # --- Cio' che rende impossibile ogni calcolo: ci si ferma qui. -------------
   dichiarate <- unique(c(biologiche, tecniche, names(sottoinsieme),
                          colonne_aggiuntive(parametri), continue_dichiarate,
-                         colonna_soggetto, colori))
+                         colonna_soggetto, colori, per_composizione))
   # Un gruppo derivato respinto non e' una colonna mancante: il suo rifiuto
   # c'e' gia'.
   respinti <- setdiff(names(raggruppamenti), names(derivate))
@@ -501,6 +502,13 @@ esamina <- function(ps, parametri) {
          dimensioni = gruppi_di(valori, 1L)$dimensioni)
   }
   colore <- lapply(stats::setNames(nm = colori), descrittiva)
+  # Le variabili delle barre della composizione (comp.group_by); senza, quelle
+  # del disegno.
+  composizione <- if (length(per_composizione)) {
+    lapply(stats::setNames(nm = per_composizione), descrittiva)
+  } else {
+    variabili
+  }
   tecnici <- list()
   for (nome in tecniche) {
     valori <- stats::setNames(tabella[campioni, nome], campioni)
@@ -567,6 +575,7 @@ esamina <- function(ps, parametri) {
       variabili = variabili,
       derivate = derivate,
       colore = colore,
+      composizione = composizione,
       tecnici = tecnici,
       continue = continue,
       soggetto = soggetto,

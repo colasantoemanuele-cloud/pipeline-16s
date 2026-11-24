@@ -360,3 +360,92 @@ def test_eco_init_elenca_le_colonne_e_propone_in_commento_il_gruppo_per_prefisso
     config = schema.valida(yaml.safe_load(completo))
     regola = config.design.groupings["posizione_prelievo_prefisso"]
     assert (regola.da, regola.pattern) == ("posizione_prelievo", init.PREFISSO)
+
+
+# --------------------------------------------------------------------------- #
+# 5. Composizione per gruppi scelti                                            #
+# --------------------------------------------------------------------------- #
+
+
+def test_la_composizione_si_disegna_per_le_variabili_scelte_senza_cambiare_i_test(
+    eco_r, tmp_path
+):
+    """
+    **Obiettivo**: con ``comp.group_by`` le barre della composizione sono per le
+    variabili elencate (anche un gruppo derivato), con il numero nell'ordine
+    dell'elenco, e quelle delle variabili del disegno non si disegnano; i test
+    e le altre uscite restano identici byte per byte.
+
+    **Razionale scientifico e sistemistico**: la composizione per modulo con
+    una variabile dei test diversa e' una figura, non un'analisi: non deve
+    cambiare i test.
+    """
+    oggetto = _oggetto(tmp_path)
+    modulo = {"modulo": {"from": "luogo", "pattern": "^([A-Z]+[0-9])"}}
+    senza = tmp_path / "senza"
+    esegui(oggetto, schema.valida(configurazione(design={"groupings": modulo})), senza)
+    con = tmp_path / "con"
+    esegui(oggetto, schema.valida(configurazione(design={"groupings": modulo},
+                                                 comp={"group_by": ["modulo", "luogo"]})), con)
+    prima, dopo = impronte(senza), impronte(con)
+    assert set(prima) - set(dopo) == {"composizione/gruppi_01_gruppo.tsv",
+                                      "composizione/gruppi_01_gruppo.png"}
+    assert set(dopo) - set(prima) == {f"composizione/gruppi_{n}.{e}" for n in (
+        "01_modulo", "02_luogo") for e in ("tsv", "png")}
+    for nome in ("test/alfa_diversita.tsv", "test/permanova.tsv", "campioni.tsv",
+                 "composizione/abbondanze_relative.tsv"):
+        assert prima[nome] == dopo[nome], nome
+    commenti, righe = leggi_tsv(con / "composizione" / "gruppi_01_modulo.tsv")
+    assert list(righe[0])[1:] == ["LAB1", "NOD1", "NOD2"]
+    assert any("LAB1 = 3; NOD1 = 3; NOD2 = 2" in c for c in commenti)
+    assert _codici(configurazione(comp={"group_by": ["luogo", "luogo"]})) == ["E-ECO-01"]
+
+
+def test_la_media_per_gruppo_coincide_con_tax_glom_tranne_i_non_assegnati(eco_r, tmp_path):
+    """
+    **Obiettivo**: con ``comp.rank`` Famiglia le proporzioni medie per gruppo
+    dei taxa assegnati coincidono con quelle di ``transform_sample_counts``
+    (proporzioni per campione), ``tax_glom(ps, taxrank = "Famiglia")`` e media
+    per gruppo, calcolate in R in modo indipendente; le varianti senza
+    famiglia, che ``tax_glom`` toglie (``NArm = TRUE``), restano nella voce
+    «non assegnato» e le colonne sommano a 1.
+
+    **Razionale scientifico e sistemistico**: e' il calcolo che i postdoc
+    farebbero a mano: deve dare gli stessi numeri, e la sola differenza deve
+    essere dichiarata.
+    """
+    import json
+
+    conteggi = [[20, 5, 30, 10], [10, 15, 0, 25], [5, 5, 10, 5], [15, 25, 10, 10], [0, 10, 5, 0]]
+    tassonomia = {"Regno": ["B"] * 5, "Famiglia": ["F1", "F1", "F2", None, "F3"],
+                  "Genere": ["G1", "G2", "G3", None, None]}
+    cartella = tmp_path / "dati"
+    cartella.mkdir()
+    oggetto = costruisci(cartella, conteggi, {"gruppo": ["a", "a", "b", "b"]}, tassonomia)
+    uscita = tmp_path / "uscita"
+    esegui(oggetto, schema.valida(configurazione(comp={"rank": "Famiglia", "top_n": 10})), uscita)
+    _, righe = leggi_tsv(uscita / "composizione" / "gruppi_01_gruppo.tsv")
+    nostre = {r["taxon"]: (float(r["a"]), float(r["b"])) for r in righe}
+
+    script = tmp_path / "glom.R"
+    atteso = tmp_path / "atteso.json"
+    script.write_text(f"""
+ps <- readRDS("{oggetto}")
+rel <- phyloseq::transform_sample_counts(ps, function(x) x / sum(x))
+fam <- phyloseq::tax_glom(rel, taxrank = "Famiglia")
+m <- methods::as(phyloseq::otu_table(fam), "matrix")
+nomi <- as.character(phyloseq::tax_table(fam)[rownames(m), "Famiglia"])
+g <- phyloseq::sample_data(ps)$gruppo
+media <- sapply(c("a", "b"), function(x) rowMeans(m[, g == x, drop = FALSE]))
+rownames(media) <- nomi
+jsonlite::write_json(as.list(as.data.frame(t(media))), "{atteso}", digits = NA)
+""", encoding="utf-8")
+    esegui_rscript(script)
+    di_tax_glom = json.loads(atteso.read_text(encoding="utf-8"))
+    assert set(di_tax_glom) == {"F1", "F2", "F3"}
+    for famiglia, valori in di_tax_glom.items():
+        assert nostre[famiglia] == pytest.approx(tuple(valori), abs=1e-9), famiglia
+    # La variante senza famiglia: 10/50, 25/60 nel gruppo a; 5/55, 10/50 nel b.
+    assert nostre["non assegnato"] == pytest.approx(
+        ((15 / 50 + 25 / 60) / 2, (10 / 55 + 10 / 50) / 2), abs=1e-9)
+    assert nostre["altri"] == pytest.approx((0.0, 0.0), abs=1e-9)
