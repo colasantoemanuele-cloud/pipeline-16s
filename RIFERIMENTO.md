@@ -42,6 +42,8 @@ lanciano dalla radice di un clone del repository.
   - [4.2 Misure ripetute](#42-misure-ripetute)
   - [4.3 Uscite](#43-uscite)
   - [4.4 Parametri con un predefinito](#44-parametri-con-un-predefinito)
+  - [4.5 Gruppi derivati, colori e palette](#45-gruppi-derivati-colori-e-palette)
+  - [4.6 Ordinazione vincolata](#46-ordinazione-vincolata)
 - [5. Integrazione con altri programmi](#5-integrazione-con-altri-programmi)
   - [5.1 `schema`](#51-schema)
   - [5.2 `validate --json`](#52-validate---json)
@@ -859,6 +861,21 @@ uno:
 - **Gruppi delle colonne candidate.** Per ogni colonna candidata a variabile biologica
   (fino a otto gruppi), i gruppi con il numero dei campioni: servono a scegliere
   `design.variable` e `stat.min_group_size`.
+- **Colonne per i gruppi.** Sopra il gruppo `design` il file elenca le colonne
+  selezionabili come gruppi (in `design.variable`, `design.other_variables`,
+  `ord.color_by`, `comp.group_by`, `comp.facet_wrap`, `comp.facet_grid` e come `from` di un
+  gruppo derivato): per ciascuna il numero di gruppi, quanti hanno almeno 2, 5 e 10
+  campioni (i valori di `stat.min_group_size` di solito considerati) e, se i gruppi sono al
+  massimo otto, i valori con i loro campioni. Le colonne non selezionabili sono elencate
+  con il motivo: identificano il campione o ne dicono la classe, sono tecniche, hanno un
+  solo valore o nessuno, sono continue, hanno tutti i valori diversi. Le colonne che la
+  pipeline ha derivato da una regola (il modulo, con `meta.derive_module` e
+  `meta.module_regex`) sono indicate come tali, con la regola letta da
+  `10_phyloseq/colonne_metadati.tsv` (verificato sul manifesto di S10) e da
+  `00_config/resolved.yaml` dell'esecuzione. Per una colonna con molti valori il cui
+  prefisso li divide in pochi gruppi ripetuti, `design.groupings` porta in commento la
+  proposta di un gruppo derivato con i gruppi e i campioni che produrrebbe (sezione 4.5):
+  non e' mai attivata da sola, nemmeno con `--accetta-proposte`.
 - **Variabili confuse.** Fra le colonne candidate a variabile biologica `eco init`
   segnala: due colonne che dividono i campioni negli stessi gruppi (la stessa variabile);
   una colonna i cui gruppi cadono ciascuno in un solo gruppo dell'altra (confuse); e il
@@ -879,16 +896,23 @@ il riepilogo lo dichiara. Le righe della configurazione:
   variabile lo studio confronta lo sa chi lo conduce; senza candidate i test fra gruppi
   non si potranno eseguire); `design.technical_variables`, piastra e corsa se hanno più
   di un valore, dalla più grossolana alla più annidata; `comp.rank`, il rango più fine con almeno
-  metà delle varianti assegnate; `beta.unifrac_root: existing` se l'albero è radicato;
+  metà delle varianti assegnate (la nota elenca tutti i ranghi con la quota assegnata: si
+  può scegliere qualunque rango, o un elenco); `alpha.method: rarefy`, con la nota delle
+  due strade (sotto); `beta.unifrac_root: existing` se l'albero è radicato;
   `design.continuous_variables`, le colonne che sembrano misure (valori tutti numerici,
   almeno dieci distinti, distinti in almeno quattro quinti dei campioni);
 - **da scegliere**: distanze (`beta.distances`), metodi e distanze dell'ordinazione
   (`ord.methods`, `ord.distances`), seme (`run.seed`), numero di taxa nei grafici
   (`comp.top_n`), dimensione minima dei gruppi (`stat.min_group_size`), livello di
   significatività (`stat.significance_level`), pseudoconteggio della distanza di
-  Aitchison (`beta.clr_pseudocount`, solo con quella distanza). Hanno un valore di
-  partenza solo `ord.nmds_trymax` (20, `vegan::metaMDS`) e `ord.pcoa_correction`
-  (`none`, `ape::pcoa`).
+  Aitchison (`beta.clr_pseudocount`, solo con quella distanza), perplessità del t-SNE
+  (`ord.tsne_perplexity`, solo con `tsne`, con il massimo che i campioni permettono),
+  frazione dei gradi di libertà del modello vincolato (`constrained.max_df_fraction`,
+  solo con `constrained.method`). Hanno un valore di partenza solo `ord.nmds_trymax` (20,
+  `vegan::metaMDS`) e `ord.pcoa_correction` (`none`, `ape::pcoa`). La nota di
+  `beta.distances` dice in una riga che cosa misura ogni distanza: Bray-Curtis le
+  abbondanze, Jaccard presenza e assenza, Aitchison i log-rapporti, UniFrac pesato e non
+  pesato (con l'albero) la parentela filogenetica, con e senza abbondanze.
 
 **Togliere campioni dalle analisi.** `design.subset` (facoltativo) dichiara, per una o più
 colonne dell'oggetto, i valori dei campioni da tenere; si applica prima di tutto il
@@ -902,8 +926,66 @@ design:
   subset: {"factor_value_trattamento": ["Trattato", "Non trattato"]}
 ```
 
+**Alfa diversità: due strade.** `alpha.method` è obbligatorio. Con `rarefy` gli indici si
+calcolano su conteggi rarefatti senza reinserimento, alla profondità `alpha.rarefy_depth`
+(nulla: quella del campione più povero); con `alpha.rarefy_iterations` maggiore di 1 la
+rarefazione si ripete, dallo stesso seme, e ogni indice è la media sulle ripetizioni
+(`alfa/alfa_per_rarefazione.tsv` riporta ogni rarefazione; `conteggi_rarefatti.tsv` la
+prima). Con `none` gli indici si calcolano sui conteggi non rarefatti, dopo l'eventuale
+filtro, e `alfa/profondita.tsv` riporta la correlazione di Spearman fra le letture di ogni
+campione e ciascun indice: con p sotto `stat.significance_level` l'indice dipende dalla
+profondità di sequenziamento e i confronti fra gruppi possono rifletterla (avviso
+`E-ECO-39`). La rarefazione serve alla sola alfa diversità: composizione e distanze usano
+sempre i conteggi non rarefatti. Gli indici sono ricchezza osservata, Shannon,
+Gini-Simpson e Chao1 corretto per il bias (`vegan::estimateR`, `S.chao1`): dada2 non
+inferisce varianti con una sola lettura, quindi sui conteggi della pipeline Chao1 coincide
+con la ricchezza osservata e, dopo una rarefazione, i singleton nascono dal
+sottocampionamento. Prima del calcolo lo strumento conta i singleton dei conteggi di
+partenza; se non ce ne sono lo dice con l'avviso `E-ECO-36`, anche nell'intestazione di
+`alfa/alfa_diversita.tsv`. Il perché, con la letteratura: RAZIONALE.md, 4.2.
+
+**Filtro delle varianti rare.** `filter.min_relative_abundance` (facoltativo, in
+percentuale: `0.1` è lo 0,1%) toglie le varianti rare dopo `design.subset` e prima di ogni
+analisi (alfa, composizione, distanze, ordinazioni, test, metodo vincolato).
+`filter.scope` dice su che cosa si misura la soglia: `sample` azzera in ogni campione le
+varianti sotto la soglia delle sue letture; `total` toglie da tutti i campioni le varianti
+la cui somma è sotto la soglia delle letture totali dei campioni analizzati (Bokulich et
+al. 2013 propongono lo 0,005%, per le OTU); `mean` toglie le varianti la cui abbondanza
+relativa media fra i campioni è sotto la soglia. Una variante esattamente alla soglia
+resta. Le varianti toccate sono in `filtro/varianti_filtrate.tsv`, le letture tolte per
+campione nella colonna `letture_tolte_dal_filtro` di `campioni.tsv`, e ogni tabella dichiara
+il filtro nell'intestazione. Un campione che resta senza letture esce da tutte le analisi
+(`E-ECO-37`); con meno di due campioni rimasti il filtro è respinto (`E-ECO-38`).
+
+**Rango dei grafici e livello dei calcoli.** `comp.rank` è il rango delle tabelle e dei
+grafici della composizione: qualunque rango dell'oggetto, oppure un elenco di ranghi
+(`[Family, Genus]`), ciascuno nella sua sottocartella `composizione/<rango>/`; con un rango
+solo i file restano in `composizione/`. `run.analysis_rank` (facoltativo, nullo: le
+varianti) è il livello dei calcoli: con un rango, alfa diversità, distanze, ordinazioni,
+test e metodo vincolato lavorano sui taxa agglomerati con
+`phyloseq::tax_glom(taxrank = <rango>, NArm = FALSE)`, prima del filtro. Con `NArm =
+FALSE` le varianti senza nome al rango restano separate secondo il loro lignaggio ai
+ranghi superiori; `tax_glom` pota anche l'albero, e UniFrac usa l'albero potato. Ogni
+tabella lo dichiara nell'intestazione, e `riepilogo.json` in `livello_dei_calcoli`.
+Nessun rango di `comp.rank` può essere più fine di `run.analysis_rank` (`E-ECO-07`).
+`comp.group_by` sceglie le variabili delle barre della composizione (vuoto: quelle del
+disegno); `comp.facet_wrap` e `comp.facet_grid` aggiungono i grafici a pannelli (sezione
+4.3).
+
+**Ordinazioni.** `ord.methods` ammette `pcoa`, `nmds` e `tsne`. Il t-SNE (`Rtsne::Rtsne`
+sulla matrice di distanza: `is_distance = TRUE`, `pca = FALSE`, `dims = 2`,
+`num_threads = 1`) chiede `ord.tsne_perplexity`, senza predefinito: Rtsne richiede `3 *
+perplessità <= campioni - 1`, contando i campioni dopo `design.subset` e il filtro, e
+`validate` respinge un valore che non lo rispetta (`E-ECO-42`). `ord.tsne_max_iter` (1000) e
+`ord.tsne_theta` (0,5; `0` per il t-SNE esatto) hanno i predefiniti di Rtsne. La
+disposizione iniziale si estrae dal seme (`fissa_seme`): due esecuzioni danno gli stessi
+byte. Nel t-SNE le distanze fra gruppi lontani e le dimensioni dei gruppi non hanno
+significato: è una figura descrittiva, e i test restano la PERMANOVA. `ord.color_by`
+aggiunge ordinazioni colorate per colonne o gruppi derivati senza alcun test (sezione 4.5).
+
 Con `--accetta-proposte` le proposte sono righe attive (la variabile biologica, le
-variabili tecniche, il rango, le variabili continue). Fanno eccezione i parametri che servono solo con un
+variabili tecniche, il rango, le variabili continue, `alpha.method`). La proposta di un
+gruppo derivato resta in commento. Fanno eccezione i parametri che servono solo con un
 metodo (`beta.unifrac_root`, `ord.pcoa_correction`, `ord.nmds_trymax`), i soli ad
 avere un valore proposto o di partenza oltre a quelli: restano in commento con il loro
 valore, perché dichiarati senza quel metodo sono respinti, e quali distanze e quali
@@ -940,7 +1022,12 @@ compilare, con gli stessi parametri; esempi completi e commentati sono
   conteggio prima del logaritmo, perché gli zeri non hanno logaritmo; 1 è la scelta più
   diffusa. Un valore più piccolo rende gli zeri più estremi nel log-rapporto: nella
   distanza pesano allora di più gli zeri e le varianti con pochi conteggi;
-- `run.seed`: un intero qualunque, che fissa rarefazione e permutazioni.
+- `run.seed`: un intero qualunque, che fissa rarefazione e permutazioni;
+- `alpha.method`: `rarefy` o `none` (sopra);
+- `ord.tsne_perplexity`, solo con `tsne`: circa il numero di vicini efficaci di ogni
+  campione; nella pratica da 5 a 50, entro il limite che `eco init` calcola dai campioni;
+- `constrained.max_df_fraction`, solo con l'ordinazione vincolata (sezione 4.6): la frazione
+  dei campioni oltre la quale i gradi di libertà del modello danno un avviso.
 
 Completate le scelte:
 
@@ -1056,26 +1143,36 @@ file, byte per byte, e lo stesso digest.
 La cartella di uscita deve essere assente o vuota e fuori dalla cartella dell'oggetto.
 A parità di oggetto, configurazione e seme i file sono identici byte per byte. Nei nomi
 `NN` è la posizione della variabile nella configurazione (01 per `design.variable`), e
-`<distanza>` è uno dei nomi di `beta.distances`. Il perché di ogni analisi, e come si
+`<distanza>` è uno dei nomi di `beta.distances`. Con più ranghi in `comp.rank` i file di
+`composizione/` stanno in `composizione/<rango>/`. Il perché di ogni analisi, e come si
 legge, è in [RAZIONALE.md](RAZIONALE.md), sezione 4.
 
 | Cartella | File | Che cosa contiene |
 |---|---|---|
-| (radice) | `campioni.tsv` | ogni campione dell'oggetto: in quali analisi entra e, se è escluso, il motivo |
+| (radice) | `campioni.tsv` | ogni campione dell'oggetto: in quali analisi entra e, se è escluso, il motivo; con il filtro le letture tolte (`letture_tolte_dal_filtro`), con l'ordinazione vincolata lo stato nel modello (`vincolata`), con i gruppi derivati il gruppo di ogni campione |
 | (radice) | `configurazione.json` | la configurazione usata, con il suo digest |
-| (radice) | `riepilogo.json` | la sintesi: campioni, profondità di rarefazione, stress delle NMDS, e gli avvisi `E-ECO-` con il loro dettaglio |
+| (radice) | `riepilogo.json` | la sintesi: campioni, profondità di rarefazione (o `metodo: none`), filtro, livello dei calcoli, gruppi derivati, stress delle NMDS e costo dei t-SNE, ordinazione vincolata, e gli avvisi `E-ECO-` con il loro dettaglio |
 | (radice) | `manifest.json` | dimensione e SHA-256 di ogni altro file |
-| `alfa/` | `alfa_diversita.tsv` | per campione: ricchezza osservata, Shannon, Gini-Simpson, sui conteggi rarefatti |
-| `alfa/` | `conteggi_rarefatti.tsv` | la tabella dei conteggi dopo la rarefazione |
+| `filtro/` | `varianti_filtrate.tsv` | con il filtro di abbondanza: le varianti a cui ha tolto letture, con le letture prima e tolte, in quanti campioni, e se la variante è uscita da tutti |
+| `alfa/` | `alfa_diversita.tsv` | per campione: ricchezza osservata, Shannon, Gini-Simpson, Chao1, sui conteggi rarefatti (o non rarefatti con `alpha.method: none`); senza singleton l'intestazione porta l'avviso `E-ECO-36` |
+| `alfa/` | `conteggi_rarefatti.tsv` | la tabella dei conteggi dopo la rarefazione (la prima, con più rarefazioni) |
+| `alfa/` | `alfa_per_rarefazione.tsv` | con `alpha.rarefy_iterations` maggiore di 1: gli indici di ogni rarefazione, per campione |
+| `alfa/` | `profondita.tsv` | con `alpha.method: none`: la correlazione di Spearman fra le letture e ciascun indice, e se l'indice dipende dalla profondità (`E-ECO-39`) |
 | `alfa/` | `gruppi_NN_<variabile>.png` | gli indici per gruppo, solo se il confronto si esegue |
 | `alfa/` | `continua_NN_<variabile>.png` | gli indici contro una variabile continua (sezione 4.1) |
 | `composizione/` | `abbondanze_relative.tsv` | le proporzioni di ogni taxon del rango `comp.rank`, per campione, con la categoria dei non assegnati |
-| `composizione/` | `gruppi_NN_<variabile>.tsv`, `.png` | le proporzioni medie per gruppo, e il grafico con i `comp.top_n` taxa più abbondanti |
+| `composizione/` | `gruppi_NN_<variabile>.tsv`, `.png` | le proporzioni medie per gruppo, e il grafico con i `comp.top_n` taxa più abbondanti; per le variabili di `comp.group_by` (NN è la posizione nell'elenco) o, senza, per quelle del disegno |
+| `composizione/` | `pannelli_<colonna>.tsv`, `.png` | con `comp.facet_wrap`: barre per campione, un pannello per gruppo, e la tabella dei valori disegnati |
+| `composizione/` | `griglia_<righe>_<colonne>.tsv`, `.png` | con `comp.facet_grid`: barre medie per gruppo di `design.variable` in una griglia di pannelli, con il numero di campioni di ogni pannello, e la tabella dei valori disegnati |
 | `beta/` | `distanza_<distanza>.tsv` | la matrice delle distanze fra i campioni |
 | `ordinazione/` | `pcoa_<distanza>_coordinate.tsv`, `pcoa_<distanza>_autovalori.tsv` | le coordinate dei campioni e la quota di variabilità di ogni asse |
 | `ordinazione/` | `nmds_<distanza>_coordinate.tsv` | le coordinate dei campioni; lo stress è nell'intestazione |
+| `ordinazione/` | `tsne_<distanza>_coordinate.tsv` | le coordinate del t-SNE; perplessità, iterazioni, theta, seme e costo finale nell'intestazione |
 | `ordinazione/` | `<metodo>_<distanza>_NN_<variabile>.png` | i campioni sui primi due assi, colorati per gruppo |
-| `test/` | `alfa_diversita.tsv` | Wilcoxon o Kruskal-Wallis sugli indici, per variabile, con la p corretta |
+| `ordinazione/` | `<metodo>_<distanza>_colore_NN_<colonna>.png` | con `ord.color_by`: le stesse ordinazioni colorate per una colonna o un gruppo derivato, descrittive, senza test (NN è la posizione in `ord.color_by`) |
+| `vincolata/` | `varianza.tsv`, `test.tsv` | con `constrained.method` (sezione 4.6): inerzia condizionata, vincolata e non vincolata, quota vincolata, R² e R² corretto per ogni modello; i test per permutazione del modello e dei termini |
+| `vincolata/` | `<modello>_coordinate.tsv`, `<modello>_NN_<variabile>.png` | i punteggi dei campioni sui primi due assi e il triplot per ogni variabile del disegno, con i centroidi delle variabili categoriche e le frecce delle continue; `<modello>` è `rda_<trasformazione>` o `dbrda_<distanza>` |
+| `test/` | `alfa_diversita.tsv` | Wilcoxon o Kruskal-Wallis sui quattro indici, per variabile, con la p corretta sulla famiglia di tutti gli indici e i confronti |
 | `test/` | `permanova.tsv` | la PERMANOVA per variabile e distanza, con accanto il test delle dispersioni |
 | `test/` | `alfa_continua.tsv`, `permanova_continua.tsv` | con le variabili continue (sezione 4.1) |
 | `test/` | `alfa_appaiata.tsv`, `permanova_appaiata.tsv`, `soggetti.tsv` | con le misure ripetute (sezione 4.2) |
@@ -1087,6 +1184,23 @@ Nelle tabelle dei test vale la p corretta (Benjamini-Hochberg), non quella grezz
 nella riga di una PERMANOVA il test delle dispersioni è significativo, la differenza fra
 i gruppi può essere di variabilità e non di composizione.
 
+Con `run.analysis_rank` o con il filtro di abbondanza ogni tabella aggiunge alla sua
+intestazione il livello dei calcoli e il filtro applicato. I codici introdotti con le
+migliorie:
+
+| Codice | Specie | Quando |
+|---|---|---|
+| `E-ECO-36` | avviso | i conteggi di partenza non hanno singleton: Chao1 non stima la ricchezza non osservata |
+| `E-ECO-37` | avviso | un campione resta senza letture dopo il filtro di abbondanza ed esce da tutte le analisi |
+| `E-ECO-38` | rifiuto | dopo il filtro di abbondanza restano meno di due campioni |
+| `E-ECO-39` | avviso | con `alpha.method: none`, un indice dipende dalla profondità di sequenziamento |
+| `E-ECO-40` | rifiuto | un gruppo derivato non è valido (sezione 4.5) |
+| `E-ECO-41` | rifiuto | la palette non è riconosciuta |
+| `E-ECO-42` | rifiuto | la perplessità del t-SNE è troppo alta per i campioni |
+| `E-ECO-43` | rifiuto | l'ordinazione vincolata non è coerente con il disegno (sezione 4.6) |
+| `E-ECO-44` | avviso | il modello vincolato usa più gradi di libertà di `constrained.max_df_fraction` dei campioni |
+| `E-ECO-45` | avviso | un termine dell'ordinazione vincolata esce (un solo valore), o un modello non si stima |
+
 ### 4.4 Parametri con un predefinito
 
 I parametri delle analisi ecologiche che si possono omettere. Gli altri sono
@@ -1095,23 +1209,148 @@ con il metodo che li richiede e sono respinti senza.
 
 | Parametro | Predefinito | Fonte o motivo | Effetto |
 |---|---|---|---|
-| `alpha.rarefy_depth` | nullo | `phyloseq::rarefy_even_depth`, `sample.size = min(sample_sums(physeq))` | nullo: si rarefà alla profondità del campione più povero fra quelli analizzati. Dichiarata, i campioni con meno letture escono dall'alfa diversità |
-| `stat.permanova_permutations` | 999 | `vegan::adonis2`, `permutations = 999` | le permutazioni della PERMANOVA e del test delle dispersioni: fissano la p più piccola ottenibile (0,001 con 999) |
+| `stat.permanova_permutations` | 999 | `vegan::adonis2`, `permutations = 999` | le permutazioni della PERMANOVA, del test delle dispersioni e dei test dell'ordinazione vincolata: fissano la p più piccola ottenibile (0,001 con 999) |
+| `plot.palette` | `"Dark 3"` | `grDevices::hcl.colors(n, palette = "Dark 3")`: la palette con cui lo strumento ha sempre colorato i gruppi | la palette di tutti i grafici (sezione 4.5) |
 | `stat.permanova_strata` | nullo | facoltativo: nessuno strato | la colonna entro i cui valori si permuta, nella PERMANOVA e nel test delle dispersioni; non entra nell'analisi entro soggetto (sezione 4.2) |
 | `design.other_variables` | `[]` | facoltativo: nessuna | altre variabili categoriche, analizzate una alla volta come `design.variable` |
 | `design.technical_variables` | `[]` | facoltativo: nessuna | le variabili tecniche (piastra, corsa), primi termini della PERMANOVA nell'ordine dichiarato, prima la più grossolana |
 | `design.subset` | `{}` | facoltativo: tutti i campioni | per ogni colonna i valori dei campioni da tenere; si applica prima di tutto il resto |
 | `design.continuous_variables` | `[]` | facoltativo: nessuna | le variabili continue (sezione 4.1) |
 | `design.subject` | nullo | facoltativo: campioni indipendenti | la colonna del soggetto in un disegno a misure ripetute (sezione 4.2) |
+| `design.groupings` | `{}` | facoltativo: nessuno | i gruppi derivati, nuove variabili categoriche ricavate da una colonna (sezione 4.5) |
+| `filter.min_relative_abundance` | nullo | facoltativo: nessun filtro | la soglia, in percentuale, del filtro delle varianti rare (sopra, «Filtro delle varianti rare») |
+| `run.analysis_rank` | nullo | facoltativo: le varianti | il rango dei calcoli (sopra, «Rango dei grafici e livello dei calcoli») |
+| `comp.group_by` | `[]` | facoltativo: le variabili del disegno | le variabili delle barre della composizione |
+| `comp.facet_wrap` | nullo | facoltativo: nessun grafico | barre per campione, un pannello per gruppo della colonna (`ggplot2::facet_wrap`) |
+| `comp.facet_grid` | nullo | facoltativo: nessun grafico | `{rows: <colonna>, cols: <colonna>}`: barre medie per gruppo di `design.variable` in una griglia (`ggplot2::facet_grid`) |
+| `ord.color_by` | `[]` | facoltativo: nessun grafico | ordinazioni colorate per colonne o gruppi derivati, senza test (sezione 4.5) |
+| `constrained.method` | nullo | facoltativo: nessuna ordinazione vincolata | `rda` o `dbrda` (sezione 4.6) |
+| `constrained.conditions` | `[]` | facoltativo: nessuna | le variabili tolte prima nel modello vincolato (`Condition()`); solo con un metodo |
 
-I quattro condizionali:
+I condizionali. Quelli con un predefinito lo hanno solo quando il metodo è richiesto, e
+si possono allora omettere; dichiarati senza il metodo sono respinti come gli altri.
 
 | Parametro | Richiesto con | Valori | Effetto |
 |---|---|---|---|
-| `beta.clr_pseudocount` | la distanza `aitchison` | un numero maggiore di zero; nessuna partenza (1 è la scelta più diffusa) | il valore sommato a ogni conteggio prima del log-rapporto |
+| `alpha.rarefy_depth` | `alpha.method: rarefy` | predefinito nullo (`phyloseq::rarefy_even_depth`, `sample.size = min(sample_sums(physeq))`) o un intero positivo | nullo: si rarefà alla profondità del campione più povero fra quelli analizzati. Dichiarata, i campioni con meno letture escono dall'alfa diversità |
+| `alpha.rarefy_iterations` | `alpha.method: rarefy` | predefinito 1 (una rarefazione, `phyloseq::rarefy_even_depth`) o un intero positivo | con più di una, ogni indice è la media sulle rarefazioni, tutte dallo stesso seme |
+| `filter.scope` | `filter.min_relative_abundance` | `sample`, `total`, `mean`; nessuna partenza | su che cosa si misura la soglia del filtro |
+| `ord.tsne_perplexity` | il metodo `tsne` | un numero positivo, con `3 * perplessità <= campioni - 1`; nessuna partenza | la perplessità del t-SNE |
+| `ord.tsne_max_iter` | il metodo `tsne` | predefinito 1000 (`Rtsne::Rtsne`) | le iterazioni del t-SNE |
+| `ord.tsne_theta` | il metodo `tsne` | predefinito 0,5 (`Rtsne::Rtsne`); da 0 (esatto) a 1 | il compromesso di Barnes-Hut fra velocità e precisione |
+| `constrained.variables` | `constrained.method` | variabili del disegno o gruppi derivati | le variabili esplicative |
+| `constrained.max_df_fraction` | `constrained.method` | un numero in (0, 1]; nessuna partenza | oltre questa frazione dei campioni i gradi di libertà del modello danno l'avviso `E-ECO-44` |
+| `constrained.transform` | `constrained.method: rda` | `hellinger`, `clr` | la trasformazione dei conteggi per la RDA |
+| `constrained.distances` | `constrained.method: dbrda` | distanze di `beta.distances` | un modello di db-RDA per distanza |
+
+| Parametro | Richiesto con | Valori | Effetto |
+|---|---|---|---|
+| `beta.clr_pseudocount` | la distanza `aitchison`, oppure `constrained.transform: clr` | un numero maggiore di zero; nessuna partenza (1 è la scelta più diffusa) | il valore sommato a ogni conteggio prima del log-rapporto |
 | `beta.unifrac_root` | una delle due UniFrac | `existing` (la radice che l'albero ha già: quello della pipeline è radicato al punto medio) o `midpoint` (lo radica di nuovo al punto medio); un albero senza radice con `existing`, o senza lunghezze dei rami, è respinto | la radice da cui UniFrac misura i rami |
 | `ord.pcoa_correction` | il metodo `pcoa` | `none` (partenza, `ape::pcoa`), `cailliez`, `lingoes` | la correzione degli autovalori negativi che le distanze non euclidee danno alla PCoA |
 | `ord.nmds_trymax` | il metodo `nmds` | un intero positivo; partenza 20 (`vegan::metaMDS`) | gli avvii casuali della NMDS: se non converge l'analisi avvisa, e si può alzare |
+
+### 4.5 Gruppi derivati, colori e palette
+
+**Gruppi derivati.** `design.groupings` crea nuove variabili categoriche da una colonna,
+senza rifare la pipeline (è lo stesso principio di `meta.derive_module` e
+`meta.module_regex`). Ogni gruppo derivato ha un nome e una regola:
+
+```yaml
+design:
+  variable: modulo_da_posizione
+  groupings:
+    bagno_cucina:
+      from: <colonna>
+      groups:
+        bagno: ["<valore>", "<valore>"]
+        cucina: ["<valore>"]
+    modulo_da_posizione:
+      from: <colonna>
+      pattern: "^([A-Z]+[0-9]?)"
+```
+
+Con `groups` ogni valore elencato va al suo gruppo; con `pattern` (un'espressione
+regolare PCRE, applicata al valore della colonna) il primo gruppo di cattura è il nome del
+gruppo. I valori che non rientrano, e quelli mancanti, restano senza gruppo (NA): il
+campione esce dalle analisi di quella variabile, con il motivo in `campioni.tsv`, e resta
+in tutte le altre. Un gruppo derivato si usa come una colonna: in `design.variable`,
+`design.other_variables`, `ord.color_by`, `comp.group_by`, `comp.facet_wrap`,
+`comp.facet_grid`, `constrained.variables` e `constrained.conditions`. `eco validate`
+stampa per ogni gruppo derivato i gruppi ottenuti con il numero di campioni, perché la
+regola si controlli prima del calcolo, e respinge con `E-ECO-40`: `from` che non è una
+colonna dell'oggetto (o è un altro gruppo derivato); `groups` e `pattern` insieme, o
+nessuno dei due; un valore di `groups` che la colonna non ha, o che sta in due gruppi; un
+`pattern` non valido o senza gruppo di cattura; un nome che è già una colonna.
+
+**La proposta di `eco init`.** Per ogni colonna selezionabile con più di otto valori,
+`eco init` prova il criterio del prefisso: l'espressione `^([A-Za-z]+[0-9]+)`, cioè le
+lettere iniziali seguite dalle cifre che le seguono (il modulo di una posizione come
+«NOD1D4» è «NOD1»). La proposta si scrive, in commento, se il prefisso copre almeno metà
+dei campioni con un valore, dà da 2 a 12 gruppi e riunisce in media almeno due valori per
+gruppo; il commento elenca i gruppi con i loro campioni e i valori che resterebbero senza
+gruppo. Non è mai attivata da `--accetta-proposte`: è una regola sui dati, e la decide chi
+conduce lo studio togliendo il commento.
+
+**Colori descrittivi.** `ord.color_by` elenca colonne o gruppi derivati per cui disegnare
+le ordinazioni (PCoA, NMDS, t-SNE) colorate, senza alcun test: il caso tipico è un
+raggruppamento scelto dopo aver guardato i dati, che non va testato sugli stessi dati. I
+grafici sono `ordinazione/<metodo>_<distanza>_colore_NN_<colonna>.png` e il titolo dice
+«descrittivo, nessun test». Non ripete le variabili del disegno, che hanno già i loro
+grafici.
+
+**Palette.** `plot.palette` sceglie i colori di tutti i grafici: un nome di
+`grDevices::hcl.pals()` (il predefinito «Dark 3» è quello di sempre), `"Okabe-Ito"`
+(`grDevices::palette.colors`, adatta ai daltonici, senza il grigio, riservato alla voce
+«altri»), un nome di RColorBrewer (per i 26 nomi che `hcl.pals()` ha anche come
+approssimazione HCL valgono i colori originali di RColorBrewer) o di viridisLite (magma,
+inferno, plasma, viridis, cividis, rocket, mako, turbo), oppure un elenco di colori
+esadecimali. Con più gruppi che colori la palette si estende per interpolazione
+(`grDevices::colorRampPalette`), come `get.pal` del pacchetto AMBER di Aldo Dale. Un nome
+sconosciuto o un colore non esadecimale è respinto con `E-ECO-41`. La palette cambia i
+soli grafici, nessuna tabella.
+
+### 4.6 Ordinazione vincolata
+
+L'ordinazione vincolata (supervisionata) cerca gli assi della sola variabilità che le
+variabili dichiarate spiegano, e ne dice la quota:
+
+```yaml
+constrained:
+  method: dbrda            # rda sui conteggi trasformati, dbrda sulle distanze
+  variables: [modulo_da_posizione]
+  conditions: [corsa, piastra]
+  distances: [bray]        # con dbrda; con rda: transform: hellinger (o clr)
+  max_df_fraction: 0.1
+```
+
+- **I metodi.** `rda`: RDA (`vegan::rda`) sui conteggi trasformati, con `transform:
+  hellinger` (radice delle proporzioni, Legendre e Gallagher 2001) o `clr` (log-rapporto
+  centrato, con `beta.clr_pseudocount`). `dbrda`: RDA basata sulle distanze
+  (`vegan::dbrda`), un modello per ogni distanza di `constrained.distances`, che devono
+  essere fra quelle di `beta.distances` (UniFrac comprese).
+- **Le variabili.** `variables` sono variabili del disegno (`design.variable`,
+  `other_variables`, `continuous_variables`) o gruppi derivati: categoriche o continue.
+  `conditions` sono tolte prima (`Condition()`), di solito le variabili tecniche. Un
+  campione senza valore in un termine del modello (o negli strati della PERMANOVA) esce,
+  con il motivo nella colonna `vincolata` di `campioni.tsv`; un termine con un solo valore
+  fra i campioni esce dal modello (`E-ECO-45`). Le regole incoerenti (una variabile fuori
+  dal disegno, ripetuta o anche condizione, una distanza non calcolata, condizioni senza
+  metodo) sono respinte con `E-ECO-43`.
+- **Il test.** `vegan::anova.cca` per il modello e per i termini (`by = "margin"`: ogni
+  variabile al netto delle altre e delle condizioni), con `stat.permanova_permutations`
+  permutazioni, gli strati di `stat.permanova_strata` e il seme.
+- **Le uscite** (cartella `vincolata/`): `varianza.tsv` (inerzia totale, condizionata,
+  vincolata, non vincolata, immaginaria per una distanza non euclidea, quota vincolata,
+  R² e R² corretto con `vegan::RsquareAdj`), `test.tsv`, le coordinate dei campioni e un
+  triplot per ogni variabile del disegno, con i centroidi dei livelli delle variabili
+  categoriche e le frecce delle continue. Con un solo asse vincolato il secondo asse è il
+  primo non vincolato.
+- **Molti livelli.** Una variabile con molti livelli (una posizione per pochi campioni)
+  usa molti gradi di libertà, e il modello si avvicina a quello saturo, che spiega tutto
+  per costruzione. `constrained.max_df_fraction`, senza predefinito, dice oltre quale
+  frazione dei campioni i gradi di libertà del modello danno l'avviso `E-ECO-44` (già in
+  `validate`); un modello saturo non si stima (`E-ECO-45`).
 
 ## 5. Integrazione con altri programmi
 

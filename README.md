@@ -213,10 +213,24 @@ Corretta la causa di un arresto, `resume` riparte da lì. Gli avvisi non fermano
 ## Analisi ecologiche di base
 
 Il pacchetto `amplicon16s_eco` lavora sull'oggetto finale, che non modifica, con una
-configurazione propria (`config/eco.example.yaml`): alfa diversità su conteggi
-rarefatti, composizione a un rango, distanze (Bray-Curtis, Jaccard, Aitchison, UniFrac
-con un albero), PCoA e NMDS, confronto fra gruppi (Wilcoxon o Kruskal-Wallis, PERMANOVA
-con il test delle dispersioni) e, se dichiarati, variabili continue (Spearman) e misure ripetute.
+configurazione propria (`config/eco.example.yaml`). Le analisi:
+
+- **alfa diversità**: ricchezza osservata, Shannon, Gini-Simpson e Chao1, su conteggi
+  rarefatti (una o più rarefazioni) o non rarefatti, con la correlazione fra letture e
+  indici;
+- **filtro delle varianti rare** per abbondanza relativa (per campione, sul totale o sulla
+  media), facoltativo, prima di ogni analisi;
+- **composizione** a uno o più ranghi, con barre per gruppo e, se chiesti, grafici a
+  pannelli (`facet_wrap`, `facet_grid`);
+- **distanze**: Bray-Curtis, Jaccard, Aitchison, UniFrac pesato e non pesato (con un albero);
+- **ordinazioni**: PCoA, NMDS e t-SNE, colorate per le variabili del disegno o, senza
+  test, per altre colonne;
+- **confronto fra gruppi**: Wilcoxon o Kruskal-Wallis, PERMANOVA con il test delle
+  dispersioni;
+- **ordinazione vincolata**: RDA o db-RDA, con i test per permutazione;
+- se dichiarati: gruppi derivati da una colonna (elenco di valori o espressione regolare),
+  livello tassonomico dei calcoli, variabili continue (Spearman), misure ripetute, palette
+  dei grafici.
 
 ```bash
 docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \

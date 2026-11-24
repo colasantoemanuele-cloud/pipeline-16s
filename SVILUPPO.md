@@ -145,7 +145,7 @@ Ogni file Python e R comincia con un commento che dice che cosa fa la fase, che 
 | S13, S14, S9, report | `test_w21_finale`, `test_w23_filogenesi`, `test_w22_report`, `test_w28_calcolo` |
 | catene su sottoinsiemi | `test_catena_appaiata`, `test_catena_osd170_ridotto` |
 | `init`, `soglie`, JSON | `test_init`, `test_soglie`, `test_interfaccia_json` |
-| analisi ecologiche | `test_eco_configurazione`, `test_eco_diversita`, `test_eco_ordinazione`, `test_eco_statistica` |
+| analisi ecologiche | `test_eco_configurazione`, `test_eco_diversita`, `test_eco_ordinazione`, `test_eco_statistica`, `test_eco_filtro` (filtro, alfa senza rarefazione, rarefazione ripetuta, ranghi), `test_eco_gruppi` (gruppi derivati, colori, palette, composizione per gruppi e a pannelli, proposte di `eco init`), `test_eco_vincolata` (RDA, db-RDA, UniFrac) |
 | dati e script | `test_dati_dei_dataset`, `test_w21_dati_osd734`, `test_scarica_osdr`, `test_letture_forward`, `test_comunita_nota`, `test_confronto_genelab` |
 | ambiente, riproducibilità, dataset completo | `test_w01_w02_import`, `test_w25_immagine`, `test_w30_ambiente`, `test_w30_correzioni`, `test_w30_indipendenza`, `test_w24_riproduzione`, `test_w07_dati_reali` |
 
@@ -274,15 +274,16 @@ Una riga per file; il commento in testa a ciascuno dice il resto. I file `__init
 | `catalogo.py` | i codici `E-ECO-`: rifiuti e avvisi |
 | `esecuzione.py` | l'orchestrazione: copia dell'oggetto, validazione, calcolo, manifesto |
 | `ponte.py` | il lancio degli script R del pacchetto attraverso il ponte della pipeline |
-| `init.py` | `eco init`: proposte e avvisi dalla descrizione dell'oggetto |
+| `init.py` | `eco init`: proposte e avvisi dalla descrizione dell'oggetto; colonne selezionabili come gruppi, colonne derivate dalla pipeline, proposta di un gruppo derivato per prefisso |
 | `interfaccia.py` | i documenti JSON di `eco schema`, `eco validate --json` ed `eco status --json` |
-| `R/descrivi.R` | la descrizione dell'oggetto (colonne, ranghi, albero) per `eco init` |
+| `R/descrivi.R` | la descrizione dell'oggetto (colonne con i loro valori, ranghi, albero) per `eco init` |
 | `R/valida.R` | la validazione dell'analisi sull'oggetto, prima di ogni calcolo |
-| `R/analisi.R` | le analisi, nell'ordine: campioni, alfa, composizione, distanze, ordinazione, test |
-| `R/lib/uscite.R` | la scrittura di tabelle e grafici, identici byte per byte |
-| `R/lib/campioni.R` | lettura dell'oggetto, campioni di ogni analisi, esame delle variabili |
-| `R/lib/alfa.R`, `composizione.R`, `beta.R`, `ordinazione.R` | rarefazione e indici; agglomerazione e proporzioni; distanze; PCoA e NMDS |
-| `R/lib/test.R` | Wilcoxon e Kruskal-Wallis, PERMANOVA e test delle dispersioni |
+| `R/analisi.R` | le analisi, nell'ordine: campioni (e filtro), alfa, composizione, distanze, ordinazione, test, variabili continue, ordinazione vincolata, misure ripetute |
+| `R/lib/uscite.R` | la scrittura di tabelle e grafici, identici byte per byte; la palette dei gruppi (`plot.palette`); le righe dell'intestazione sul livello dei calcoli e sul filtro |
+| `R/lib/campioni.R` | lettura dell'oggetto, campioni di ogni analisi, esame delle variabili; gruppi derivati, livello dei calcoli (`tax_glom`), filtro di abbondanza |
+| `R/lib/alfa.R`, `composizione.R`, `beta.R`, `ordinazione.R` | rarefazione (anche ripetuta) e indici, Chao1 compreso, correlazione con la profondità; agglomerazione, proporzioni e grafici a pannelli (ggplot2); distanze; PCoA, NMDS e t-SNE |
+| `R/lib/vincolata.R` | l'ordinazione vincolata: RDA e db-RDA, test per permutazione, triplot |
+| `R/lib/test.R` | Wilcoxon e Kruskal-Wallis, PERMANOVA e test delle dispersioni; l'elenco degli indici (`INDICI`) |
 | `R/lib/continua.R`, `ripetute.R` | le variabili continue; i test entro soggetto |
 
 Il flusso di `eco run`:

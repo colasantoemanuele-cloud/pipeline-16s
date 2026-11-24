@@ -683,21 +683,32 @@ ESEMPI = sorted((RADICE / "dati").glob("*/eco_*.yaml"))
 
 #: Parametri il cui valore e' una voce di un vocabolario chiuso dello schema.
 _VOCABOLARI = ("beta.distances", "beta.unifrac_root", "ord.methods", "ord.distances",
-               "ord.pcoa_correction", "alpha.method", "filter.scope", "plot.palette")
+               "ord.pcoa_correction", "alpha.method", "filter.scope", "plot.palette",
+               "constrained.method", "constrained.transform", "constrained.distances")
 
 
 def _stringhe_dei_dataset() -> set[str]:
     """I valori testuali delle configurazioni di esempio dei dataset: nomi di
     colonna, ranghi, valori di sottoinsieme.
     """
+    from amplicon16s_eco.init import PREFISSO
+
     stringhe: set[str] = set()
+    # Le chiavi dei parametri annidati (un gruppo derivato, una griglia) sono
+    # parole dello schema, non valori del dataset; l'espressione del prefisso e'
+    # quella che eco init propone, usata di proposito dalla configurazione
+    # dimostrativa.
+    dello_schema = {campo.alias or nome for modello in (schema.Raggruppamento, schema.Griglia)
+                    for nome, campo in modello.model_fields.items()}
 
     def raccogli(valore) -> None:
         if isinstance(valore, str):
-            stringhe.add(valore)
+            if valore != PREFISSO:
+                stringhe.add(valore)
         elif isinstance(valore, dict):
             for chiave, v in valore.items():
-                stringhe.add(str(chiave))
+                if str(chiave) not in dello_schema:
+                    stringhe.add(str(chiave))
                 raccogli(v)
         elif isinstance(valore, list):
             for v in valore:

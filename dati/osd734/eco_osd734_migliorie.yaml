@@ -1,0 +1,96 @@
+# Analisi ecologiche su OSD-734 con le migliorie: configurazione dimostrativa.
+#
+# Oggetto di partenza: 12_final/ps_final.rds di un'esecuzione completa della
+# pipeline su OSD-734 (760 campioni biologici). Usa le novita' delle analisi
+# ecologiche: gruppi derivati (per espressione regolare e per elenco), filtro
+# delle varianti rare (nella seconda variante, sotto), rarefazione ripetuta,
+# Chao1, piu' ranghi, composizione a pannelli, t-SNE, UniFrac, db-RDA, colori
+# descrittivi e palette. Il significato di ogni parametro e' in
+# config/eco.example.yaml e in RIFERIMENTO.md, sezione 4.
+#
+# Le due varianti della stessa analisi si ottengono cambiando poche righe:
+#   - senza rarefazione, con il filtro allo 0,1% per campione:
+#       alpha: {method: none}
+#       filter: {min_relative_abundance: 0.1, scope: sample}
+#   - calcoli al rango di famiglia (il rango dei grafici non puo' essere piu'
+#     fine):
+#       run: {seed: 100, analysis_rank: Family}
+#       comp: {rank: [Family], ...}
+
+design:
+  # Il modulo della stazione, ricavato dalla posizione con la proposta di
+  # eco init (lettere iniziali seguite da cifre: NOD1D4 -> NOD1). Le posizioni
+  # che non sono superfici di un modulo (aria, airlock, tubi mai aperti) restano
+  # senza modulo ed escono dalle analisi di questa variabile.
+  variable: modulo
+  # Le posizioni senza modulo, divise per tipo con un elenco di valori: un
+  # confronto descrittivo fra i soli 55 campioni che non sono superfici.
+  other_variables: [fuori_modulo]
+  # Nell'oggetto completo di questa prova corsa e piastra sono vuote (la
+  # pipeline e' stata eseguita senza file del lotto): nessuna variabile tecnica.
+  technical_variables: []
+  subset: {}
+  groupings:
+    modulo:
+      from: factor_value_sample_location
+      pattern: "^([A-Za-z]+[0-9]+)"
+    fuori_modulo:
+      from: factor_value_sample_location
+      groups:
+        aria: ["Air Sample"]
+        airlock: ["A/L1A1", "A/L1D1", "A/L1F1", "A/L1O1"]
+        tubo_mai_aperto: ["Unopened 3DMM Swab Tube"]
+
+run:
+  seed: 100
+
+alpha:
+  method: rarefy
+  rarefy_depth: null
+  # Dieci rarefazioni dallo stesso seme: ogni indice e' la media.
+  rarefy_iterations: 10
+
+comp:
+  # Famiglia e genere: una sottocartella per rango.
+  rank: [Family, Genus]
+  top_n: 10
+  group_by: [modulo, fuori_modulo]
+  # Una barra per campione, un pannello per modulo.
+  facet_wrap: modulo
+
+beta:
+  distances: [bray, jaccard, aitchison, unifrac_weighted, unifrac_unweighted]
+  clr_pseudocount: 1.0
+  # L'albero della pipeline e' gia' radicato al punto medio.
+  unifrac_root: existing
+
+ord:
+  methods: [pcoa, tsne]
+  distances: [bray, jaccard, aitchison, unifrac_weighted, unifrac_unweighted]
+  pcoa_correction: cailliez
+  # Con 760 campioni il massimo che Rtsne ammette e' 253.
+  tsne_perplexity: 30
+  tsne_max_iter: 1000
+  tsne_theta: 0.5
+  # Le 102 posizioni, solo come colori: nessun test.
+  color_by: [factor_value_sample_location]
+
+stat:
+  min_group_size: 5
+  significance_level: 0.05
+  permanova_permutations: 999
+  permanova_strata: null
+
+constrained:
+  # db-RDA su Bray-Curtis con il modulo come variabile. Le condizioni
+  # previste (corsa e piastra) sono vuote in questo oggetto: nessuna.
+  method: dbrda
+  variables: [modulo]
+  distances: [bray]
+  # Il modulo usa 7 gradi di liberta' su 705 campioni; la posizione ne
+  # userebbe 101: un decimo dei campioni e' la soglia dell'avviso.
+  max_df_fraction: 0.1
+
+plot:
+  # Leggibile anche da chi non distingue rosso e verde.
+  palette: "Okabe-Ito"

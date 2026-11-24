@@ -277,6 +277,13 @@ Value[Tempo]` diventa `factor_value_tempo`). Tre righe vanno lette:
 - **«Rarefazione»**: compare se il campione più povero ha meno di un decimo delle letture della
   mediana. La riga stessa dice che cosa fare: sopra 1.000 letture di solito nulla.
 
+Sopra la riga `design:` il file elenca le **colonne selezionabili come gruppi** (con il numero di
+gruppi e quanti hanno almeno 2, 5 e 10 campioni), quelle che non lo sono con il motivo, e quelle
+che la pipeline ha derivato (il modulo) con la regola. Se i valori di una colonna hanno un
+prefisso che li riunisce in pochi gruppi (le 102 posizioni di OSD-734 negli 8 moduli), sotto
+`design:` la riga `# groupings:` porta la **proposta di un gruppo derivato**, con i gruppi che
+produrrebbe: resta in commento anche con `--accetta-proposte`, e la si usa togliendo il commento.
+
 Dopo ogni `resume` si rilanciano `report` ed `eco init` (con un altro `--output`).
 `eco validate` nomina le scelte che mancano (`E-ECO-02`) e la riga del file di ciascuna: ogni
 parametro è nel file sotto il suo gruppo (`design.variable` è `# variable:` sotto `design:`).
@@ -285,19 +292,51 @@ parametro è nel file sotto il suo gruppo (`design.variable` è `# variable:` so
 |---|---|---|
 | `design.variable` | la colonna con i gruppi da confrontare | quella della domanda dello studio, fra le colonne elencate; se manca dall'oggetto si aggiunge a `out.study_columns` in `con_soglie.yaml` e si rilanciano `resume` ed `eco init` |
 | `run.seed` | il seme di rarefazione e permutazioni | un intero qualunque, per esempio `1` |
+| `alpha.method` | l'alfa diversità su conteggi rarefatti o no | `rarefy` (proposto); `none` con un filtro delle varianti rare, controllando l'avviso `E-ECO-39` |
 | `comp.rank`, `comp.top_n` | il rango della composizione e quanti taxa distinguere nei grafici | il rango è di solito proposto (`"Genus"`); `10` |
 | `beta.distances` | le distanze fra campioni | `["bray", "jaccard"]`; con l'albero nell'oggetto anche `"unifrac_weighted"` e `"unifrac_unweighted"`, togliendo il commento a `beta.unifrac_root` |
 | `ord.methods`, `ord.distances` | le ordinazioni, e su quali distanze (è la riga `distances:` sotto `ord:`) | `["pcoa"]` e `["bray", "jaccard"]`; con `pcoa` si toglie il commento anche a `ord.pcoa_correction`, che ha già il valore |
 | `stat.min_group_size`, `stat.significance_level` | i campioni che un gruppo deve avere per entrare nei test, e il livello di significatività | `2` (`3` se ogni gruppo da confrontare ha almeno tre campioni) e `0.05` |
 | `design.subset` | facoltativo: quali campioni entrano nelle analisi | una colonna e i valori da tenere: `subset: {factor_value_tempo: ["Giorno 1", "Giorno 7"]}` |
 
+**Un esempio con i gruppi derivati, il filtro e il t-SNE.** Le righe che si aggiungono a
+`eco.yaml` per confrontare i moduli ricavati dalla posizione (con OSD-734 la colonna è
+`factor_value_sample_location`), colorare le ordinazioni per posizione senza test, filtrare le
+varianti sotto lo 0,1% di ogni campione e aggiungere il t-SNE:
+
+```yaml
+design:
+  variable: modulo                       # il gruppo derivato qui sotto
+  groupings:
+    modulo:
+      from: factor_value_sample_location
+      pattern: "^([A-Za-z]+[0-9]+)"      # la proposta di eco init: NOD1D4 -> NOD1
+filter:
+  min_relative_abundance: 0.1            # percentuale: 0,1%
+  scope: sample
+alpha:
+  method: none                           # niente rarefazione: c'e' il filtro
+ord:
+  methods: [pcoa, tsne]
+  distances: [bray]
+  pcoa_correction: none
+  tsne_perplexity: 30                    # validate controlla il limite dei campioni
+  color_by: [factor_value_sample_location]
+plot:
+  palette: "Okabe-Ito"                   # leggibile anche da chi non distingue rosso e verde
+```
+
+`eco validate` stampa i gruppi del modulo con i loro campioni: si controllano prima del calcolo.
+Un esempio completo, con più ranghi, la db-RDA e le UniFrac, è
+`dati/osd734/eco_osd734_migliorie.yaml`; ogni parametro è in RIFERIMENTO.md, 4.
+
 ```bash
 p16s eco run --object /lavoro/esecuzione/12_final/ps_final.rds --config /lavoro/eco.yaml --out /lavoro/analisi
 ```
 
 `eco run` vuole una cartella di uscita assente o vuota. In `/lavoro/analisi` scrive tabelle
-(`.tsv`) e grafici (`.png`) in `alfa`, `composizione`, `beta`, `ordinazione` e `test`, e
-`riepilogo.json`. Per leggere i risultati:
+(`.tsv`) e grafici (`.png`) in `alfa`, `composizione`, `beta`, `ordinazione` e `test` (e, se
+chiesti, `filtro` e `vincolata`), e `riepilogo.json`. Per leggere i risultati:
 
 1. gli avvisi `E-ECO-` in `riepilogo.json` (gli stessi della console) non fermano: dicono che
    cosa non si è potuto calcolare, o che cosa va letto con cautela;

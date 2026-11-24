@@ -195,6 +195,7 @@ ASSENTI_SE_NON_DICHIARATI: Final[tuple[str, ...]] = (
     "run.analysis_rank",
     "filter.min_relative_abundance",
     "filter.scope",
+    "ord.tsne_perplexity",
     "constrained.method",
     "constrained.variables",
     "constrained.conditions",
