@@ -1167,7 +1167,7 @@ legge, è in [RAZIONALE.md](RAZIONALE.md), sezione 4.
 | `beta/` | `distanza_<distanza>.tsv` | la matrice delle distanze fra i campioni |
 | `ordinazione/` | `pcoa_<distanza>_coordinate.tsv`, `pcoa_<distanza>_autovalori.tsv` | le coordinate dei campioni e la quota di variabilità di ogni asse |
 | `ordinazione/` | `nmds_<distanza>_coordinate.tsv` | le coordinate dei campioni; lo stress è nell'intestazione |
-| `ordinazione/` | `tsne_<distanza>_coordinate.tsv` | le coordinate del t-SNE; perplessità, iterazioni, theta, seme e costo finale nell'intestazione |
+| `ordinazione/` | `tsne_<distanza>_coordinate.tsv` | le coordinate del t-SNE; perplessità, iterazioni, theta, seme e costo finale nell'intestazione; perplessità, theta, iterazioni e seme anche nel sottotitolo di ogni grafico `tsne_<distanza>_*.png`, così la figura si rifà da sola |
 | `ordinazione/` | `<metodo>_<distanza>_NN_<variabile>.png` | i campioni sui primi due assi, colorati per gruppo |
 | `ordinazione/` | `<metodo>_<distanza>_colore_NN_<colonna>.png` | con `ord.color_by`: le stesse ordinazioni colorate per una colonna o un gruppo derivato, descrittive, senza test (NN è la posizione in `ord.color_by`) |
 | `vincolata/` | `varianza.tsv`, `test.tsv` | con `constrained.method` (sezione 4.6): inerzia condizionata, vincolata e non vincolata, quota vincolata, R² e R² corretto per ogni modello; i test per permutazione del modello e dei termini |

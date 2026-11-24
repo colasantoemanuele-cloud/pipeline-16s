@@ -9,6 +9,8 @@
 #   pcoa_di(matrice, correzione)     coordinate, autovalori, frazioni
 #   nmds_di(matrice, trymax, seme)   coordinate, stress, convergenza
 #   tsne_di(matrice, perplessita, iterazioni, theta, seme)   coordinate, costo
+#   sottotitolo_tsne(perplessita, theta, iterazioni, seme)   il sottotitolo
+#                                    dei grafici del t-SNE, con i parametri
 #   scrivi_ordinazioni(...)          tabelle e grafici per variabile
 #
 # Razionale sistemistico: le distanze non euclidee (Bray-Curtis, Jaccard) danno
@@ -131,22 +133,38 @@ tsne_di <- function(matrice, perplessita, iterazioni, theta, seme) {
        iterazioni = as.integer(iterazioni))
 }
 
+# Il sottotitolo dei grafici del t-SNE: i parametri con cui rifare la figura.
+sottotitolo_tsne <- function(perplessita, theta, iterazioni, seme) {
+  sprintf("perplessità %s, theta %s, %d iterazioni, seme %d (Rtsne)",
+          format(perplessita), format(theta), as.integer(iterazioni), as.integer(seme))
+}
+
 # Il grafico dei campioni sui primi due assi di un'ordinazione, colorati per
 # gruppo della variabile v; i campioni senza valore non compaiono. La legenda
 # sta a destra, in una o due colonne, oppure in un pannello sotto il grafico,
-# secondo il numero dei gruppi: l'area dei punti resta la stessa.
-.grafico_ordinazione <- function(coordinate, v, titolo, etichette, percorso) {
+# secondo il numero dei gruppi: l'area dei punti resta la stessa. Un
+# sottotitolo, se c'e', sta sotto il titolo: per il t-SNE i parametri con cui
+# rifare la figura.
+.grafico_ordinazione <- function(coordinate, v, titolo, etichette, percorso,
+                                 sottotitolo = NULL) {
   con_valore <- names(v$valori)[!is.na(v$valori)]
   gruppi <- names(v$dimensioni)
   colori <- stats::setNames(colori_gruppi(length(gruppi)), gruppi)
   voci <- sprintf("%s (n = %d)", gruppi, v$dimensioni[gruppi])
+  # Con il sottotitolo il margine alto ha una riga in piu' e il titolo sale.
+  alto <- if (is.null(sottotitolo)) 3 else 4
   punti <- function() {
+    principale <- sprintf("%s (%d campioni)", titolo, length(con_valore))
     graphics::plot(
       coordinate[con_valore, 1L], coordinate[con_valore, 2L],
       col = colori[v$valori[con_valore]], pch = 19, asp = 1,
       xlab = etichette[1L], ylab = etichette[2L],
-      main = sprintf("%s (%d campioni)", titolo, length(con_valore))
+      main = if (is.null(sottotitolo)) principale else NULL
     )
+    if (!is.null(sottotitolo)) {
+      graphics::title(main = principale, line = 2)
+      graphics::mtext(sottotitolo, side = 3, line = 0.6, cex = 0.7)
+    }
   }
   if (length(gruppi) <= SOGLIA_LEGENDA_PANNELLO) {
     # Legenda a destra, in una o due colonne: l'immagine si allarga della
@@ -154,7 +172,7 @@ tsne_di <- function(matrice, perplessita, iterazioni, theta, seme) {
     colonne <- if (length(gruppi) > SOGLIA_LEGENDA_COLONNE) 2L else 1L
     apri_png(percorso, larghezza = LARGHEZZA_GRAFICO + (colonne - 1L) * PIXEL_COLONNA_LEGENDA)
     on.exit(grDevices::dev.off(), add = TRUE)
-    graphics::par(mar = c(4.5, 4.5, 3, 4 + 11 * colonne), xpd = NA, cex = 0.7)
+    graphics::par(mar = c(4.5, 4.5, alto, 4 + 11 * colonne), xpd = NA, cex = 0.7)
     punti()
     limiti <- graphics::par("usr")
     graphics::legend(
@@ -181,7 +199,7 @@ tsne_di <- function(matrice, perplessita, iterazioni, theta, seme) {
     apri_png(percorso, altezza = ALTEZZA_GRAFICO + altezza_legenda)
     on.exit(grDevices::dev.off(), add = TRUE)
     graphics::layout(matrix(1:2, ncol = 1L), heights = c(ALTEZZA_GRAFICO, altezza_legenda))
-    graphics::par(mar = c(4.5, 4.5, 3, 2), cex = 0.7)
+    graphics::par(mar = c(4.5, 4.5, alto, 2), cex = 0.7)
     punti()
     graphics::par(mar = c(0.2, 1, 0.2, 1), cex = 0.7)
     graphics::plot.new()
@@ -213,6 +231,7 @@ scrivi_ordinazioni <- function(matrici, disegno, parametri, seme, cartella) {
     }
     for (metodo in metodi) {
       base <- paste(metodo, distanza, sep = "_")
+      sottotitolo <- NULL
       if (metodo == "pcoa") {
         o <- pcoa_di(matrice, parametri$ord$pcoa_correction)
         if (ncol(o$coordinate) < 2L) {
@@ -264,6 +283,7 @@ scrivi_ordinazioni <- function(matrici, disegno, parametri, seme, cartella) {
                   as.integer(seme), reale(o$costo)),
           "il t-SNE conserva i vicini di ogni campione, non le distanze: le distanze fra gruppi lontani e le dimensioni dei gruppi non hanno significato (van der Maaten e Hinton 2008); e' una figura descrittiva, i test restano la PERMANOVA")
         etichette <- c("t-SNE 1", "t-SNE 2")
+        sottotitolo <- sottotitolo_tsne(perplessita, theta, o$iterazioni, seme)
         riepilogo[[length(riepilogo) + 1L]] <- list(
           metodo = "tsne", distanza = distanza, perplessita = perplessita,
           iterazioni = o$iterazioni, theta = theta, costo_finale = o$costo)
@@ -308,7 +328,7 @@ scrivi_ordinazioni <- function(matrici, disegno, parametri, seme, cartella) {
         .grafico_ordinazione(coordinate, v,
                              sprintf("%s, distanza %s", NOMI_ORDINAZIONE[[metodo]],
                                      nome_distanza(distanza)),
-                             etichette, file.path(cartella, nome))
+                             etichette, file.path(cartella, nome), sottotitolo)
         prodotti <- c(prodotti, paste0("ordinazione/", nome))
       }
       # I grafici dei soli colori (ord.color_by): nessun test li accompagna, e
@@ -321,7 +341,7 @@ scrivi_ordinazioni <- function(matrici, disegno, parametri, seme, cartella) {
         .grafico_ordinazione(coordinate, v,
                              sprintf("%s, distanza %s, descrittivo, nessun test",
                                      NOMI_ORDINAZIONE[[metodo]], nome_distanza(distanza)),
-                             etichette, file.path(cartella, nome))
+                             etichette, file.path(cartella, nome), sottotitolo)
         prodotti <- c(prodotti, paste0("ordinazione/", nome))
       }
     }

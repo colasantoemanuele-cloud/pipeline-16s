@@ -16,7 +16,15 @@ import pytest
 from amplicon16s_eco import config as schema
 from amplicon16s_eco.esecuzione import esegui
 
-from eco_aiuti import RADICE, costruisci, configurazione, eco_r, genera, leggi_tsv  # noqa: F401
+from eco_aiuti import (  # noqa: F401
+    RADICE,
+    configurazione,
+    costruisci,
+    eco_r,
+    esegui_rscript,
+    genera,
+    leggi_tsv,
+)
 
 DUE_GRUPPI = [
     {"n": 10, "gruppo": "a", "sigma": 0.2},
@@ -374,11 +382,13 @@ def test_il_tsne_separa_i_gruppi_ed_e_riproducibile_byte_per_byte(eco_r, tmp_pat
     le distanze fra gruppi non hanno significato. La perplessita' manca senza
     predefinito (``E-ECO-02``), iterazioni e theta hanno quello di Rtsne e sono
     respinti senza tsne; una perplessita' troppo alta per i campioni e'
-    respinta dalla validazione con ``E-ECO-42``.
+    respinta dalla validazione con ``E-ECO-42``. Il sottotitolo dei grafici
+    riporta perplessita', theta, iterazioni e seme.
 
     **Razionale scientifico e sistemistico**: la disposizione iniziale viene dal
     seme dichiarato, e il risultato non dipende dal generatore interno; il
-    t-SNE e' una figura, e la sua intestazione lo dice.
+    t-SNE e' una figura, e la sua intestazione lo dice; chi ha solo la figura
+    deve poterla rifare.
     """
     from amplicon16s_eco.catalogo import ErroreEco
     from amplicon16s_eco.esecuzione import valida_sull_oggetto
@@ -426,3 +436,16 @@ def test_il_tsne_separa_i_gruppi_ed_e_riproducibile_byte_per_byte(eco_r, tmp_pat
             1 for x in xs for y in ys if x != y)
 
     assert media(a, b) > 2 * max(media(a, a), media(b, b))
+
+    # Il sottotitolo: i parametri dell'esecuzione, passati a ogni grafico del t-SNE.
+    libreria = RADICE / "src" / "amplicon16s_eco" / "R" / "lib"
+    script = tmp_path / "sottotitolo.R"
+    script.write_text("\n".join([
+        f'source("{libreria / "ordinazione.R"}")',
+        'atteso <- "perplessità 3, theta 0.5, 1000 iterazioni, seme 100 (Rtsne)"',
+        'stopifnot(identical(sottotitolo_tsne(3, 0.5, 1000L, 100L), atteso))',
+    ]), encoding="utf-8")
+    esegui_rscript(script)
+    ordinazione = (libreria / "ordinazione.R").read_text(encoding="utf-8")
+    assert "sottotitolo <- sottotitolo_tsne(perplessita, theta, o$iterazioni, seme)" in ordinazione
+    assert ordinazione.count("file.path(cartella, nome), sottotitolo)") == 2
