@@ -25,6 +25,20 @@
 NON_ASSEGNATO <- "non assegnato"
 ALTRI <- "altri"
 
+# La sovrapposizione fra barre vicine dei grafici per campione, in unita'
+# dell'asse x (una barra e' larga 1). Il dispositivo disegna un rettangolo dal
+# bordo sinistro e dalla larghezza: con barre larghe esattamente 1 il bordo
+# destro di una barra e il sinistro della seguente possono differire
+# nell'ultima cifra e cadere ai due lati del centro di un pixel, che nessuna
+# delle due copre: resta una riga bianca verticale, che sembra un campione
+# senza barra. Un millesimo di sovrapposizione (meno di un decimo di pixel) la
+# chiude e non si vede. Per la stessa ragione l'asse x non ha margini: con il
+# margine predefinito fra la prima e l'ultima barra e il bordo del pannello
+# resterebbe una striscia bianca. Le barre sono rettangoli impilati qui
+# (geom_rect), non geom_col: position_stack avvisa, a ragione, se gli
+# intervalli si sovrappongono.
+SOVRAPPOSIZIONE_BARRE <- 0.001
+
 # I conteggi dei campioni indicati sommati per taxon del rango. Restituisce
 # list(conteggi, lignaggio, taxon): la matrice taxa x campioni, il lignaggio di
 # ogni riga fino al rango e il nome al rango. Passi: fusione delle varianti con
@@ -71,8 +85,10 @@ abbondanze_relative <- function(conteggi) {
 # gruppo, la media per gruppo dei primi taxa, con i rimanenti riuniti in una
 # sola voce, in una tabella e in un grafico a barre. Un taxon il cui nome si
 # ripete in lignaggi diversi e' etichettato con il lignaggio. Restituisce i
-# nomi dei file, relativi alla cartella di uscita (relativa e' la cartella della
-# composizione: composizione/, o composizione/<rango>/ con piu' ranghi).
+# list(file, pannelli): i nomi dei file, relativi alla cartella di uscita
+# (relativa e' la cartella della composizione: composizione/, o
+# composizione/<rango>/ con piu' ranghi), e, con comp.facet_wrap, i numeri del
+# grafico per campione per il riepilogo (NULL senza).
 scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
                                 relativa = "composizione") {
   dir.create(cartella, showWarnings = FALSE, recursive = TRUE)
@@ -139,9 +155,12 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
                     1 - colSums(relative[primi, , drop = FALSE]))
   rownames(mostrate) <- c(etichette[primi], ALTRI)
   wrap <- disegno$pannelli_wrap
+  pannelli <- NULL
   # Una colonna senza valori fra i campioni analizzati non ha pannelli.
   if (!is.null(wrap) && length(wrap$dimensioni)) {
-    prodotti <- c(prodotti, .pannelli_per_campione(mostrate, wrap, rango, cartella, relativa))
+    pannelli <- .pannelli_per_campione(mostrate, wrap, rango, cartella, relativa)
+    prodotti <- c(prodotti, pannelli$file)
+    pannelli$file <- NULL
   }
   griglia <- disegno$pannelli_griglia
   if (!is.null(griglia) && length(Reduce(intersect, lapply(griglia, function(v) {
@@ -149,7 +168,7 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
   })))) {
     prodotti <- c(prodotti, .griglia_per_gruppo(mostrate, griglia, rango, cartella, relativa))
   }
-  prodotti
+  list(file = prodotti, pannelli = pannelli)
 }
 
 # I colori dei taxa nei grafici a pannelli, per nome: quelli delle barre per
@@ -179,13 +198,23 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
 # Barre per campione, un pannello per gruppo della colonna (facet_wrap, scale
 # libere sull'asse x): v e' la variabile descrittiva della colonna, mostrate
 # la matrice taxa x campioni dei primi taxa e di «altri». I campioni senza
-# valore non compaiono. Scrive il grafico e la tabella dei valori disegnati;
-# restituisce i nomi dei file relativi alla cartella di uscita.
+# valore non compaiono. Un campione senza abbondanze (nessuna lettura al
+# rango, quindi proporzioni non calcolabili) non e' disegnato: al suo posto non
+# resta uno spazio vuoto, e il grafico, la tabella e il riepilogo lo dicono.
+# Scrive il grafico e la tabella dei valori disegnati; restituisce
+# list(file, colonna, campioni_disegnati, campioni_senza_abbondanze).
 .pannelli_per_campione <- function(mostrate, v, rango, cartella, relativa) {
   campioni <- names(v$valori)[!is.na(v$valori)]
+  senza_abbondanze <- campioni[colSums(!is.finite(mostrate[, campioni, drop = FALSE])) > 0L]
+  campioni <- setdiff(campioni, senza_abbondanze)
   campioni <- campioni[order(v$valori[campioni], campioni, method = "radix")]
-  gruppi <- names(v$dimensioni)
-  etichetta <- stats::setNames(sprintf("%s (n = %d)", gruppi, v$dimensioni[gruppi]), gruppi)
+  dimensioni <- table(factor(unname(v$valori[campioni]), levels = names(v$dimensioni)))
+  dimensioni <- stats::setNames(as.integer(dimensioni), names(dimensioni))
+  gruppi <- names(dimensioni)[dimensioni > 0L]
+  etichetta <- stats::setNames(sprintf("%s (n = %d)", gruppi, dimensioni[gruppi]), gruppi)
+  nota_senza <- if (length(senza_abbondanze)) sprintf(
+    "campioni senza abbondanze al rango %s (nessuna lettura), non disegnati: %d (%s)",
+    rango, length(senza_abbondanze), paste(sort(senza_abbondanze), collapse = ", "))
   taxa <- rownames(mostrate)
   lunga <- data.frame(
     campione = rep(campioni, each = length(taxa)),
@@ -203,32 +232,46 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
       sprintf("primi %d taxa per abbondanza relativa media sui campioni analizzati, come nelle barre per gruppo; '%s': tutti i rimanenti",
               length(taxa) - 1L, ALTRI),
       sprintf("campioni senza valore in '%s', non disegnati: %d", v$nome, length(v$mancanti)),
-      paste0("campioni per gruppo: ", paste(sprintf("%s = %d", gruppi, v$dimensioni[gruppi]),
+      sprintf("campioni senza abbondanze al rango %s (nessuna lettura), non disegnati: %d%s",
+              rango, length(senza_abbondanze),
+              if (length(senza_abbondanze)) paste0(" (", paste(sort(senza_abbondanze), collapse = ", "), ")") else ""),
+      paste0("campioni per gruppo: ", paste(sprintf("%s = %d", gruppi, dimensioni[gruppi]),
                                              collapse = "; "))))
+  # Le barre come rettangoli: la posizione del campione nel suo pannello
+  # (1, 2, ...), la pila dal primo taxon in basso a «altri» in alto.
+  posizione <- stats::ave(seq_along(campioni), unname(v$valori[campioni]), FUN = seq_along)
+  lunga$x <- rep(posizione, each = length(taxa))
+  lunga$alto <- as.vector(apply(mostrate[, campioni, drop = FALSE], 2L, cumsum))
+  lunga$basso <- lunga$alto - lunga$abbondanza
   lunga$gruppo <- factor(etichetta[lunga$gruppo], levels = unname(etichetta))
-  lunga$campione <- factor(lunga$campione, levels = campioni)
   lunga$taxon <- factor(lunga$taxon, levels = rev(taxa))
   colonne <- ceiling(sqrt(length(gruppi)))
   righe <- ceiling(length(gruppi) / colonne)
-  dimensioni <- .dimensioni_pannelli(colonne, righe, max(v$dimensioni))
-  grafico <- ggplot2::ggplot(lunga, ggplot2::aes(x = .data$campione, y = .data$abbondanza,
+  misure <- .dimensioni_pannelli(colonne, righe, max(dimensioni))
+  mezza <- 0.5 + SOVRAPPOSIZIONE_BARRE / 2
+  grafico <- ggplot2::ggplot(lunga, ggplot2::aes(xmin = .data$x - mezza, xmax = .data$x + mezza,
+                                                  ymin = .data$basso, ymax = .data$alto,
                                                   fill = .data$taxon)) +
-    ggplot2::geom_col(width = 1) +
+    ggplot2::geom_rect() +
     ggplot2::facet_wrap(ggplot2::vars(.data$gruppo), scales = "free_x", ncol = colonne) +
     ggplot2::scale_fill_manual(values = .colori_dei_taxa(taxa),
                                breaks = taxa, name = sprintf("taxon (%s)", rango)) +
+    ggplot2::scale_x_continuous(expand = c(0, 0)) +
     ggplot2::scale_y_continuous(expand = c(0, 0), limits = c(0, 1.0001)) +
     ggplot2::labs(title = sprintf("Composizione per campione al rango %s, per %s (%d campioni)",
                                   rango, v$nome, length(campioni)),
-                  x = "campioni (una barra per campione)", y = "abbondanza relativa") +
+                  x = "campioni (una barra per campione)", y = "abbondanza relativa",
+                  caption = nota_senza) +
     .tema_pannelli() +
     ggplot2::theme(axis.text.x = ggplot2::element_blank(),
                    axis.ticks.x = ggplot2::element_blank())
-  apri_png(file.path(cartella, paste0(base, ".png")), larghezza = dimensioni[["larghezza"]],
-           altezza = dimensioni[["altezza"]])
+  apri_png(file.path(cartella, paste0(base, ".png")), larghezza = misure[["larghezza"]],
+           altezza = misure[["altezza"]])
   print(grafico)
   grDevices::dev.off()
-  file.path(relativa, paste0(base, c(".tsv", ".png")))
+  list(file = file.path(relativa, paste0(base, c(".tsv", ".png"))), colonna = v$nome,
+       campioni_disegnati = length(campioni),
+       campioni_senza_abbondanze = length(senza_abbondanze))
 }
 
 # Barre medie per gruppo della variabile del disegno in una griglia di

@@ -171,9 +171,12 @@ esegui_fase(function(parametri, cartella) {
       agglomerato <- agglomera(ps, d$campioni, rango)
       composizioni[[rango]] <- list(rango = rango, taxa = nrow(agglomerato$conteggi),
                                     categoria_dei_non_assegnati = NON_ASSEGNATO)
-      file <- c(file, scrivi_composizione(agglomerato, d, rango,
-                                          as.integer(parametri$comp$top_n),
-                                          file.path(uscita, relativa), relativa))
+      scritta <- scrivi_composizione(agglomerato, d, rango,
+                                     as.integer(parametri$comp$top_n),
+                                     file.path(uscita, relativa), relativa)
+      file <- c(file, scritta$file)
+      # Solo con comp.facet_wrap: i campioni del grafico per campione.
+      if (!is.null(scritta$pannelli)) composizioni[[rango]]$pannelli <- scritta$pannelli
     }
 
     # Beta diversita'.

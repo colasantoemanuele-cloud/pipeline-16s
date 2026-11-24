@@ -1162,7 +1162,7 @@ legge, è in [RAZIONALE.md](RAZIONALE.md), sezione 4.
 | `alfa/` | `continua_NN_<variabile>.png` | gli indici contro una variabile continua (sezione 4.1) |
 | `composizione/` | `abbondanze_relative.tsv` | le proporzioni di ogni taxon del rango `comp.rank`, per campione, con la categoria dei non assegnati |
 | `composizione/` | `gruppi_NN_<variabile>.tsv`, `.png` | le proporzioni medie per gruppo, e il grafico con i `comp.top_n` taxa più abbondanti; per le variabili di `comp.group_by` (NN è la posizione nell'elenco) o, senza, per quelle del disegno |
-| `composizione/` | `pannelli_<colonna>.tsv`, `.png` | con `comp.facet_wrap`: barre per campione, un pannello per gruppo, e la tabella dei valori disegnati |
+| `composizione/` | `pannelli_<colonna>.tsv`, `.png` | con `comp.facet_wrap`: barre per campione, un pannello per gruppo, e la tabella dei valori disegnati; un campione senza abbondanze al rango (nessuna lettura) non è disegnato e lo dicono la nota in fondo al grafico, l'intestazione della tabella e `riepilogo.json` (`composizione.pannelli`: colonna, campioni disegnati, campioni senza abbondanze) |
 | `composizione/` | `griglia_<righe>_<colonne>.tsv`, `.png` | con `comp.facet_grid`: barre medie per gruppo di `design.variable` in una griglia di pannelli, con il numero di campioni di ogni pannello, e la tabella dei valori disegnati |
 | `beta/` | `distanza_<distanza>.tsv` | la matrice delle distanze fra i campioni |
 | `ordinazione/` | `pcoa_<distanza>_coordinate.tsv`, `pcoa_<distanza>_autovalori.tsv` | le coordinate dei campioni e la quota di variabilità di ogni asse |

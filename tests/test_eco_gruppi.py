@@ -507,3 +507,100 @@ def test_i_grafici_a_pannelli_disegnano_i_valori_della_loro_tabella(eco_r, tmp_p
     assert rifiuto.value.codici == ["E-ECO-05"]
     assert _codici(configurazione(comp={"facet_grid": {"rows": "luogo", "cols": "luogo"}})) == [
         "E-ECO-01"]
+
+
+def _script_dei_pannelli(cartella, corpo: str) -> str:
+    """Uno script R che carica le librerie dei grafici della composizione e
+    definisce ``pannelli(m, gruppi, sovrapposizione)``: il grafico per campione
+    di una matrice taxa x campioni, con un gruppo per campione, e le colonne di
+    pixel bianchi fra due pixel colorati lungo piu' di 600 righe (una riga
+    bianca verticale dentro un pannello)."""
+    lib = RADICE / "src" / "amplicon16s_eco" / "R" / "lib"
+    return "\n".join([
+        f'source("{RADICE / "R" / "lib" / "io_json.R"}")',
+        f'source("{lib / "uscite.R"}")',
+        f'source("{lib / "composizione.R"}")',
+        "pannelli <- function(m, gruppi, sovrapposizione = SOVRAPPOSIZIONE_BARRE) {",
+        "  vecchia <- SOVRAPPOSIZIONE_BARRE",
+        "  SOVRAPPOSIZIONE_BARRE <<- sovrapposizione",
+        "  on.exit(SOVRAPPOSIZIONE_BARRE <<- vecchia)",
+        "  dimensioni <- table(gruppi)",
+        "  v <- list(nome = 'g', valori = stats::setNames(gruppi, colnames(m)),",
+        "            dimensioni = stats::setNames(as.integer(dimensioni), names(dimensioni)),",
+        "            mancanti = character())",
+        f'  d <- tempfile(tmpdir = "{cartella}"); dir.create(d)',
+        "  esito <- .pannelli_per_campione(m, v, 'R', d, 'x')",
+        "  img <- png::readPNG(file.path(d, 'pannelli_g.png'))[, , 1:3]",
+        "  b <- img[, , 1] == 1 & img[, , 2] == 1 & img[, , 3] == 1",
+        "  W <- ncol(b)",
+        "  f <- b[, 2:(W - 1)] & !b[, 1:(W - 2)] & !b[, 3:W]",
+        "  esito$fessure <- sum(colSums(f) > 600)",
+        "  esito$cartella <- d",
+        "  esito",
+        "}",
+        "casuale <- function(n) {",
+        "  set.seed(1)",
+        "  m <- matrix(stats::runif(3 * n, 0, 0.3), nrow = 3)",
+        "  m <- rbind(m, 1 - colSums(m))",
+        "  dimnames(m) <- list(c(sprintf('taxon_%02d', 1:3), 'altri'), sprintf('c%03d', seq_len(n)))",
+        "  m",
+        "}",
+        corpo,
+    ])
+
+
+def test_i_pannelli_non_lasciano_righe_bianche_fra_barre_vicine(eco_r, tmp_path):
+    """
+    **Obiettivo**: nel grafico per campione (``comp.facet_wrap``) fra due barre
+    vicine non resta una riga bianca verticale. Con 78 campioni in un pannello
+    e barre larghe esattamente 1 la riga compare (cosi' si sa che la prova la
+    vede); con la sovrapposizione di un millesimo dello strumento no, ne'
+    con 78 ne' con 118, 132 o 156 campioni, e il disegno non da' avvisi.
+
+    **Razionale scientifico e sistemistico**: una riga bianca sembra un
+    campione senza letture; nella dimostrazione su OSD-734 ne compariva una
+    nel pannello NOD2, dove nessun campione aveva valori mancanti: era un
+    difetto del disegno, i bordi di due barre calcolati separatamente ai due
+    lati del centro di un pixel.
+    """
+    script = tmp_path / "fessure.R"
+    script.write_text(_script_dei_pannelli(tmp_path, "\n".join([
+        "stopifnot(pannelli(casuale(78), rep('G1', 78), 0)$fessure > 0)",
+        "for (n in c(78, 118, 132, 156)) {",
+        "  avvisi <- NULL",
+        "  esito <- withCallingHandlers(pannelli(casuale(n), rep('G1', n)),",
+        "    warning = function(w) { avvisi <<- c(avvisi, conditionMessage(w)); invokeRestart('muffleWarning') })",
+        "  if (esito$fessure != 0 || length(avvisi)) stop(n, ': ', esito$fessure, ' ', paste(avvisi, collapse = '; '))",
+        "}",
+    ])), encoding="utf-8")
+    esegui_rscript(script)
+
+
+def test_un_campione_senza_abbondanze_e_dichiarato_nei_pannelli(eco_r, tmp_path):
+    """
+    **Obiettivo**: un campione le cui abbondanze non sono calcolabili (nessuna
+    lettura al rango: 0/0) non e' disegnato e non lascia uno spazio vuoto; la
+    tabella del grafico lo nomina, il numero del suo gruppo non lo conta e la
+    funzione lo restituisce per il riepilogo.
+
+    **Razionale scientifico e sistemistico**: uno spazio vuoto in un grafico
+    non dice perche' c'e'; una nota si'.
+    """
+    uscita = tmp_path / "esito.json"
+    script = tmp_path / "senza.R"
+    script.write_text(_script_dei_pannelli(tmp_path, "\n".join([
+        "m <- casuale(10)",
+        "m[, 'c004'] <- NaN",
+        "esito <- pannelli(m, rep(c('A', 'B'), each = 5))",
+        "stopifnot(esito$campioni_disegnati == 9, esito$campioni_senza_abbondanze == 1)",
+        "righe <- readLines(file.path(esito$cartella, 'pannelli_g.tsv'))",
+        "stopifnot(any(grepl('non disegnati: 1 (c004)', righe, fixed = TRUE)),",
+        "          any(grepl('A = 4; B = 5', righe, fixed = TRUE)),",
+        "          !any(grepl('c004\\t', righe, fixed = TRUE)))",
+        f'jsonlite::write_json(esito[c("campioni_disegnati", "campioni_senza_abbondanze")], "{uscita}", auto_unbox = TRUE)',
+    ])), encoding="utf-8")
+    esegui_rscript(script)
+    import json
+
+    assert json.loads(uscita.read_text(encoding="utf-8")) == {
+        "campioni_disegnati": 9, "campioni_senza_abbondanze": 1}
