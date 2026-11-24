@@ -142,7 +142,8 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
         sprintf("primi %d taxa per abbondanza relativa media sui campioni analizzati; '%s': tutti i rimanenti",
                 length(primi), ALTRI),
         paste0("campioni per gruppo: ",
-               paste(sprintf("%s = %d", gruppi, v$dimensioni[gruppi]), collapse = "; "))
+               paste(sprintf("%s = %d", gruppi, v$dimensioni[gruppi]), collapse = "; ")),
+        nota_palette(length(primi))
       )
     )
     grafico_composizione(mostrati, nomi, gruppi, v, rango,
@@ -245,7 +246,8 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
               rango, length(senza_abbondanze),
               if (length(senza_abbondanze)) paste0(" (", paste(sort(senza_abbondanze), collapse = ", "), ")") else ""),
       paste0("campioni per gruppo: ", paste(sprintf("%s = %d", gruppi, dimensioni[gruppi]),
-                                             collapse = "; "))))
+                                             collapse = "; ")),
+      nota_palette(length(taxa) - 1L)))
   # Le barre come rettangoli: la posizione del campione nel suo pannello
   # (1, 2, ...), la pila dal primo taxon in basso a «altri» in alto.
   posizione <- stats::ave(seq_along(campioni), unname(v$valori[campioni]), FUN = seq_along)
@@ -325,7 +327,8 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
               length(taxa) - 1L, ALTRI),
       "campioni: i campioni della barra; abbondanza_relativa_media: media delle abbondanze relative dei campioni",
       sprintf("campioni senza valore in una delle tre colonne, non disegnati: %d",
-              length(unique(c(x$mancanti, r$mancanti, k$mancanti))))))
+              length(unique(c(x$mancanti, r$mancanti, k$mancanti)))),
+      nota_palette(length(taxa) - 1L)))
   # Il numero dei campioni di ogni pannello, scritto in alto a sinistra.
   pannello <- paste(lunga$riga, lunga$colonna, sep = "
 ")

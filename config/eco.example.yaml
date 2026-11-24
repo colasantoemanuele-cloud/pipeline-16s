@@ -276,5 +276,7 @@ plot:
   # (grDevices::palette.colors, adatta ai daltonici), un nome di RColorBrewer
   # (per i nomi che ha anche hcl.pals vale RColorBrewer) o di viridisLite, oppure
   # un elenco di colori esadecimali ["#RRGGBB", ...]. Con piu' gruppi che
-  # colori la palette si estende per interpolazione (grDevices::colorRampPalette).
+  # colori la palette si estende per interpolazione (grDevices::colorRampPalette),
+  # con l'avviso E-ECO-46: i colori aggiunti non sono garantiti per chi non
+  # distingue i colori. Le palette HCL e viridisLite non si estendono.
   palette: "Dark 3"

@@ -418,12 +418,21 @@ scrivi_vincolata <- function(piano, ps, matrici, d, parametri, seme, cartella) {
     }
     varianze[[m$base]] <- cbind(data.frame(modello = m$base, stringsAsFactors = FALSE), esito$varianza)
     tutti_i_test[[m$base]] <- cbind(data.frame(modello = m$base, stringsAsFactors = FALSE), esito$test)
+    # La palette estesa per interpolazione nei triplot di queste coordinate: i
+    # gruppi di ogni variabile presenti fra i campioni del modello.
+    note <- unlist(lapply(seq_along(d$variabili), function(i) {
+      v <- d$variabili[[i]]
+      presenti <- unique(v$valori[intersect(names(v$valori)[!is.na(v$valori)], piano$campioni)])
+      nota <- nota_palette(length(presenti))
+      if (length(nota)) sprintf("grafico %s_%s.png: %s", m$base, nome_file(i, v$nome), nota)
+    }))
     scrivi_tsv(affianca(list(campione = rownames(esito$coordinate)), esito$coordinate, reale),
                file.path(cartella, paste0(m$base, "_coordinate.tsv")), intestazione = c(
                  sprintf("%s: punteggi dei campioni sui primi due assi (vegan::scores, display = \"sites\", scaling = 2).",
                          if (piano$metodo == "rda") "RDA (vegan::rda)" else "db-RDA (vegan::dbrda)"),
                  sprintf("dati: %s", m$dati), modello_testo,
-                 "con un solo asse vincolato, il secondo e' il primo non vincolato; il segno di ogni asse e' fissato (l'elemento di modulo massimo e' positivo)"))
+                 "con un solo asse vincolato, il secondo e' il primo non vincolato; il segno di ogni asse e' fissato (l'elemento di modulo massimo e' positivo)",
+                 note))
     prodotti <- c(prodotti, paste0("vincolata/", m$base, "_coordinate.tsv"))
     indice <- 0L
     for (v in d$variabili) {

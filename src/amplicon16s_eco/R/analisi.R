@@ -207,6 +207,7 @@ esegui_fase(function(parametri, cartella) {
 
     # Test: alfa diversita' fra gruppi, PERMANOVA e dispersioni.
     tabelle_alfa <- list()
+    note_alfa <- character()
     tabelle_multivariate <- list()
     indice_variabile <- 0L
     for (p in piano$piani) {
@@ -217,6 +218,8 @@ esegui_fase(function(parametri, cartella) {
         nome <- paste0("alfa/gruppi_", nome_file(indice_variabile, p$nome), ".png")
         grafico_alfa(indici, p, d$profondita, as.integer(parametri$stat$min_group_size),
                      file.path(uscita, nome))
+        nota <- nota_palette(length(p$alfa$gruppi))
+        if (length(nota)) note_alfa <- c(note_alfa, sprintf("grafico %s: %s", nome, nota))
         file <- c(file, nome)
       }
       eseguite <- character()
@@ -254,7 +257,7 @@ esegui_fase(function(parametri, cartella) {
     file <- c(file, scrivi_test(
       if (length(tabelle_alfa)) do.call(rbind, tabelle_alfa),
       if (length(tabelle_multivariate)) do.call(rbind, tabelle_multivariate),
-      parametri, d$profondita, file.path(uscita, "test")))
+      parametri, d$profondita, file.path(uscita, "test"), note_alfa))
 
     # Variabili continue: correlazione con l'alfa diversita' e PERMANOVA.
     if (length(continue$piani)) {

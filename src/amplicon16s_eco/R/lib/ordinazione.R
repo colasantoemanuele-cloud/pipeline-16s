@@ -317,8 +317,20 @@ scrivi_ordinazioni <- function(matrici, disegno, parametri, seme, cartella) {
           stress_quasi_nullo = o$quasi_nullo,
           convergente = o$convergente, avvii = o$avvii)
       }
+      # La palette estesa per interpolazione nei grafici di queste coordinate.
+      note <- unlist(c(
+        lapply(seq_along(disegno$variabili), function(i) {
+          v <- disegno$variabili[[i]]
+          nota <- nota_palette(length(v$dimensioni))
+          if (length(nota)) sprintf("grafico %s_%s.png: %s", base, nome_file(i, v$nome), nota)
+        }),
+        lapply(seq_along(disegno$colore), function(i) {
+          v <- disegno$colore[[i]]
+          nota <- nota_palette(length(v$dimensioni))
+          if (length(nota)) sprintf("grafico %s_colore_%s.png: %s", base, nome_file(i, v$nome), nota)
+        })))
       scrivi_tsv(affianca(list(campione = rownames(coordinate)), coordinate, reale), file.path(cartella, paste0(base, "_coordinate.tsv")),
-                 intestazione = intestazione)
+                 intestazione = c(intestazione, note))
       prodotti <- c(prodotti, paste0("ordinazione/", base, "_coordinate.tsv"))
       indice <- 0L
       for (v in disegno$variabili) {

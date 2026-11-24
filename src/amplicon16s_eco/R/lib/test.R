@@ -568,7 +568,8 @@ permanova <- function(matrice, distanza, piano, tecnici, valori_strati, permutaz
 # dichiarano metodo, famiglia della correzione e permutazioni. Una tabella
 # senza righe si scrive comunque, con le sole colonne. Restituisce i nomi dei
 # file, relativi alla cartella di uscita.
-scrivi_test <- function(alfa, multivariati, parametri, profondita, cartella) {
+scrivi_test <- function(alfa, multivariati, parametri, profondita, cartella,
+                        note_grafici = character()) {
   dir.create(cartella, showWarnings = FALSE)
   vuota_alfa <- data.frame(
     variabile = character(), indice = character(), confronto = character(),
@@ -589,7 +590,8 @@ scrivi_test <- function(alfa, multivariati, parametri, profondita, cartella) {
       "Wilcoxon esatto con meno di 50 campioni per gruppo e senza valori ripetuti, altrimenti approssimazione normale con correzione di continuita'",
       "p_bh: p corretta con Benjamini-Hochberg sulla famiglia di tutti i test della variabile (ogni indice per ogni confronto)",
       "dimensione_famiglia: numero di test della famiglia; p e p_bh in notazione esponenziale a sei decimali",
-      "un test non calcolabile (indice con lo stesso valore in tutti i campioni) ha p NA e non entra nella famiglia"
+      "un test non calcolabile (indice con lo stesso valore in tutti i campioni) ha p NA e non entra nella famiglia",
+      note_grafici
     )
   )
   vuota <- data.frame(

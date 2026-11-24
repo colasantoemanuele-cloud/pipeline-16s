@@ -1151,7 +1151,7 @@ legge, è in [RAZIONALE.md](RAZIONALE.md), sezione 4.
 |---|---|---|
 | (radice) | `campioni.tsv` | ogni campione dell'oggetto: in quali analisi entra e, se è escluso, il motivo; con il filtro le letture tolte (`letture_tolte_dal_filtro`), con l'ordinazione vincolata lo stato nel modello (`vincolata`), con i gruppi derivati il gruppo di ogni campione |
 | (radice) | `configurazione.json` | la configurazione usata, con il suo digest |
-| (radice) | `riepilogo.json` | la sintesi: campioni, profondità di rarefazione (o `metodo: none`), filtro, livello dei calcoli, gruppi derivati, stress delle NMDS e costo dei t-SNE, ordinazione vincolata, e gli avvisi `E-ECO-` con il loro dettaglio |
+| (radice) | `riepilogo.json` | la sintesi: campioni, profondità di rarefazione (o `metodo: none`), filtro, livello dei calcoli, gruppi derivati, stress delle NMDS e costo dei t-SNE, ordinazione vincolata, la palette se è estesa per interpolazione (`palette`), i campioni del grafico a pannelli (`composizione.pannelli`), e gli avvisi `E-ECO-` con il loro dettaglio |
 | (radice) | `manifest.json` | dimensione e SHA-256 di ogni altro file |
 | `filtro/` | `varianti_filtrate.tsv` | con il filtro di abbondanza: le varianti a cui ha tolto letture, con le letture prima e tolte, in quanti campioni, e se la variante è uscita da tutti |
 | `alfa/` | `alfa_diversita.tsv` | per campione: ricchezza osservata, Shannon, Gini-Simpson, Chao1, sui conteggi rarefatti (o non rarefatti con `alpha.method: none`); senza singleton l'intestazione porta l'avviso `E-ECO-36` |
@@ -1200,6 +1200,7 @@ migliorie:
 | `E-ECO-43` | rifiuto | l'ordinazione vincolata non è coerente con il disegno (sezione 4.6) |
 | `E-ECO-44` | avviso | il modello vincolato usa più gradi di libertà di `constrained.max_df_fraction` dei campioni |
 | `E-ECO-45` | avviso | un termine dell'ordinazione vincolata esce (un solo valore), o un modello non si stima |
+| `E-ECO-46` | avviso | la palette è estesa per interpolazione: i colori aggiunti non sono garantiti per chi non distingue i colori (sezione 4.5) |
 
 ### 4.4 Parametri con un predefinito
 
@@ -1308,7 +1309,20 @@ inferno, plasma, viridis, cividis, rocket, mako, turbo), oppure un elenco di col
 esadecimali. Con più gruppi che colori la palette si estende per interpolazione
 (`grDevices::colorRampPalette`), come `get.pal` del pacchetto AMBER di Aldo Dale. Un nome
 sconosciuto o un colore non esadecimale è respinto con `E-ECO-41`. La palette cambia i
-soli grafici, nessuna tabella.
+soli grafici, nessun numero delle tabelle.
+
+**Palette estesa.** Okabe-Ito (8 colori senza il grigio), un nome di RColorBrewer (fino al
+massimo della palette) e un elenco esadecimale hanno un numero fisso di colori; le palette
+HCL e viridisLite ne generano quanti ne servono e non si estendono. Quando un grafico ha
+più gruppi (variabili del disegno, colonne di `ord.color_by`) o più taxa della
+composizione dei colori della palette, `validate` e `run` danno l'avviso `E-ECO-46`
+(«palette estesa per interpolazione: i colori aggiunti non sono garantiti per chi non
+distingue i colori»), `riepilogo.json` lo dice nella voce `palette` (nome, colori, grafici
+e colori richiesti) e l'intestazione della tabella che accompagna il grafico lo scrive:
+`gruppi_NN_<variabile>.tsv`, `pannelli_<colonna>.tsv` e `griglia_*.tsv` per i taxa,
+`<metodo>_<distanza>_coordinate.tsv` per le ordinazioni, `<modello>_coordinate.tsv` per
+i triplot, `test/alfa_diversita.tsv` per i grafici dell'alfa diversità. Senza estensione
+nessuna di queste righe compare.
 
 ### 4.6 Ordinazione vincolata
 

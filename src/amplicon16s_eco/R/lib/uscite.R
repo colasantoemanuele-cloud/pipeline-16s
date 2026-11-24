@@ -19,6 +19,9 @@
 #   larghezza_per_gruppi(n)          larghezza di un grafico con n gruppi in ascissa
 #   imposta_palette(palette), colori_gruppi(n), origine_palette(palette)
 #                                    la palette dei gruppi (plot.palette)
+#   colori_della_palette(), nota_palette(n)
+#                                    i colori della palette prima
+#                                    dell'interpolazione e la nota E-ECO-46
 #
 # Razionale sistemistico: le tabelle non passano per write.table, il cui
 # formato dei numeri dipende dalle opzioni della sessione (scipen, digits,
@@ -192,6 +195,44 @@ origine_palette <- function(palette) {
 okabe_ito_senza_grigio <- function() {
   colori <- unname(grDevices::palette.colors(NULL, palette = OKABE_ITO))
   colori[toupper(colori) != "#999999"]
+}
+
+# L'avviso E-ECO-46, come compare nelle intestazioni delle tabelle.
+AVVISO_PALETTE <- "palette estesa per interpolazione: i colori aggiunti non sono garantiti per chi non distingue i colori"
+
+# Quanti colori ha la palette prima di essere estesa per interpolazione; NA per
+# le palette che generano tanti colori quanti ne servono (hcl, viridis), che
+# non si estendono.
+colori_della_palette <- function(palette = PALETTE_GRAFICI) {
+  palette <- as.character(unlist(palette))
+  origine <- origine_palette(palette)
+  if (is.na(origine)) return(NA_integer_)
+  switch(
+    origine,
+    okabe_ito = length(okabe_ito_senza_grigio()),
+    brewer = as.integer(RColorBrewer::brewer.pal.info[palette, "maxcolors"]),
+    esadecimali = length(palette),
+    NA_integer_
+  )
+}
+
+# Il nome della palette per i messaggi.
+nome_palette <- function(palette = PALETTE_GRAFICI) {
+  palette <- as.character(unlist(palette))
+  if (origine_palette(palette) %in% "esadecimali") {
+    sprintf("di %d colori esadecimali", length(palette))
+  } else {
+    sprintf("'%s'", palette)
+  }
+}
+
+# La riga per l'intestazione della tabella di un grafico che usa n colori
+# della palette: vuota se la palette ne ha abbastanza.
+nota_palette <- function(n) {
+  massimo <- colori_della_palette()
+  if (is.na(massimo) || n <= massimo) return(character())
+  sprintf("%s (avviso E-ECO-46): il grafico usa %d colori, la palette %s ne ha %d",
+          AVVISO_PALETTE, as.integer(n), nome_palette(), massimo)
 }
 
 # Imposta la palette di tutti i grafici dell'analisi.

@@ -391,6 +391,18 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "due valori, meno di tre campioni, modello saturo). Le altre analisi sono eseguite.",
     ),
     VoceEco(
+        "E-ECO-46", _A,
+        "Palette estesa per interpolazione: i colori aggiunti non sono garantiti per chi "
+        "non distingue i colori.",
+        "Un grafico ha piu' gruppi (o taxa) dei colori di plot.palette, e la palette e' "
+        "estesa con grDevices::colorRampPalette. I colori di partenza sono scelti per "
+        "essere distinti, anche da chi non distingue rosso e verde; quelli interpolati "
+        "no. Il messaggio dice quali grafici. L'analisi prosegue: per piu' gruppi scegli "
+        "una palette che genera tanti colori quanti ne servono (un nome di "
+        "grDevices::hcl.pals() o di viridisLite), oppure meno gruppi o meno taxa "
+        "(comp.top_n).",
+    ),
+    VoceEco(
         "E-ECO-90", _R,
         "Il calcolo in R non si e' concluso.",
         "Leggi il messaggio di R riportato nel dettaglio. Le analisi vanno "

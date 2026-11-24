@@ -565,6 +565,41 @@ esamina <- function(ps, parametri) {
   } else {
     variabili
   }
+  # --- Palette estesa per interpolazione (avviso E-ECO-46). -----------------
+  # I grafici con piu' colori di quelli della palette: le variabili del disegno
+  # (alfa diversita', ordinazioni, triplot), le colonne di ord.color_by e i
+  # taxa della composizione (comp.top_n, o meno se il rango ha meno lignaggi;
+  # «altri» e' in grigio, fuori dalla palette).
+  palette_scelta <- if (is.null(palette)) PALETTE_GRAFICI else as.character(unlist(palette))
+  massimo <- colori_della_palette(palette_scelta)
+  palette_estesa <- list()
+  if (!is.na(massimo)) {
+    oggetto <- if (is.null(ps_analisi)) ps else ps_analisi
+    tassonomia <- methods::as(phyloseq::tax_table(oggetto), "matrix")
+    lignaggi <- vapply(ranghi_composizione, function(rango) {
+      fino_a <- match(rango, colnames(tassonomia))
+      if (is.na(fino_a)) return(0L)
+      length(unique(apply(tassonomia[, seq_len(fino_a), drop = FALSE], 1L, paste,
+                          collapse = ";")))
+    }, integer(1))
+    taxa_mostrati <- min(as.integer(parametri$comp$top_n), max(lignaggi, 0L))
+    richiesti <- c(
+      stats::setNames(vapply(variabili, function(v) length(v$dimensioni), integer(1)),
+                      sprintf("variabile '%s'", names(variabili))),
+      stats::setNames(vapply(colore, function(v) length(v$dimensioni), integer(1)),
+                      sprintf("ord.color_by '%s'", names(colore))),
+      stats::setNames(taxa_mostrati, "taxa della composizione (comp.top_n)"))
+    oltre <- richiesti[richiesti > massimo]
+    if (length(oltre)) {
+      palette_estesa <- list(palette = nome_palette(palette_scelta), colori = massimo,
+                             grafici = unname(Map(function(cosa, n) list(grafici = cosa, colori = n),
+                                                  names(oltre), unname(oltre))))
+      avviso("E-ECO-46", sprintf(
+        "La palette %s ha %d colori; e' estesa per interpolazione nei grafici di: %s.",
+        nome_palette(palette_scelta), massimo,
+        paste(sprintf("%s (%d colori)", names(oltre), oltre), collapse = "; ")))
+    }
+  }
   tecnici <- list()
   for (nome in tecniche) {
     valori <- stats::setNames(tabella[campioni, nome], campioni)
@@ -632,6 +667,7 @@ esamina <- function(ps, parametri) {
       variabili = variabili,
       derivate = derivate,
       colore = colore,
+      palette_estesa = palette_estesa,
       composizione = composizione,
       pannelli_wrap = if (!is.null(parametri$comp$facet_wrap)) descrittiva(parametri$comp$facet_wrap),
       pannelli_griglia = if (!is.null(parametri$comp$facet_grid)) list(
@@ -842,6 +878,12 @@ riepilogo_del_disegno <- function(d) {
            gruppi = as.list(gruppi_di(stats::setNames(valori, d$campioni), 1L)$dimensioni),
            campioni_senza_gruppo = sum(is.na(valori)))
     }))
+  }
+  if (length(d$palette_estesa)) {
+    riepilogo$palette <- list(
+      nome = d$palette_estesa$palette, colori = d$palette_estesa$colori,
+      estesa_per_interpolazione = d$palette_estesa$grafici,
+      nota = AVVISO_PALETTE)
   }
   if (identical(d$metodo_alfa, "none")) {
     riepilogo$alfa <- list(metodo = "none", campioni = length(d$campioni))

@@ -281,6 +281,68 @@ def test_la_palette_si_estende_per_interpolazione_e_un_nome_sconosciuto_e_respin
                         "alfa/gruppi_01_gruppo.png"}
 
 
+def test_una_palette_estesa_per_interpolazione_e_dichiarata_con_e_eco_46(eco_r, tmp_path):
+    """
+    **Obiettivo**: con Okabe-Ito (otto colori, senza il grigio) e
+    ``ord.color_by`` su una colonna di dieci valori, la palette si estende per
+    interpolazione: ``validate`` e ``run`` danno l'avviso ``E-ECO-46``, il
+    riepilogo dice quale palette, di quanti colori e per quali grafici, e
+    l'intestazione della tabella delle coordinate lo scrive per quel grafico.
+    Con una palette di due colori esadecimali e tre taxa lo stesso vale per le
+    tabelle della composizione (barre per gruppo e pannelli) e, con tre gruppi
+    nel confronto, per la tabella dei test dell'alfa diversita'. Con la palette
+    predefinita (HCL, tanti colori quanti ne servono) nessun avviso e nessuna
+    nota.
+
+    **Razionale scientifico e sistemistico**: i colori di partenza di una
+    palette adatta ai daltonici sono scelti per essere distinti; quelli
+    interpolati no, e chi legge il grafico deve saperlo.
+    """
+    from amplicon16s_eco.catalogo import CATALOGO
+
+    assert CATALOGO["E-ECO-46"].specie is Specie.AVVISO
+    nota = ("palette estesa per interpolazione: i colori aggiunti non sono garantiti per chi "
+            "non distingue i colori")
+    oggetto = _oggetto(tmp_path)
+    pcoa = {"methods": ["pcoa"], "distances": ["bray"], "pcoa_correction": "none",
+            "color_by": ["luogo"]}
+    config = schema.valida(configurazione(ord=pcoa, plot={"palette": "Okabe-Ito"}))
+    validato = valida_sull_oggetto(oggetto, config)
+    avvisi = {a.codice: a.dettaglio for a in validato.avvisi}
+    assert "E-ECO-46" in avvisi and "ord.color_by 'luogo' (10 colori)" in avvisi["E-ECO-46"]
+    uscita = tmp_path / "okabe"
+    esito = esegui(oggetto, config, uscita)
+    assert "E-ECO-46" in {a.codice for a in esito.avvisi}
+    assert esito.riepilogo["palette"] == {
+        "nome": "'Okabe-Ito'", "colori": 8, "nota": nota,
+        "estesa_per_interpolazione": [{"grafici": "ord.color_by 'luogo'", "colori": 10}]}
+    commenti, _ = leggi_tsv(uscita / "ordinazione" / "pcoa_bray_coordinate.tsv")
+    assert any(c.startswith("grafico pcoa_bray_colore_01_luogo.png: " + nota) for c in commenti)
+    assert not any("gruppi_01_gruppo" in c for c in commenti)
+
+    due = schema.valida(configurazione(
+        design={"variable": "zona",
+                "groupings": {"zona": {"from": "luogo", "pattern": "^([A-Z]+[0-9])"}}},
+        comp={"facet_wrap": "zona"}, plot={"palette": ["#1B9E77", "#D95F02"]}))
+    uscita = tmp_path / "due"
+    esito = esegui(oggetto, due, uscita)
+    assert [g["grafici"] for g in esito.riepilogo["palette"]["estesa_per_interpolazione"]] == [
+        "variabile 'zona'", "taxa della composizione (comp.top_n)"]
+    for tabella in ("gruppi_01_zona.tsv", "pannelli_zona.tsv"):
+        commenti, _ = leggi_tsv(uscita / "composizione" / tabella)
+        assert any(c.startswith(nota) and "usa 3 colori" in c for c in commenti), tabella
+    # I tre gruppi NOD1, NOD2 e LAB1 entrano tutti nel confronto.
+    commenti, _ = leggi_tsv(uscita / "test" / "alfa_diversita.tsv")
+    assert any(c.startswith("grafico alfa/gruppi_01_zona.png: " + nota) for c in commenti)
+
+    predefinita = tmp_path / "predefinita"
+    esito = esegui(oggetto, schema.valida(configurazione(ord=pcoa)), predefinita)
+    assert "E-ECO-46" not in {a.codice for a in esito.avvisi}
+    assert "palette" not in esito.riepilogo
+    for tabella in predefinita.rglob("*.tsv"):
+        assert "E-ECO-46" not in tabella.read_text(encoding="utf-8"), tabella
+
+
 # --------------------------------------------------------------------------- #
 # 4. Le proposte di eco init                                                   #
 # --------------------------------------------------------------------------- #
