@@ -20,7 +20,7 @@ o un titolo fra virgolette è una sezione del riferimento.
   ```
 
   `<NUOVO_DIGEST>` è un segnaposto: il digest dell'immagine con Rtsne, da scrivere quando sarà
-  pubblicata (la versione della tesi è il tag `tesi` con l'immagine `sha256:930dda00…0154`).
+  pubblicata (la versione v0.1.0 è il tag `v0.1.0` con l'immagine `sha256:930dda00…0154`).
 
 - **Un clone di questo repository**: ogni comando si lancia dalla sua radice.
 
