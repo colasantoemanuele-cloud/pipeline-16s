@@ -153,8 +153,10 @@ comp:
   # [FACOLTATIVO] Colonna o gruppo derivato: barre per campione, un pannello
   # per gruppo (ggplot2::facet_wrap, scale libere sull'asse x), con gli stessi
   # taxa, la stessa voce «altri» e la palette di plot.palette. Accanto al
-  # grafico composizione/pannelli_<colonna>.tsv con i valori disegnati. Un
-  # campione senza abbondanze al rango non e' disegnato: lo dice una nota.
+  # grafico composizione/pannelli_<colonna>.tsv con i valori disegnati. Nel
+  # pannello i campioni sono in ordine decrescente del taxon piu' abbondante
+  # nel complesso. Un campione senza abbondanze al rango non e' disegnato: lo
+  # dice una nota.
   # facet_wrap: null
 
   # [FACOLTATIVO] Barre medie per gruppo della variabile del disegno

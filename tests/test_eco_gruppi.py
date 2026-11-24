@@ -494,6 +494,15 @@ def test_i_grafici_a_pannelli_disegnano_i_valori_della_loro_tabella(eco_r, tmp_p
             atteso = per_campione[(riga["taxon"], riga["campione"])]
         assert float(riga["abbondanza_relativa"]) == pytest.approx(atteso, abs=1e-9)
     assert any("campioni senza valore in 'modulo', non disegnati: 2" in c for c in commenti)
+    # Nel pannello, i campioni in ordine decrescente del taxon piu' abbondante
+    # nel complesso (il primo di abbondanze_relative.tsv), a parita' per nome.
+    assert any(f"per abbondanza decrescente di '{primi[0]}'" in c for c in commenti)
+    ordine = list(dict.fromkeys((r["gruppo"], r["campione"]) for r in wrap))
+    gruppi_in_ordine = list(dict.fromkeys(g for g, _ in ordine))
+    assert gruppi_in_ordine == sorted(gruppi_in_ordine)
+    for gruppo in gruppi_in_ordine:
+        nel_gruppo = [c for g, c in ordine if g == gruppo]
+        assert nel_gruppo == sorted(nel_gruppo, key=lambda c: (-per_campione[(primi[0], c)], c))
     _, griglia = leggi_tsv(cartella / "griglia_modulo_gruppo.tsv")
     # Cella NOD1 / a / a: i campioni NOD1 del gruppo a sono c01 e c09.
     cella = [r for r in griglia if (r["riga"], r["colonna"], r["gruppo"]) == ("NOD1", "a", "a")]

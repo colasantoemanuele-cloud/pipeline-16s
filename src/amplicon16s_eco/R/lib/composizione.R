@@ -197,8 +197,13 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
 
 # Barre per campione, un pannello per gruppo della colonna (facet_wrap, scale
 # libere sull'asse x): v e' la variabile descrittiva della colonna, mostrate
-# la matrice taxa x campioni dei primi taxa e di «altri». I campioni senza
-# valore non compaiono. Un campione senza abbondanze (nessuna lettura al
+# la matrice taxa x campioni dei primi taxa e di «altri», nell'ordine
+# dell'abbondanza media. Dentro ogni pannello i campioni sono in ordine
+# decrescente di abbondanza del primo taxon (il piu' abbondante nel
+# complesso), a parita' per nome: chi guarda vede subito come varia il taxon
+# dominante. La legenda e' nell'ordine della pila, come nelle barre per
+# gruppo: in alto «altri», che sta in cima, in basso il primo taxon. I
+# campioni senza valore non compaiono. Un campione senza abbondanze (nessuna lettura al
 # rango, quindi proporzioni non calcolabili) non e' disegnato: al suo posto non
 # resta uno spazio vuoto, e il grafico, la tabella e il riepilogo lo dicono.
 # Scrive il grafico e la tabella dei valori disegnati; restituisce
@@ -207,7 +212,9 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
   campioni <- names(v$valori)[!is.na(v$valori)]
   senza_abbondanze <- campioni[colSums(!is.finite(mostrate[, campioni, drop = FALSE])) > 0L]
   campioni <- setdiff(campioni, senza_abbondanze)
-  campioni <- campioni[order(v$valori[campioni], campioni, method = "radix")]
+  primo_taxon <- rownames(mostrate)[1L]
+  campioni <- campioni[order(v$valori[campioni], -mostrate[1L, campioni], campioni,
+                             method = "radix")]
   dimensioni <- table(factor(unname(v$valori[campioni]), levels = names(v$dimensioni)))
   dimensioni <- stats::setNames(as.integer(dimensioni), names(dimensioni))
   gruppi <- names(dimensioni)[dimensioni > 0L]
@@ -231,6 +238,8 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
               rango, v$nome, base),
       sprintf("primi %d taxa per abbondanza relativa media sui campioni analizzati, come nelle barre per gruppo; '%s': tutti i rimanenti",
               length(taxa) - 1L, ALTRI),
+      sprintf("righe nell'ordine del grafico: per gruppo, e nel gruppo per abbondanza decrescente di '%s', il taxon piu' abbondante nel complesso",
+              primo_taxon),
       sprintf("campioni senza valore in '%s', non disegnati: %d", v$nome, length(v$mancanti)),
       sprintf("campioni senza abbondanze al rango %s (nessuna lettura), non disegnati: %d%s",
               rango, length(senza_abbondanze),
@@ -255,12 +264,14 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
     ggplot2::geom_rect() +
     ggplot2::facet_wrap(ggplot2::vars(.data$gruppo), scales = "free_x", ncol = colonne) +
     ggplot2::scale_fill_manual(values = .colori_dei_taxa(taxa),
-                               breaks = taxa, name = sprintf("taxon (%s)", rango)) +
+                               breaks = rev(taxa), name = sprintf("taxon (%s)", rango)) +
     ggplot2::scale_x_continuous(expand = c(0, 0)) +
     ggplot2::scale_y_continuous(expand = c(0, 0), limits = c(0, 1.0001)) +
     ggplot2::labs(title = sprintf("Composizione per campione al rango %s, per %s (%d campioni)",
                                   rango, v$nome, length(campioni)),
-                  x = "campioni (una barra per campione)", y = "abbondanza relativa",
+                  x = sprintf("campioni (una barra per campione), in ordine decrescente di %s, il taxon più abbondante",
+                              primo_taxon),
+                  y = "abbondanza relativa",
                   caption = nota_senza) +
     .tema_pannelli() +
     ggplot2::theme(axis.text.x = ggplot2::element_blank(),
@@ -277,7 +288,8 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
 # Barre medie per gruppo della variabile del disegno in una griglia di
 # pannelli (facet_grid): righe e colonne sono le due colonne di
 # comp.facet_grid. Ogni pannello porta il numero dei suoi campioni; i campioni
-# senza valore in una delle tre colonne non entrano. Scrive il grafico e la
+# senza valore in una delle tre colonne non entrano. La legenda e'
+# nell'ordine della pila, come nelle barre per gruppo. Scrive il grafico e la
 # tabella dei valori disegnati; restituisce i nomi dei file.
 .griglia_per_gruppo <- function(mostrate, griglia, rango, cartella, relativa) {
   x <- griglia$x
@@ -338,7 +350,7 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
     ggplot2::facet_grid(rows = ggplot2::vars(.data$riga), cols = ggplot2::vars(.data$colonna),
                         drop = TRUE, scales = "free_x", space = "free_x") +
     ggplot2::scale_fill_manual(values = .colori_dei_taxa(taxa),
-                               breaks = taxa, name = sprintf("taxon (%s)", rango)) +
+                               breaks = rev(taxa), name = sprintf("taxon (%s)", rango)) +
     ggplot2::scale_x_discrete(drop = TRUE) +
     ggplot2::scale_y_continuous(expand = c(0, 0), limits = c(0, 1.12),
                                 breaks = seq(0, 1, 0.25)) +
