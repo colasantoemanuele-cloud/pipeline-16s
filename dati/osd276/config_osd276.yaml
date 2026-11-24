@@ -161,7 +161,7 @@ out:
   batch_columns: []
 run:
   # L'immagine pubblicata con cui la prova e' stata eseguita.
-  container: "ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154"
+  container: "ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76"
   lockfile: renv.lock
   seed: 100
   batch_size: 24

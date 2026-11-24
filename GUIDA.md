@@ -16,11 +16,8 @@ o un titolo fra virgolette è una sezione del riferimento.
 - **L'immagine pubblicata**, scaricata per digest (1,86 GB da scaricare, 7,6 GB su disco):
 
   ```bash
-  docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:<NUOVO_DIGEST>
+  docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76
   ```
-
-  `<NUOVO_DIGEST>` è un segnaposto: il digest dell'immagine con Rtsne, da scrivere quando sarà
-  pubblicata (la versione v0.1.0 è il tag `v0.1.0` con l'immagine `sha256:930dda00…0154`).
 
 - **Un clone di questo repository**: ogni comando si lancia dalla sua radice.
 
@@ -89,7 +86,7 @@ di lavoro, per la configurazione e i risultati; il clone, che contiene il codice
 Nel terminale, dalla radice del clone:
 
 ```bash
-IMMAGINE=ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:<NUOVO_DIGEST>
+IMMAGINE=ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76
 DATI=/percorso/dei/dati        # la cartella dei dati del passo 2
 LAVORO=/percorso/di/lavoro     # una cartella nuova, per configurazione e uscite
 mkdir -p "$LAVORO"

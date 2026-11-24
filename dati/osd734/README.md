@@ -64,10 +64,10 @@ repository montato.
 identificata per digest:
 
 ```bash
-docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
+docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76
 ```
 
-Il digest (`sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`) identifica i byte dell'immagine: il nome con cui e' pubblicata potra'
+Il digest (`sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76`) identifica i byte dell'immagine: il nome con cui e' pubblicata potra'
 cambiare, il digest no, e chi la scarica con quel digest ottiene la stessa immagine. Lo
 scarico e' di 1,86 GB compressi; su disco l'immagine occupa 7,6 GB. Nei comandi che
 seguono `<immagine>` e' quel riferimento completo.
@@ -192,10 +192,9 @@ Non si confrontano i manifesti, la configurazione registrata in `00_config/`, i 
 il report: portano date, identificativi dell'esecuzione e percorsi, e differiscono per
 costruzione fra due esecuzioni.
 
-**A che cosa si riferiscono i checksum.** All'esecuzione di riferimento, con la
-configurazione e l'immagine indicate: `config_osd734.yaml` cosi' com'e' (filogenesi
-disattivata, regola rigorosa sulla provenienza attiva), il codice del repository e
-l'immagine pubblicata,
+**A che cosa si riferiscono i checksum.** All'esecuzione di riferimento della v0.1.0:
+`config_osd734.yaml` del tag `v0.1.0` (filogenesi disattivata, regola rigorosa sulla
+provenienza attiva), il codice del repository a quel tag e l'immagine della v0.1.0,
 `ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`.
 `run.threads` non incide sui risultati. Un'immagine costruita da `container/Dockerfile`
 (immagine di partenza ancorata per digest, pacchetti R dell'istantanea datata e di

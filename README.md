@@ -90,13 +90,8 @@ Nel repository ci sono i dataset su cui la pipeline è eseguita, tutti da Illumi
 L'immagine si scarica per digest: il digest identifica i byte dell'immagine, un nome no.
 
 ```bash
-docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:<NUOVO_DIGEST>
+docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76
 ```
-
-> **Segnaposto.** `<NUOVO_DIGEST>` è il digest dell'immagine con Rtsne (t-SNE delle analisi
-> ecologiche), da scrivere quando l'immagine sarà pubblicata. La versione v0.1.0 è il
-> tag `v0.1.0` (commit `133ba16`) con l'immagine
-> `ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`.
 
 I comandi si lanciano dalla radice del clone, montato nel container. Nei comandi che
 seguono `<immagine>` è il riferimento qui sopra.
@@ -313,7 +308,7 @@ della sua immagine: i due insieme identificano i risultati.
 - **`v0.1.0`**: commit `133ba16`, immagine
   `ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`.
 - **Analisi ecologiche 0.2.0** (`amplicon16s_eco`), immagine
-  `ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:<NUOVO_DIGEST>`:
+  `ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76`:
   1. Chao1 come quarto indice dell'alfa diversità, con l'avviso se non ci sono singleton;
   2. filtro delle varianti rare per abbondanza relativa, alfa diversità senza rarefazione
      o con più rarefazioni, correlazione fra letture e indici;
@@ -325,6 +320,10 @@ della sua immagine: i due insieme identificano i risultati.
   7. ordinazione vincolata: RDA e db-RDA con i test per permutazione;
   8. UniFrac pesato e non pesato fra le scelte proposte;
   9. grafici della composizione a pannelli (`facet_wrap`, `facet_grid`).
+
+  Chi aggiorna dalla v0.1.0 aggiunge `alpha.method` alle configurazioni delle analisi
+  ecologiche, dove ora è obbligatorio: con `alpha.method: rarefy` i risultati sono gli
+  stessi di prima.
 
 ## Documenti
 
