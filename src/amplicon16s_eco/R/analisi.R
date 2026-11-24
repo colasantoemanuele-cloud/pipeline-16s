@@ -27,6 +27,8 @@
 #        ordinazione/<metodo>_<distanza>_coordinate.tsv
 #        ordinazione/pcoa_<distanza>_autovalori.tsv
 #        ordinazione/<metodo>_<distanza>_NN_<variabile>.png
+#        ordinazione/<metodo>_<distanza>_colore_NN_<colonna>.png, per
+#        ord.color_by (descrittivi, senza test)
 #   6. test fra gruppi: alfa diversita', PERMANOVA e dispersioni (lib/test.R)
 #        test/alfa_diversita.tsv, test/permanova.tsv
 #        alfa/gruppi_NN_<variabile>.png, solo se il confronto si esegue
@@ -67,6 +69,7 @@ esegui_fase(function(parametri, cartella) {
   # L'oggetto delle analisi: quello letto, oppure, con il filtro di abbondanza,
   # quello filtrato (lib/campioni.R).
   if (!is.null(d$ps)) ps <- d$ps
+  imposta_palette(parametri$plot$palette)
   assign("RIPETIZIONI_ALFA", d$ripetizioni, envir = globalenv())
   piano <- disegno_dei_test(d, parametri)
   # Variabili continue e misure ripetute: piani vuoti se non dichiarate.
@@ -307,7 +310,10 @@ esegui_fase(function(parametri, cartella) {
     R = as.character(getRversion()),
     pacchetti = lapply(
       stats::setNames(nm = c("ape", "permute", if (identical(radice, "midpoint")) "phangorn",
-                             "phyloseq", "vegan")),
+                             "phyloseq",
+                             switch(origine_palette(parametri$plot$palette),
+                                    brewer = "RColorBrewer", viridis = "viridisLite"),
+                             "vegan")),
       function(p) as.character(utils::packageVersion(p))
     )
   )

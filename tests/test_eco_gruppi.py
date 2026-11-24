@@ -1,0 +1,362 @@
+"""Gruppi scelti dall'utente: gruppi derivati, colori descrittivi, palette,
+proposte di raggruppamento di ``eco init``.
+
+Un gruppo derivato (``design.groupings``) e' una nuova variabile categorica
+ricavata da una colonna, con un elenco di valori per gruppo o con
+un'espressione regolare: si verifica, su tabelle scritte qui, che ogni
+campione vada nel gruppo atteso, che chi resta senza gruppo esca dalle analisi
+di quella variabile con il motivo, e che ogni regola sbagliata sia respinta
+prima del calcolo. ``ord.color_by`` colora le ordinazioni senza alcun test;
+``plot.palette`` sceglie i colori di tutti i grafici.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from amplicon16s_eco import config as schema
+from amplicon16s_eco.catalogo import CATALOGO, ErroreEco, Specie
+from amplicon16s_eco.esecuzione import esegui, valida_sull_oggetto
+
+from eco_aiuti import (  # noqa: F401
+    RADICE,
+    configurazione,
+    costruisci,
+    eco_r,
+    esegui_rscript,
+    impronte,
+    leggi_tsv,
+    righe_permanova,
+)
+
+
+def _codici(dati) -> list[str]:
+    with pytest.raises(ErroreEco) as rifiuto:
+        schema.valida(dati)
+    return rifiuto.value.codici
+
+
+# --------------------------------------------------------------------------- #
+# 1. Lo schema                                                                 #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("regola", [
+    {"from": "luogo", "groups": {"a": ["x"]}, "pattern": "^(.)"},
+    {"from": "luogo"},
+    {"from": "luogo", "groups": {}},
+    {"from": "luogo", "groups": {"a": []}},
+    {"from": "luogo", "groups": {"a": ["x", "y"], "b": ["y"]}},
+    {"from": "luogo", "pattern": "^([A-Z"},
+    {"from": "luogo", "pattern": "^[A-Z]+"},
+    {"groups": {"a": ["x"]}},
+    {"from": "luogo", "groups": {"a": ["x"]}, "colonna": "x"},
+])
+def test_una_regola_di_raggruppamento_sbagliata_e_respinta_con_il_suo_codice(regola):
+    """
+    **Obiettivo**: un gruppo derivato con entrambe le regole o con nessuna, con
+    un gruppo vuoto, con un valore in due gruppi, con un'espressione non
+    valida o senza gruppo di cattura, senza la colonna di partenza o con una
+    chiave sconosciuta e' respinto con ``E-ECO-40``, prima di leggere
+    l'oggetto.
+
+    **Razionale scientifico e sistemistico**: una regola ambigua metterebbe un
+    campione in un gruppo a caso, o in nessuno, senza che chi legge i
+    risultati lo sappia.
+    """
+    codici = _codici(configurazione(design={"groupings": {"zona": regola}}))
+    assert set(codici) == {"E-ECO-40"}
+    assert CATALOGO["E-ECO-40"].specie is Specie.RIFIUTO
+
+
+def test_i_gruppi_derivati_e_i_colori_entrano_nella_configurazione_solo_se_dichiarati():
+    """
+    **Obiettivo**: senza gruppi derivati ne' colori la configurazione risolta
+    non ha quelle chiavi; dichiarati, vi compaiono (``from`` con il suo nome)
+    e cambiano il digest. Un gruppo derivato non si ricava da un altro;
+    ``ord.color_by`` non ripete una colonna ne' una variabile del disegno; la
+    palette e' un nome o un elenco di colori esadecimali (``E-ECO-41``).
+
+    **Razionale scientifico e sistemistico**: il digest identifica l'analisi;
+    una figura descrittiva in piu' non deve cambiare quello delle
+    configurazioni che non la chiedono.
+    """
+    base = schema.risolta(schema.valida(configurazione()))
+    assert "groupings" not in base["design"] and "color_by" not in base["ord"]
+    assert base["plot"] == {"palette": "Dark 3"}
+    regola = {"from": "luogo", "pattern": "^([A-Z]+)"}
+    dichiarata = schema.valida(configurazione(design={"groupings": {"zona": regola}},
+                                              ord={"color_by": ["zona"]}))
+    risolta = schema.risolta(dichiarata)
+    assert risolta["design"]["groupings"] == {"zona": {**regola, "groups": None}}
+    assert risolta["ord"]["color_by"] == ["zona"]
+    assert schema.digest(dichiarata) != schema.digest(schema.valida(configurazione()))
+    assert _codici(configurazione(design={"groupings": {
+        "zona": regola, "macro": {"from": "zona", "pattern": "^(.)"}}})) == ["E-ECO-40"]
+    assert _codici(configurazione(ord={"color_by": ["luogo", "luogo"]})) == ["E-ECO-01"]
+    assert _codici(configurazione(ord={"color_by": ["gruppo"]})) == ["E-ECO-01"]
+    for palette in (["#12345"], ["rosso"], [], 3):
+        assert _codici(configurazione(plot={"palette": palette})) == ["E-ECO-41"], palette
+    for palette in ("Okabe-Ito", ["#1B9E77", "#D95F02AA"]):
+        schema.valida(configurazione(plot={"palette": palette}))
+
+
+# --------------------------------------------------------------------------- #
+# 2. I gruppi derivati sull'oggetto                                            #
+# --------------------------------------------------------------------------- #
+
+#: Dieci campioni con un luogo ciascuno; tre varianti, il terzo luogo diverso.
+LUOGHI = ["NOD1A1", "NOD1A2", "NOD2B1", "NOD2B2", "LAB1C1", "LAB1C2", "LAB1C3",
+          "Aria", "NOD1A3", "Tubo"]
+CONTEGGI = [
+    [30, 32, 5, 6, 10, 11, 12, 20, 31, 15],
+    [5, 6, 30, 31, 10, 12, 11, 20, 4, 15],
+    [10, 9, 10, 8, 30, 29, 31, 20, 11, 15],
+]
+
+
+def _oggetto(tmp_path, nome="dati"):
+    cartella = tmp_path / nome
+    cartella.mkdir(exist_ok=True)
+    return costruisci(cartella, CONTEGGI, {"gruppo": ["a", "b"] * 5, "luogo": LUOGHI})
+
+
+def test_un_gruppo_derivato_per_espressione_assegna_i_campioni_attesi(eco_r, tmp_path):
+    """
+    **Obiettivo**: con ``pattern: "^([A-Z]+[0-9])"`` i campioni vanno nei
+    gruppi NOD1 (3), NOD2 (2), LAB1 (3), calcolati a mano; i valori che
+    l'espressione non riconosce restano senza gruppo, escono dalle analisi
+    della variabile con il motivo in ``campioni.tsv``, e ``validate`` riporta i
+    gruppi ottenuti con il numero di campioni. Il gruppo derivato si usa come
+    variabile: PERMANOVA, composizione e grafici lo trattano come una colonna.
+
+    **Razionale scientifico e sistemistico**: la regola si decide nelle analisi
+    ecologiche, senza rifare la pipeline; il suo esito va controllato prima
+    del calcolo.
+    """
+    oggetto = _oggetto(tmp_path)
+    modulo = {"from": "luogo", "pattern": "^([A-Z]+[0-9])"}
+    config = schema.valida(configurazione(
+        design={"variable": "modulo", "groupings": {"modulo": modulo}},
+        ord={"methods": ["pcoa"], "distances": ["bray"], "pcoa_correction": "none"}))
+    esito = valida_sull_oggetto(oggetto, config)
+    gruppi = esito.riepilogo["gruppi_derivati"]
+    assert gruppi == [{"nome": "modulo", "da": "luogo",
+                       "regola": "pattern: ^([A-Z]+[0-9]) (primo gruppo di cattura)",
+                       "gruppi": {"LAB1": 3, "NOD1": 3, "NOD2": 2},
+                       "campioni_senza_gruppo": 2}]
+    uscita = tmp_path / "uscita"
+    esito = esegui(oggetto, config, uscita)
+    _, campioni = leggi_tsv(uscita / "campioni.tsv")
+    per = {r["campione"]: r for r in campioni}
+    assert per["c01"]["valore:modulo"] == "NOD1" and per["c05"]["valore:modulo"] == "LAB1"
+    assert per["c08"]["valore:modulo"] == "NA"
+    assert per["c08"]["stato:modulo"] == (
+        "escluso: il valore di 'luogo' non rientra in alcun gruppo di 'modulo'")
+    assert per["c10"]["stato:modulo"] == per["c08"]["stato:modulo"]
+    assert per["c08"]["stato"] == "analizzato"
+    righe = righe_permanova(uscita, variabile="modulo")
+    assert righe[("permanova", "modulo")]["campioni"] == "8"
+    assert righe[("permanova", "modulo")]["gruppi"] == "3"
+    assert (uscita / "composizione" / "gruppi_01_modulo.png").is_file()
+    assert (uscita / "ordinazione" / "pcoa_bray_01_modulo.png").is_file()
+
+
+def test_un_gruppo_derivato_per_elenco_e_le_sue_regole_sull_oggetto(eco_r, tmp_path):
+    """
+    **Obiettivo**: con ``groups`` ogni valore elencato va al suo gruppo e gli
+    altri restano senza; un valore elencato che la colonna non ha, un nome
+    che e' gia' una colonna o una colonna di partenza che non esiste sono
+    respinti dalla validazione con ``E-ECO-40``, che nomina il problema.
+
+    **Razionale scientifico e sistemistico**: un refuso in un valore
+    toglierebbe in silenzio dei campioni dal loro gruppo.
+    """
+    oggetto = _oggetto(tmp_path)
+    elenco = {"from": "luogo", "groups": {"nodi": ["NOD1A1", "NOD1A2", "NOD1A3", "NOD2B1"],
+                                          "laboratorio": ["LAB1C1", "LAB1C2"]}}
+    config = schema.valida(configurazione(design={"variable": "zona",
+                                                  "groupings": {"zona": elenco}}))
+    esito = valida_sull_oggetto(oggetto, config)
+    assert esito.riepilogo["gruppi_derivati"][0]["gruppi"] == {"laboratorio": 2, "nodi": 4}
+    assert esito.riepilogo["gruppi_derivati"][0]["campioni_senza_gruppo"] == 4
+
+    for regola, parola in (
+        ({"from": "luogo", "groups": {"nodi": ["NOD9"]}}, "NOD9"),
+        ({"from": "colonna_che_non_c_e", "pattern": "^(.)"}, "colonna_che_non_c_e"),
+    ):
+        with pytest.raises(ErroreEco) as rifiuto:
+            valida_sull_oggetto(oggetto, schema.valida(configurazione(
+                design={"groupings": {"zona": regola}})))
+        assert rifiuto.value.codici == ["E-ECO-40"] and parola in str(rifiuto.value)
+    with pytest.raises(ErroreEco) as rifiuto:
+        valida_sull_oggetto(oggetto, schema.valida(configurazione(
+            design={"groupings": {"luogo": {"from": "gruppo", "pattern": "^(.)"}}})))
+    assert rifiuto.value.codici == ["E-ECO-40"] and "colonna dell'oggetto" in str(rifiuto.value)
+
+
+def test_i_colori_descrittivi_non_hanno_test_e_non_cambiano_le_altre_uscite(eco_r, tmp_path):
+    """
+    **Obiettivo**: ``ord.color_by`` aggiunge per ogni ordinazione un grafico
+    ``<metodo>_<distanza>_colore_NN_<colonna>.png`` e nessuna riga nelle
+    tabelle dei test; tutti gli altri file restano identici byte per byte a
+    quelli di un'analisi senza.
+
+    **Razionale scientifico e sistemistico**: un raggruppamento scelto dopo
+    aver visto i dati non va testato sugli stessi dati: e' una figura, e non
+    deve toccare i test.
+    """
+    oggetto = _oggetto(tmp_path)
+    ordinazione = {"methods": ["pcoa"], "distances": ["bray"], "pcoa_correction": "none"}
+    senza = tmp_path / "senza"
+    esegui(oggetto, schema.valida(configurazione(ord=ordinazione)), senza)
+    con = tmp_path / "con"
+    esegui(oggetto, schema.valida(configurazione(
+        design={"groupings": {"modulo": {"from": "luogo", "pattern": "^([A-Z]+[0-9])"}}},
+        ord={**ordinazione, "color_by": ["modulo", "luogo"]})), con)
+    prima, dopo = impronte(senza), impronte(con)
+    nuovi = set(dopo) - set(prima)
+    assert nuovi == {"ordinazione/pcoa_bray_colore_01_modulo.png",
+                     "ordinazione/pcoa_bray_colore_02_luogo.png"}
+    diversi = {n for n in prima if prima[n] != dopo[n]}
+    assert diversi == {"configurazione.json", "manifest.json", "riepilogo.json", "campioni.tsv"}
+    _, test = leggi_tsv(con / "test" / "permanova.tsv")
+    assert {r["variabile"] for r in test} == {"gruppo"}
+
+
+# --------------------------------------------------------------------------- #
+# 3. La palette                                                                #
+# --------------------------------------------------------------------------- #
+
+
+def test_la_palette_si_estende_per_interpolazione_e_un_nome_sconosciuto_e_respinto(
+    eco_r, tmp_path
+):
+    """
+    **Obiettivo**: in R, con ``"Dark 3"`` i colori sono quelli di sempre
+    (``hcl.colors``); con ``"Okabe-Ito"`` i primi otto sono quelli di
+    ``palette.colors`` senza il grigio (riservato ad «altri»), e con dodici gruppi la palette si estende per
+    interpolazione; un elenco esadecimale vale cosi' com'e'; un nome di
+    RColorBrewer da' i colori di ColorBrewer. Un nome che nessun pacchetto
+    conosce e' respinto dalla validazione con ``E-ECO-41``; con un'altra
+    palette i grafici cambiano e le tabelle no.
+
+    **Razionale scientifico e sistemistico**: i colori servono a distinguere i
+    gruppi, anche a chi non distingue rosso e verde; non devono cambiare alcun
+    numero.
+    """
+    script = tmp_path / "palette.R"
+    script.write_text("\n".join([
+        f'source("{RADICE / "src" / "amplicon16s_eco" / "R" / "lib" / "uscite.R"}")',
+        'stopifnot(identical(colori_gruppi(4), grDevices::hcl.colors(4, "Dark 3")))',
+        'imposta_palette("Okabe-Ito")',
+        'oi <- unname(grDevices::palette.colors(NULL, "Okabe-Ito"))',
+        'oi <- oi[oi != "#999999"]',
+        'stopifnot(length(oi) == 8, !"#999999" %in% colori_gruppi(20))',
+        'stopifnot(identical(colori_gruppi(5), oi[1:5]))',
+        'dodici <- colori_gruppi(12)',
+        'stopifnot(length(dodici) == 12, length(unique(dodici)) == 12,',
+        '          identical(dodici, grDevices::colorRampPalette(oi)(12)))',
+        'imposta_palette(c("#112233", "#445566"))',
+        'stopifnot(identical(colori_gruppi(2), c("#112233", "#445566")),',
+        '          length(colori_gruppi(3)) == 3)',
+        'imposta_palette("Set2")',
+        'stopifnot(identical(colori_gruppi(4), RColorBrewer::brewer.pal(4, "Set2")))',
+        'stopifnot(is.na(origine_palette("Inesistente")))',
+    ]), encoding="utf-8")
+    esegui_rscript(script)
+
+    oggetto = _oggetto(tmp_path)
+    with pytest.raises(ErroreEco) as rifiuto:
+        valida_sull_oggetto(oggetto, schema.valida(configurazione(
+            plot={"palette": "Inesistente"})))
+    assert rifiuto.value.codici == ["E-ECO-41"]
+    prima = tmp_path / "prima"
+    esegui(oggetto, schema.valida(configurazione()), prima)
+    dopo = tmp_path / "dopo"
+    esegui(oggetto, schema.valida(configurazione(plot={"palette": "Okabe-Ito"})), dopo)
+    a, b = impronte(prima), impronte(dopo)
+    cambiati = {n for n in a if a[n] != b[n]}
+    assert cambiati == {"configurazione.json", "manifest.json", "composizione/gruppi_01_gruppo.png",
+                        "alfa/gruppi_01_gruppo.png"}
+
+
+# --------------------------------------------------------------------------- #
+# 4. Le proposte di eco init                                                   #
+# --------------------------------------------------------------------------- #
+
+
+def _colonna(nome, valori: dict[str, int], numerica=False):
+    return {"nome": nome, "distinti": len(valori), "con_valore": sum(valori.values()),
+            "gruppi_ripetuti": sum(n >= 2 for n in valori.values()), "numerica": numerica,
+            "valori": [{"valore": v, "campioni": n} for v, n in sorted(valori.items())]}
+
+
+def test_eco_init_elenca_le_colonne_e_propone_in_commento_il_gruppo_per_prefisso():
+    """
+    **Obiettivo**: sopra ``design`` il file elenca ogni colonna
+    selezionabile con il numero di gruppi, quanti hanno almeno 2, 5 e 10
+    campioni e, se sono pochi, i valori; le altre con il motivo (tecnica, un
+    solo valore, tutti diversi, identificativo). Per una colonna con molti
+    valori il cui prefisso (lettere seguite da cifre) li divide in pochi gruppi
+    ripetuti, ``design.groupings`` porta la proposta in commento con i gruppi e
+    i campioni che produrrebbe; ``--accetta-proposte`` non la attiva; tolto il
+    commento, e' una configurazione valida. Una colonna senza un prefisso
+    comune non riceve proposte.
+
+    **Razionale scientifico e sistemistico**: i gruppi li sceglie chi conduce
+    lo studio; init mostra che cosa i dati permettono, e la regola la decide
+    l'utente.
+    """
+    from init_aiuti import completa, righe_dei_parametri
+
+    from amplicon16s_eco import init
+
+    posizioni = {f"{m}{s}{i}": 3 for m in ("NOD1", "NOD2", "LAB1") for s in "AB"
+                 for i in range(1, 4)}
+    posizioni.update({"Aria": 4, "Tubo": 2})
+    descrizione = {
+        "campioni": sum(posizioni.values()), "varianti": 10,
+        "ranghi": [{"rango": "Regno", "quota_assegnata": 1.0}],
+        "albero": {"presente": False, "radicato": None, "con_lunghezze": None},
+        "colonne": [
+            {"nome": "accession", "distinti": 60, "con_valore": 60, "gruppi_ripetuti": 0,
+             "numerica": False, "valori": []},
+            _colonna("posizione_prelievo", posizioni),
+            _colonna("stagione", {"estate": 30, "inverno": 30}),
+            _colonna("piastra", {"p1": 30, "p2": 30}),
+            _colonna("costante", {"x": 60}),
+            _colonna("codice", {f"Z{i}": 2 for i in range(30)}),
+        ],
+    }
+    voci, fatti = init.prepara(descrizione)
+    colonne = init.colonne_per_gruppi(descrizione, None)
+    testo = init.testo_yaml(voci, fatti, "ps.rds", False, colonne)
+    intestazione = " ".join(testo.split("design:")[0].replace("#", " ").split())
+    assert ("- posizione_prelievo: 20 gruppi; con almeno 2, 5, 10 campioni: 20, 0, 0"
+            in intestazione)
+    assert "- stagione: 2 gruppi" in intestazione and "'estate' 30, 'inverno' 30" in intestazione
+    assert "- piastra: variabile tecnica" in intestazione
+    assert "- costante: un solo valore" in intestazione
+    assert "- accession: identifica il campione" in intestazione
+    assert "Colonne derivate dalla pipeline: non note" in intestazione
+    righe = righe_dei_parametri(testo, schema.ConfigEco)
+    attiva, valore = righe["design.groupings"]
+    assert not attiva and "posizione_prelievo_prefisso" in valore
+    assert "codice_prefisso" not in valore
+    spiegazioni = " ".join(testo.replace("#", " ").split())
+    assert "LAB1 18, NOD1 18, NOD2 18; senza gruppo: 6 campioni" in spiegazioni
+    assert init.PREFISSO in spiegazioni
+
+    accettato = init.testo_yaml(init.accetta(voci), fatti, "ps.rds", True, colonne)
+    assert righe_dei_parametri(accettato, schema.ConfigEco)["design.groupings"][0] is False
+    completo = completa(testo, {"run.seed": 1, "comp.top_n": 3, "beta.distances": ["bray"],
+                                "ord.methods": [], "ord.distances": [],
+                                "stat.min_group_size": 2, "stat.significance_level": 0.05,
+                                "design.variable": "posizione_prelievo_prefisso",
+                                "comp.rank": "Regno"},
+                        accetta={"design.groupings", "alpha.method"}, modello=schema.ConfigEco)
+    import yaml
+    config = schema.valida(yaml.safe_load(completo))
+    regola = config.design.groupings["posizione_prelievo_prefisso"]
+    assert (regola.da, regola.pattern) == ("posizione_prelievo", init.PREFISSO)

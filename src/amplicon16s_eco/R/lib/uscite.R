@@ -17,6 +17,8 @@
 #   apri_png(percorso, ...)          dispositivo grafico senza metadati di tempo
 #   nome_distanza(metodo)            il nome leggibile di una distanza
 #   larghezza_per_gruppi(n)          larghezza di un grafico con n gruppi in ascissa
+#   imposta_palette(palette), colori_gruppi(n), origine_palette(palette)
+#                                    la palette dei gruppi (plot.palette)
 #
 # Razionale sistemistico: le tabelle non passano per write.table, il cui
 # formato dei numeri dipende dalle opzioni della sessione (scipen, digits,
@@ -140,8 +142,76 @@ larghezza_per_gruppi <- function(n) {
   LARGHEZZA_GRAFICO + max(0L, n - SOGLIA_LEGENDA_COLONNE) * PIXEL_PER_GRUPPO
 }
 
-# Colori dei gruppi: una tavolozza qualitativa fissa per numero di gruppi.
+# --- Palette dei gruppi (plot.palette) ------------------------------------ #
+#
+# Il principio e' quello di get.pal del pacchetto AMBER di Aldo Dale
+# (https://github.com/AldoDale/AMBER, R/themes_and_palettes.R), riusato con il
+# permesso dell'autore: una palette con nome, estesa per interpolazione quando i
+# gruppi sono piu' dei suoi colori. AMBER interpola con ggpubr::get_palette, che
+# non e' nell'immagine; qui l'interpolazione e' grDevices::colorRampPalette.
+#
+# Come si legge il nome, in quest'ordine: "Okabe-Ito" (grDevices::palette.colors,
+# adatta ai daltonici, senza il grigio, riservato alla voce «altri»); un nome di RColorBrewer (i colori originali di
+# ColorBrewer: per i 26 nomi che hcl.pals() ha anche come approssimazione HCL
+# vale RColorBrewer); un nome di grDevices::hcl.pals() (hcl.colors genera tanti
+# colori quanti gruppi, come ha sempre fatto lo strumento con "Dark 3"); un
+# nome di viridisLite. Un elenco di colori esadecimali vale cosi' com'e'.
+
+# La palette in uso: la imposta R/analisi.R con imposta_palette; il predefinito
+# e' quella con cui lo strumento ha sempre disegnato.
+PALETTE_GRAFICI <- "Dark 3"
+OKABE_ITO <- "Okabe-Ito"
+OPZIONI_VIRIDIS <- c("magma", "inferno", "plasma", "viridis", "cividis", "rocket",
+                     "mako", "turbo")
+
+# Da dove viene una palette: "esadecimali", "okabe_ito", "brewer", "hcl",
+# "viridis", oppure NA se il nome non e' riconosciuto.
+origine_palette <- function(palette) {
+  palette <- as.character(unlist(palette))
+  if (length(palette) != 1L || startsWith(palette, "#")) return("esadecimali")
+  if (identical(palette, OKABE_ITO)) return("okabe_ito")
+  if (requireNamespace("RColorBrewer", quietly = TRUE) &&
+      palette %in% rownames(RColorBrewer::brewer.pal.info)) return("brewer")
+  if (palette %in% grDevices::hcl.pals()) return("hcl")
+  if (palette %in% OPZIONI_VIRIDIS && requireNamespace("viridisLite", quietly = TRUE)) {
+    return("viridis")
+  }
+  NA_character_
+}
+
+# I colori di Okabe-Ito senza il grigio, l'ultimo: nei grafici della
+# composizione il grigio e' la voce «altri», e un taxon dello stesso colore (o
+# di uno interpolato verso il grigio) vi si confonderebbe.
+okabe_ito_senza_grigio <- function() {
+  colori <- unname(grDevices::palette.colors(NULL, palette = OKABE_ITO))
+  colori[toupper(colori) != "#999999"]
+}
+
+# Imposta la palette di tutti i grafici dell'analisi.
+imposta_palette <- function(palette) {
+  assign("PALETTE_GRAFICI", as.character(unlist(palette)), envir = globalenv())
+}
+
+# n colori della palette in uso: i primi n, oppure, con piu' gruppi che colori,
+# n colori interpolati lungo la palette (grDevices::colorRampPalette). Senza
+# numeri casuali: gli stessi colori a ogni esecuzione.
 colori_gruppi <- function(n) {
   if (n < 1L) return(character())
-  grDevices::hcl.colors(max(n, 2L), palette = "Dark 3")[seq_len(n)]
+  palette <- PALETTE_GRAFICI
+  estendi <- function(base) {
+    if (n <= length(base)) base[seq_len(n)] else grDevices::colorRampPalette(base)(n)
+  }
+  switch(
+    origine_palette(palette),
+    hcl = grDevices::hcl.colors(max(n, 2L), palette = palette)[seq_len(n)],
+    viridis = viridisLite::viridis(n, option = palette),
+    okabe_ito = estendi(okabe_ito_senza_grigio()),
+    brewer = {
+      massimo <- RColorBrewer::brewer.pal.info[palette, "maxcolors"]
+      if (n <= massimo) RColorBrewer::brewer.pal(max(n, 3L), palette)[seq_len(n)] else
+        estendi(RColorBrewer::brewer.pal(massimo, palette))
+    },
+    esadecimali = estendi(palette),
+    stop("palette non riconosciuta: ", paste(palette, collapse = ", "))
+  )
 }

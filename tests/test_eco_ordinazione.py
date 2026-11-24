@@ -358,6 +358,7 @@ def test_i_titoli_dei_grafici_usano_nomi_leggibili_e_gli_accenti(eco_r, tmp_path
                            env={**__import__("os").environ, "LC_ALL": "C.UTF-8"})
     assert esito.stdout == "Bray-Curtis|Jaccard|Aitchison|UniFrac pesata|UniFrac non pesata|altra"
     ordinazione = (libreria / "ordinazione.R").read_text(encoding="utf-8")
-    assert 'c(pcoa = "PCoA", nmds = "NMDS")[[metodo]]' in ordinazione
+    assert 'pcoa = "PCoA", nmds = "NMDS"' in ordinazione
+    assert "NOMI_ORDINAZIONE[[metodo]]" in ordinazione
     assert "nome_distanza(distanza)" in ordinazione
     assert '"Alfa diversità per %s' in (libreria / "test.R").read_text(encoding="utf-8")

@@ -941,6 +941,11 @@ def test_nessun_valore_dei_dataset_distribuiti_nel_codice_di_init(tmp_path):
         str(v) for p in interfaccia.schema()["parametri"] for v in (p["valori_ammessi"] or [])
     } | set(COLONNE_INVENTARIO) | {
         str(v) for p in interfaccia_eco.schema()["parametri"] for v in (p["valori_ammessi"] or [])
+    } | {
+        # I predefiniti dello schema delle analisi (la palette dei grafici) sono
+        # valori del metodo, non del dataset.
+        str(p["predefinito"]) for p in interfaccia_eco.schema()["parametri"]
+        if isinstance(p.get("predefinito"), str)
     }
     pubblico = {p.sequenza for p in vocabolario.PRIMER_16S} | set(vocabolario.RIFERIMENTI.values())
     assert all(p.fonte and re.search(r"(19|20)\d\d", p.fonte) for p in vocabolario.PRIMER_16S)

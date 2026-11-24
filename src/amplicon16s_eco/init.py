@@ -21,10 +21,19 @@ si leggono dagli export in testo che la pipeline consegna accanto all'oggetto
 checksum che siano quelli di questo oggetto; senza, i due avvisi non si
 valutano e il riepilogo lo dice.
 
+Sopra il gruppo ``design`` il file elenca le colonne selezionabili come
+gruppi (numero di gruppi, gruppi con abbastanza campioni, i valori quando sono
+pochi), quelle che non lo sono con il motivo, e quelle che la pipeline ha
+derivato con la regola che le ha prodotte. Per una colonna con molti valori il
+cui prefisso li divide in pochi gruppi ripetuti, ``design.groupings`` porta in
+commento la proposta di un gruppo derivato, con i gruppi che produrrebbe: la
+decide sempre l'utente (:data:`PREFISSO`).
+
 Con ``--accetta-proposte`` le proposte e i valori di partenza sono righe
 attive, con la loro origine nel commento. Restano in commento, con il loro
 valore, i parametri condizionali: sono richiesti da un metodo e respinti senza,
-e quali metodi usare e' una scelta che ``init`` non fa.
+e quali metodi usare e' una scelta che ``init`` non fa; e la proposta di un
+gruppo derivato, che e' una regola sui dati da controllare.
 """
 
 from __future__ import annotations
@@ -32,12 +41,15 @@ from __future__ import annotations
 import csv
 import json
 import math
+import re
 import statistics
 import tempfile
 from dataclasses import dataclass, replace
 import textwrap
 from pathlib import Path
 from typing import Any, Final
+
+import yaml
 
 from amplicon16s.init.scrittura import SENZA_VALORE, Specie, Voce, valore_yaml
 from amplicon16s.io_layer.artifacts import scrivi_atomico
@@ -57,8 +69,10 @@ from amplicon16s_eco.config import (
 from amplicon16s_eco.esecuzione import _copia, _impronta_oggetto
 from amplicon16s_eco.ponte import esegui_r
 
-__all__ = ["QUOTA_DELLA_MEDIANA", "QUOTA_MINIMA_ASSEGNATA", "Esportati", "accetta", "confuse",
-           "descrivi", "esportati", "prepara", "rarefazione_bassa", "scrivi", "testo_yaml"]
+__all__ = ["PREFISSO", "QUOTA_DELLA_MEDIANA", "QUOTA_MINIMA_ASSEGNATA", "Esportati", "accetta",
+           "colonne_per_gruppi", "confuse", "derivazioni_della_pipeline", "descrivi",
+           "esportati", "prepara", "proposte_per_prefisso", "rarefazione_bassa", "scrivi",
+           "testo_yaml"]
 
 #: La quota di varianti assegnate sotto la quale un rango non si propone: sotto
 #: la meta', la categoria «non assegnato» sarebbe la piu' grande del grafico.
@@ -74,9 +88,50 @@ _NON_VARIABILI: Final = COLONNE_INVENTARIO[:3]
 
 PROPOSTO, SCELTA = Specie.PROPOSTO, Specie.DA_SCEGLIERE
 
+#: Il criterio con cui init riconosce un prefisso che divide i valori di una
+#: colonna in pochi gruppi ripetuti: lettere iniziali seguite da cifre (il
+#: modulo di una posizione come «NOD1D4» o «LAB1O3»), primo gruppo di cattura.
+#: La proposta si fa solo per una colonna selezionabile con piu' di
+#: :data:`_NOMINATI` valori, quando il prefisso copre almeno meta' dei campioni
+#: con un valore, da' da 2 a :data:`MASSIMO_GRUPPI_PROPOSTI` gruppi, e riunisce
+#: in media almeno due valori per gruppo. Resta sempre in commento.
+PREFISSO: Final = r"^([A-Za-z]+[0-9]+)"
+MASSIMO_GRUPPI_PROPOSTI: Final = 12
+
+#: Le dimensioni minime dei gruppi per cui init conta i gruppi di ogni colonna:
+#: stat.min_group_size non e' ancora scelto, e questi sono i valori di solito
+#: considerati.
+SOGLIE_DEI_GRUPPI: Final = (2, 5, 10)
+
+#: La colonna che la pipeline deriva da una regola (il modulo, con
+#: meta.derive_module e meta.module_regex): il nome e' quello del contratto
+#: dell'oggetto.
+_DERIVATE: Final = (COLONNE_INVENTARIO[5],)
+
+#: I parametri in cui si sceglie fra le colonne elencate sopra design.
+_SCELTE_FRA_LE_COLONNE: Final = (
+    "design.variable", "design.other_variables", "ord.color_by", "comp.group_by",
+    "comp.facet_wrap", "comp.facet_grid")
+_RIMANDO: Final = ("si sceglie fra le colonne selezionabili elencate in testa al file, sopra "
+                   "design, e i gruppi derivati di design.groupings")
+
+#: Le proposte che --accetta-proposte non attiva mai: una regola sui dati da
+#: controllare prima di usarla.
+_MAI_ACCETTATE: Final = ("design.groupings",)
+
 #: Note fisse dei parametri che init non propone (facoltativi e standard): le
 #: alternative e le fonti per sceglierli, scritte sopra la riga in commento.
 NOTE_DEI_PARAMETRI: Final[dict[str, tuple[str, ...]]] = {
+    "design.other_variables": (_RIMANDO,),
+    "ord.color_by": (
+        "per le figure descrittive, per esempio un raggruppamento visto dopo aver "
+        "guardato i dati: nessun test, e il titolo lo dice; " + _RIMANDO,),
+    "plot.palette": (
+        "un nome di grDevices::hcl.pals() (\"Dark 3\" e' quella di sempre), \"Okabe-Ito\" "
+        "(adatta ai daltonici), un nome di RColorBrewer (\"Set2\", \"Dark2\"...) o di "
+        "viridisLite (\"viridis\", \"cividis\"...), oppure un elenco di colori "
+        "esadecimali; con piu' gruppi che colori la palette si estende per "
+        "interpolazione",),
     "filter.min_relative_abundance": (
         "le varianti rare: un'alternativa o un complemento alla rarefazione. Nullo (il "
         "predefinito): nessun filtro. La soglia fissa e' una scelta dello studio: "
@@ -265,6 +320,159 @@ def confuse(campioni: list[dict[str, str]], colonne: list[str]) -> list[str]:
     return avvisi
 
 
+def _gruppi_della_colonna(colonna: dict[str, Any]) -> dict[str, int]:
+    """I valori di una colonna con i loro campioni, dalla descrizione."""
+    return {v["valore"]: int(v["campioni"]) for v in colonna.get("valori") or []}
+
+
+def _non_selezionabile(colonna: dict[str, Any]) -> str | None:
+    """Perche' una colonna non e' selezionabile come gruppo, o ``None``."""
+    if colonna["nome"] in _NON_VARIABILI:
+        return "identifica il campione o ne dice la classe"
+    if colonna["nome"] in _TECNICHE:
+        return "variabile tecnica: si dichiara in design.technical_variables"
+    if colonna["con_valore"] == 0:
+        return "nessun valore"
+    if colonna["distinti"] == 1:
+        return "un solo valore"
+    if _sembra_continua(colonna):
+        return "continua (valori numerici quasi tutti diversi): design.continuous_variables"
+    if colonna["distinti"] >= colonna["con_valore"]:
+        return "tutti i valori diversi: un gruppo per campione"
+    return None
+
+
+def proposte_per_prefisso(descrizione: dict[str, Any]) -> list[tuple[str, dict[str, Any], list[str]]]:
+    """Le proposte di gruppi derivati per prefisso: per ogni colonna che il
+    criterio di :data:`PREFISSO` divide in pochi gruppi ripetuti, il nome
+    proposto, la regola e le note con i gruppi che produrrebbe.
+    """
+    proposte = []
+    for colonna in descrizione["colonne"]:
+        valori = _gruppi_della_colonna(colonna)
+        if _non_selezionabile(colonna) or len(valori) <= _NOMINATI:
+            continue
+        per_gruppo: dict[str, int] = {}
+        distinti: dict[str, int] = {}
+        senza: dict[str, int] = {}
+        for valore, n in valori.items():
+            trovato = re.match(PREFISSO, valore)
+            if trovato:
+                per_gruppo[trovato.group(1)] = per_gruppo.get(trovato.group(1), 0) + n
+                distinti[trovato.group(1)] = distinti.get(trovato.group(1), 0) + 1
+            else:
+                senza[valore] = n
+        coperti = sum(per_gruppo.values())
+        if (2 * coperti < sum(valori.values()) or not 2 <= len(per_gruppo) <= MASSIMO_GRUPPI_PROPOSTI
+                or 2 * len(per_gruppo) > sum(distinti.values())):
+            continue
+        nome = f"{colonna['nome']}_prefisso"
+        note = [
+            f"gruppi che produrrebbe (campioni): " + ", ".join(
+                f"{g} {n}" for g, n in sorted(per_gruppo.items())),
+            f"senza gruppo: {sum(senza.values())} campioni"
+            + (" (valori: " + ", ".join(f"{v!r} {n}" for v, n in sorted(senza.items())[:_NOMINATI])
+               + (f" e altri {len(senza) - _NOMINATI}" if len(senza) > _NOMINATI else "") + ")"
+               if senza else ""),
+        ]
+        proposte.append((nome, {"from": colonna["nome"], "pattern": PREFISSO}, note))
+    return proposte
+
+
+def derivazioni_della_pipeline(oggetto: Path | str) -> dict[str, str] | None:
+    """Le colonne che la pipeline ha derivato da una regola, con la regola.
+
+    Razionale sistemistico: la regola sta nei file dell'esecuzione accanto
+    all'oggetto: ``10_phyloseq/colonne_metadati.tsv`` (verificato sul
+    manifesto di S10) descrive come e' nata ogni colonna, e
+    ``00_config/resolved.yaml`` porta i valori dei parametri che l'hanno
+    prodotta. Senza quei file (un oggetto spostato) la regola non si conosce:
+    ``None``.
+    """
+    esecuzione = Path(oggetto).resolve().parent.parent
+    tabella = esecuzione / "10_phyloseq" / "colonne_metadati.tsv"
+    try:
+        manifesto = json.loads((tabella.parent / "manifest.json").read_text(encoding="utf-8"))
+        attesa = next(a["checksum"] for a in manifesto["artefatti"]
+                      if a["nome"] == tabella.name)
+        if checksum_file(tabella).removeprefix("sha256:") != attesa.removeprefix("sha256:"):
+            return None
+        with open(tabella, encoding="utf-8", newline="") as file:
+            righe = {r["colonna"]: r for r in csv.DictReader(file, delimiter="\t")}
+    except (OSError, ValueError, KeyError, StopIteration, TypeError):
+        return None
+    try:
+        documenti = list(yaml.safe_load_all(
+            (esecuzione / "00_config" / "resolved.yaml").read_text(encoding="utf-8")))
+        # Con una ripresa che cambia i valori il file ne registra un'altra: vale
+        # l'ultima.
+        meta = (documenti[-1].get("parametri") or {}).get("meta") or {}
+    except (OSError, yaml.YAMLError, AttributeError, IndexError):
+        meta = {}
+    derivazioni = {}
+    for nome in _DERIVATE:
+        if nome not in righe:
+            continue
+        regola = righe[nome].get("valore", "")
+        if meta:
+            regola += (f"; in questa esecuzione meta.derive_module = {meta.get('derive_module')}, "
+                       f"meta.module_regex = {meta.get('module_regex')!r}, meta.module_column = "
+                       f"{meta.get('module_column')!r}")
+        derivazioni[nome] = regola
+    return derivazioni
+
+
+def colonne_per_gruppi(descrizione: dict[str, Any],
+                       derivazioni: dict[str, str] | None = None) -> list[str]:
+    """Il blocco che sta sopra ``design``: le colonne selezionabili come gruppi,
+    quelle che non lo sono con il motivo, quelle derivate dalla pipeline con la
+    regola, e il rimando alle proposte di gruppi derivati.
+    """
+    selezionabili, escluse = [], []
+    for colonna in descrizione["colonne"]:
+        motivo = _non_selezionabile(colonna)
+        if motivo:
+            escluse.append(f"- {colonna['nome']}: {motivo}")
+            continue
+        valori = _gruppi_della_colonna(colonna)
+        testo = f"- {colonna['nome']}: {colonna['distinti']} gruppi"
+        if valori:
+            testo += "; con almeno " + ", ".join(str(s) for s in SOGLIE_DEI_GRUPPI) + \
+                " campioni: " + ", ".join(
+                    str(sum(n >= s for n in valori.values())) for s in SOGLIE_DEI_GRUPPI)
+            if len(valori) <= _NOMINATI:
+                testo += "; valori: " + ", ".join(f"{v!r} {n}" for v, n in valori.items())
+        else:
+            testo += f"; con almeno 2 campioni: {colonna['gruppi_ripetuti']}"
+        selezionabili.append(testo)
+    righe = [
+        "Colonne selezionabili come gruppi (design.variable, design.other_variables, "
+        "ord.color_by, comp.group_by, comp.facet_wrap, comp.facet_grid, e from di un "
+        "gruppo derivato): numero di gruppi; quanti hanno almeno "
+        + ", ".join(str(s) for s in SOGLIE_DEI_GRUPPI) + " campioni (per scegliere "
+        "stat.min_group_size); i valori con i loro campioni, se sono al massimo "
+        f"{_NOMINATI}.",
+        *(selezionabili or ["- nessuna"]),
+        "Colonne non selezionabili, con il motivo:",
+        *(escluse or ["- nessuna"]),
+    ]
+    if derivazioni is None:
+        righe.append("Colonne derivate dalla pipeline: non note (accanto all'oggetto non ci sono "
+                     "i file dell'esecuzione: 10_phyloseq/colonne_metadati.tsv).")
+    else:
+        righe.append("Colonne derivate dalla pipeline, con la regola che le ha prodotte:")
+        for nome, regola in derivazioni.items():
+            vuota = next((c["con_valore"] == 0 for c in descrizione["colonne"]
+                          if c["nome"] == nome), False)
+            righe.append(f"- {nome}: {regola}" + ("; vuota in questo oggetto" if vuota else ""))
+    righe.append(
+        "Un gruppo derivato (design.groupings) riunisce i valori di una colonna in gruppi, "
+        "con un elenco o con un'espressione regolare. Le proposte per prefisso (criterio: "
+        f"{PREFISSO}, lettere iniziali seguite da cifre) sono in design.groupings, in "
+        "commento: decidi tu se usarle.")
+    return righe
+
+
 def descrivi(oggetto: Path | str) -> dict[str, Any]:
     """Che cosa contiene l'oggetto: campioni, ranghi, albero, colonne.
 
@@ -417,6 +625,18 @@ def prepara(
               "l'albero dell'oggetto e' gia' radicato; serve solo se beta.distances "
               "comprende una UniFrac, ed e' respinto altrimenti")
 
+    proposte = proposte_per_prefisso(descrizione)
+    if proposte:
+        metti("design.groupings", PROPOSTO, {nome: regola for nome, regola, _ in proposte},
+              f"il prefisso dei valori (criterio {PREFISSO}: lettere iniziali seguite da "
+              "cifre) li divide in pochi gruppi ripetuti",
+              *[f"{nome}: " + "; ".join(note) for nome, _, note in proposte],
+              "e' una regola sui dati: controlla i gruppi e, se la usi, togli il commento e "
+              "nomina il gruppo derivato in design.variable, design.other_variables o "
+              "ord.color_by; --accetta-proposte non la attiva")
+    if "design.variable" in voci:
+        voce = voci["design.variable"]
+        voci["design.variable"] = replace(voce, note=(*voce.note, _RIMANDO))
     metti("alpha.method", PROPOSTO, "rarefy",
           "la rarefazione e' il modo di controllare la profondita' che Schloss 2024 "
           "(mSphere 9:e00354-23) trova piu' affidabile per alfa e beta diversita'",
@@ -463,7 +683,7 @@ def accetta(voci: dict[str, Voce]) -> dict[str, Voce]:
     """
     accettate = {}
     for chiave, voce in voci.items():
-        if voce.valore is SENZA_VALORE:
+        if voce.valore is SENZA_VALORE or chiave in _MAI_ACCETTATE:
             pass
         elif chiave in CONDIZIONALI:
             voce = replace(voce, note=(
@@ -487,9 +707,12 @@ def _sembra_continua(colonna: dict[str, Any]) -> bool:
 
 
 def testo_yaml(
-    voci: dict[str, Voce], fatti: list[str], oggetto: str, accettate: bool = False
+    voci: dict[str, Voce], fatti: list[str], oggetto: str, accettate: bool = False,
+    colonne: list[str] | None = None,
 ) -> str:
-    """Il testo del file di configurazione delle analisi."""
+    """Il testo del file di configurazione delle analisi; ``colonne`` e' il
+    blocco delle colonne selezionabili come gruppi (:func:`colonne_per_gruppi`),
+    scritto sopra ``design``."""
     da_scegliere = [v for v in voci.values() if v.specie is SCELTA]
     proposti = [v for v in voci.values() if v.specie is PROPOSTO]
     attive = [v for v in voci.values() if v.attiva]
@@ -533,6 +756,10 @@ def testo_yaml(
         "# Le spiegazioni cominciano con ##, le righe dei parametri in commento con #.",
         "",
     ]
+    if colonne:
+        righe += ["# " + "-" * 76]
+        righe += [riga for testo in colonne for riga in commento(testo, "#")]
+        righe += ["# " + "-" * 76, ""]
     for gruppo, campo_gruppo in ConfigEco.model_fields.items():
         modello = campo_gruppo.annotation
         righe.append(f"# {(modello.__doc__ or '').strip().splitlines()[0]}")
@@ -569,7 +796,13 @@ def testo_yaml(
             righe += commento(f"[{voce.specie.value}] {voce.origine}")
             for nota in voce.note:
                 righe += commento(nota)
-            scritto = "" if voce.valore is SENZA_VALORE else f" {valore_yaml(voce.valore)}"
+            if voce.valore is SENZA_VALORE:
+                scritto = ""
+            elif isinstance(voce.valore, dict):
+                # Una mappa su una riga, in forma JSON: e' YAML valido.
+                scritto = " " + json.dumps(voce.valore, ensure_ascii=False)
+            else:
+                scritto = f" {valore_yaml(voce.valore)}"
             righe.append(f"  {'' if voce.attiva else '# '}{nome}:{scritto}")
         righe.append("")
     return "\n".join(righe)
@@ -587,8 +820,11 @@ def scrivi(
     uscita = Path(uscita)
     if uscita.exists():
         raise FileExistsError(uscita)
-    voci, fatti = prepara(descrivi(oggetto), esportati(oggetto))
+    descrizione = descrivi(oggetto)
+    voci, fatti = prepara(descrizione, esportati(oggetto))
     if accettate:
         voci = accetta(voci)
-    scrivi_atomico(uscita, testo_yaml(voci, fatti, Path(oggetto).name, accettate) + "\n")
+    colonne = colonne_per_gruppi(descrizione, derivazioni_della_pipeline(oggetto))
+    scrivi_atomico(uscita, testo_yaml(voci, fatti, Path(oggetto).name, accettate, colonne)
+                   + "\n")
     return voci, fatti

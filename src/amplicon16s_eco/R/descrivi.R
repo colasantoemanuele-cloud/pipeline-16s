@@ -13,10 +13,16 @@
 #   albero              se c'e', se e' radicato, se ha le lunghezze dei rami
 #   colonne             per ogni colonna della tabella dei campioni: valori
 #                       presenti, valori distinti, gruppi con almeno due
-#                       campioni, se i valori sono tutti numerici
+#                       campioni, se i valori sono tutti numerici e, se non
+#                       sono tutti diversi, ogni valore con i suoi campioni
+#                       (servono alle proposte di raggruppamento)
 
 for (f in c("io_json.R", "errors.R")) source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
 for (f in c("uscite.R", "campioni.R")) source(file.path(Sys.getenv("AMPLICON16S_ECO_R_LIB"), f))
+
+# Oltre questo numero di valori distinti una colonna non si elenca valore per
+# valore: la descrizione resta piccola anche con migliaia di campioni.
+MASSIMO_VALORI <- 1000L
 
 esegui_fase(function(parametri, cartella) {
   richiedi_pacchetti(c("phyloseq", "ape"))
@@ -39,13 +45,20 @@ esegui_fase(function(parametri, cartella) {
     valori <- tabella[[nome]]
     presenti <- valori[!e_mancante(valori, marcatori)]
     dimensioni <- table(presenti)
+    # I valori con i loro campioni, in ordine radix: non per una colonna i cui
+    # valori sono tutti diversi (un identificativo), che non fa gruppi.
+    elencati <- length(dimensioni) < length(presenti) && length(dimensioni) <= MASSIMO_VALORI
+    nomi <- names(dimensioni)[ordine_radix(names(dimensioni))]
     list(
       nome = nome,
       con_valore = length(presenti),
       distinti = length(dimensioni),
       gruppi_ripetuti = sum(dimensioni >= 2L),
       numerica = length(presenti) > 0L &&
-        !anyNA(suppressWarnings(as.numeric(presenti)))
+        !anyNA(suppressWarnings(as.numeric(presenti))),
+      valori = if (elencati) lapply(nomi, function(v) {
+        list(valore = v, campioni = as.integer(dimensioni[[v]]))
+      }) else list()
     )
   })
   scrivi_json(list(

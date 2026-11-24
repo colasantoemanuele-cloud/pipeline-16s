@@ -2,7 +2,8 @@
 #
 # La usa R/analisi.R (comando eco run). Scrive, nella cartella ordinazione/
 # delle uscite, per ogni metodo e distanza le coordinate, per la PCoA gli
-# autovalori, e un grafico per variabile.
+# autovalori, un grafico per variabile e un grafico descrittivo, senza test,
+# per ogni colonna di ord.color_by.
 #
 # Richiede uscite.R e alfa.R (fissa_seme). Interfaccia:
 #   pcoa_di(matrice, correzione)     coordinate, autovalori, frazioni
@@ -18,6 +19,9 @@
 # fissato, perche' le coordinate non cambino fra macchine.
 
 SOGLIA_STRESS <- 0.2
+
+# I nomi dei metodi nei titoli dei grafici.
+NOMI_ORDINAZIONE <- c(pcoa = "PCoA", nmds = "NMDS")
 
 # Le coordinate con il segno di ogni asse fissato: l'elemento di modulo massimo
 # della colonna e' positivo.
@@ -128,7 +132,18 @@ nmds_di <- function(matrice, trymax, seme) {
     )
   } else {
     # Legenda in un pannello sotto il grafico: tante colonne quante ne stanno
-    # nella larghezza, e l'immagine si allunga con il numero di righe.
+    # nella larghezza, e l'immagine si allunga con il numero di righe. La
+    # larghezza di una colonna e' quella delle voci tipiche (nove su dieci): i
+    # pochi nomi piu' lunghi si accorciano, tenendo il numero dei campioni,
+    # invece di ridurre tutta la legenda a una colonna sola.
+    larghezza <- min(max(nchar(voci)), max(20L, as.integer(ceiling(
+      stats::quantile(nchar(voci), 0.9, names = FALSE)))))
+    lunghe <- nchar(voci) > larghezza
+    if (any(lunghe)) {
+      coda <- sprintf(" (n = %d)", v$dimensioni[gruppi])
+      voci[lunghe] <- paste0(substr(gruppi[lunghe], 1L, pmax(1L, larghezza - nchar(coda[lunghe]) - 3L)),
+                             "...", coda[lunghe])
+    }
     colonne <- max(1L, min(8L, 150L %/% (max(nchar(voci)) + 6L)))
     righe <- ceiling(length(gruppi) / colonne)
     altezza_legenda <- 140L + righe * PIXEL_RIGA_LEGENDA
@@ -244,8 +259,21 @@ scrivi_ordinazioni <- function(matrici, disegno, parametri, seme, cartella) {
         if (!length(v$dimensioni)) next
         nome <- paste0(base, "_", nome_file(indice, v$nome), ".png")
         .grafico_ordinazione(coordinate, v,
-                             sprintf("%s, distanza %s", c(pcoa = "PCoA", nmds = "NMDS")[[metodo]],
+                             sprintf("%s, distanza %s", NOMI_ORDINAZIONE[[metodo]],
                                      nome_distanza(distanza)),
+                             etichette, file.path(cartella, nome))
+        prodotti <- c(prodotti, paste0("ordinazione/", nome))
+      }
+      # I grafici dei soli colori (ord.color_by): nessun test li accompagna, e
+      # il titolo lo dice.
+      indice <- 0L
+      for (v in disegno$colore) {
+        indice <- indice + 1L
+        if (!length(v$dimensioni)) next
+        nome <- paste0(base, "_colore_", nome_file(indice, v$nome), ".png")
+        .grafico_ordinazione(coordinate, v,
+                             sprintf("%s, distanza %s, descrittivo, nessun test",
+                                     NOMI_ORDINAZIONE[[metodo]], nome_distanza(distanza)),
                              etichette, file.path(cartella, nome))
         prodotti <- c(prodotti, paste0("ordinazione/", nome))
       }

@@ -11,6 +11,8 @@
 #   conteggi_di(ps)                  matrice varianti x campioni
 #   tabella_campioni(ps)             data.frame di testo, una riga per campione
 #   e_mancante(x, marcatori)         valori mancanti di una colonna
+#   deriva_raggruppamenti(...)       i gruppi derivati (design.groupings) come
+#                                    nuove colonne della tabella dei campioni
 #   filtra_abbondanza(conteggi, soglia, ambito)   il filtro delle varianti rare
 #   esamina(ps, parametri)           errori, avvisi e disegno dell'analisi
 #   tabella_dei_campioni(disegno)    la tabella campioni.tsv
@@ -104,6 +106,79 @@ tabella_campioni <- function(ps) {
 e_mancante <- function(x, marcatori) {
   x <- as.character(x)
   is.na(x) | tolower(trimws(x)) %in% marcatori
+}
+
+# I gruppi derivati (design.groupings) come nuove colonne della tabella dei
+# campioni. Per ognuno: il nome non deve essere quello di una colonna
+# dell'oggetto; from deve esserlo; con groups ogni valore elencato deve
+# comparire nella colonna, e ogni valore va al suo gruppo; con pattern il primo
+# gruppo di cattura dell'espressione (PCRE, come re di Python nella
+# validazione del file) e' il nome del gruppo. Un valore mancante, che non e'
+# elencato o che l'espressione non riconosce resta senza gruppo (NA), e il
+# motivo e' registrato per campione. Restituisce list(tabella, derivate,
+# errori): la tabella con le nuove colonne, per ogni gruppo derivato la regola
+# e i motivi, e i rifiuti E-ECO-40.
+deriva_raggruppamenti <- function(tabella, raggruppamenti, marcatori) {
+  derivate <- list()
+  errori <- list()
+  colonne <- names(tabella)
+  for (nome in names(raggruppamenti)) {
+    g <- raggruppamenti[[nome]]
+    da <- g[["from"]]
+    if (nome %in% colonne) {
+      errori[[length(errori) + 1L]] <- .avviso("E-ECO-40", sprintf(
+        "design.groupings.%s: il nome e' quello di una colonna dell'oggetto; scegline un altro.",
+        nome))
+      next
+    }
+    if (!da %in% colonne) {
+      errori[[length(errori) + 1L]] <- .avviso("E-ECO-40", sprintf(
+        "design.groupings.%s: from '%s' non e' una colonna dell'oggetto. Colonne dell'oggetto: %s.",
+        nome, da, paste(colonne, collapse = ", ")))
+      next
+    }
+    valori <- tabella[[da]]
+    mancante <- e_mancante(valori, marcatori)
+    if (!is.null(g$groups)) {
+      gruppi <- g$groups
+      elencati <- unlist(lapply(gruppi, function(x) trimws(as.character(unlist(x)))))
+      mappa <- stats::setNames(rep(names(gruppi), lengths(lapply(gruppi, unlist))), elencati)
+      presenti <- unique(valori[!mancante])
+      assenti <- setdiff(elencati, presenti)
+      if (length(assenti)) {
+        errori[[length(errori) + 1L]] <- .avviso("E-ECO-40", sprintf(
+          "design.groupings.%s: nella colonna '%s' non compare: %s. Valori presenti: %s.",
+          nome, da, .elenco(assenti), .elenco(presenti[ordine_radix(presenti)])))
+        next
+      }
+      derivati <- unname(mappa[valori])
+      regola <- sprintf("groups: %s", paste(sprintf("%s = %s", names(gruppi), vapply(
+        gruppi, function(x) paste(unlist(x), collapse = ", "), "")), collapse = "; "))
+    } else {
+      testo <- ifelse(is.na(valori), "", valori)
+      catture <- regmatches(testo, regexec(g$pattern, testo, perl = TRUE))
+      derivati <- vapply(catture, function(m) {
+        if (length(m) >= 2L && !is.na(m[2L]) && nzchar(m[2L])) m[2L] else NA_character_
+      }, character(1))
+      regola <- sprintf("pattern: %s (primo gruppo di cattura)", g$pattern)
+    }
+    derivati[mancante] <- NA_character_
+    motivi <- ifelse(mancante, sprintf("escluso: valore mancante in '%s'", da), sprintf(
+      "escluso: il valore di '%s' non rientra in alcun gruppo di '%s'", da, nome))
+    motivi[!is.na(derivati)] <- NA_character_
+    tabella[[nome]] <- derivati
+    derivate[[nome]] <- list(nome = nome, da = da, regola = regola,
+                             motivi = stats::setNames(motivi, rownames(tabella)))
+  }
+  list(tabella = tabella, derivate = derivate, errori = errori)
+}
+
+# Il motivo per cui i campioni senza valore escono dalle analisi di una
+# variabile: per un gruppo derivato quello registrato campione per campione,
+# altrimenti il valore mancante.
+motivo_mancante <- function(v, campioni) {
+  if (is.null(v$motivi)) return(rep("escluso: valore mancante", length(campioni)))
+  unname(v$motivi[campioni])
 }
 
 # Un errore o un avviso come coppia codice e dettaglio, la forma in cui
@@ -209,12 +284,29 @@ esamina <- function(ps, parametri) {
   tabella <- tabella_campioni(ps)
   conteggi <- conteggi_di(ps)
   letture <- colSums(conteggi)
+  # Facoltativi: assenti dai parametri se non dichiarati.
+  raggruppamenti <- design$groupings
+  if (is.null(raggruppamenti)) raggruppamenti <- list()
+  colori <- as.character(unlist(parametri$ord$color_by))
+  del_grafico <- facoltativo(parametri, "plot", list())
+
+  # --- Gruppi derivati: nuove colonne, prima di ogni altro controllo. --------
+  derivate <- list()
+  if (length(raggruppamenti)) {
+    esito <- deriva_raggruppamenti(tabella, raggruppamenti, marcatori)
+    tabella <- esito$tabella
+    derivate <- esito$derivate
+    errori <- c(errori, esito$errori)
+  }
 
   # --- Cio' che rende impossibile ogni calcolo: ci si ferma qui. -------------
   dichiarate <- unique(c(biologiche, tecniche, names(sottoinsieme),
                          colonne_aggiuntive(parametri), continue_dichiarate,
-                         colonna_soggetto))
-  for (colonna in dichiarate[!dichiarate %in% names(tabella)]) {
+                         colonna_soggetto, colori))
+  # Un gruppo derivato respinto non e' una colonna mancante: il suo rifiuto
+  # c'e' gia'.
+  respinti <- setdiff(names(raggruppamenti), names(derivate))
+  for (colonna in dichiarate[!dichiarate %in% c(names(tabella), respinti)]) {
     errore("E-ECO-05", sprintf(
       "Colonna '%s' non trovata. Colonne dell'oggetto: %s.", colonna,
       paste(names(tabella), collapse = ", ")))
@@ -240,6 +332,11 @@ esamina <- function(ps, parametri) {
         "phyloseq ne sceglierebbe una a caso, e la distanza dipenderebbe da quella ",
         "scelta. Con beta.unifrac_root midpoint l'albero si radica al punto medio."))
     }
+  }
+  palette <- del_grafico$palette
+  if (!is.null(palette) && is.na(origine_palette(palette))) {
+    errore("E-ECO-41", sprintf("plot.palette '%s' non e' il nome di una palette conosciuta.",
+                               paste(unlist(palette), collapse = ", ")))
   }
   if (length(errori)) return(list(errori = errori, avvisi = avvisi, disegno = NULL))
 
@@ -362,8 +459,10 @@ esamina <- function(ps, parametri) {
     valori[e_mancante(valori, marcatori)] <- NA
     mancanti <- names(valori)[is.na(valori)]
     if (length(mancanti)) {
-      avviso("E-ECO-13", sprintf("Variabile '%s': %d campioni con valore mancante (%s).",
-                                nome, length(mancanti), .elenco(mancanti)))
+      avviso("E-ECO-13", sprintf(
+        if (nome %in% names(derivate)) "Variabile '%s': %d campioni senza gruppo (%s)." else
+          "Variabile '%s': %d campioni con valore mancante (%s).",
+        nome, length(mancanti), .elenco(mancanti)))
     }
     g <- gruppi_di(valori, minimo)
     if (length(g$piccoli)) {
@@ -391,8 +490,17 @@ esamina <- function(ps, parametri) {
     }
     variabili[[nome]] <- list(nome = nome, valori = valori, mancanti = mancanti,
                               dimensioni = g$dimensioni, piccoli = g$piccoli,
-                              nei_test = g$nei_test)
+                              nei_test = g$nei_test,
+                              motivi = if (nome %in% names(derivate)) derivate[[nome]]$motivi)
   }
+  # Le variabili dei soli grafici (ord.color_by): valori e gruppi, nessun test.
+  descrittiva <- function(nome) {
+    valori <- stats::setNames(tabella[campioni, nome], campioni)
+    valori[e_mancante(valori, marcatori)] <- NA
+    list(nome = nome, valori = valori, mancanti = names(valori)[is.na(valori)],
+         dimensioni = gruppi_di(valori, 1L)$dimensioni)
+  }
+  colore <- lapply(stats::setNames(nm = colori), descrittiva)
   tecnici <- list()
   for (nome in tecniche) {
     valori <- stats::setNames(tabella[campioni, nome], campioni)
@@ -457,6 +565,8 @@ esamina <- function(ps, parametri) {
       biologiche = biologiche,
       tecniche = tecniche,
       variabili = variabili,
+      derivate = derivate,
+      colore = colore,
       tecnici = tecnici,
       continue = continue,
       soggetto = soggetto,
@@ -477,7 +587,7 @@ colonne_aggiuntive <- function(parametri) {
 stato_per_variabile <- function(v, campioni) {
   stato <- rep("analizzato", length(campioni))
   names(stato) <- campioni
-  stato[v$mancanti] <- "escluso: valore mancante"
+  stato[v$mancanti] <- motivo_mancante(v, v$mancanti)
   piccoli <- campioni[!is.na(v$valori[campioni]) & v$valori[campioni] %in% v$piccoli]
   stato[piccoli] <- "escluso dai test: gruppo sotto la dimensione minima"
   stato
@@ -539,6 +649,14 @@ tabella_dei_campioni <- function(d, piani = list()) {
     valori <- rep(NA_character_, length(tutti))
     names(valori) <- tutti
     valori[d$campioni] <- d$tecnici[[nome]][d$campioni]
+    tabella[[paste0("valore:", nome)]] <- valori
+  }
+  # I gruppi derivati che non sono variabili del disegno: il gruppo di ogni
+  # campione, NA se ne e' senza.
+  for (nome in setdiff(names(d$derivate), names(d$variabili))) {
+    valori <- rep(NA_character_, length(tutti))
+    names(valori) <- tutti
+    valori[d$campioni] <- d$tabella[d$campioni, nome]
     tabella[[paste0("valore:", nome)]] <- valori
   }
   # Le colonne delle variabili continue e del soggetto ci sono solo se dichiarate.
@@ -633,6 +751,16 @@ riepilogo_del_disegno <- function(d) {
       varianti_toccate = sum(d$filtro$tolte > 0),
       letture_tolte = sum(d$filtro$tolte),
       letture_prima = sum(d$filtro$prima))
+  }
+  if (length(d$derivate)) {
+    # I gruppi ottenuti da ogni regola, fra i campioni analizzati: validate li
+    # stampa perche' la regola si controlli prima del calcolo.
+    riepilogo$gruppi_derivati <- unname(lapply(d$derivate, function(g) {
+      valori <- d$tabella[d$campioni, g$nome]
+      list(nome = g$nome, da = g$da, regola = g$regola,
+           gruppi = as.list(gruppi_di(stats::setNames(valori, d$campioni), 1L)$dimensioni),
+           campioni_senza_gruppo = sum(is.na(valori)))
+    }))
   }
   if (identical(d$metodo_alfa, "none")) {
     riepilogo$alfa <- list(metodo = "none", campioni = length(d$campioni))

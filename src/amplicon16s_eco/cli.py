@@ -130,8 +130,11 @@ def _cmd_init(args: argparse.Namespace) -> int:
           if accettate else "Proposti (righe in commento: togli il commento per accettare):")
     for voce in voci.values():
         if voce.specie is Specie.PROPOSTO:
-            print(f"  {voce.chiave}: {valore_yaml(voce.valore)}"
-                  + ("" if voce.attiva or not accettate else " (condizionale: in commento)"))
+            valore = (json.dumps(voce.valore, ensure_ascii=False) if isinstance(voce.valore, dict)
+                      else valore_yaml(voce.valore))
+            print(f"  {voce.chiave}: {valore}"
+                  + ("" if voce.attiva or not accettate else " (in commento: non si accetta in "
+                     "blocco)"))
     partenze = [voce for voce in voci.values() if voce.specie is Specie.PARTENZA]
     if partenze:
         print("Valori di partenza accettati (righe attive):")
@@ -179,6 +182,12 @@ def _stampa_esito(esito: Esito) -> None:
         print(f"profondita' di rarefazione: {alfa.get('profondita_di_rarefazione')} "
               f"({alfa.get('origine')}), {alfa.get('campioni_rarefatti')} campioni"
               + (f", {ripetute} rarefazioni" if ripetute else ""))
+    for gruppo in esito.riepilogo.get("gruppi_derivati") or []:
+        # I gruppi che la regola produce, perche' si controlli prima del calcolo.
+        gruppi = ", ".join(f"{nome} {n}" for nome, n in (gruppo.get("gruppi") or {}).items())
+        print(f"gruppo derivato {gruppo.get('nome')} (da {gruppo.get('da')}, "
+              f"{gruppo.get('regola')}): {gruppi or 'nessun gruppo'}; senza gruppo "
+              f"{gruppo.get('campioni_senza_gruppo')} campioni")
     filtro = esito.riepilogo.get("filtro")
     if filtro:
         print(f"filtro di abbondanza: {filtro.get('soglia_percentuale')}% "

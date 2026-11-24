@@ -683,7 +683,7 @@ ESEMPI = sorted((RADICE / "dati").glob("*/eco_*.yaml"))
 
 #: Parametri il cui valore e' una voce di un vocabolario chiuso dello schema.
 _VOCABOLARI = ("beta.distances", "beta.unifrac_root", "ord.methods", "ord.distances",
-               "ord.pcoa_correction", "alpha.method", "filter.scope")
+               "ord.pcoa_correction", "alpha.method", "filter.scope", "plot.palette")
 
 
 def _stringhe_dei_dataset() -> set[str]:
@@ -773,8 +773,11 @@ def test_il_pacchetto_non_contiene_valori_dei_dataset():
             if not campo.is_required():
                 predefinito = campo.get_default(call_default_factory=True)
                 if predefinito not in (None, (), {}):
-                    assert schema.STANDARD_DEL_METODO[f"{gruppo}.{nome}"][0] == predefinito
-                    assert not isinstance(predefinito, str)
+                    valore, fonte = schema.STANDARD_DEL_METODO[f"{gruppo}.{nome}"]
+                    assert valore == predefinito
+                    # Un testo e' ammesso solo se e' il valore che la fonte dichiara
+                    # (il nome della palette nella chiamata del pacchetto).
+                    assert not isinstance(predefinito, str) or f'"{predefinito}"' in fonte
 
 
 # --------------------------------------------------------------------------- #

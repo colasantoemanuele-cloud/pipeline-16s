@@ -1,8 +1,8 @@
 """Configurazione delle analisi ecologiche: schema, caricamento e digest.
 
 Il file e' proprio del pacchetto, distinto da quello della pipeline, e ha
-gruppi ``design``, ``run``, ``filter``, ``alpha``, ``comp``, ``beta``, ``ord`` e
-``stat``. Le regole sono quelle della pipeline:
+gruppi ``design``, ``run``, ``filter``, ``alpha``, ``comp``, ``beta``, ``ord``,
+``stat`` e ``plot``. Le regole sono quelle della pipeline:
 
 * cio' che dipende dallo studio e' **obbligatorio** e non ha un valore
   predefinito (:data:`OBBLIGATORI`), a cominciare dalla variabile biologica;
@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal
@@ -133,10 +134,18 @@ STANDARD_DEI_CONDIZIONALI: Final[dict[str, tuple[Any, str]]] = {
         1, "phyloseq::rarefy_even_depth: una sola rarefazione per campione"),
 }
 
+#: La palette di partenza dei grafici: quella con cui lo strumento li ha sempre
+#: disegnati (colori_gruppi in R/lib/uscite.R).
+PALETTE_PREDEFINITA: Final = "Dark 3"
+
 #: Predefiniti che sono il valore del pacchetto R che realizza il metodo:
 #: chiave -> (valore, fonte).
 STANDARD_DEL_METODO: Final[dict[str, tuple[Any, str]]] = {
     "stat.permanova_permutations": (999, "vegan::adonis2, permutations = 999"),
+    "plot.palette": (
+        PALETTE_PREDEFINITA,
+        "grDevices::hcl.colors(n, palette = \"Dark 3\"): la palette con cui lo strumento "
+        "ha sempre colorato i gruppi (colori_gruppi, R/lib/uscite.R)"),
 }
 
 #: Parametri facoltativi il cui predefinito e' l'assenza.
@@ -146,7 +155,9 @@ FACOLTATIVI: Final[tuple[str, ...]] = (
     "design.subset",
     "design.continuous_variables",
     "design.subject",
+    "design.groupings",
     "filter.min_relative_abundance",
+    "ord.color_by",
     "stat.permanova_strata",
 )
 
@@ -158,6 +169,8 @@ FACOLTATIVI: Final[tuple[str, ...]] = (
 ASSENTI_SE_NON_DICHIARATI: Final[tuple[str, ...]] = (
     "design.continuous_variables",
     "design.subject",
+    "design.groupings",
+    "ord.color_by",
     "filter.min_relative_abundance",
     "filter.scope",
 )
@@ -177,6 +190,53 @@ class _Gruppo(BaseModel):
     """Base dei gruppi: immutabile, chiavi sconosciute respinte."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class Raggruppamento(_Gruppo):
+    """Un gruppo derivato: una nuova variabile categorica ricavata da una
+    colonna, con un elenco di valori per gruppo oppure con un'espressione
+    regolare il cui primo gruppo di cattura da' il nome del gruppo."""
+
+    da: _Nome = Field(alias="from", description=(
+        "La colonna della tabella dei campioni da cui si ricava il gruppo."))
+    groups: dict[_Nome, tuple[_Nome, ...]] | None = Field(None, description=(
+        "Per ogni gruppo i valori della colonna che vi rientrano."))
+    pattern: _Nome | None = Field(None, description=(
+        "Espressione regolare (PCRE) sul valore della colonna: il primo gruppo di "
+        "cattura e' il nome del gruppo."))
+
+    @model_validator(mode="after")
+    def _una_regola(self) -> "Raggruppamento":
+        """Respinge una regola assente o doppia, un gruppo senza valori, un valore
+        in due gruppi, un'espressione non valida o senza gruppo di cattura."""
+        if (self.groups is None) == (self.pattern is None):
+            raise ValueError("dichiara uno solo fra groups e pattern")
+        if self.groups is not None:
+            if not self.groups:
+                raise ValueError("groups non elenca alcun gruppo")
+            vuoti = sorted(g for g, valori in self.groups.items() if not valori)
+            if vuoti:
+                raise ValueError(f"gruppi senza valori: {vuoti}")
+            visti: dict[str, str] = {}
+            doppi = []
+            for gruppo, valori in self.groups.items():
+                for valore in valori:
+                    if valore in visti and visti[valore] != gruppo:
+                        doppi.append(f"{valore!r} in {visti[valore]} e {gruppo}")
+                    visti[valore] = gruppo
+            if doppi:
+                raise ValueError(f"valori in due gruppi: {', '.join(doppi)}")
+        if self.pattern is not None:
+            try:
+                compilata = re.compile(self.pattern)
+            except re.error as e:
+                raise ValueError(
+                    f"pattern {self.pattern!r} non e' un'espressione valida ({e})") from None
+            if compilata.groups < 1:
+                raise ValueError(
+                    f"pattern {self.pattern!r} non ha un gruppo di cattura: il primo gruppo "
+                    "fra parentesi da' il nome del gruppo")
+        return self
 
 
 class Design(_Gruppo):
@@ -209,6 +269,11 @@ class Design(_Gruppo):
         "variabile biologica categorica e' analizzata anche entro soggetto (Wilcoxon "
         "dei ranghi con segno o Friedman, PERMANOVA con le permutazioni entro il "
         "soggetto)."))
+    #: Gruppi derivati da una colonna: nome -> regola.
+    groupings: dict[_Nome, Raggruppamento] = Field(default_factory=dict, description=(
+        "Nuove variabili categoriche ricavate da una colonna, con un elenco di valori per "
+        "gruppo (groups) oppure con un'espressione regolare (pattern) il cui primo gruppo "
+        "di cattura da' il nome del gruppo. Si usano come le colonne."))
 
     @model_validator(mode="after")
     def _senza_ripetizioni(self) -> "Design":
@@ -254,6 +319,34 @@ class Design(_Gruppo):
         vuoti = sorted(c for c, valori in self.subset.items() if not valori)
         if vuoti:
             raise ValueError(f"design.subset senza valori ammessi per: {vuoti}")
+        di_se = sorted(n for n, g in self.groupings.items() if g.da in self.groupings)
+        if di_se:
+            raise ValueError(
+                "design.groupings: un gruppo derivato si ricava da una colonna dell'oggetto, "
+                f"non da un altro gruppo derivato: {di_se}")
+        return self
+
+
+class Plot(_Gruppo):
+    """Grafici."""
+
+    #: Palette dei gruppi: un nome o un elenco di colori.
+    palette: _Nome | Annotated[tuple[_Nome, ...], Field(min_length=1)] = Field(
+        PALETTE_PREDEFINITA, description=(
+            "Palette dei gruppi in tutti i grafici: un nome di grDevices::hcl.colors, "
+            "\"Okabe-Ito\" (grDevices::palette.colors, adatta ai daltonici), un nome di "
+            "RColorBrewer o di viridisLite, oppure un elenco di colori esadecimali. Con piu' "
+            "gruppi che colori la palette si estende per interpolazione."))
+
+    @model_validator(mode="after")
+    def _colori(self) -> "Plot":
+        """Un elenco di colori e' fatto di colori esadecimali (#RRGGBB o
+        #RRGGBBAA); un nome si verifica in R, che conosce le palette."""
+        if isinstance(self.palette, tuple):
+            sbagliati = [c for c in self.palette
+                         if not re.fullmatch(r"#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?", c)]
+            if sbagliati:
+                raise ValueError(f"colori non esadecimali (#RRGGBB): {sbagliati}")
         return self
 
 
@@ -353,6 +446,10 @@ class Ord(_Gruppo):
     nmds_trymax: _Positivo | None = Field(None, description=(
         "Numero di avvii casuali della NMDS (vegan::metaMDS): obbligatorio con nmds, "
         "respinto altrimenti."))
+    #: Colonne o gruppi derivati per cui disegnare le ordinazioni senza test.
+    color_by: tuple[_Nome, ...] = Field((), description=(
+        "Colonne o gruppi derivati per cui disegnare le ordinazioni colorate, senza "
+        "alcun test: figure descrittive."))
 
     @model_validator(mode="after")
     def _coerente(self) -> "Ord":
@@ -363,6 +460,9 @@ class Ord(_Gruppo):
             ripetuti = sorted({v for v in valori if valori.count(v) > 1})
             if ripetuti:
                 raise ValueError(f"ord.{nome} con valori ripetuti: {ripetuti}")
+        ripetute = sorted({v for v in self.color_by if self.color_by.count(v) > 1})
+        if ripetute:
+            raise ValueError(f"ord.color_by con valori ripetuti: {ripetute}")
         if bool(self.methods) != bool(self.distances):
             raise ValueError(
                 "ord.methods e ord.distances vanno dichiarati insieme: entrambi "
@@ -401,6 +501,7 @@ class ConfigEco(_Gruppo):
     beta: Beta
     ord: Ord
     stat: Stat
+    plot: Plot = Field(default_factory=Plot)
 
     @model_validator(mode="after")
     def _distanze_ordinate(self) -> "ConfigEco":
@@ -411,6 +512,12 @@ class ConfigEco(_Gruppo):
             raise ValueError(
                 f"ord.distances nomina distanze che beta.distances non calcola: {estranee}"
             )
+        biologiche = {self.design.variable, *self.design.other_variables}
+        doppie = sorted(biologiche & set(self.ord.color_by))
+        if doppie:
+            raise ValueError(
+                "ord.color_by nomina variabili del disegno, che hanno gia' i loro grafici: "
+                f"{doppie}")
         return self
 
 
@@ -454,6 +561,22 @@ def _rifiuto(problema: dict[str, Any]) -> tuple[str, str]:
     chiave = _chiave(problema["loc"])
     tipo = problema["type"]
     contesto = problema.get("ctx") or {}
+    if chiave.startswith("design.groupings") or (
+            tipo == "value_error" and "design.groupings:" in str(contesto.get("error", ""))):
+        # Ogni problema di un gruppo derivato ha il suo codice.
+        if tipo == "missing":
+            testo = "parametro mancante"
+        elif tipo == "value_error":
+            testo = str(contesto.get("error", problema["msg"]))
+        elif tipo in _MESSAGGI:
+            testo = _MESSAGGI[tipo].format(**contesto)
+        else:
+            testo = problema["msg"]
+        return "E-ECO-40", f"{chiave}: {testo}."
+    if chiave == "plot" or chiave.startswith("plot.palette"):
+        testo = (str(contesto.get("error", problema["msg"])) if tipo == "value_error"
+                 else "un nome di palette o un elenco di colori esadecimali")
+        return "E-ECO-41", f"plot.palette: {testo}."
     if tipo == "missing":
         return "E-ECO-02", f"Parametro mancante: {chiave}."
     if tipo == "literal_error" and chiave in _PARAMETRI_DI_METODO:
@@ -512,8 +635,9 @@ def attivo(chiave: str, valore_di: Callable[[str], Any]) -> bool:
 
 
 def _dichiarato(valore: Any) -> bool:
-    """Un valore conta come dichiarato se non e' nullo ne' un elenco vuoto."""
-    return valore is not None and valore != [] and valore != ()
+    """Un valore conta come dichiarato se non e' nullo ne' un elenco o una mappa
+    vuoti."""
+    return valore is not None and valore != [] and valore != () and valore != {}
 
 
 def _condizionali(
@@ -587,11 +711,13 @@ def valida(dati: Any) -> ConfigEco:
             valori = dati.get(gruppo)
             return valori.get(nome) if isinstance(valori, dict) else None
 
-        raise ErroreEco([
+        # Un valore che lo schema ammette in piu' forme (la palette) puo' dare lo
+        # stesso rifiuto una volta per forma: si riporta una volta sola.
+        raise ErroreEco(list(dict.fromkeys([
             _rifiuto(p) for p in problemi
             if not (p["type"] == "too_short" and _chiave(p["loc"]) in respinti)
         ] + [r for r in _condizionali(dai_dati, frozenset(gia_detti))
-             if r[0] == "E-ECO-02"]) from None
+             if r[0] == "E-ECO-02"]))) from None
 
     def dal_modello(chiave: str) -> Any:
         """Il valore della chiave ``gruppo.parametro`` nella configurazione validata."""

@@ -341,6 +341,23 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "filtro diverso (RAZIONALE.md, sezione 4.2).",
     ),
     VoceEco(
+        "E-ECO-40", _R,
+        "Un gruppo derivato (design.groupings) non e' valido.",
+        "Correggi il gruppo indicato nel messaggio: from deve essere una colonna "
+        "dell'oggetto; va dichiarato uno solo fra groups e pattern; con groups ogni "
+        "valore elencato deve comparire nella colonna e stare in un solo gruppo; con "
+        "pattern l'espressione deve essere valida e avere un gruppo di cattura; il nome "
+        "non puo' essere quello di una colonna esistente (RIFERIMENTO.md, sezione 4.5).",
+    ),
+    VoceEco(
+        "E-ECO-41", _R,
+        "La palette dei grafici (plot.palette) non e' riconosciuta.",
+        "Indica il nome di una palette di grDevices::hcl.pals(), \"Okabe-Ito\", un nome di "
+        "RColorBrewer (rownames(RColorBrewer::brewer.pal.info)) o di viridisLite (magma, "
+        "inferno, plasma, viridis, cividis, rocket, mako, turbo), oppure un elenco di "
+        "colori esadecimali come [\"#1B9E77\", \"#D95F02\"] (RIFERIMENTO.md, sezione 4.4).",
+    ),
+    VoceEco(
         "E-ECO-90", _R,
         "Il calcolo in R non si e' concluso.",
         "Leggi il messaggio di R riportato nel dettaglio. Le analisi vanno "

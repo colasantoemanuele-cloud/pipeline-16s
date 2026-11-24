@@ -33,3 +33,5 @@ stat:
   significance_level: 0.05
   permanova_permutations: 999
   permanova_strata: null
+plot:
+  palette: "Dark 3"

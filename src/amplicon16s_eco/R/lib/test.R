@@ -103,7 +103,7 @@ disegno_dei_test <- function(d, parametri) {
     }
     campioni_alfa <- names(valori_alfa)[!is.na(valori_alfa) & valori_alfa %in% g_alfa$nei_test]
     stato_alfa <- stats::setNames(rep("analizzato", length(d$campioni)), d$campioni)
-    stato_alfa[v$mancanti] <- "escluso: valore mancante"
+    stato_alfa[v$mancanti] <- motivo_mancante(v, v$mancanti)
     stato_alfa[names(valori_alfa)[!is.na(valori_alfa) & valori_alfa %in% g_alfa$piccoli]] <-
       "escluso dai test: gruppo sotto la dimensione minima"
 

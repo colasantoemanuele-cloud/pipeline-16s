@@ -52,6 +52,26 @@ design:
   # permutazioni entro il soggetto.
   # subject: null
 
+  # [FACOLTATIVO] Gruppi derivati: nuove variabili categoriche ricavate da una
+  # colonna, con un elenco di valori per gruppo (groups) oppure con
+  # un'espressione regolare (pattern, PCRE) il cui primo gruppo di cattura da'
+  # il nome del gruppo. Si usano come le colonne: in variable,
+  # other_variables, ord.color_by, comp.group_by, comp.facet_wrap e
+  # comp.facet_grid. I valori che non rientrano restano senza gruppo (NA) e il
+  # campione esce dalle analisi di quella variabile, con il motivo in
+  # campioni.tsv. eco validate stampa i gruppi ottenuti, con i campioni; eco
+  # init propone in commento un gruppo per prefisso quando i valori lo
+  # permettono. Il nome non puo' essere quello di una colonna.
+  # groupings: {}
+  #   bagno_cucina:
+  #     from: <colonna>
+  #     groups:
+  #       bagno: ["<valore>", "<valore>"]
+  #       cucina: ["<valore>"]
+  #   modulo_da_posizione:
+  #     from: <colonna>
+  #     pattern: "^([A-Z]+[0-9]?)"
+
 run:
   # [OBBLIGATORIO] Seme della rarefazione e di ogni altra operazione casuale.
   # seed:
@@ -139,6 +159,12 @@ ord:
   # [CONDIZIONALE: nmds] Numero di avvii casuali della NMDS (vegan::metaMDS).
   # nmds_trymax:
 
+  # [FACOLTATIVO] Colonne o gruppi derivati per cui disegnare le ordinazioni
+  # colorate senza alcun test (figure descrittive: il titolo dice
+  # «descrittivo, nessun test»), per esempio un raggruppamento visto dopo aver
+  # guardato i dati. Non ripete le variabili del disegno.
+  # color_by: []
+
 stat:
   # [OBBLIGATORIO] Numero minimo di campioni perche' un gruppo entri nei test.
   # min_group_size:
@@ -154,3 +180,13 @@ stat:
   # [FACOLTATIVO] Colonna degli strati entro cui permutare nella PERMANOVA e
   # nel test delle dispersioni.
   # permanova_strata: null
+
+plot:
+  # [STANDARD] Palette dei gruppi in tutti i grafici (predefinito "Dark 3"
+  # della funzione grDevices::hcl.colors, quella con cui lo strumento ha sempre
+  # colorato i gruppi). Ammette un nome di grDevices::hcl.pals(), "Okabe-Ito"
+  # (grDevices::palette.colors, adatta ai daltonici), un nome di RColorBrewer
+  # (per i nomi che ha anche hcl.pals vale RColorBrewer) o di viridisLite, oppure
+  # un elenco di colori esadecimali ["#RRGGBB", ...]. Con piu' gruppi che
+  # colori la palette si estende per interpolazione (grDevices::colorRampPalette).
+  palette: "Dark 3"

@@ -48,3 +48,7 @@ stat:
   significance_level: 0.05
   permanova_permutations: 999
   permanova_strata: null
+
+plot:
+  # La palette di sempre (grDevices::hcl.colors, "Dark 3").
+  palette: "Dark 3"
