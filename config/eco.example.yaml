@@ -76,6 +76,16 @@ run:
   # [OBBLIGATORIO] Seme della rarefazione e di ogni altra operazione casuale.
   # seed:
 
+  # [FACOLTATIVO] Livello dei calcoli. Nullo vuol dire le varianti, la pratica
+  # comune. Con un rango, alfa diversita', distanze, ordinazioni, test e metodo
+  # vincolato lavorano sui taxa agglomerati con phyloseq::tax_glom(taxrank =
+  # <rango>, NArm = FALSE): le varianti senza nome al rango restano separate
+  # secondo il loro lignaggio ai ranghi superiori, e UniFrac usa l'albero
+  # potato da tax_glom. Si perde la risoluzione delle varianti; si guadagnano
+  # meno taxa rari e meno zeri. Ogni tabella dichiara il livello nella sua
+  # intestazione. E' distinto dal rango dei grafici (comp.rank).
+  # analysis_rank: null
+
 filter:
   # [FACOLTATIVO] Soglia di abbondanza relativa, in percentuale (0.1 = 0,1%);
   # nullo vuol dire nessun filtro. Si applica dopo design.subset e prima di ogni analisi
@@ -121,7 +131,13 @@ alpha:
   # rarefy_iterations: 1
 
 comp:
-  # [OBBLIGATORIO] Rango tassonomico a cui agglomerare, fra quelli dell'oggetto.
+  # [OBBLIGATORIO] Rango tassonomico dei grafici e delle tabelle della
+  # composizione, fra quelli dell'oggetto (eco init li elenca con la quota di
+  # varianti assegnate): qualunque rango, anche meno specifico del proposto.
+  # Oppure un elenco di ranghi, [<rango>, <rango>]: ogni rango ha
+  # allora la sua sottocartella composizione/<rango>/; con un rango solo i file
+  # stanno in composizione/. Se e' dichiarato run.analysis_rank, nessun rango
+  # puo' essere piu' fine di quello.
   # rank:
 
   # [OBBLIGATORIO] Numero di taxa mostrati nei grafici; i rimanenti in «altri».

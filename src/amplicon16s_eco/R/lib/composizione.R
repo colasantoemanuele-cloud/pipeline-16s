@@ -67,9 +67,11 @@ abbondanze_relative <- function(conteggi) {
 # gruppo, la media per gruppo dei primi taxa, con i rimanenti riuniti in una
 # sola voce, in una tabella e in un grafico a barre. Un taxon il cui nome si
 # ripete in lignaggi diversi e' etichettato con il lignaggio. Restituisce i
-# nomi dei file, relativi alla cartella di uscita.
-scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella) {
-  dir.create(cartella, showWarnings = FALSE)
+# nomi dei file, relativi alla cartella di uscita (relativa e' la cartella della
+# composizione: composizione/, o composizione/<rango>/ con piu' ranghi).
+scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
+                                relativa = "composizione") {
+  dir.create(cartella, showWarnings = FALSE, recursive = TRUE)
   relative <- abbondanze_relative(agglomerato$conteggi)
   media <- rowMeans(relative)
   ordine <- order(-media, agglomerato$lignaggio, method = "radix")
@@ -80,7 +82,7 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella) {
 
   tabella <- affianca(list(taxon = taxon, lignaggio = lignaggio,
                            abbondanza_media = reale(media)), relative, reale)
-  prodotti <- "composizione/abbondanze_relative.tsv"
+  prodotti <- file.path(relativa, "abbondanze_relative.tsv")
   scrivi_tsv(
     tabella, file.path(cartella, "abbondanze_relative.tsv"),
     intestazione = c(
@@ -125,7 +127,7 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella) {
     )
     grafico_composizione(mostrati, nomi, gruppi, v, rango,
                          file.path(cartella, paste0("gruppi_", base, ".png")))
-    prodotti <- c(prodotti, paste0("composizione/gruppi_", base, c(".tsv", ".png")))
+    prodotti <- c(prodotti, file.path(relativa, paste0("gruppi_", base, c(".tsv", ".png"))))
   }
   prodotti
 }

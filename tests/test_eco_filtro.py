@@ -335,3 +335,112 @@ def test_la_rarefazione_ripetuta_e_la_media_delle_rarefazioni_e_riproducibile(ec
     assert esito.riepilogo["alfa"]["rarefazioni"] == 4
     _, con_altro = leggi_tsv(altro_seme / "alfa" / "alfa_per_rarefazione.tsv")
     assert [r["shannon"] for r in con_altro] != [r["shannon"] for r in per_rarefazione]
+
+
+# --------------------------------------------------------------------------- #
+# 5. Rango dei grafici e livello dei calcoli                                   #
+# --------------------------------------------------------------------------- #
+
+#: Sei varianti: due famiglie con due generi ciascuna, una variante senza
+#: famiglia nel regno A e una senza famiglia nel regno B.
+TASSONOMIA = {
+    "Regno": ["A", "A", "A", "A", "A", "B"],
+    "Famiglia": ["F1", "F1", "F2", "F2", None, None],
+    "Genere": ["G1", "G2", "G3", "G4", None, None],
+}
+SEI = [
+    [10, 0, 5, 20],
+    [10, 5, 0, 20],
+    [0, 20, 5, 10],
+    [5, 0, 10, 10],
+    [5, 5, 0, 0],
+    [0, 10, 20, 0],
+]
+
+
+def test_piu_ranghi_danno_una_sottocartella_ciascuno_e_uno_solo_i_percorsi_di_sempre(
+    eco_r, tmp_path
+):
+    """
+    **Obiettivo**: con ``comp.rank: [Famiglia, Genere]`` ogni rango ha la sua
+    sottocartella ``composizione/<rango>/`` con tabelle e grafici; con un elenco
+    di un solo rango i file e i loro byte sono quelli del rango scritto come
+    testo; un rango che l'oggetto non ha, in un elenco, e' respinto con
+    ``E-ECO-07``, e cosi' un rango ripetuto (``E-ECO-01``).
+
+    **Razionale scientifico e sistemistico**: il genere puo' essere troppo fine
+    per lo studio: la famiglia accanto non cambia i percorsi di chi usa un
+    rango solo.
+    """
+    oggetto = costruisci(tmp_path, SEI, METADATI, TASSONOMIA)
+    due = tmp_path / "due"
+    esito = esegui(oggetto, schema.valida(configurazione(
+        comp={"rank": ["Famiglia", "Genere"]})), due)
+    for rango in ("Famiglia", "Genere"):
+        for nome in ("abbondanze_relative.tsv", "gruppi_01_gruppo.tsv", "gruppi_01_gruppo.png"):
+            assert (due / "composizione" / rango / nome).is_file()
+    assert [c["rango"] for c in esito.riepilogo["composizione"]] == ["Famiglia", "Genere"]
+    uno, testo = tmp_path / "uno", tmp_path / "testo"
+    esegui(oggetto, schema.valida(configurazione(comp={"rank": ["Genere"]})), uno)
+    esegui(oggetto, schema.valida(configurazione(comp={"rank": "Genere"})), testo)
+    a, b = impronte(uno), impronte(testo)
+    assert set(a) == set(b)
+    assert {n for n in a if a[n] != b[n]} == {"configurazione.json", "manifest.json"}
+    with pytest.raises(ErroreEco) as rifiuto:
+        valida_sull_oggetto(oggetto, schema.valida(configurazione(
+            comp={"rank": ["Famiglia", "Specie"]})))
+    assert rifiuto.value.codici == ["E-ECO-07"] and "Specie" in str(rifiuto.value)
+    assert _codici(configurazione(comp={"rank": ["Genere", "Genere"]})) == ["E-ECO-01"]
+
+
+def test_il_livello_dei_calcoli_agglomera_e_lo_dichiara(eco_r, tmp_path):
+    """
+    **Obiettivo**: con ``run.analysis_rank: Famiglia`` la ricchezza e' il
+    numero di famiglie presenti, contando separate le due varianti senza
+    famiglia di regni diversi (``tax_glom`` con ``NArm = FALSE``); la distanza
+    di Bray-Curtis e' quella delle proporzioni per famiglia, calcolata a mano;
+    ogni tabella dichiara il livello nell'intestazione e il riepilogo lo
+    riporta; un rango dei grafici piu' fine di quello dei calcoli, o un rango
+    dei calcoli assente, e' respinto con ``E-ECO-07``. Senza il parametro la
+    configurazione risolta non lo contiene.
+
+    **Razionale scientifico e sistemistico**: agglomerare cambia l'unita'
+    dell'analisi; chi legge una tabella deve sapere a quale livello e' stata
+    calcolata, e le varianti senza nome non vanno fuse in un taxon solo.
+    """
+    oggetto = costruisci(tmp_path, SEI, METADATI, TASSONOMIA)
+    assert "analysis_rank" not in schema.risolta(schema.valida(configurazione()))["run"]
+    uscita = tmp_path / "famiglia"
+    esito = esegui(oggetto, schema.valida(configurazione(
+        run={"analysis_rank": "Famiglia"}, alpha={"method": "none"},
+        comp={"rank": "Famiglia"})), uscita)
+    # Per famiglia (F1, F2, senza famiglia in A, senza famiglia in B):
+    famiglie = [
+        [20, 5, 5, 40],
+        [5, 20, 15, 20],
+        [5, 5, 0, 0],
+        [0, 10, 20, 0],
+    ]
+    commenti, alfa = leggi_tsv(uscita / "alfa" / "alfa_diversita.tsv")
+    assert [int(r["ricchezza_osservata"]) for r in alfa] == [
+        sum(1 for f in famiglie if f[j] > 0) for j in range(4)]
+    assert any("livello dei calcoli: rango Famiglia" in c and "NArm = FALSE" in c
+               for c in commenti)
+    colonne = [[f[j] for f in famiglie] for j in range(4)]
+    _, bray = leggi_tsv(uscita / "beta" / "distanza_bray.tsv")
+    for i, a in enumerate(colonne):
+        for j, b in enumerate(colonne):
+            pa, pb = [x / sum(a) for x in a], [x / sum(b) for x in b]
+            atteso = sum(abs(x - y) for x, y in zip(pa, pb)) / 2
+            assert float(bray[i][f"c{j + 1:02d}"]) == pytest.approx(atteso, abs=1e-9)
+    commenti_beta, _ = leggi_tsv(uscita / "beta" / "distanza_bray.tsv")
+    assert any("livello dei calcoli" in c for c in commenti_beta)
+    assert esito.riepilogo["livello_dei_calcoli"] == {"rango": "Famiglia", "varianti": 6,
+                                                      "taxa": 4}
+    for modifica, parola in (({"comp": {"rank": "Genere"}}, "piu' fine"),
+                             ({"comp": {"rank": "Famiglia"}, "run": {"analysis_rank": "Ordine"}},
+                              "Ordine")):
+        run = {"analysis_rank": "Famiglia", **modifica.pop("run", {})}
+        with pytest.raises(ErroreEco) as rifiuto:
+            valida_sull_oggetto(oggetto, schema.valida(configurazione(run=run, **modifica)))
+        assert rifiuto.value.codici == ["E-ECO-07"] and parola in str(rifiuto.value)

@@ -159,6 +159,7 @@ FACOLTATIVI: Final[tuple[str, ...]] = (
     "filter.min_relative_abundance",
     "ord.color_by",
     "comp.group_by",
+    "run.analysis_rank",
     "stat.permanova_strata",
 )
 
@@ -173,6 +174,7 @@ ASSENTI_SE_NON_DICHIARATI: Final[tuple[str, ...]] = (
     "design.groupings",
     "ord.color_by",
     "comp.group_by",
+    "run.analysis_rank",
     "filter.min_relative_abundance",
     "filter.scope",
 )
@@ -358,6 +360,11 @@ class Run(_Gruppo):
     #: Seme di rarefazione e di ogni altra operazione casuale: va dichiarato.
     seed: Annotated[int, Field(ge=0, le=_MAX_INTERO, strict=True)] = Field(description=(
         "Seme della rarefazione e di ogni altra operazione casuale."))
+    #: Rango dei calcoli; nullo: le varianti.
+    analysis_rank: _Nome | None = Field(None, description=(
+        "Rango tassonomico a cui agglomerare i conteggi prima di ogni calcolo (alfa, "
+        "distanze, ordinazioni, test, metodo vincolato), con phyloseq::tax_glom e "
+        "NArm = FALSE. Nullo: le varianti."))
 
 
 class Filter(_Gruppo):
@@ -401,8 +408,10 @@ class Alpha(_Gruppo):
 class Comp(_Gruppo):
     """Composizione tassonomica."""
 
-    rank: _Nome = Field(description=(
-        "Rango tassonomico a cui agglomerare, fra quelli dell'oggetto."))
+    rank: _Nome | Annotated[tuple[_Nome, ...], Field(min_length=1)] = Field(description=(
+        "Rango tassonomico a cui agglomerare i grafici della composizione, fra quelli "
+        "dell'oggetto, oppure un elenco di ranghi: uno per sottocartella di "
+        "composizione/."))
     top_n: _Positivo = Field(description=(
         "Numero di taxa mostrati nei grafici; i rimanenti in «altri»."))
     #: Variabili delle barre della composizione; vuoto: quelle del disegno.
@@ -412,10 +421,14 @@ class Comp(_Gruppo):
 
     @model_validator(mode="after")
     def _senza_ripetizioni(self) -> "Comp":
-        """Respinge una variabile ripetuta in group_by."""
+        """Respinge una variabile ripetuta in group_by o un rango ripetuto."""
         ripetute = sorted({v for v in self.group_by if self.group_by.count(v) > 1})
         if ripetute:
             raise ValueError(f"comp.group_by con valori ripetuti: {ripetute}")
+        if isinstance(self.rank, tuple):
+            ripetuti = sorted({v for v in self.rank if self.rank.count(v) > 1})
+            if ripetuti:
+                raise ValueError(f"comp.rank con ranghi ripetuti: {ripetuti}")
         return self
 
 

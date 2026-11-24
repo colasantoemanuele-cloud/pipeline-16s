@@ -313,9 +313,31 @@ esamina <- function(ps, parametri) {
       paste(names(tabella), collapse = ", ")))
   }
   ranghi <- phyloseq::rank_names(ps)
-  if (!parametri$comp$rank %in% ranghi) {
+  ranghi_composizione <- as.character(unlist(parametri$comp$rank))
+  for (rango in setdiff(ranghi_composizione, ranghi)) {
     errore("E-ECO-07", sprintf("comp.rank '%s' non trovato. Ranghi dell'oggetto: %s.",
-                              parametri$comp$rank, paste(ranghi, collapse = ", ")))
+                              rango, paste(ranghi, collapse = ", ")))
+  }
+  livello <- parametri$run$analysis_rank
+  if (!is.null(livello)) {
+    if (!livello %in% ranghi) {
+      errore("E-ECO-07", sprintf("run.analysis_rank '%s' non trovato. Ranghi dell'oggetto: %s.",
+                                livello, paste(ranghi, collapse = ", ")))
+    } else if (length(ranghi) < 2L) {
+      errore("E-ECO-07", sprintf(
+        "run.analysis_rank '%s': la tassonomia dell'oggetto ha un solo rango, e le varianti non si agglomerano.",
+        livello))
+    } else {
+      # Dopo l'agglomerazione i ranghi piu' fini non hanno valori: un grafico a
+      # uno di quei ranghi sarebbe tutto «non assegnato».
+      fini <- ranghi_composizione[ranghi_composizione %in% ranghi &
+                                    match(ranghi_composizione, ranghi) > match(livello, ranghi)]
+      for (rango in fini) {
+        errore("E-ECO-07", sprintf(
+          "comp.rank '%s' e' piu' fine di run.analysis_rank '%s': dopo l'agglomerazione i taxa non hanno quel rango. Scegli per i grafici '%s' o un rango piu' generale.",
+          rango, livello, livello))
+      }
+    }
   }
   distanze <- as.character(unlist(parametri$beta$distances))
   albero <- phyloseq::access(ps, "phy_tree")
@@ -370,13 +392,29 @@ esamina <- function(ps, parametri) {
   }
   if (length(errori)) return(list(errori = errori, avvisi = avvisi, disegno = NULL))
 
-  # --- Filtro delle varianti rare, prima di ogni analisi. --------------------
-  # Senza filtro l'oggetto resta quello letto, e ogni analisi lo usa come
-  # sempre: ps_analisi e' nullo.
+  # --- Livello dei calcoli: le varianti agglomerate al rango. ----------------
+  # Senza rango e senza filtro l'oggetto resta quello letto, e ogni analisi lo
+  # usa come sempre: ps_analisi e' nullo. tax_glom con NArm = FALSE tiene le
+  # varianti senza nome al rango, separate secondo il loro lignaggio ai ranghi
+  # superiori, e pota l'albero alle varianti che rappresentano ogni taxon.
   ps_analisi <- NULL
   filtro <- NULL
   svuotati <- character()
   letture_analisi <- letture
+  ps_base <- ps
+  agglomerato <- NULL
+  if (!is.null(livello)) {
+    ps_base <- phyloseq::tax_glom(phyloseq::prune_samples(campioni, ps), taxrank = livello,
+                                  NArm = FALSE)
+    ps_analisi <- ps_base
+    conteggi <- conteggi_di(ps_base)
+    letture_analisi <- colSums(conteggi)
+    agglomerato <- list(rango = livello, varianti = nrow(conteggi_di(ps)),
+                        taxa = phyloseq::ntaxa(ps_base),
+                        albero = !is.null(phyloseq::access(ps_base, "phy_tree")))
+  }
+
+  # --- Filtro delle varianti rare, prima di ogni analisi. --------------------
   soglia <- del_filtro$min_relative_abundance
   if (!is.null(soglia)) {
     ambito <- del_filtro$scope
@@ -398,7 +436,7 @@ esamina <- function(ps, parametri) {
     # sole varianti con almeno una lettura (l'albero si pota con loro).
     filtrati <- f$conteggi[, rimasti, drop = FALSE]
     presenti <- rownames(filtrati)[rowSums(filtrati) > 0]
-    ps_analisi <- phyloseq::prune_samples(rimasti, ps)
+    ps_analisi <- phyloseq::prune_samples(rimasti, ps_base)
     phyloseq::otu_table(ps_analisi) <- phyloseq::otu_table(
       filtrati, taxa_are_rows = TRUE)
     ps_analisi <- phyloseq::prune_taxa(presenti, ps_analisi)
@@ -563,6 +601,7 @@ esamina <- function(ps, parametri) {
       letture_analisi = letture_analisi,
       ps = ps_analisi,
       filtro = filtro,
+      agglomerato = agglomerato,
       metodo_alfa = if (is.null(metodo_alfa)) "rarefy" else metodo_alfa,
       ripetizioni = if (is.null(parametri$alpha$rarefy_iterations)) 1L else
         as.integer(parametri$alpha$rarefy_iterations),
@@ -760,6 +799,11 @@ riepilogo_del_disegno <- function(d) {
       varianti_toccate = sum(d$filtro$tolte > 0),
       letture_tolte = sum(d$filtro$tolte),
       letture_prima = sum(d$filtro$prima))
+  }
+  if (!is.null(d$agglomerato)) {
+    riepilogo$livello_dei_calcoli <- list(
+      rango = d$agglomerato$rango, varianti = d$agglomerato$varianti,
+      taxa = d$agglomerato$taxa)
   }
   if (length(d$derivate)) {
     # I gruppi ottenuti da ogni regola, fra i campioni analizzati: validate li

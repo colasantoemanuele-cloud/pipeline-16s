@@ -62,10 +62,17 @@ ordine_radix <- function(x) order(as.character(x), method = "radix")
 
 # Scrive una tabella separata da tabulazioni in modo atomico, con le righe di
 # commento dell'intestazione prima dei nomi delle colonne.
+# Le righe che ogni tabella aggiunge alla sua intestazione quando i dati su cui
+# si calcola non sono le varianti dell'oggetto: il livello dei calcoli
+# (run.analysis_rank) e il filtro di abbondanza. Le imposta R/analisi.R; vuote,
+# le tabelle sono quelle di sempre.
+NOTE_DEI_DATI <- character()
+
 scrivi_tsv <- function(tabella, percorso, intestazione = character()) {
   # `tabella` e' un data.frame di colonne gia' in forma di testo o di interi;
   # `intestazione` sono righe di commento, scritte con il prefisso "# " prima
-  # della riga dei nomi delle colonne.
+  # della riga dei nomi delle colonne, seguite da NOTE_DEI_DATI.
+  intestazione <- c(intestazione, NOTE_DEI_DATI)
   colonne <- lapply(tabella, .cella)
   righe <- if (nrow(tabella) > 0L) do.call(paste, c(colonne, sep = "\t")) else character()
   scrivi_atomico(

@@ -126,6 +126,13 @@ NOTE_DEI_PARAMETRI: Final[dict[str, tuple[str, ...]]] = {
     "ord.color_by": (
         "per le figure descrittive, per esempio un raggruppamento visto dopo aver "
         "guardato i dati: nessun test, e il titolo lo dice; " + _RIMANDO,),
+    "run.analysis_rank": (
+        "nullo (il predefinito): ogni calcolo sulle varianti, la pratica comune. Con un "
+        "rango, alfa diversita', distanze, ordinazioni, test e metodo vincolato lavorano "
+        "sui taxa agglomerati con phyloseq::tax_glom(NArm = FALSE): si perde la "
+        "risoluzione delle varianti, si guadagnano meno taxa rari e meno zeri; UniFrac "
+        "usa l'albero potato. E' una scelta distinta dal rango dei grafici (comp.rank), "
+        "che non puo' essere piu' fine (RAZIONALE.md, sezione 4.3)",),
     "comp.group_by": (
         "le barre della composizione per gruppo; vuoto: le variabili del disegno; "
         + _RIMANDO,),
@@ -623,6 +630,15 @@ def prepara(
     else:
         metti("comp.rank", SCELTA, SENZA_VALORE,
               f"nessun rango ha almeno il {QUOTA_MINIMA_ASSEGNATA:.0%} delle varianti assegnate")
+    # Qualunque rango si puo' scegliere: il piu' fine proposto puo' essere troppo
+    # fine per lo studio.
+    voce = voci["comp.rank"]
+    voci["comp.rank"] = replace(voce, note=(*voce.note, (
+        "si puo' scegliere qualunque rango dell'oggetto, anche meno specifico se il "
+        "proposto e' troppo fine, oppure un elenco di ranghi (per esempio i due piu' "
+        "fini), uno per sottocartella di composizione/. Ranghi "
+        "dell'oggetto (quota di varianti assegnate): "
+        + ", ".join(f"{x['rango']} {x['quota_assegnata']:.2f}" for x in ranghi))))
     if albero["presente"] and albero["radicato"] and albero["con_lunghezze"]:
         metti("beta.unifrac_root", PROPOSTO, "existing",
               "l'albero dell'oggetto e' gia' radicato; serve solo se beta.distances "

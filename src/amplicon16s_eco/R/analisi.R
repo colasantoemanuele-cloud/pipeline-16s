@@ -18,7 +18,8 @@
 #      oppure su quelli non rarefatti (alpha.method none), con la correlazione
 #      fra letture e indici
 #        alfa/alfa_diversita.tsv, alfa/profondita.tsv
-#   3. composizione al rango dichiarato (lib/composizione.R)
+#   3. composizione a ogni rango di comp.rank (lib/composizione.R); con piu'
+#      ranghi i file stanno in composizione/<rango>/
 #        composizione/abbondanze_relative.tsv
 #        composizione/gruppi_NN_<variabile>.tsv e .png, per le variabili
 #        di comp.group_by o, senza, per quelle del disegno
@@ -70,6 +71,19 @@ esegui_fase(function(parametri, cartella) {
   # L'oggetto delle analisi: quello letto, oppure, con il filtro di abbondanza,
   # quello filtrato (lib/campioni.R).
   if (!is.null(d$ps)) ps <- d$ps
+  # Il livello dei calcoli e il filtro si dichiarano nell'intestazione di ogni
+  # tabella.
+  assign("NOTE_DEI_DATI", c(
+    if (!is.null(d$agglomerato)) sprintf(
+      "livello dei calcoli: rango %s (run.analysis_rank): le %d varianti agglomerate in %d taxa con phyloseq::tax_glom(taxrank = \"%s\", NArm = FALSE), le varianti senza nome al rango separate secondo il lignaggio ai ranghi superiori%s",
+      d$agglomerato$rango, d$agglomerato$varianti, d$agglomerato$taxa, d$agglomerato$rango,
+      if (d$agglomerato$albero) "; UniFrac usa l'albero potato da tax_glom alla variante che rappresenta ogni taxon" else ""),
+    if (!is.null(d$filtro)) sprintf(
+      "filtro di abbondanza relativa: soglia %s%% (filter.min_relative_abundance), ambito %s (filter.scope); %s con letture: %d prima, %d dopo (filtro/varianti_filtrate.tsv)",
+      format(d$filtro$soglia), d$filtro$ambito,
+      if (is.null(d$agglomerato)) "varianti" else "taxa", d$filtro$varianti_prima,
+      d$filtro$varianti_dopo)
+  ), envir = globalenv())
   imposta_palette(parametri$plot$palette)
   assign("RIPETIZIONI_ALFA", d$ripetizioni, envir = globalenv())
   piano <- disegno_dei_test(d, parametri)
@@ -129,11 +143,23 @@ esegui_fase(function(parametri, cartella) {
                                   per_rarefazione = per_rarefazione))
     }
 
-    # Composizione.
-    agglomerato <- agglomera(ps, d$campioni, parametri$comp$rank)
-    file <- c(file, scrivi_composizione(agglomerato, d, parametri$comp$rank,
-                                        as.integer(parametri$comp$top_n),
-                                        file.path(uscita, "composizione")))
+    # Composizione: a ogni rango di comp.rank; con piu' ranghi, una
+    # sottocartella per rango.
+    ranghi_composizione <- as.character(unlist(parametri$comp$rank))
+    composizioni <- list()
+    for (rango in ranghi_composizione) {
+      relativa <- if (length(ranghi_composizione) > 1L) {
+        file.path("composizione", gsub("[^A-Za-z0-9_]", "_", rango))
+      } else {
+        "composizione"
+      }
+      agglomerato <- agglomera(ps, d$campioni, rango)
+      composizioni[[rango]] <- list(rango = rango, taxa = nrow(agglomerato$conteggi),
+                                    categoria_dei_non_assegnati = NON_ASSEGNATO)
+      file <- c(file, scrivi_composizione(agglomerato, d, rango,
+                                          as.integer(parametri$comp$top_n),
+                                          file.path(uscita, relativa), relativa))
+    }
 
     # Beta diversita'.
     conteggi <- conteggi_di(ps)[, d$campioni, drop = FALSE]
@@ -290,11 +316,9 @@ esegui_fase(function(parametri, cartella) {
   }
 
   riepilogo <- riepilogo_del_disegno(d)
-  riepilogo$composizione <- list(
-    rango = parametri$comp$rank,
-    taxa = nrow(agglomerato$conteggi),
-    categoria_dei_non_assegnati = NON_ASSEGNATO
-  )
+  # Con un rango solo la voce e' quella di sempre; con piu' ranghi, una per rango.
+  riepilogo$composizione <- if (length(composizioni) == 1L) composizioni[[1L]] else
+    unname(composizioni)
   riepilogo$beta <- list(distanze = I(metodi))
   if (!is.null(radice)) {
     riepilogo$beta$albero <- list(radice = radice, radicato_nell_oggetto = radicato)
