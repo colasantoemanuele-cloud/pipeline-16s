@@ -362,3 +362,67 @@ def test_i_titoli_dei_grafici_usano_nomi_leggibili_e_gli_accenti(eco_r, tmp_path
     assert "NOMI_ORDINAZIONE[[metodo]]" in ordinazione
     assert "nome_distanza(distanza)" in ordinazione
     assert '"Alfa diversità per %s' in (libreria / "test.R").read_text(encoding="utf-8")
+
+
+def test_il_tsne_separa_i_gruppi_ed_e_riproducibile_byte_per_byte(eco_r, tmp_path):
+    """
+    **Obiettivo**: il t-SNE su una distanza (Rtsne, ``is_distance``) scrive le
+    coordinate e un grafico per variabile; con due gruppi separati i campioni
+    di ciascun gruppo stanno piu' vicini fra loro che all'altro gruppo; due
+    esecuzioni con lo stesso seme danno gli stessi byte, un seme diverso altre
+    coordinate; l'intestazione dichiara perplessita', iterazioni, theta e che
+    le distanze fra gruppi non hanno significato. La perplessita' manca senza
+    predefinito (``E-ECO-02``), iterazioni e theta hanno quello di Rtsne e sono
+    respinti senza tsne; una perplessita' troppo alta per i campioni e'
+    respinta dalla validazione con ``E-ECO-42``.
+
+    **Razionale scientifico e sistemistico**: la disposizione iniziale viene dal
+    seme dichiarato, e il risultato non dipende dal generatore interno; il
+    t-SNE e' una figura, e la sua intestazione lo dice.
+    """
+    from amplicon16s_eco.catalogo import ErroreEco
+    from amplicon16s_eco.esecuzione import valida_sull_oggetto
+
+    from eco_aiuti import impronte
+
+    tsne = {"methods": ["tsne"], "distances": ["bray"], "tsne_perplexity": 3.0}
+    with pytest.raises(ErroreEco) as rifiuto:
+        schema.valida(configurazione(ord={**tsne, "tsne_perplexity": ...}))
+    assert rifiuto.value.codici == ["E-ECO-02"]
+    with pytest.raises(ErroreEco) as rifiuto:
+        schema.valida(configurazione(ord={"tsne_theta": 0.2}))
+    assert rifiuto.value.codici == ["E-ECO-01"]
+    risolta = schema.risolta(schema.valida(configurazione(ord=tsne)))
+    assert (risolta["ord"]["tsne_max_iter"], risolta["ord"]["tsne_theta"]) == (1000, 0.5)
+    assert "tsne_theta" not in schema.risolta(schema.valida(configurazione()))["ord"]
+
+    oggetto = genera(tmp_path, [
+        {"n": 8, "gruppo": "a", "sigma": 0.1},
+        {"n": 8, "gruppo": "b", "sigma": 0.1, "scambia": True},
+    ], profondita=500)
+    with pytest.raises(ErroreEco) as rifiuto:
+        valida_sull_oggetto(oggetto, schema.valida(configurazione(
+            ord={**tsne, "tsne_perplexity": 6.0})))
+    assert rifiuto.value.codici == ["E-ECO-42"] and "5" in str(rifiuto.value)
+    config = schema.valida(configurazione(ord=tsne))
+    esegui(oggetto, config, tmp_path / "a")
+    esegui(oggetto, config, tmp_path / "b")
+    esegui(oggetto, schema.valida(configurazione(ord=tsne, run={"seed": 8})), tmp_path / "c")
+    assert impronte(tmp_path / "a") == impronte(tmp_path / "b")
+    base = tmp_path / "a" / "ordinazione"
+    assert (base / "tsne_bray_01_gruppo.png").is_file()
+    commenti, righe = leggi_tsv(base / "tsne_bray_coordinate.tsv")
+    testo = " ".join(commenti)
+    assert "perplessita' 3" in testo and "iterazioni 1000" in testo and "theta 0.5" in testo
+    assert "non hanno significato" in testo and "van der Maaten" in testo
+    assert (base / "tsne_bray_coordinate.tsv").read_bytes() != (
+        tmp_path / "c" / "ordinazione" / "tsne_bray_coordinate.tsv").read_bytes()
+    punti = {r["campione"]: (float(r["tsne_1"]), float(r["tsne_2"])) for r in righe}
+    a = [punti[f"c{i:03d}"] for i in range(1, 9)]
+    b = [punti[f"c{i:03d}"] for i in range(9, 17)]
+
+    def media(xs, ys):
+        return sum(math.dist(x, y) for x in xs for y in ys if x != y) / sum(
+            1 for x in xs for y in ys if x != y)
+
+    assert media(a, b) > 2 * max(media(a, a), media(b, b))

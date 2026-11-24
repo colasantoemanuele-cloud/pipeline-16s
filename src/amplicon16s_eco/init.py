@@ -679,13 +679,20 @@ def prepara(
               " (le due UniFrac richiedono un albero, che l'oggetto non ha)"))
     metti("beta.clr_pseudocount", SCELTA, SENZA_VALORE,
           "solo con aitchison: lo pseudoconteggio sommato ai conteggi prima del CLR")
-    metti("ord.methods", SCELTA, SENZA_VALORE, "fra pcoa e nmds; [] per nessuna ordinazione")
+    metti("ord.methods", SCELTA, SENZA_VALORE,
+          "fra pcoa, nmds e tsne; [] per nessuna ordinazione. Il t-SNE e' una figura "
+          "descrittiva: conserva i vicini, non le distanze")
     metti("ord.distances", SCELTA, SENZA_VALORE, "fra quelle di beta.distances")
     metti("ord.pcoa_correction", SCELTA, "none",
           "solo con pcoa. Partenza: il predefinito di ape::pcoa (correction = \"none\"); "
           "cailliez o lingoes correggono gli autovalori negativi delle distanze non euclidee")
     metti("ord.nmds_trymax", SCELTA, 20,
           "solo con nmds. Partenza: il predefinito di vegan::metaMDS (trymax = 20)")
+    metti("ord.tsne_perplexity", SCELTA, SENZA_VALORE,
+          "solo con tsne: circa il numero di vicini efficaci di ogni campione, di solito da "
+          "5 a 50; Rtsne richiede 3 * perplessita' <= campioni - 1: con "
+          f"{descrizione['campioni']} campioni (prima di design.subset e del filtro) al "
+          f"massimo {(descrizione['campioni'] - 1) / 3:.1f}")
     metti("stat.min_group_size", SCELTA, SENZA_VALORE,
           "quanti campioni deve avere un gruppo per entrare nei test (almeno 2)")
     metti("stat.significance_level", SCELTA, SENZA_VALORE,

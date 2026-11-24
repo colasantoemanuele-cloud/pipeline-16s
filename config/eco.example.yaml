@@ -168,8 +168,10 @@ beta:
   # clr_pseudocount:
 
 ord:
-  # [OBBLIGATORIO] Metodi di ordinazione, fra: pcoa, nmds. Un elenco vuoto non
-  # produce ordinazioni (e allora anche distances e' vuoto).
+  # [OBBLIGATORIO] Metodi di ordinazione, fra: pcoa, nmds, tsne. Un elenco vuoto
+  # non produce ordinazioni (e allora anche distances e' vuoto). Il t-SNE
+  # (Rtsne) conserva i vicini, non le distanze: e' una figura descrittiva, i
+  # test restano la PERMANOVA (van der Maaten e Hinton 2008).
   # methods:
 
   # [OBBLIGATORIO] Distanze da ordinare, fra quelle di beta.distances.
@@ -181,6 +183,19 @@ ord:
 
   # [CONDIZIONALE: nmds] Numero di avvii casuali della NMDS (vegan::metaMDS).
   # nmds_trymax:
+
+  # [CONDIZIONALE: tsne] Perplessita' del t-SNE (Rtsne::Rtsne), circa il numero
+  # di vicini efficaci di ogni campione; senza predefinito. Va da 5 a 50 nella
+  # pratica; Rtsne richiede 3 * perplessita' <= campioni - 1, contando i
+  # campioni dopo design.subset e il filtro (eco validate lo controlla).
+  # tsne_perplexity:
+
+  # [CONDIZIONALE: tsne] [STANDARD 1000] Iterazioni del t-SNE (Rtsne::Rtsne).
+  # tsne_max_iter: 1000
+
+  # [CONDIZIONALE: tsne] [STANDARD 0.5] Theta di Barnes-Hut (Rtsne::Rtsne): 0
+  # calcola il t-SNE esatto, piu' lento.
+  # tsne_theta: 0.5
 
   # [FACOLTATIVO] Colonne o gruppi derivati per cui disegnare le ordinazioni
   # colorate senza alcun test (figure descrittive: il titolo dice

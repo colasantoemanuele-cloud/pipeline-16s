@@ -162,7 +162,7 @@ def test_i_parametri_dell_ordinazione_seguono_il_metodo_richiesto():
     schema.valida(configurazione(ord={**nmds, "nmds_trymax": 5}))
     for modifica, parola in (
         ({**pcoa, "pcoa_correction": "radice"}, "cailliez"),
-        ({"methods": ["tsne"], "distances": ["bray"]}, "nmds"),
+        ({"methods": ["umap"], "distances": ["bray"]}, "tsne"),
     ):
         with pytest.raises(ErroreEco) as rifiuto:
             schema.valida(configurazione(ord=modifica))

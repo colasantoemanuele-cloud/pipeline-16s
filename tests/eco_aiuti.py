@@ -38,7 +38,7 @@ def _sonda() -> str | None:
     al primo uso e una volta sola.
     """
     return motivo_pacchetti_r_assenti("phyloseq", "vegan", "ape", "permute", "phangorn",
-                                      "jsonlite")
+                                      "jsonlite", "Rtsne", "ggplot2")
 
 
 @pytest.fixture

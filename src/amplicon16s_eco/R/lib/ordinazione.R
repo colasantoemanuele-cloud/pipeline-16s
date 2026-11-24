@@ -1,4 +1,4 @@
-# Ordinazione: PCoA e NMDS sulle matrici di distanza.
+# Ordinazione: PCoA, NMDS e t-SNE sulle matrici di distanza.
 #
 # La usa R/analisi.R (comando eco run). Scrive, nella cartella ordinazione/
 # delle uscite, per ogni metodo e distanza le coordinate, per la PCoA gli
@@ -8,6 +8,7 @@
 # Richiede uscite.R e alfa.R (fissa_seme). Interfaccia:
 #   pcoa_di(matrice, correzione)     coordinate, autovalori, frazioni
 #   nmds_di(matrice, trymax, seme)   coordinate, stress, convergenza
+#   tsne_di(matrice, perplessita, iterazioni, theta, seme)   coordinate, costo
 #   scrivi_ordinazioni(...)          tabelle e grafici per variabile
 #
 # Razionale sistemistico: le distanze non euclidee (Bray-Curtis, Jaccard) danno
@@ -17,11 +18,16 @@
 # riscalatura in unita' di semicambiamento, che scatterebbe da sola per una
 # matrice prodotta da vegdist. Il segno di ogni asse e' arbitrario e viene
 # fissato, perche' le coordinate non cambino fra macchine.
+#
+# Razionale biologico del t-SNE (van der Maaten e Hinton 2008): conserva i
+# vicini di ogni campione, non le distanze. Le distanze fra gruppi lontani e
+# la dimensione dei gruppi nella figura non hanno significato: e' una figura
+# descrittiva, e la differenza fra gruppi si giudica con la PERMANOVA.
 
 SOGLIA_STRESS <- 0.2
 
 # I nomi dei metodi nei titoli dei grafici.
-NOMI_ORDINAZIONE <- c(pcoa = "PCoA", nmds = "NMDS")
+NOMI_ORDINAZIONE <- c(pcoa = "PCoA", nmds = "NMDS", tsne = "t-SNE")
 
 # Le coordinate con il segno di ogni asse fissato: l'elemento di modulo massimo
 # della colonna e' positivo.
@@ -98,6 +104,31 @@ nmds_di <- function(matrice, trymax, seme) {
        # `converged` e' il numero di avvii che hanno ritrovato la soluzione
        # migliore (un valore logico nelle versioni precedenti di vegan).
        convergente = as.numeric(esito$converged) > 0, avvii = as.integer(trymax))
+}
+
+# Il t-SNE in due dimensioni di una matrice di distanza (Rtsne::Rtsne, con
+# is_distance = TRUE e pca = FALSE: le distanze sono quelle dichiarate, senza
+# riduzione preliminare). La disposizione iniziale (Y_init) si estrae dal seme
+# con la stessa distribuzione che Rtsne usa da se' (normale, deviazione 1e-4):
+# il risultato non dipende dal generatore interno. Con Y_init Rtsne
+# toglierebbe da se' la fase di esagerazione iniziale (stop_lying_iter e
+# mom_switch_iter a 0, pensati per una disposizione gia' ottimizzata): qui
+# restano ai valori standard (250), come senza Y_init. Un solo processo
+# (num_threads = 1): l'ordine delle somme non cambia fra esecuzioni.
+# Restituisce list(coordinate, costo, iterazioni).
+tsne_di <- function(matrice, perplessita, iterazioni, theta, seme) {
+  n <- nrow(matrice)
+  fissa_seme(seme)
+  iniziale <- matrix(stats::rnorm(n * 2L, sd = 1e-4), nrow = n, ncol = 2L)
+  esito <- Rtsne::Rtsne(
+    unname(matrice), dims = 2L, is_distance = TRUE, pca = FALSE,
+    perplexity = perplessita, theta = theta, max_iter = as.integer(iterazioni),
+    Y_init = iniziale, stop_lying_iter = 250L, mom_switch_iter = 250L,
+    num_threads = 1L, verbose = FALSE)
+  coordinate <- esito$Y
+  dimnames(coordinate) <- list(rownames(matrice), c("tsne_1", "tsne_2"))
+  list(coordinate = coordinate, costo = utils::tail(esito$itercosts, 1L),
+       iterazioni = as.integer(iterazioni))
 }
 
 # Il grafico dei campioni sui primi due assi di un'ordinazione, colorati per
@@ -220,6 +251,22 @@ scrivi_ordinazioni <- function(matrici, disegno, parametri, seme, cartella) {
           metodo = "pcoa", distanza = distanza, correzione = o$correzione,
           correzione_applicata = o$applicata, autovalori_negativi = o$negativi,
           frazione_asse_1 = o$frazione[1L], frazione_asse_2 = o$frazione[2L])
+      } else if (metodo == "tsne") {
+        perplessita <- parametri$ord$tsne_perplexity
+        theta <- parametri$ord$tsne_theta
+        o <- tsne_di(matrice, perplessita, parametri$ord$tsne_max_iter, theta, seme)
+        coordinate <- o$coordinate
+        intestazione <- c(
+          sprintf("t-SNE (Rtsne::Rtsne) sulla matrice di distanza %s: is_distance = TRUE, pca = FALSE, dims = 2, num_threads = 1.", distanza),
+          sprintf("perplessita' %s; iterazioni %d; theta %s%s; seme %d (disposizione iniziale normale con deviazione 1e-4 estratta dal seme; esagerazione iniziale per 250 iterazioni); costo finale (divergenza di Kullback-Leibler): %s",
+                  format(perplessita), o$iterazioni, format(theta),
+                  if (theta == 0) " (t-SNE esatto)" else " (Barnes-Hut)",
+                  as.integer(seme), reale(o$costo)),
+          "il t-SNE conserva i vicini di ogni campione, non le distanze: le distanze fra gruppi lontani e le dimensioni dei gruppi non hanno significato (van der Maaten e Hinton 2008); e' una figura descrittiva, i test restano la PERMANOVA")
+        etichette <- c("t-SNE 1", "t-SNE 2")
+        riepilogo[[length(riepilogo) + 1L]] <- list(
+          metodo = "tsne", distanza = distanza, perplessita = perplessita,
+          iterazioni = o$iterazioni, theta = theta, costo_finale = o$costo)
       } else {
         o <- nmds_di(matrice, as.integer(parametri$ord$nmds_trymax), seme)
         coordinate <- o$coordinate

@@ -90,8 +90,13 @@ Nel repository ci sono i dataset su cui la pipeline è eseguita, tutti da Illumi
 L'immagine si scarica per digest: il digest identifica i byte dell'immagine, un nome no.
 
 ```bash
-docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154
+docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:<NUOVO_DIGEST>
 ```
+
+> **Segnaposto.** `<NUOVO_DIGEST>` è il digest dell'immagine con Rtsne (t-SNE delle analisi
+> ecologiche), da scrivere quando l'immagine sarà pubblicata. La versione citata nella tesi è il
+> tag `tesi` (commit `133ba16`) con l'immagine
+> `ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`.
 
 I comandi si lanciano dalla radice del clone, montato nel container. Nei comandi che
 seguono `<immagine>` è il riferimento qui sopra.

@@ -20,7 +20,7 @@ pipeline <- c(
 )
 
 # Gli stessi pacchetti delle analisi ecologiche di install_r_packages.R.
-ecologia <- c("DESeq2", "vegan", "randomForest")
+ecologia <- c("DESeq2", "vegan", "randomForest", "Rtsne")
 pipeline <- c(pipeline, ecologia)
 
 mancanti <- pipeline[!vapply(pipeline, requireNamespace, logical(1), quietly = TRUE)]

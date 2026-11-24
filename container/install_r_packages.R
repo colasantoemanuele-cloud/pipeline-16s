@@ -51,8 +51,10 @@ pipeline <- c(
 # (classificazione) non sono usati dal codice dello strumento: restano
 # nell'immagine per le analisi a valle dell'utente, che girano cosi' nello
 # stesso ambiente bloccato della pipeline. Il codice R delle analisi
-# ecologiche si esegue dal repository montato, non dall'immagine.
-ecologia <- c("DESeq2", "vegan", "randomForest")
+# ecologiche si esegue dal repository montato, non dall'immagine. Rtsne
+# (t-SNE, Barnes-Hut) e' usato dalle analisi ecologiche per l'ordinazione
+# t-SNE (ord.methods: tsne); viene dalla stessa istantanea CRAN.
+ecologia <- c("DESeq2", "vegan", "randomForest", "Rtsne")
 
 # Strumenti di servizio: renv produce il file di lock, jsonlite lo rilegge in
 # fase di verifica.

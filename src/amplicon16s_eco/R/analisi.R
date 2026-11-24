@@ -25,7 +25,8 @@
 #        di comp.group_by o, senza, per quelle del disegno
 #   4. distanze fra campioni (lib/beta.R)
 #        beta/distanza_<metodo>.tsv
-#   5. ordinazioni, con almeno quattro campioni (lib/ordinazione.R)
+#   5. ordinazioni PCoA, NMDS, t-SNE, con almeno quattro campioni
+#      (lib/ordinazione.R)
 #        ordinazione/<metodo>_<distanza>_coordinate.tsv
 #        ordinazione/pcoa_<distanza>_autovalori.tsv
 #        ordinazione/<metodo>_<distanza>_NN_<variabile>.png
@@ -58,6 +59,7 @@ for (f in c("uscite.R", "campioni.R", "alfa.R", "composizione.R", "beta.R",
 
 esegui_fase(function(parametri, cartella) {
   richiedi_pacchetti(c("phyloseq", "vegan", "ape", "permute"))
+  if ("tsne" %in% unlist(parametri$ord$methods)) richiedi_pacchetti("Rtsne")
   uscita <- parametri$uscita
   letto <- leggi_oggetto(parametri$oggetto)
   if (is.null(letto$oggetto)) errore_catalogo("E-ECO-04", letto$motivo)
@@ -338,6 +340,7 @@ esegui_fase(function(parametri, cartella) {
                              "phyloseq",
                              switch(origine_palette(parametri$plot$palette),
                                     brewer = "RColorBrewer", viridis = "viridisLite"),
+                             if ("tsne" %in% unlist(parametri$ord$methods)) "Rtsne",
                              "vegan")),
       function(p) as.character(utils::packageVersion(p))
     )

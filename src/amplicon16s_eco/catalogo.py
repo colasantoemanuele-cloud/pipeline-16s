@@ -358,6 +358,13 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "colori esadecimali come [\"#1B9E77\", \"#D95F02\"] (RIFERIMENTO.md, sezione 4.4).",
     ),
     VoceEco(
+        "E-ECO-42", _R,
+        "La perplessita' del t-SNE e' troppo alta per il numero di campioni.",
+        "Rtsne richiede 3 * perplessita' <= campioni - 1, contando i campioni dopo "
+        "design.subset e il filtro di abbondanza: abbassa ord.tsne_perplexity al valore "
+        "indicato nel messaggio o sotto (RIFERIMENTO.md, sezione 4.4).",
+    ),
+    VoceEco(
         "E-ECO-90", _R,
         "Il calcolo in R non si e' concluso.",
         "Leggi il messaggio di R riportato nel dettaglio. Le analisi vanno "

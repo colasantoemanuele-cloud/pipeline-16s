@@ -71,9 +71,9 @@ Distanza = Literal["bray", "jaccard", "aitchison", "unifrac_weighted", "unifrac_
 RADICI_UNIFRAC: Final = ("midpoint", "existing")
 
 #: I metodi di ordinazione realizzati.
-ORDINAZIONI: Final = ("pcoa", "nmds")
+ORDINAZIONI: Final = ("pcoa", "nmds", "tsne")
 
-Ordinazione = Literal["pcoa", "nmds"]
+Ordinazione = Literal["pcoa", "nmds", "tsne"]
 
 #: Le correzioni degli autovalori negativi della PCoA (ape::pcoa).
 CORREZIONI_PCOA: Final = ("none", "cailliez", "lingoes")
@@ -113,6 +113,9 @@ CONDIZIONALI: Final[dict[str, tuple[str, tuple[str, ...] | None]]] = {
     "beta.unifrac_root": ("beta.distances", ("unifrac_weighted", "unifrac_unweighted")),
     "ord.pcoa_correction": ("ord.methods", ("pcoa",)),
     "ord.nmds_trymax": ("ord.methods", ("nmds",)),
+    "ord.tsne_perplexity": ("ord.methods", ("tsne",)),
+    "ord.tsne_max_iter": ("ord.methods", ("tsne",)),
+    "ord.tsne_theta": ("ord.methods", ("tsne",)),
 }
 
 #: Altri parametri che rendono obbligatorio un condizionale: chiave ->
@@ -132,6 +135,8 @@ STANDARD_DEI_CONDIZIONALI: Final[dict[str, tuple[Any, str]]] = {
     ),
     "alpha.rarefy_iterations": (
         1, "phyloseq::rarefy_even_depth: una sola rarefazione per campione"),
+    "ord.tsne_max_iter": (1000, "Rtsne::Rtsne, max_iter = 1000"),
+    "ord.tsne_theta": (0.5, "Rtsne::Rtsne, theta = 0.5 (0: t-SNE esatto)"),
 }
 
 #: La palette di partenza dei grafici: quella con cui lo strumento li ha sempre
@@ -473,6 +478,20 @@ class Ord(_Gruppo):
     nmds_trymax: _Positivo | None = Field(None, description=(
         "Numero di avvii casuali della NMDS (vegan::metaMDS): obbligatorio con nmds, "
         "respinto altrimenti."))
+    #: Perplessita' del t-SNE: solo con tsne, senza predefinito.
+    tsne_perplexity: Annotated[float, Field(gt=0, strict=True, allow_inf_nan=False)] | None = Field(
+        None, description=(
+            "Perplessita' del t-SNE (Rtsne::Rtsne): circa il numero di vicini efficaci di "
+            "ogni campione. Obbligatoria con tsne, respinta altrimenti; 3 * perplessita' non "
+            "puo' superare il numero di campioni meno uno."))
+    #: Iterazioni del t-SNE (Rtsne::Rtsne, max_iter = 1000).
+    tsne_max_iter: _Positivo | None = Field(None, description=(
+        "Iterazioni del t-SNE (predefinito 1000, Rtsne::Rtsne). Solo con tsne."))
+    #: Approssimazione di Barnes-Hut (Rtsne::Rtsne, theta = 0.5).
+    tsne_theta: Annotated[float, Field(ge=0, le=1, strict=True, allow_inf_nan=False)] | None = Field(
+        None, description=(
+            "Compromesso fra velocita' e precisione di Barnes-Hut (predefinito 0.5, "
+            "Rtsne::Rtsne); 0 per il t-SNE esatto. Solo con tsne."))
     #: Colonne o gruppi derivati per cui disegnare le ordinazioni senza test.
     color_by: tuple[_Nome, ...] = Field((), description=(
         "Colonne o gruppi derivati per cui disegnare le ordinazioni colorate, senza "

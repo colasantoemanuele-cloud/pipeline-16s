@@ -479,6 +479,18 @@ esamina <- function(ps, parametri) {
     }
   }
 
+  # --- Perplessita' del t-SNE: il vincolo di Rtsne sui campioni analizzati. ---
+  # Con meno di quattro campioni nessuna ordinazione si fa (avviso E-ECO-25).
+  perplessita <- parametri$ord$tsne_perplexity
+  if ("tsne" %in% unlist(parametri$ord$methods) && !is.null(perplessita) &&
+      length(campioni) >= 4L && 3 * perplessita > length(campioni) - 1L) {
+    errore("E-ECO-42", sprintf(
+      "ord.tsne_perplexity %s con %d campioni analizzati: 3 * %s > %d; la perplessita' massima e' %s.",
+      format(perplessita), length(campioni), format(perplessita), length(campioni) - 1L,
+      format((length(campioni) - 1L) / 3)))
+    return(list(errori = errori, avvisi = avvisi, disegno = NULL))
+  }
+
   # --- Singleton dei conteggi di partenza, per Chao1. -------------------------
   # Si contano sui conteggi che entrano nell'alfa diversita', prima della
   # rarefazione: senza singleton Chao1 non ha nulla da cui stimare la ricchezza

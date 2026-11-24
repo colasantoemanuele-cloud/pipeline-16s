@@ -100,7 +100,7 @@ from amplicon16s.gates.registry import esegui_gate
 from amplicon16s.rbridge.runner import trova_rscript
 
 RADICE = Path(__file__).resolve().parents[1]
-ECOLOGIA = ("DESeq2", "vegan", "randomForest")
+ECOLOGIA = ("DESeq2", "vegan", "randomForest", "Rtsne")
 #: Un riferimento a un'immagine in un registro, ancorato per digest.
 DIGEST_DI_REGISTRO = re.compile(r"^ghcr\.io/[a-z0-9-]+/[a-z0-9._-]+@sha256:[0-9a-f]{64}$")
 
@@ -170,7 +170,7 @@ def test_il_file_di_blocco_contiene_i_pacchetti_delle_analisi_ecologiche():
         assert nome in pacchetti, nome
     assert pacchetti["DESeq2"]["Source"] == "Bioconductor"
     assert pacchetti["dada2"]["Version"] == "1.36.0.1" and pacchetti["dada2"]["Patch"]["Base"] == "1.36.0"
-    elenco = 'ecologia <- c("DESeq2", "vegan", "randomForest")'
+    elenco = 'ecologia <- c("DESeq2", "vegan", "randomForest", "Rtsne")'
     for script in ("install_r_packages.R", "snapshot_renv_lock.R"):
         assert elenco in (RADICE / "container" / script).read_text(encoding="utf-8"), script
 
