@@ -449,3 +449,61 @@ jsonlite::write_json(as.list(as.data.frame(t(media))), "{atteso}", digits = NA)
     assert nostre["non assegnato"] == pytest.approx(
         ((15 / 50 + 25 / 60) / 2, (10 / 55 + 10 / 50) / 2), abs=1e-9)
     assert nostre["altri"] == pytest.approx((0.0, 0.0), abs=1e-9)
+
+
+# --------------------------------------------------------------------------- #
+# 6. Grafici a pannelli                                                        #
+# --------------------------------------------------------------------------- #
+
+
+def test_i_grafici_a_pannelli_disegnano_i_valori_della_loro_tabella(eco_r, tmp_path):
+    """
+    **Obiettivo**: con ``comp.facet_wrap`` il grafico ha un pannello per gruppo
+    e la tabella accanto riporta, per ogni campione con un valore, le
+    abbondanze dei primi taxa e di «altri» di ``abbondanze_relative.tsv``; con
+    ``comp.facet_grid`` la tabella riporta per ogni cella (riga, colonna,
+    gruppo della variabile) la media calcolata qui a mano e il numero di
+    campioni. Due esecuzioni danno gli stessi byte; una colonna che non esiste
+    e' respinta con ``E-ECO-05``, righe e colonne uguali con ``E-ECO-01``.
+
+    **Razionale scientifico e sistemistico**: un grafico va letto con i suoi
+    numeri accanto; i pannelli sono figure della stessa composizione, non un
+    altro calcolo.
+    """
+    oggetto = _oggetto(tmp_path)
+    pannelli = {"top_n": 2, "facet_wrap": "modulo", "facet_grid": {"rows": "modulo",
+                                                                   "cols": "gruppo"}}
+    modulo = {"modulo": {"from": "luogo", "pattern": "^([A-Z]+[0-9])"}}
+    config = schema.valida(configurazione(design={"groupings": modulo}, comp=pannelli))
+    esegui(oggetto, config, tmp_path / "a")
+    esegui(oggetto, config, tmp_path / "b")
+    assert impronte(tmp_path / "a") == impronte(tmp_path / "b")
+    cartella = tmp_path / "a" / "composizione"
+    for nome in ("pannelli_modulo", "griglia_modulo_gruppo"):
+        assert (cartella / f"{nome}.png").stat().st_size > 1000, nome
+    _, relative = leggi_tsv(cartella / "abbondanze_relative.tsv")
+    primi = [r["taxon"] for r in relative[:2]]
+    per_campione = {(r["taxon"], c): float(v) for r in relative for c, v in r.items()
+                    if c.startswith("c")}
+    commenti, wrap = leggi_tsv(cartella / "pannelli_modulo.tsv")
+    assert {r["campione"] for r in wrap} == {f"c{i:02d}" for i in (1, 2, 3, 4, 5, 6, 7, 9)}
+    for riga in wrap:
+        if riga["taxon"] == "altri":
+            atteso = 1 - sum(per_campione[(t, riga["campione"])] for t in primi)
+        else:
+            atteso = per_campione[(riga["taxon"], riga["campione"])]
+        assert float(riga["abbondanza_relativa"]) == pytest.approx(atteso, abs=1e-9)
+    assert any("campioni senza valore in 'modulo', non disegnati: 2" in c for c in commenti)
+    _, griglia = leggi_tsv(cartella / "griglia_modulo_gruppo.tsv")
+    # Cella NOD1 / a / a: i campioni NOD1 del gruppo a sono c01 e c09.
+    cella = [r for r in griglia if (r["riga"], r["colonna"], r["gruppo"]) == ("NOD1", "a", "a")]
+    assert {r["campioni"] for r in cella} == {"2"}
+    for riga in cella:
+        if riga["taxon"] != "altri":
+            atteso = (per_campione[(riga["taxon"], "c01")] + per_campione[(riga["taxon"], "c09")]) / 2
+            assert float(riga["abbondanza_relativa_media"]) == pytest.approx(atteso, abs=1e-9)
+    with pytest.raises(ErroreEco) as rifiuto:
+        valida_sull_oggetto(oggetto, schema.valida(configurazione(comp={"facet_wrap": "stanza"})))
+    assert rifiuto.value.codici == ["E-ECO-05"]
+    assert _codici(configurazione(comp={"facet_grid": {"rows": "luogo", "cols": "luogo"}})) == [
+        "E-ECO-01"]

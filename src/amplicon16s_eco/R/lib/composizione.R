@@ -3,14 +3,18 @@
 # La usa R/analisi.R (comando eco run). Scrive, nella cartella composizione/
 # delle uscite, abbondanze_relative.tsv e, per ogni variabile della
 # composizione (comp.group_by; senza, le variabili del disegno), una tabella e
-# un grafico gruppi_NN_<variabile>, con NN la posizione nell'elenco.
+# un grafico gruppi_NN_<variabile>, con NN la posizione nell'elenco; con
+# comp.facet_wrap e comp.facet_grid i grafici a pannelli (ggplot2)
+# pannelli_<colonna>.png e griglia_<righe>_<colonne>.png, ciascuno con la
+# tabella dei valori disegnati accanto. Il principio dei grafici a pannelli e'
+# quello di plot_bars del pacchetto AMBER di Aldo Dale, senza dplyr.
 #
 # Richiede uscite.R e campioni.R. Interfaccia:
 #   agglomera(ps, campioni, rango)   conteggi per taxon del rango, con il
 #                                    lignaggio e la categoria dei non assegnati
 #   abbondanze_relative(conteggi)    proporzioni per campione (colonne a somma 1)
 #   scrivi_composizione(...)         tabella completa, tabelle e grafici per
-#                                    variabile
+#                                    variabile, grafici a pannelli (ggplot2)
 #
 # Razionale biologico: con letture corte molte varianti non hanno
 # un'assegnazione ai ranghi piu' fini. Con il
@@ -129,7 +133,179 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
                          file.path(cartella, paste0("gruppi_", base, ".png")))
     prodotti <- c(prodotti, file.path(relativa, paste0("gruppi_", base, c(".tsv", ".png"))))
   }
+  # I grafici a pannelli: stessi taxa, stessa voce «altri», stessi colori.
+  primi <- seq_len(min(top_n, nrow(relative)))
+  mostrate <- rbind(relative[primi, , drop = FALSE],
+                    1 - colSums(relative[primi, , drop = FALSE]))
+  rownames(mostrate) <- c(etichette[primi], ALTRI)
+  wrap <- disegno$pannelli_wrap
+  if (!is.null(wrap)) {
+    prodotti <- c(prodotti, .pannelli_per_campione(mostrate, wrap, rango, cartella, relativa))
+  }
+  griglia <- disegno$pannelli_griglia
+  if (!is.null(griglia)) {
+    prodotti <- c(prodotti, .griglia_per_gruppo(mostrate, griglia, rango, cartella, relativa))
+  }
   prodotti
+}
+
+# I colori dei taxa nei grafici a pannelli, per nome: quelli delle barre per
+# gruppo nello stesso ordine (il taxon piu' abbondante per primo), il grigio
+# per «altri», l'ultimo.
+.colori_dei_taxa <- function(taxa) {
+  stats::setNames(c(colori_gruppi(length(taxa) - 1L), "grey70"), taxa)
+}
+
+# Le dimensioni di un grafico a pannelli: ogni pannello almeno 500 pixel di
+# larghezza (o 8 per barra, se le barre sono di piu') e 900 di altezza, e
+# 700 pixel per la legenda: l'immagine cresce con i pannelli.
+.dimensioni_pannelli <- function(colonne, righe, barre) {
+  c(larghezza = as.integer(700L + colonne * max(500L, 8L * barre)),
+    altezza = as.integer(350L + righe * 900L))
+}
+
+# Il tema dei grafici a pannelli: sfondo bianco, testo leggibile a 200 punti
+# per pollice, legenda a destra.
+.tema_pannelli <- function() {
+  ggplot2::theme_bw(base_size = 11) + ggplot2::theme(
+    panel.grid.major.x = ggplot2::element_blank(), panel.grid.minor = ggplot2::element_blank(),
+    strip.text = ggplot2::element_text(size = 10), legend.position = "right",
+    plot.title = ggplot2::element_text(face = "bold"))
+}
+
+# Barre per campione, un pannello per gruppo della colonna (facet_wrap, scale
+# libere sull'asse x): v e' la variabile descrittiva della colonna, mostrate
+# la matrice taxa x campioni dei primi taxa e di «altri». I campioni senza
+# valore non compaiono. Scrive il grafico e la tabella dei valori disegnati;
+# restituisce i nomi dei file relativi alla cartella di uscita.
+.pannelli_per_campione <- function(mostrate, v, rango, cartella, relativa) {
+  campioni <- names(v$valori)[!is.na(v$valori)]
+  campioni <- campioni[order(v$valori[campioni], campioni, method = "radix")]
+  gruppi <- names(v$dimensioni)
+  etichetta <- stats::setNames(sprintf("%s (n = %d)", gruppi, v$dimensioni[gruppi]), gruppi)
+  taxa <- rownames(mostrate)
+  lunga <- data.frame(
+    campione = rep(campioni, each = length(taxa)),
+    gruppo = rep(unname(v$valori[campioni]), each = length(taxa)),
+    taxon = rep(taxa, times = length(campioni)),
+    abbondanza = as.vector(mostrate[, campioni, drop = FALSE]),
+    stringsAsFactors = FALSE)
+  base <- paste0("pannelli_", gsub("[^A-Za-z0-9_]", "_", v$nome))
+  scrivi_tsv(
+    data.frame(campione = lunga$campione, gruppo = lunga$gruppo, taxon = lunga$taxon,
+               abbondanza_relativa = reale(lunga$abbondanza), stringsAsFactors = FALSE),
+    file.path(cartella, paste0(base, ".tsv")), intestazione = c(
+      sprintf("Composizione per campione al rango %s, un pannello per gruppo di '%s' (comp.facet_wrap): i valori del grafico %s.png.",
+              rango, v$nome, base),
+      sprintf("primi %d taxa per abbondanza relativa media sui campioni analizzati, come nelle barre per gruppo; '%s': tutti i rimanenti",
+              length(taxa) - 1L, ALTRI),
+      sprintf("campioni senza valore in '%s', non disegnati: %d", v$nome, length(v$mancanti)),
+      paste0("campioni per gruppo: ", paste(sprintf("%s = %d", gruppi, v$dimensioni[gruppi]),
+                                             collapse = "; "))))
+  lunga$gruppo <- factor(etichetta[lunga$gruppo], levels = unname(etichetta))
+  lunga$campione <- factor(lunga$campione, levels = campioni)
+  lunga$taxon <- factor(lunga$taxon, levels = rev(taxa))
+  colonne <- ceiling(sqrt(length(gruppi)))
+  righe <- ceiling(length(gruppi) / colonne)
+  dimensioni <- .dimensioni_pannelli(colonne, righe, max(v$dimensioni))
+  grafico <- ggplot2::ggplot(lunga, ggplot2::aes(x = .data$campione, y = .data$abbondanza,
+                                                  fill = .data$taxon)) +
+    ggplot2::geom_col(width = 1) +
+    ggplot2::facet_wrap(ggplot2::vars(.data$gruppo), scales = "free_x", ncol = colonne) +
+    ggplot2::scale_fill_manual(values = .colori_dei_taxa(taxa),
+                               breaks = taxa, name = sprintf("taxon (%s)", rango)) +
+    ggplot2::scale_y_continuous(expand = c(0, 0), limits = c(0, 1.0001)) +
+    ggplot2::labs(title = sprintf("Composizione per campione al rango %s, per %s (%d campioni)",
+                                  rango, v$nome, length(campioni)),
+                  x = "campioni (una barra per campione)", y = "abbondanza relativa") +
+    .tema_pannelli() +
+    ggplot2::theme(axis.text.x = ggplot2::element_blank(),
+                   axis.ticks.x = ggplot2::element_blank())
+  apri_png(file.path(cartella, paste0(base, ".png")), larghezza = dimensioni[["larghezza"]],
+           altezza = dimensioni[["altezza"]])
+  print(grafico)
+  grDevices::dev.off()
+  file.path(relativa, paste0(base, c(".tsv", ".png")))
+}
+
+# Barre medie per gruppo della variabile del disegno in una griglia di
+# pannelli (facet_grid): righe e colonne sono le due colonne di
+# comp.facet_grid. Ogni pannello porta il numero dei suoi campioni; i campioni
+# senza valore in una delle tre colonne non entrano. Scrive il grafico e la
+# tabella dei valori disegnati; restituisce i nomi dei file.
+.griglia_per_gruppo <- function(mostrate, griglia, rango, cartella, relativa) {
+  x <- griglia$x
+  r <- griglia$righe
+  k <- griglia$colonne
+  campioni <- Reduce(intersect, lapply(list(x, r, k), function(v) names(v$valori)[!is.na(v$valori)]))
+  chiave <- paste(r$valori[campioni], k$valori[campioni], x$valori[campioni], sep = "
+")
+  celle <- unique(chiave)
+  celle <- celle[order(r$valori[campioni][match(celle, chiave)],
+                       k$valori[campioni][match(celle, chiave)],
+                       x$valori[campioni][match(celle, chiave)], method = "radix")]
+  taxa <- rownames(mostrate)
+  righe <- lapply(celle, function(cella) {
+    membri <- campioni[chiave == cella]
+    primo <- membri[1L]
+    data.frame(riga = r$valori[[primo]], colonna = k$valori[[primo]], gruppo = x$valori[[primo]],
+               campioni = length(membri), taxon = taxa,
+               abbondanza = rowMeans(mostrate[, membri, drop = FALSE]), stringsAsFactors = FALSE)
+  })
+  lunga <- do.call(rbind, righe)
+  rownames(lunga) <- NULL
+  base <- paste0("griglia_", gsub("[^A-Za-z0-9_]", "_", r$nome), "_",
+                 gsub("[^A-Za-z0-9_]", "_", k$nome))
+  scrivi_tsv(
+    data.frame(riga = lunga$riga, colonna = lunga$colonna, gruppo = lunga$gruppo,
+               campioni = as.integer(lunga$campioni), taxon = lunga$taxon,
+               abbondanza_relativa_media = reale(lunga$abbondanza), stringsAsFactors = FALSE),
+    file.path(cartella, paste0(base, ".tsv")), intestazione = c(
+      sprintf("Composizione media al rango %s per gruppo di '%s', in una griglia: righe '%s', colonne '%s' (comp.facet_grid); i valori del grafico %s.png.",
+              rango, x$nome, r$nome, k$nome, base),
+      sprintf("primi %d taxa per abbondanza relativa media sui campioni analizzati, come nelle barre per gruppo; '%s': tutti i rimanenti",
+              length(taxa) - 1L, ALTRI),
+      "campioni: i campioni della barra; abbondanza_relativa_media: media delle abbondanze relative dei campioni",
+      sprintf("campioni senza valore in una delle tre colonne, non disegnati: %d",
+              length(unique(c(x$mancanti, r$mancanti, k$mancanti))))))
+  # Il numero dei campioni di ogni pannello, scritto in alto a sinistra.
+  pannello <- paste(lunga$riga, lunga$colonna, sep = "
+")
+  per_pannello <- tapply(campioni, paste(r$valori[campioni], k$valori[campioni], sep = "
+"),
+                         length)
+  testi <- unique(lunga[, c("riga", "colonna")])
+  testi$etichetta <- sprintf("n = %d", as.integer(per_pannello[paste(testi$riga, testi$colonna,
+                                                                       sep = "
+")]))
+  lunga$taxon <- factor(lunga$taxon, levels = rev(taxa))
+  livelli_x <- names(x$dimensioni)
+  lunga$gruppo <- factor(lunga$gruppo, levels = livelli_x)
+  n_righe <- length(unique(lunga$riga))
+  n_colonne <- length(unique(lunga$colonna))
+  dimensioni <- .dimensioni_pannelli(n_colonne, n_righe, length(livelli_x) * 6L)
+  grafico <- ggplot2::ggplot(lunga, ggplot2::aes(x = .data$gruppo, y = .data$abbondanza,
+                                                  fill = .data$taxon)) +
+    ggplot2::geom_col(width = 0.85) +
+    ggplot2::geom_text(data = testi, ggplot2::aes(x = -Inf, y = Inf, label = .data$etichetta),
+                       inherit.aes = FALSE, hjust = -0.1, vjust = 1.4, size = 3.2) +
+    ggplot2::facet_grid(rows = ggplot2::vars(.data$riga), cols = ggplot2::vars(.data$colonna),
+                        drop = TRUE, scales = "free_x", space = "free_x") +
+    ggplot2::scale_fill_manual(values = .colori_dei_taxa(taxa),
+                               breaks = taxa, name = sprintf("taxon (%s)", rango)) +
+    ggplot2::scale_x_discrete(drop = TRUE) +
+    ggplot2::scale_y_continuous(expand = c(0, 0), limits = c(0, 1.12),
+                                breaks = seq(0, 1, 0.25)) +
+    ggplot2::labs(title = sprintf("Composizione media per %s al rango %s: righe %s, colonne %s (%d campioni)",
+                                  x$nome, rango, r$nome, k$nome, length(campioni)),
+                  x = x$nome, y = "abbondanza relativa media") +
+    .tema_pannelli() +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
+  apri_png(file.path(cartella, paste0(base, ".png")), larghezza = dimensioni[["larghezza"]],
+           altezza = dimensioni[["altezza"]])
+  print(grafico)
+  grDevices::dev.off()
+  file.path(relativa, paste0(base, c(".tsv", ".png")))
 }
 
 # Il grafico a barre impilate della composizione media per gruppo di una

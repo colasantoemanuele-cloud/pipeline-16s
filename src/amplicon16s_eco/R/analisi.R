@@ -23,6 +23,8 @@
 #        composizione/abbondanze_relative.tsv
 #        composizione/gruppi_NN_<variabile>.tsv e .png, per le variabili
 #        di comp.group_by o, senza, per quelle del disegno
+#        composizione/pannelli_<colonna>.tsv e .png (comp.facet_wrap)
+#        composizione/griglia_<righe>_<colonne>.tsv e .png (comp.facet_grid)
 #   4. distanze fra campioni (lib/beta.R)
 #        beta/distanza_<metodo>.tsv
 #   5. ordinazioni PCoA, NMDS, t-SNE, con almeno quattro campioni
@@ -64,6 +66,9 @@ for (f in c("uscite.R", "campioni.R", "alfa.R", "composizione.R", "beta.R",
 esegui_fase(function(parametri, cartella) {
   richiedi_pacchetti(c("phyloseq", "vegan", "ape", "permute"))
   if ("tsne" %in% unlist(parametri$ord$methods)) richiedi_pacchetti("Rtsne")
+  if (!is.null(parametri$comp$facet_wrap) || !is.null(parametri$comp$facet_grid)) {
+    richiedi_pacchetti("ggplot2")
+  }
   uscita <- parametri$uscita
   letto <- leggi_oggetto(parametri$oggetto)
   if (is.null(letto$oggetto)) errore_catalogo("E-ECO-04", letto$motivo)
@@ -366,6 +371,8 @@ esegui_fase(function(parametri, cartella) {
                              switch(origine_palette(parametri$plot$palette),
                                     brewer = "RColorBrewer", viridis = "viridisLite"),
                              if ("tsne" %in% unlist(parametri$ord$methods)) "Rtsne",
+                             if (!is.null(parametri$comp$facet_wrap) ||
+                                 !is.null(parametri$comp$facet_grid)) "ggplot2",
                              "vegan")),
       function(p) as.character(utils::packageVersion(p))
     )

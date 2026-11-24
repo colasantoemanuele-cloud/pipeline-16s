@@ -133,6 +133,11 @@ NOTE_DEI_PARAMETRI: Final[dict[str, tuple[str, ...]]] = {
         "risoluzione delle varianti, si guadagnano meno taxa rari e meno zeri; UniFrac "
         "usa l'albero potato. E' una scelta distinta dal rango dei grafici (comp.rank), "
         "che non puo' essere piu' fine (RAZIONALE.md, sezione 4.3)",),
+    "comp.facet_wrap": (
+        "barre per campione, un pannello per gruppo; " + _RIMANDO,),
+    "comp.facet_grid": (
+        "barre medie per gruppo di design.variable in una griglia {rows: <colonna>, cols: "
+        "<colonna>}; " + _RIMANDO,),
     "constrained.method": (
         "ordinazione vincolata: rda sui conteggi trasformati, dbrda sulle distanze; "
         "le variabili si scelgono fra quelle del disegno e i gruppi derivati, le "

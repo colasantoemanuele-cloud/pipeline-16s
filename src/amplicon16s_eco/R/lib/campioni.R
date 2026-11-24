@@ -289,6 +289,9 @@ esamina <- function(ps, parametri) {
   if (is.null(raggruppamenti)) raggruppamenti <- list()
   colori <- as.character(unlist(parametri$ord$color_by))
   per_composizione <- as.character(unlist(parametri$comp$group_by))
+  per_pannelli <- unique(as.character(unlist(c(parametri$comp$facet_wrap,
+                                               parametri$comp$facet_grid$rows,
+                                               parametri$comp$facet_grid$cols))))
   del_vincolo <- facoltativo(parametri, "constrained", list())
   del_modello <- as.character(unlist(c(del_vincolo$variables, del_vincolo$conditions)))
   del_grafico <- facoltativo(parametri, "plot", list())
@@ -305,7 +308,8 @@ esamina <- function(ps, parametri) {
   # --- Cio' che rende impossibile ogni calcolo: ci si ferma qui. -------------
   dichiarate <- unique(c(biologiche, tecniche, names(sottoinsieme),
                          colonne_aggiuntive(parametri), continue_dichiarate,
-                         colonna_soggetto, colori, per_composizione, del_modello))
+                         colonna_soggetto, colori, per_composizione, del_modello,
+                         per_pannelli))
   # Un gruppo derivato respinto non e' una colonna mancante: il suo rifiuto
   # c'e' gia'.
   respinti <- setdiff(names(raggruppamenti), names(derivate))
@@ -629,6 +633,10 @@ esamina <- function(ps, parametri) {
       derivate = derivate,
       colore = colore,
       composizione = composizione,
+      pannelli_wrap = if (!is.null(parametri$comp$facet_wrap)) descrittiva(parametri$comp$facet_wrap),
+      pannelli_griglia = if (!is.null(parametri$comp$facet_grid)) list(
+        x = variabili[[1L]], righe = descrittiva(parametri$comp$facet_grid$rows),
+        colonne = descrittiva(parametri$comp$facet_grid$cols)),
       tecnici = tecnici,
       continue = continue,
       soggetto = soggetto,

@@ -150,6 +150,18 @@ comp:
   # derivato, senza cambiare la variabile dei test.
   # group_by: []
 
+  # [FACOLTATIVO] Colonna o gruppo derivato: barre per campione, un pannello
+  # per gruppo (ggplot2::facet_wrap, scale libere sull'asse x), con gli stessi
+  # taxa, la stessa voce «altri» e la palette di plot.palette. Accanto al
+  # grafico composizione/pannelli_<colonna>.tsv con i valori disegnati.
+  # facet_wrap: null
+
+  # [FACOLTATIVO] Barre medie per gruppo della variabile del disegno
+  # (design.variable) in una griglia di pannelli: righe e colonne sono due
+  # colonne o gruppi derivati (ggplot2::facet_grid). Ogni pannello porta il
+  # numero dei suoi campioni; accanto composizione/griglia_<righe>_<colonne>.tsv.
+  # facet_grid: null   # {rows: <colonna>, cols: <colonna>}
+
 beta:
   # [OBBLIGATORIO] Distanze da calcolare, fra: bray, jaccard, aitchison,
   # unifrac_weighted, unifrac_unweighted. Le due UniFrac richiedono un albero

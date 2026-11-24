@@ -171,6 +171,8 @@ FACOLTATIVI: Final[tuple[str, ...]] = (
     "filter.min_relative_abundance",
     "ord.color_by",
     "comp.group_by",
+    "comp.facet_wrap",
+    "comp.facet_grid",
     "run.analysis_rank",
     "constrained.method",
     "constrained.conditions",
@@ -188,6 +190,8 @@ ASSENTI_SE_NON_DICHIARATI: Final[tuple[str, ...]] = (
     "design.groupings",
     "ord.color_by",
     "comp.group_by",
+    "comp.facet_wrap",
+    "comp.facet_grid",
     "run.analysis_rank",
     "filter.min_relative_abundance",
     "filter.scope",
@@ -457,6 +461,20 @@ class Alpha(_Gruppo):
         "sulle ripetizioni (rarefazione ripetuta). Solo con alpha.method rarefy."))
 
 
+class Griglia(_Gruppo):
+    """Le due colonne di una griglia di pannelli: righe e colonne."""
+
+    rows: _Nome = Field(description="Colonna o gruppo derivato delle righe della griglia.")
+    cols: _Nome = Field(description="Colonna o gruppo derivato delle colonne della griglia.")
+
+    @model_validator(mode="after")
+    def _distinte(self) -> "Griglia":
+        """Righe e colonne sono due colonne diverse."""
+        if self.rows == self.cols:
+            raise ValueError("comp.facet_grid: rows e cols sono la stessa colonna")
+        return self
+
+
 class Comp(_Gruppo):
     """Composizione tassonomica."""
 
@@ -470,6 +488,14 @@ class Comp(_Gruppo):
     group_by: tuple[_Nome, ...] = Field((), description=(
         "Colonne o gruppi derivati per cui disegnare le barre della composizione (media "
         "per gruppo). Vuoto: le variabili del disegno."))
+    #: Barre per campione, un pannello per gruppo.
+    facet_wrap: _Nome | None = Field(None, description=(
+        "Colonna o gruppo derivato: barre per campione, un pannello per gruppo "
+        "(ggplot2::facet_wrap, scale libere sull'asse x)."))
+    #: Barre medie per gruppo della variabile, in una griglia.
+    facet_grid: Griglia | None = Field(None, description=(
+        "Barre medie per gruppo della variabile del disegno in una griglia di pannelli: "
+        "righe e colonne sono due colonne o gruppi derivati (ggplot2::facet_grid)."))
 
     @model_validator(mode="after")
     def _senza_ripetizioni(self) -> "Comp":
