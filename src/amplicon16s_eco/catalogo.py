@@ -365,6 +365,32 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "indicato nel messaggio o sotto (RIFERIMENTO.md, sezione 4.4).",
     ),
     VoceEco(
+        "E-ECO-43", _R,
+        "L'ordinazione vincolata (constrained) non e' coerente con il disegno.",
+        "Le variabili di constrained.variables devono essere variabili del disegno "
+        "(design.variable, other_variables, continuous_variables) o gruppi derivati, senza "
+        "ripetizioni e senza essere anche condizioni; le distanze di constrained.distances "
+        "devono essere fra quelle di beta.distances; conditions vale solo con un metodo "
+        "(RIFERIMENTO.md, sezione 4.6).",
+    ),
+    VoceEco(
+        "E-ECO-44", _A,
+        "Il modello vincolato usa molti gradi di liberta' rispetto ai campioni.",
+        "I gradi di liberta' delle variabili superano constrained.max_df_fraction dei "
+        "campioni: il modello si avvicina a quello saturo, e la quota vincolata cresce per "
+        "costruzione (con un livello per campione spiegherebbe tutto). L'analisi prosegue: "
+        "leggi la quota vincolata e l'R2 corretto con questa cautela, o usa una variabile "
+        "con meno livelli (per esempio un gruppo derivato).",
+    ),
+    VoceEco(
+        "E-ECO-45", _A,
+        "Un termine dell'ordinazione vincolata e' uscito, o l'ordinazione non e' stata "
+        "eseguita.",
+        "Il messaggio dice quale termine ha un solo valore fra i campioni del modello (esce "
+        "dal modello), oppure perche' il modello non si stima (nessuna variabile con almeno "
+        "due valori, meno di tre campioni, modello saturo). Le altre analisi sono eseguite.",
+    ),
+    VoceEco(
         "E-ECO-90", _R,
         "Il calcolo in R non si e' concluso.",
         "Leggi il messaggio di R riportato nel dettaglio. Le analisi vanno "

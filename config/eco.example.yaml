@@ -219,6 +219,41 @@ stat:
   # nel test delle dispersioni.
   # permanova_strata: null
 
+constrained:
+  # [FACOLTATIVO] Ordinazione vincolata (supervisionata); nullo vuol dire
+  # nessuna. rda: RDA (vegan::rda) sui conteggi trasformati; dbrda: RDA basata
+  # sulle distanze (vegan::dbrda, Legendre e Anderson 1999) sulle distanze
+  # dichiarate. A differenza della PCoA, gli assi sono quelli della sola
+  # variabilita' che le variabili spiegano; la PERMANOVA resta il test fra
+  # gruppi. Il test e' vegan::anova.cca per il modello e per i termini (by =
+  # "margin"), con stat.permanova_permutations permutazioni, gli strati di
+  # stat.permanova_strata e il seme. Uscite in vincolata/.
+  # method: null
+
+  # [CONDIZIONALE: method] Variabili esplicative: categoriche, gruppi derivati o
+  # continue del disegno. I campioni senza valore in una variabile del modello
+  # escono, con il motivo in campioni.tsv.
+  # variables: []
+
+  # [FACOLTATIVO] Variabili il cui effetto si toglie prima (Condition()), per
+  # esempio quelle tecniche. Solo con method.
+  # conditions: []
+
+  # [CONDIZIONALE: rda] hellinger (Legendre e Gallagher 2001) o clr (con
+  # beta.clr_pseudocount, che diventa allora obbligatorio).
+  # transform:
+
+  # [CONDIZIONALE: dbrda] Distanze, fra quelle di beta.distances (UniFrac
+  # comprese): un modello per distanza.
+  # distances: []
+
+  # [CONDIZIONALE: method] Frazione dei campioni oltre la quale i gradi di
+  # liberta' del modello danno l'avviso E-ECO-44, senza predefinito. Con molti
+  # livelli (un luogo per campione o quasi) il modello si avvicina a quello
+  # saturo e spiega molto per costruzione; una frazione bassa (per esempio un
+  # decimo) avvisa presto, una alta tardi.
+  # max_df_fraction:
+
 plot:
   # [STANDARD] Palette dei gruppi in tutti i grafici (predefinito "Dark 3"
   # della funzione grDevices::hcl.colors, quella con cui lo strumento ha sempre

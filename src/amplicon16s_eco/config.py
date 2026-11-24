@@ -2,7 +2,7 @@
 
 Il file e' proprio del pacchetto, distinto da quello della pipeline, e ha
 gruppi ``design``, ``run``, ``filter``, ``alpha``, ``comp``, ``beta``, ``ord``,
-``stat`` e ``plot``. Le regole sono quelle della pipeline:
+``stat``, ``constrained`` e ``plot``. Le regole sono quelle della pipeline:
 
 * cio' che dipende dallo studio e' **obbligatorio** e non ha un valore
   predefinito (:data:`OBBLIGATORI`), a cominciare dalla variabile biologica;
@@ -116,13 +116,20 @@ CONDIZIONALI: Final[dict[str, tuple[str, tuple[str, ...] | None]]] = {
     "ord.tsne_perplexity": ("ord.methods", ("tsne",)),
     "ord.tsne_max_iter": ("ord.methods", ("tsne",)),
     "ord.tsne_theta": ("ord.methods", ("tsne",)),
+    "constrained.variables": ("constrained.method", None),
+    "constrained.max_df_fraction": ("constrained.method", None),
+    "constrained.transform": ("constrained.method", ("rda",)),
+    "constrained.distances": ("constrained.method", ("dbrda",)),
 }
 
 #: Altri parametri che rendono obbligatorio un condizionale: chiave ->
 #: condizioni (parametro, metodi) nella forma di :data:`CONDIZIONALI`. Il
 #: condizionale e' richiesto se almeno una condizione e' vera, respinto se
 #: nessuna lo e'.
-CONDIZIONALI_ANCHE: Final[dict[str, tuple[tuple[str, tuple[str, ...] | None], ...]]] = {}
+CONDIZIONALI_ANCHE: Final[dict[str, tuple[tuple[str, tuple[str, ...] | None], ...]]] = {
+    # Lo pseudoconteggio serve anche alla RDA sui log-rapporti.
+    "beta.clr_pseudocount": (("constrained.transform", ("clr",)),),
+}
 
 #: Condizionali con un predefinito, il valore del pacchetto R del metodo: vale
 #: quando il metodo e' richiesto, e il parametro puo' allora essere omesso.
@@ -165,6 +172,8 @@ FACOLTATIVI: Final[tuple[str, ...]] = (
     "ord.color_by",
     "comp.group_by",
     "run.analysis_rank",
+    "constrained.method",
+    "constrained.conditions",
     "stat.permanova_strata",
 )
 
@@ -182,11 +191,17 @@ ASSENTI_SE_NON_DICHIARATI: Final[tuple[str, ...]] = (
     "run.analysis_rank",
     "filter.min_relative_abundance",
     "filter.scope",
+    "constrained.method",
+    "constrained.variables",
+    "constrained.conditions",
+    "constrained.transform",
+    "constrained.distances",
+    "constrained.max_df_fraction",
 )
 
 #: I gruppi che, senza alcun parametro dichiarato, non compaiono nella
 #: configurazione risolta.
-_GRUPPI_FACOLTATIVI: Final = ("filter",)
+_GRUPPI_FACOLTATIVI: Final = ("filter", "constrained")
 
 _Nome = Annotated[str, Field(min_length=1, strict=True)]
 
@@ -334,6 +349,38 @@ class Design(_Gruppo):
                 "design.groupings: un gruppo derivato si ricava da una colonna dell'oggetto, "
                 f"non da un altro gruppo derivato: {di_se}")
         return self
+
+
+class Constrained(_Gruppo):
+    """Ordinazione vincolata (supervisionata): RDA e db-RDA."""
+
+    #: Il metodo; nullo: nessuna ordinazione vincolata.
+    method: Literal["rda", "dbrda"] | None = Field(None, description=(
+        "rda: RDA (vegan::rda) sui conteggi trasformati; dbrda: RDA basata sulle distanze "
+        "(vegan::dbrda) sulle distanze dichiarate. Nullo: nessuna ordinazione vincolata."))
+    #: Le variabili esplicative.
+    variables: Annotated[tuple[_Nome, ...], Field(min_length=1)] | None = Field(None, description=(
+        "Variabili esplicative: categoriche, gruppi derivati o continue del disegno. "
+        "Obbligatorie con method, respinte senza."))
+    #: Le condizioni, tolte prima (Condition()).
+    conditions: tuple[_Nome, ...] = Field((), description=(
+        "Variabili il cui effetto si toglie prima (Condition()), per esempio quelle "
+        "tecniche."))
+    #: Trasformazione dei conteggi: solo con rda.
+    transform: Literal["hellinger", "clr"] | None = Field(None, description=(
+        "Trasformazione dei conteggi per la RDA: hellinger (Legendre e Gallagher 2001) o "
+        "clr (con beta.clr_pseudocount). Obbligatoria con rda, respinta altrimenti."))
+    #: Distanze: solo con dbrda.
+    distances: Annotated[tuple[Distanza, ...], Field(min_length=1)] | None = Field(
+        None, description=(
+            "Distanze della db-RDA, fra quelle di beta.distances (UniFrac comprese). "
+            "Obbligatorie con dbrda, respinte altrimenti."))
+    #: Frazione dei campioni oltre cui i gradi di liberta' del modello avvisano.
+    max_df_fraction: Annotated[float, Field(gt=0, le=1, strict=True, allow_inf_nan=False)] | None = (
+        Field(None, description=(
+            "Frazione dei campioni oltre la quale i gradi di liberta' del modello danno un "
+            "avviso: il modello si avvicina a quello saturo. Obbligatoria con method, senza "
+            "predefinito.")))
 
 
 class Plot(_Gruppo):
@@ -547,6 +594,7 @@ class ConfigEco(_Gruppo):
     beta: Beta
     ord: Ord
     stat: Stat
+    constrained: Constrained = Field(default_factory=Constrained)
     plot: Plot = Field(default_factory=Plot)
 
     @model_validator(mode="after")
@@ -558,6 +606,27 @@ class ConfigEco(_Gruppo):
             raise ValueError(
                 f"ord.distances nomina distanze che beta.distances non calcola: {estranee}"
             )
+        vincolata = self.constrained
+        if vincolata.method is None and vincolata.conditions:
+            raise ValueError("constrained: conditions dichiarate senza constrained.method")
+        if vincolata.variables:
+            ammesse = {self.design.variable, *self.design.other_variables,
+                       *self.design.continuous_variables, *self.design.groupings}
+            estranee = [v for v in vincolata.variables if v not in ammesse]
+            if estranee:
+                raise ValueError(
+                    "constrained: le variabili devono essere variabili del disegno "
+                    "(design.variable, other_variables, continuous_variables) o gruppi "
+                    f"derivati: {estranee}")
+            ripetute = sorted({v for v in (*vincolata.variables, *vincolata.conditions)
+                               if (*vincolata.variables, *vincolata.conditions).count(v) > 1})
+            if ripetute:
+                raise ValueError(
+                    f"constrained: variabili ripetute, o insieme variabile e condizione: {ripetute}")
+        estranee = [d for d in vincolata.distances or () if d not in self.beta.distances]
+        if estranee:
+            raise ValueError(
+                f"constrained: distances nomina distanze che beta.distances non calcola: {estranee}")
         biologiche = {self.design.variable, *self.design.other_variables}
         doppie = sorted(biologiche & set(self.ord.color_by))
         if doppie:
@@ -575,7 +644,8 @@ class ConfigEco(_Gruppo):
 #: metodo non supportato (E-ECO-03), non un errore generico.
 _PARAMETRI_DI_METODO: Final = (
     "alpha.method", "filter.scope", "beta.distances", "beta.unifrac_root", "ord.methods",
-    "ord.distances", "ord.pcoa_correction",
+    "ord.distances", "ord.pcoa_correction", "constrained.method", "constrained.transform",
+    "constrained.distances",
 )
 
 _MESSAGGI: Final[dict[str, str]] = {
@@ -619,6 +689,8 @@ def _rifiuto(problema: dict[str, Any]) -> tuple[str, str]:
         else:
             testo = problema["msg"]
         return "E-ECO-40", f"{chiave}: {testo}."
+    if tipo == "value_error" and str(contesto.get("error", "")).startswith("constrained:"):
+        return "E-ECO-43", str(contesto["error"]).removeprefix("constrained:").strip() + "."
     if chiave == "plot" or chiave.startswith("plot.palette"):
         testo = (str(contesto.get("error", problema["msg"])) if tipo == "value_error"
                  else "un nome di palette o un elenco di colori esadecimali")

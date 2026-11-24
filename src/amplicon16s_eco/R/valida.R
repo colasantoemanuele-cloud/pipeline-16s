@@ -10,7 +10,7 @@
 # e l'orchestratore li riporta tutti.
 
 for (f in c("io_json.R", "errors.R")) source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
-for (f in c("uscite.R", "campioni.R", "test.R", "continua.R", "ripetute.R")) {
+for (f in c("uscite.R", "campioni.R", "test.R", "continua.R", "ripetute.R", "vincolata.R")) {
   source(file.path(Sys.getenv("AMPLICON16S_ECO_R_LIB"), f))
 }
 
@@ -29,7 +29,8 @@ esegui_fase(function(parametri, cartella) {
       # di calcolare qualunque distanza.
       esame$avvisi <- c(esame$avvisi, disegno_dei_test(esame$disegno, parametri)$avvisi,
                         piano_continue(esame$disegno, parametri)$avvisi,
-                        piano_appaiato(esame$disegno, parametri)$avvisi)
+                        piano_appaiato(esame$disegno, parametri)$avvisi,
+                        piano_vincolato(esame$disegno, parametri)$avvisi)
     }
     esito <- list(
       errori = esame$errori, avvisi = esame$avvisi,

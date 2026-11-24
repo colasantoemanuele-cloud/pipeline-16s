@@ -133,6 +133,10 @@ NOTE_DEI_PARAMETRI: Final[dict[str, tuple[str, ...]]] = {
         "risoluzione delle varianti, si guadagnano meno taxa rari e meno zeri; UniFrac "
         "usa l'albero potato. E' una scelta distinta dal rango dei grafici (comp.rank), "
         "che non puo' essere piu' fine (RAZIONALE.md, sezione 4.3)",),
+    "constrained.method": (
+        "ordinazione vincolata: rda sui conteggi trasformati, dbrda sulle distanze; "
+        "le variabili si scelgono fra quelle del disegno e i gruppi derivati, le "
+        "condizioni (Condition()) di solito fra le variabili tecniche",),
     "comp.group_by": (
         "le barre della composizione per gruppo; vuoto: le variabili del disegno; "
         + _RIMANDO,),
@@ -693,6 +697,12 @@ def prepara(
           "5 a 50; Rtsne richiede 3 * perplessita' <= campioni - 1: con "
           f"{descrizione['campioni']} campioni (prima di design.subset e del filtro) al "
           f"massimo {(descrizione['campioni'] - 1) / 3:.1f}")
+    metti("constrained.max_df_fraction", SCELTA, SENZA_VALORE,
+          "solo con constrained.method: oltre questa frazione dei campioni i gradi di "
+          "liberta' del modello danno un avviso, perche' il modello si avvicina a quello "
+          "saturo e spiega molto per costruzione. Una variabile con un livello per pochi "
+          "campioni (una posizione) ne usa tanti: una frazione bassa, per esempio 0.1, "
+          "avvisa presto; la scelta e' dello studio")
     metti("stat.min_group_size", SCELTA, SENZA_VALORE,
           "quanti campioni deve avere un gruppo per entrare nei test (almeno 2)")
     metti("stat.significance_level", SCELTA, SENZA_VALORE,

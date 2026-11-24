@@ -289,6 +289,8 @@ esamina <- function(ps, parametri) {
   if (is.null(raggruppamenti)) raggruppamenti <- list()
   colori <- as.character(unlist(parametri$ord$color_by))
   per_composizione <- as.character(unlist(parametri$comp$group_by))
+  del_vincolo <- facoltativo(parametri, "constrained", list())
+  del_modello <- as.character(unlist(c(del_vincolo$variables, del_vincolo$conditions)))
   del_grafico <- facoltativo(parametri, "plot", list())
 
   # --- Gruppi derivati: nuove colonne, prima di ogni altro controllo. --------
@@ -303,7 +305,7 @@ esamina <- function(ps, parametri) {
   # --- Cio' che rende impossibile ogni calcolo: ci si ferma qui. -------------
   dichiarate <- unique(c(biologiche, tecniche, names(sottoinsieme),
                          colonne_aggiuntive(parametri), continue_dichiarate,
-                         colonna_soggetto, colori, per_composizione))
+                         colonna_soggetto, colori, per_composizione, del_modello))
   # Un gruppo derivato respinto non e' una colonna mancante: il suo rifiuto
   # c'e' gia'.
   respinti <- setdiff(names(raggruppamenti), names(derivate))
@@ -657,9 +659,10 @@ stato_per_variabile <- function(v, campioni) {
 # escluso, con le letture, lo stato generale, lo stato nell'alfa diversita' e,
 # per ogni variabile, il valore e lo stato nelle sue analisi. d e' il disegno
 # di esamina; piani, se dati, sono i piani dei test fra gruppi, da cui vengono
-# le colonne dello stato nel confronto dell'alfa e nella PERMANOVA. Le colonne
+# le colonne dello stato nel confronto dell'alfa e nella PERMANOVA; vincolato,
+# se dato, e' il piano dell'ordinazione vincolata (colonna vincolata). Le colonne
 # delle variabili continue e del soggetto ci sono solo se dichiarate.
-tabella_dei_campioni <- function(d, piani = list()) {
+tabella_dei_campioni <- function(d, piani = list(), vincolato = NULL) {
   tutti <- d$nell_oggetto[ordine_radix(d$nell_oggetto)]
   generale <- rep("analizzato", length(tutti))
   names(generale) <- tutti
@@ -732,6 +735,11 @@ tabella_dei_campioni <- function(d, piani = list()) {
     names(valori) <- tutti
     valori[d$campioni] <- d$soggetto$valori[d$campioni]
     tabella[[paste0("soggetto:", d$soggetto$nome)]] <- valori
+  }
+  if (!is.null(vincolato)) {
+    stato <- generale
+    stato[d$campioni] <- vincolato$stato[d$campioni]
+    tabella[["vincolata"]] <- stato
   }
   tabella
 }

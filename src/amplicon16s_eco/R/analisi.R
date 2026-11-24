@@ -38,12 +38,16 @@
 #   7. variabili continue, se dichiarate (lib/continua.R)
 #        test/alfa_continua.tsv, test/permanova_continua.tsv
 #        alfa/continua_NN_<variabile>.png, solo se la correlazione si esegue
-#   8. misure ripetute, se il soggetto e' dichiarato (lib/ripetute.R)
+#   8. ordinazione vincolata, se constrained.method e' dichiarato
+#      (lib/vincolata.R): RDA sui conteggi trasformati o db-RDA per distanza
+#        vincolata/varianza.tsv, vincolata/test.tsv
+#        vincolata/<modello>_coordinate.tsv, vincolata/<modello>_NN_<variabile>.png
+#   9. misure ripetute, se il soggetto e' dichiarato (lib/ripetute.R)
 #        test/soggetti.tsv, test/alfa_appaiata.tsv, test/permanova_appaiata.tsv
-#   9. riepilogo.json: disegno, profondita', esito di ogni analisi, avvisi,
+#  10. riepilogo.json: disegno, profondita', esito di ogni analisi, avvisi,
 #      versioni di R e dei pacchetti, elenco dei file prodotti
-# L'ordine conta: gli indici del passo 2 servono ai passi 6, 7 e 8, le matrici
-# del passo 4 ai passi 5, 6, 7 e 8. Gli altri file della cartella di uscita
+# L'ordine conta: gli indici del passo 2 servono ai passi 6, 7 e 9, le matrici
+# del passo 4 ai passi 5, 6, 7, 8 e 9. Gli altri file della cartella di uscita
 # (manifesto, configurazione risolta) li scrive la parte Python.
 #
 # Parametri: oggetto (percorso della copia), uscita (cartella in cui scrivere),
@@ -53,7 +57,7 @@
 
 for (f in c("io_json.R", "errors.R")) source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
 for (f in c("uscite.R", "campioni.R", "alfa.R", "composizione.R", "beta.R",
-            "ordinazione.R", "test.R", "continua.R", "ripetute.R")) {
+            "ordinazione.R", "test.R", "continua.R", "ripetute.R", "vincolata.R")) {
   source(file.path(Sys.getenv("AMPLICON16S_ECO_R_LIB"), f))
 }
 
@@ -92,7 +96,10 @@ esegui_fase(function(parametri, cartella) {
   # Variabili continue e misure ripetute: piani vuoti se non dichiarate.
   continue <- piano_continue(d, parametri)
   appaiato <- piano_appaiato(d, parametri)
-  avvisi <- c(esame$avvisi, piano$avvisi, continue$avvisi, appaiato$avvisi)
+  # Ordinazione vincolata: piano nullo se non dichiarata.
+  vincolato <- piano_vincolato(d, parametri)
+  avvisi <- c(esame$avvisi, piano$avvisi, continue$avvisi, appaiato$avvisi, vincolato$avvisi)
+  esiti_vincolati <- NULL
   esiti_continue <- list()
   esiti_appaiati <- list()
   seme <- parametri$run$seed
@@ -114,10 +121,11 @@ esegui_fase(function(parametri, cartella) {
   prodotti <- withCallingHandlers({
     file <- character()
 
-    scrivi_tsv(tabella_dei_campioni(d, piano$piani), file.path(uscita, "campioni.tsv"), intestazione = c(
+    scrivi_tsv(tabella_dei_campioni(d, piano$piani, vincolato), file.path(uscita, "campioni.tsv"), intestazione = c(
       "Campioni dell'oggetto di partenza e loro stato in ogni analisi.",
       "stato: stato generale; stato_alfa: nell'alfa diversita'; stato:<variabile>: nelle analisi di quella variabile; permanova:<variabile>: nella PERMANOVA e nelle dispersioni",
-      "valore:<variabile>: il valore del campione, NA se mancante o se il campione e' escluso"
+      "valore:<variabile>: il valore del campione, NA se mancante o se il campione e' escluso",
+      if (!is.null(vincolato)) "vincolata: nell'ordinazione vincolata (constrained.*)"
     ))
     file <- c(file, "campioni.tsv")
     if (!is.null(d$filtro)) file <- c(file, scrivi_filtro(d, file.path(uscita, "filtro")))
@@ -276,6 +284,14 @@ esegui_fase(function(parametri, cartella) {
         parametri, d$profondita, file.path(uscita, "test")))
     }
 
+    # Ordinazione vincolata: RDA o db-RDA, con i test per permutazione.
+    if (!is.null(vincolato) && vincolato$eseguibile) {
+      esiti <- scrivi_vincolata(vincolato, ps, matrici, d, parametri, seme,
+                                file.path(uscita, "vincolata"))
+      file <- c(file, esiti$file)
+      esiti_vincolati <- esiti$riepilogo
+    }
+
     # Misure ripetute: i test entro soggetto di ogni variabile categorica.
     if (length(appaiato$piani)) {
       entro_alfa <- list()
@@ -326,6 +342,13 @@ esegui_fase(function(parametri, cartella) {
     riepilogo$beta$albero <- list(radice = radice, radicato_nell_oggetto = radicato)
   }
   riepilogo$ordinazione <- ordinazioni
+  if (!is.null(vincolato)) {
+    riepilogo$vincolata <- list(
+      metodo = vincolato$metodo, eseguita = vincolato$eseguibile,
+      campioni = length(vincolato$campioni), gradi_di_liberta = vincolato$gl,
+      variabili = I(vincolato$variabili), condizioni = I(vincolato$condizioni),
+      modelli = if (is.null(esiti_vincolati)) list() else esiti_vincolati)
+  }
   riepilogo$test <- esiti_dei_test
   # Presenti solo se le analisi corrispondenti sono dichiarate.
   if (length(continue$piani)) riepilogo$test_continue <- esiti_continue
