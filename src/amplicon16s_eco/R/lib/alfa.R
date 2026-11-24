@@ -7,7 +7,7 @@
 #   fissa_seme(seme)                 generatore e seme, prima di ogni operazione
 #                                    casuale
 #   rarefai(ps, campioni, profondita, seme)   matrice varianti x campioni
-#   indici_alfa(rarefatti)           ricchezza, Shannon, Gini-Simpson
+#   indici_alfa(rarefatti)           ricchezza, Shannon, Gini-Simpson, Chao1
 #   scrivi_alfa(...)                 le due tabelle
 #
 # Razionale biologico: la rarefazione e' senza reinserimento perche' e' un
@@ -17,6 +17,22 @@
 # non ha. Nessuna variante viene tolta dopo la
 # rarefazione (trimOTUs = FALSE): la tabella rarefatta ha le stesse righe di
 # quella di partenza.
+#
+# Razionale biologico di Chao1: lo stimatore (Chao 1984, nella forma corretta
+# per il bias di vegan::estimateR) aggiunge alla ricchezza osservata una stima
+# delle varianti non osservate ricavata dai singleton e dai doubleton. dada2 non
+# inferisce varianti con una sola lettura: sui conteggi della pipeline i
+# singleton mancano e Chao1 coincide con la ricchezza osservata. Dopo una
+# rarefazione i singleton nascono dal sottocampionamento, non dal campione. Per
+# questo i singleton dei conteggi di partenza si contano prima del calcolo
+# (campioni.R) e, se non ce ne sono, l'avviso lo dichiara anche
+# nell'intestazione della tabella.
+
+# Il testo dell'avviso E-ECO-36, ripetuto nell'intestazione della tabella.
+AVVISO_CHAO1 <- paste0(
+  "avviso E-ECO-36: Chao1 non stima la ricchezza non osservata: i conteggi di partenza non ",
+  "hanno singleton (dada2 non li inferisce); dopo una rarefazione i singleton nascono dal ",
+  "sottocampionamento, non dal campione")
 
 # Dichiara il generatore di numeri casuali e ne fissa il seme. Va chiamata
 # prima di ogni operazione casuale: ognuna riparte cosi' dallo stesso stato,
@@ -44,10 +60,14 @@ rarefai <- function(ps, campioni, profondita, seme) {
 }
 
 # Gli indici di alfa diversita' di ogni campione dalla matrice rarefatta
-# (varianti x campioni): ricchezza osservata, Shannon con il logaritmo naturale
-# e Gini-Simpson. Restituisce una tabella con una riga per campione.
+# (varianti x campioni): ricchezza osservata, Shannon con il logaritmo naturale,
+# Gini-Simpson e Chao1 corretto per il bias (vegan::estimateR, S.chao1).
+# Restituisce una tabella con una riga per campione.
 indici_alfa <- function(rarefatti) {
   per_campione <- t(rarefatti)
+  # estimateR vuole interi: i conteggi rarefatti lo sono gia'.
+  storage.mode(per_campione) <- "integer"
+  stimati <- vegan::estimateR(per_campione)
   data.frame(
     campione = colnames(rarefatti),
     ricchezza_osservata = as.integer(colSums(rarefatti > 0)),
@@ -55,6 +75,7 @@ indici_alfa <- function(rarefatti) {
                                          MARGIN = 1, base = exp(1))),
     gini_simpson = as.numeric(vegan::diversity(per_campione, index = "simpson",
                                               MARGIN = 1)),
+    chao1 = as.numeric(stimati["S.chao1", ]),
     stringsAsFactors = FALSE
   )
 }
@@ -62,9 +83,11 @@ indici_alfa <- function(rarefatti) {
 # Scrive nella cartella dell'alfa diversita' la tabella degli indici e quella
 # dei conteggi rarefatti, ciascuna con un'intestazione che dichiara
 # profondita', sua origine e seme. letture sono le letture dei campioni prima
-# della rarefazione. Restituisce i nomi dei due file, relativi alla cartella di
-# uscita.
-scrivi_alfa <- function(indici, rarefatti, letture, profondita, origine, seme, cartella) {
+# della rarefazione; senza_singleton dice se i conteggi di partenza non hanno
+# singleton, e allora l'intestazione porta l'avviso su Chao1. Restituisce i
+# nomi dei due file, relativi alla cartella di uscita.
+scrivi_alfa <- function(indici, rarefatti, letture, profondita, origine, seme, cartella,
+                        senza_singleton = FALSE) {
   dir.create(cartella, showWarnings = FALSE)
   scrivi_tsv(
     data.frame(
@@ -73,6 +96,7 @@ scrivi_alfa <- function(indici, rarefatti, letture, profondita, origine, seme, c
       ricchezza_osservata = indici$ricchezza_osservata,
       shannon = reale(indici$shannon),
       gini_simpson = reale(indici$gini_simpson),
+      chao1 = reale(indici$chao1),
       stringsAsFactors = FALSE
     ),
     file.path(cartella, "alfa_diversita.tsv"),
@@ -83,7 +107,10 @@ scrivi_alfa <- function(indici, rarefatti, letture, profondita, origine, seme, c
       "letture: letture del campione prima della rarefazione",
       "ricchezza_osservata: numero di varianti con almeno una lettura nel campione rarefatto",
       "shannon: -sum(p_i * ln(p_i)), logaritmo naturale, p_i proporzione della variante i",
-      "gini_simpson: 1 - sum(p_i^2) (indice di Simpson nella forma di Gini-Simpson)"
+      "gini_simpson: 1 - sum(p_i^2) (indice di Simpson nella forma di Gini-Simpson)",
+      paste0("chao1: S_oss + F1 (F1 - 1) / (2 (F2 + 1)), Chao1 corretto per il bias ",
+             "(vegan::estimateR, S.chao1, senza il fattore (N - 1) / N; Chao 1984); F1 e F2: varianti con una e con due letture"),
+      if (senza_singleton) AVVISO_CHAO1
     )
   )
   scrivi_tsv(

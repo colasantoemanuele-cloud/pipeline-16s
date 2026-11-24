@@ -265,7 +265,7 @@ disegno_dei_test <- function(d, parametri) {
   )
 }
 
-INDICI <- c("ricchezza_osservata", "shannon", "gini_simpson")
+INDICI <- c("ricchezza_osservata", "shannon", "gini_simpson", "chao1")
 
 # Il confronto di ogni indice di alfa diversita' fra i gruppi della variabile,
 # sui campioni del piano. Con due gruppi un test della somma dei ranghi; con
@@ -319,7 +319,8 @@ test_alfa <- function(indici, piano) {
 TITOLO_INDICE <- c(
   ricchezza_osservata = "ricchezza osservata",
   shannon = "Shannon",
-  gini_simpson = "Gini-Simpson"
+  gini_simpson = "Gini-Simpson",
+  chao1 = "Chao1"
 )
 
 # Scatole per gruppo con i punti dei campioni, un pannello per indice. I
@@ -344,7 +345,10 @@ grafico_alfa <- function(indici, piano, profondita, minimo, percorso) {
   # Con molti gruppi i tre pannelli vanno uno sotto l'altro e l'immagine si
   # allarga con il numero dei gruppi: le scatole restano leggibili.
   molti <- length(gruppi) > SOGLIA_LEGENDA_COLONNE
-  apri_png(percorso, larghezza = larghezza_per_gruppi(length(gruppi)),
+  # Affiancati, i pannelli restano larghi quanto erano con tre indici.
+  apri_png(percorso,
+           larghezza = if (molti) larghezza_per_gruppi(length(gruppi)) else
+             as.integer(larghezza_per_gruppi(length(gruppi)) * length(INDICI) / 3),
            altezza = if (molti) ALTEZZA_GRAFICO * length(INDICI) else ALTEZZA_GRAFICO)
   on.exit(grDevices::dev.off(), add = TRUE)
   graphics::par(mfrow = if (molti) c(length(INDICI), 1L) else c(1L, length(INDICI)),

@@ -180,7 +180,7 @@ def test_una_differenza_di_ricchezza_e_rilevata_e_corretta_sulla_famiglia(eco_r,
     **Obiettivo**: con tre gruppi, di cui uno con meta' dei taxa presenti,
     Kruskal-Wallis rileva la differenza di ricchezza; i confronti a coppie con
     Wilcoxon la attribuiscono alle coppie giuste; la p corretta e' quella di
-    Benjamini-Hochberg sulla famiglia di tutti i test della variabile (tre
+    Benjamini-Hochberg sulla famiglia di tutti i test della variabile (quattro
     indici per quattro confronti), ricalcolata qui.
 
     **Razionale scientifico e sistemistico**: la correzione dipende da quali
@@ -194,7 +194,7 @@ def test_una_differenza_di_ricchezza_e_rilevata_e_corretta_sulla_famiglia(eco_r,
     ], profondita=300)
     esegui(oggetto, _config(), tmp_path / "uscita")
     commenti, righe = leggi_tsv(tmp_path / "uscita" / "test" / "alfa_diversita.tsv")
-    assert len(righe) == 12 and {r["dimensione_famiglia"] for r in righe} == {"12"}
+    assert len(righe) == 16 and {r["dimensione_famiglia"] for r in righe} == {"16"}
     assert any("famiglia di tutti i test della variabile" in c for c in commenti)
     assert [r["confronto"] for r in righe[:4]] == ["globale", "a vs b", "a vs c", "b vs c"]
     ricchezza = {r["confronto"]: r for r in righe if r["indice"] == "ricchezza_osservata"}
@@ -214,7 +214,7 @@ def test_una_differenza_di_ricchezza_e_rilevata_e_corretta_sulla_famiglia(eco_r,
 
 def test_con_due_gruppi_un_wilcoxon_per_indice_esatto_senza_valori_ripetuti(eco_r, tmp_path):
     """
-    **Obiettivo**: con due gruppi la famiglia ha tre test, uno per indice; il
+    **Obiettivo**: con due gruppi la famiglia ha quattro test, uno per indice; il
     Wilcoxon e' esatto dove i valori non si ripetono (Shannon) e con
     approssimazione normale dove si ripetono, e la tabella lo dice; con cinque
     campioni contro cinque completamente separati la p esatta vale 2/252.
@@ -229,8 +229,9 @@ def test_con_due_gruppi_un_wilcoxon_per_indice_esatto_senza_valori_ripetuti(eco_
     ])
     esegui(oggetto, _config(), tmp_path / "uscita")
     _, righe = leggi_tsv(tmp_path / "uscita" / "test" / "alfa_diversita.tsv")
-    assert [r["indice"] for r in righe] == ["ricchezza_osservata", "shannon", "gini_simpson"]
-    assert {r["dimensione_famiglia"] for r in righe} == {"3"}
+    assert [r["indice"] for r in righe] == ["ricchezza_osservata", "shannon", "gini_simpson",
+                                           "chao1"]
+    assert {r["dimensione_famiglia"] for r in righe} == {"4"}
     shannon = righe[1]
     assert shannon["test"] == "Wilcoxon della somma dei ranghi, esatto"
     assert float(shannon["p"]) == pytest.approx(2 / 252, rel=1e-5)
@@ -257,8 +258,10 @@ def test_un_test_non_calcolabile_ha_p_assente_e_non_entra_nella_famiglia(eco_r, 
     commenti, righe = leggi_tsv(tmp_path / "uscita" / "test" / "alfa_diversita.tsv")
     assert righe[0]["indice"] == "ricchezza_osservata"
     assert righe[0]["p"] == "NA" and righe[0]["p_bh"] == "NA"
+    # Senza singleton Chao1 e' la ricchezza: costante anche lui.
+    assert righe[3]["indice"] == "chao1" and righe[3]["p"] == "NA"
     assert {r["dimensione_famiglia"] for r in righe} == {"2"}
-    calcolati = righe[1:]
+    calcolati = righe[1:3]
     for riga, atteso in zip(calcolati, _bh([float(r["p"]) for r in calcolati]), strict=True):
         assert float(riga["p_bh"]) == pytest.approx(atteso, rel=1e-5)
     assert any("non calcolabile" in c for c in commenti)
@@ -313,7 +316,9 @@ def _avvisi_del_disegno(tmp_path, metadati, **modifica) -> dict[str, list[str]]:
     esito = valida_sull_oggetto(oggetto, _config(stat=stat, **modifica))
     per_codice: dict[str, list[str]] = {}
     for avviso in esito.avvisi:
-        per_codice.setdefault(avviso.codice, []).append(avviso.dettaglio)
+        # L'avviso sui singleton riguarda i conteggi, non il disegno.
+        if avviso.codice != "E-ECO-36":
+            per_codice.setdefault(avviso.codice, []).append(avviso.dettaglio)
     return per_codice
 
 
@@ -659,7 +664,7 @@ def test_ogni_variabile_e_una_famiglia_a_se_e_due_esecuzioni_sono_identiche(eco_
 
     _, alfa = leggi_tsv(tmp_path / "a" / "test" / "alfa_diversita.tsv")
     famiglie = {r["variabile"]: r["dimensione_famiglia"] for r in alfa}
-    assert famiglie == {"gruppo": "12", "lotto": "3"}
+    assert famiglie == {"gruppo": "16", "lotto": "4"}
     _, multivariati = leggi_tsv(tmp_path / "a" / "test" / "permanova.tsv")
     assert {(r["variabile"], r["distanza"]) for r in multivariati} == {
         ("gruppo", d) for d in ("bray", "jaccard", "aitchison")} | {
@@ -795,7 +800,7 @@ def test_una_correlazione_costruita_e_trovata_e_una_variabile_casuale_no(eco_r, 
     la correlazione di Spearman fra ogni indice e la misura dichiarata continua
     vale 1 con il p al suo minimo esatto (2/12!, sotto il quale la serie
     dell'algoritmo non lo fa scendere), significativo dopo Benjamini-Hochberg
-    sulla famiglia dei tre indici; una variabile con i ranghi in un ordine non
+    sulla famiglia dei quattro indici; una variabile con i ranghi in un ordine non
     correlato da' rho 0 e p non significativo. La PERMANOVA con la misura come
     termine numerico e' significativa, quella con la variabile casuale no; il
     test delle dispersioni non si esegue e la tabella lo dichiara; il grafico
@@ -821,13 +826,13 @@ def test_una_correlazione_costruita_e_trovata_e_una_variabile_casuale_no(eco_r, 
     commenti, righe = leggi_tsv(tmp_path / "uscita" / "test" / "alfa_continua.tsv")
     per = {(r["variabile"], r["indice"]): r for r in righe}
     assert set(per) == {(v, i) for v in ("misura", "caso")
-                        for i in ("ricchezza_osservata", "shannon", "gini_simpson")}
-    for indice in ("ricchezza_osservata", "shannon", "gini_simpson"):
+                        for i in ("ricchezza_osservata", "shannon", "gini_simpson", "chao1")}
+    for indice in ("ricchezza_osservata", "shannon", "gini_simpson", "chao1"):
         trovata = per[("misura", indice)]
         assert trovata["test"] == "Spearman, serie di Edgeworth" and trovata["campioni"] == "12"
         assert float(trovata["rho"]) == pytest.approx(1.0)
         assert float(trovata["p"]) == pytest.approx(2 / math.factorial(12), rel=1e-4)
-        assert float(trovata["p_bh"]) < 0.001 and trovata["dimensione_famiglia"] == "3"
+        assert float(trovata["p_bh"]) < 0.001 and trovata["dimensione_famiglia"] == "4"
         casuale = per[("caso", indice)]
         assert abs(float(casuale["rho"])) < 0.05 and float(casuale["p"]) > 0.5
         assert float(casuale["p_bh"]) > 0.5
@@ -1018,7 +1023,7 @@ def test_un_effetto_entro_soggetto_e_trovato_dal_test_appaiato_e_non_da_quello_f
     assert (ricchezza["livello_1"], ricchezza["livello_2"]) == ("dopo", "prima")
     assert float(ricchezza["p"]) == pytest.approx(2 / 2**8)
     assert all(float(r["p_bh"]) < 0.05 for r in appaiati)
-    assert ricchezza["dimensione_famiglia"] == "3"
+    assert ricchezza["dimensione_famiglia"] == "4"
     _, fra_gruppi = leggi_tsv(tmp_path / "uscita" / "test" / "alfa_diversita.tsv")
     indipendente = next(r for r in fra_gruppi if r["indice"] == "ricchezza_osservata")
     assert indipendente["test"].startswith("Wilcoxon della somma dei ranghi")
@@ -1176,7 +1181,7 @@ def test_i_soggetti_incompleti_escono_e_sotto_le_condizioni_il_test_appaiato_non
     assert {r["stato"] for r in di_s9} == {"escluso: manca il livello dopo"}
     assert {r["livelli_presenti"] for r in di_s9} == {"prima"}
     _, appaiati = leggi_tsv(tmp_path / "a" / "uscita" / "test" / "alfa_appaiata.tsv")
-    assert {r["soggetti"] for r in appaiati} == {"8"} and len(appaiati) == 3
+    assert {r["soggetti"] for r in appaiati} == {"8"} and len(appaiati) == 4
     assert CATALOGO["E-ECO-33"].specie is Specie.AVVISO
 
     doppio = _oggetto_a_misure_ripetute(tmp_path / "b", in_piu={"campioni": [
@@ -1237,7 +1242,7 @@ def test_con_piu_di_due_livelli_il_confronto_entro_soggetto_e_il_test_di_friedma
     assert float(globale["p"]) == pytest.approx(0.00247875, rel=1e-4)
     assert all(r["test"].startswith("Wilcoxon dei ranghi con segno") for r in della_ricchezza[1:])
     assert all(float(r["p"]) == pytest.approx(2 / 2**6) for r in della_ricchezza[1:])
-    assert {r["dimensione_famiglia"] for r in righe} == {"12"}
+    assert {r["dimensione_famiglia"] for r in righe} == {"16"}
     assert any("Friedman" in c for c in commenti)
 
 

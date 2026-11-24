@@ -304,6 +304,17 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "termine del soggetto, uno che varia entro soggetto non e' considerato.",
     ),
     VoceEco(
+        "E-ECO-36", _A,
+        "Chao1 non stima la ricchezza non osservata: i conteggi di partenza non hanno "
+        "singleton.",
+        "Chao1 e' calcolato comunque (vegan::estimateR) e l'avviso e' anche "
+        "nell'intestazione di alfa/alfa_diversita.tsv. dada2 non inferisce varianti con "
+        "una sola lettura: sui conteggi non rarefatti Chao1 coincide con la ricchezza "
+        "osservata, e dopo una rarefazione i singleton nascono dal sottocampionamento, "
+        "non dal campione. Leggi Chao1 come una ricchezza, non come una stima di quella "
+        "non osservata (RIFERIMENTO.md, sezione 4.3; RAZIONALE.md, sezione 4.2).",
+    ),
+    VoceEco(
         "E-ECO-90", _R,
         "Il calcolo in R non si e' concluso.",
         "Leggi il messaggio di R riportato nel dettaglio. Le analisi vanno "

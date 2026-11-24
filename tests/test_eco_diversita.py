@@ -118,7 +118,73 @@ def test_l_intestazione_della_tabella_dichiara_nome_e_formula_di_ogni_indice(eco
     assert "shannon: -sum(p_i * ln(p_i))" in testo and "logaritmo naturale" in testo
     assert "gini_simpson: 1 - sum(p_i^2)" in testo
     assert "senza reinserimento, profondita' 20" in testo and "seme 7" in testo
-    assert list(righe[0]) == ["campione", "letture", "ricchezza_osservata", "shannon", "gini_simpson"]
+    assert list(righe[0]) == ["campione", "letture", "ricchezza_osservata", "shannon",
+                              "gini_simpson", "chao1"]
+    assert "chao1: S_oss + F1 (F1 - 1) / (2 (F2 + 1))" in testo
+
+
+#: Tre campioni di 9 letture: la rarefazione alla minima li lascia come sono.
+#: Il primo ha due singleton e un doubleton, il secondo due singleton e nessun
+#: doubleton, il terzo nessun singleton.
+CON_SINGLETON = [
+    [5, 7, 4],
+    [1, 1, 5],
+    [1, 1, 0],
+    [2, 0, 0],
+    [0, 0, 0],
+]
+
+
+def _chao1(conteggi: list[int]) -> float:
+    """Chao1 corretto per il bias nella forma di vegan::estimateR 2.7 (Chao 1984;
+    la correzione per piccoli campioni (N - 1) / N non e' applicata)."""
+    presenti = [x for x in conteggi if x > 0]
+    f1, f2 = conteggi.count(1), conteggi.count(2)
+    return len(presenti) + f1 * (f1 - 1) / (2 * (f2 + 1))
+
+
+def test_chao1_coincide_con_la_formula_corretta_per_il_bias(eco_r, tmp_path):
+    """
+    **Obiettivo**: la colonna ``chao1`` coincide con S_oss + F1 (F1 - 1) /
+    (2 (F2 + 1)) calcolato qui; senza singleton coincide con la
+    ricchezza osservata. Con singleton nei conteggi di partenza l'avviso
+    E-ECO-36 non c'e'.
+
+    **Razionale scientifico e sistemistico**: Chao1 ha due forme (classica e
+    corretta per il bias): solo il confronto con la formula scritta a mano
+    dice quale e' calcolata.
+    """
+    _, uscita, esito = _esegui(tmp_path, CON_SINGLETON, METADATI)
+    _, alfa = leggi_tsv(uscita / "alfa" / "alfa_diversita.tsv")
+    for riga, conteggi in zip(alfa, _colonne(CON_SINGLETON), strict=True):
+        assert float(riga["chao1"]) == pytest.approx(_chao1(conteggi), abs=TOLLERANZA)
+    # Per esteso: 4 + 2 * 1 / (2 * 2); 3 + 2 * 1 / (2 * 1); 2 (nessun singleton).
+    assert float(alfa[0]["chao1"]) == pytest.approx(4.5, abs=TOLLERANZA)
+    assert float(alfa[1]["chao1"]) == pytest.approx(4.0, abs=TOLLERANZA)
+    assert float(alfa[2]["chao1"]) == float(alfa[2]["ricchezza_osservata"]) == 2
+    assert "E-ECO-36" not in {a.codice for a in esito.avvisi}
+
+
+def test_senza_singleton_chao1_e_dichiarato_come_ricchezza_osservata(eco_r, tmp_path):
+    """
+    **Obiettivo**: con conteggi di partenza senza singleton (come quelli di
+    dada2) l'analisi avvisa con E-ECO-36, gia' nella validazione, e
+    l'intestazione di ``alfa_diversita.tsv`` riporta l'avviso; Chao1 coincide
+    con la ricchezza osservata.
+
+    **Razionale scientifico e sistemistico**: senza singleton Chao1 non stima
+    alcuna ricchezza non osservata; chi legge la colonna deve saperlo.
+    """
+    from amplicon16s_eco.esecuzione import valida_sull_oggetto
+
+    oggetto, uscita, esito = _esegui(tmp_path, CONTEGGI, METADATI)
+    assert "E-ECO-36" in {a.codice for a in esito.avvisi}
+    assert "E-ECO-36" in {a.codice for a in valida_sull_oggetto(
+        oggetto, schema.valida(configurazione())).avvisi}
+    commenti, alfa = leggi_tsv(uscita / "alfa" / "alfa_diversita.tsv")
+    assert any("E-ECO-36" in c and "non hanno singleton" in c for c in commenti)
+    for riga in alfa:
+        assert float(riga["chao1"]) == float(riga["ricchezza_osservata"])
 
 
 #: Campioni di profondita' diversa: 30, 60, 300 e 12 letture.

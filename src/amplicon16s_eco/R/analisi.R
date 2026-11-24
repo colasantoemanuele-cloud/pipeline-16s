@@ -9,7 +9,8 @@
 #   1. esame dell'oggetto e piani dei test (lib/campioni.R, lib/test.R,
 #      lib/continua.R, lib/ripetute.R): nessun calcolo; un rifiuto ferma qui
 #        campioni.tsv
-#   2. alfa diversita' sui conteggi rarefatti (lib/alfa.R)
+#   2. alfa diversita' sui conteggi rarefatti: ricchezza, Shannon,
+#      Gini-Simpson, Chao1 (lib/alfa.R)
 #        alfa/alfa_diversita.tsv, alfa/conteggi_rarefatti.tsv
 #   3. composizione al rango dichiarato (lib/composizione.R)
 #        composizione/abbondanze_relative.tsv
@@ -95,7 +96,8 @@ esegui_fase(function(parametri, cartella) {
     rarefatti <- rarefai(ps, rarefatti_campioni, d$profondita, seme)
     indici <- indici_alfa(rarefatti)
     file <- c(file, scrivi_alfa(indici, rarefatti, d$letture, d$profondita,
-                                d$origine_profondita, seme, file.path(uscita, "alfa")))
+                                d$origine_profondita, seme, file.path(uscita, "alfa"),
+                                senza_singleton = d$singleton == 0))
 
     # Composizione.
     agglomerato <- agglomera(ps, d$campioni, parametri$comp$rank)

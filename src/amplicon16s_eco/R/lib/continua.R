@@ -200,7 +200,7 @@ CAMPIONI_ENUMERATI_SPEARMAN <- 9L
 
 # La correlazione di ogni indice di alfa diversita' con la variabile, sui
 # campioni del piano: una riga per indice, con il p corretto sulla famiglia dei
-# tre indici. Nulla se il piano dice che la correlazione non si esegue.
+# quattro indici. Nulla se il piano dice che la correlazione non si esegue.
 correlazione_alfa <- function(indici, piano) {
   a <- piano$alfa
   if (!a$eseguibile) return(NULL)
@@ -212,7 +212,7 @@ correlazione_alfa <- function(indici, piano) {
   })
   tabella <- do.call(rbind, righe)
   tabella$p[is.nan(tabella$p)] <- NA
-  # Una sola famiglia per variabile: i tre indici.
+  # Una sola famiglia per variabile: gli indici di INDICI.
   tabella$p_bh <- stats::p.adjust(tabella$p, method = "BH")
   tabella$dimensione_famiglia <- sum(!is.na(tabella$p))
   tabella
@@ -224,7 +224,8 @@ grafico_continua <- function(indici, piano, profondita, percorso) {
   a <- piano$alfa
   per_campione <- indici[match(a$campioni, indici$campione), , drop = FALSE]
   x <- as.numeric(a$valori)
-  apri_png(percorso)
+  # Un pannello per indice, ciascuno largo come con tre indici.
+  apri_png(percorso, larghezza = as.integer(LARGHEZZA_GRAFICO * length(INDICI) / 3))
   on.exit(grDevices::dev.off(), add = TRUE)
   graphics::par(mfrow = c(1L, length(INDICI)), oma = c(2.5, 0, 2.5, 0), mar = c(4.5, 4.5, 2, 1))
   graphics::par(cex = 0.7)
@@ -348,7 +349,7 @@ scrivi_continue <- function(alfa, multivariati, parametri, profondita, cartella)
       "correlazione per ranghi di Spearman, a due code; rho: coefficiente di correlazione",
       sprintf("senza valori ripetuti nell'indice e nella variabile il p e' esatto fino a %d campioni e dalla serie di Edgeworth oltre (algoritmo AS 89 di stats::cor.test), mai sotto il minimo esatto 2/n!; con valori ripetuti approssimazione t",
               CAMPIONI_ENUMERATI_SPEARMAN),
-      "p_bh: p corretta con Benjamini-Hochberg sulla famiglia dei tre indici della variabile",
+      "p_bh: p corretta con Benjamini-Hochberg sulla famiglia dei quattro indici della variabile (ricchezza osservata, Shannon, Gini-Simpson, Chao1)",
       "dimensione_famiglia: numero di test della famiglia; p e p_bh in notazione esponenziale a sei decimali",
       sprintf("una correlazione non si esegue con meno di %d campioni (il minimo perche' una correlazione perfetta scenda sotto %s) o con meno di %d valori distinti",
               minimo_per_la_correlazione(parametri$stat$significance_level),

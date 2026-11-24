@@ -256,6 +256,17 @@ esamina <- function(ps, parametri) {
     }
   }
 
+  # --- Singleton dei conteggi di partenza, per Chao1. -------------------------
+  # Si contano sui conteggi che entrano nell'alfa diversita', prima della
+  # rarefazione: senza singleton Chao1 non ha nulla da cui stimare la ricchezza
+  # non osservata (alfa.R).
+  singleton <- sum(conteggi[, campioni, drop = FALSE] == 1)
+  if (singleton == 0) {
+    avviso("E-ECO-36", sprintf(
+      "Conteggi di partenza dei %d campioni analizzati: nessuna variante con una sola lettura in un campione; Chao1 coincide con la ricchezza osservata sui conteggi non rarefatti.",
+      length(campioni)))
+  }
+
   # --- Variabili: valori mancanti e gruppi. ----------------------------------
   minimo <- as.integer(parametri$stat$min_group_size)
   variabili <- list()
@@ -348,6 +359,7 @@ esamina <- function(ps, parametri) {
       profondita = profondita,
       origine_profondita = origine,
       sotto_profondita = sotto,
+      singleton = singleton,
       biologiche = biologiche,
       tecniche = tecniche,
       variabili = variabili,
