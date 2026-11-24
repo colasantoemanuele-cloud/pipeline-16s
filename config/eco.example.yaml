@@ -61,7 +61,9 @@ design:
   # campione esce dalle analisi di quella variabile, con il motivo in
   # campioni.tsv. eco validate stampa i gruppi ottenuti, con i campioni; eco
   # init propone in commento un gruppo per prefisso quando i valori lo
-  # permettono. Il nome non puo' essere quello di una colonna.
+  # permettono. Il nome non puo' essere quello di una colonna. Una regola
+  # sbagliata o ambigua (entrambe le regole o nessuna, un valore in due gruppi,
+  # un'espressione senza gruppo di cattura) e' respinta con E-ECO-40.
   # groupings: {}
   #   bagno_cucina:
   #     from: <colonna>
@@ -97,6 +99,8 @@ filter:
   # Microbiol 13:1165295) misurano l'effetto del filtro: forte su ricchezza e Chao1,
   # piccolo su Shannon e Bray-Curtis. Le varianti tolte sono in
   # filtro/varianti_filtrate.tsv, le letture tolte per campione in campioni.tsv.
+  # Un campione rimasto senza letture esce da tutte le analisi (avviso
+  # E-ECO-37); se ne restano meno di due l'analisi non parte (E-ECO-38).
   # min_relative_abundance: null
 
   # [CONDIZIONALE: min_relative_abundance] Su che cosa si misura la soglia:
@@ -115,7 +119,8 @@ alpha:
   # E-ECO-39 se un indice dipende dalla profondita'). McMurdie e Holmes 2014
   # sconsigliano la rarefazione per l'abbondanza differenziale; Schloss 2024 la
   # trova il modo piu' affidabile di controllare la profondita' per alfa e beta
-  # diversita'. Gli indici: ricchezza osservata, Shannon, Gini-Simpson, Chao1.
+  # diversita'. Gli indici: ricchezza osservata, Shannon, Gini-Simpson, Chao1
+  # (senza singleton Chao1 coincide con la ricchezza: avviso E-ECO-36).
   # method:
 
   # [CONDIZIONALE: rarefy] [STANDARD null] Profondita' di rarefazione; nulla
@@ -202,7 +207,8 @@ ord:
   # [CONDIZIONALE: tsne] Perplessita' del t-SNE (Rtsne::Rtsne), circa il numero
   # di vicini efficaci di ogni campione; senza predefinito. Va da 5 a 50 nella
   # pratica; Rtsne richiede 3 * perplessita' <= campioni - 1, contando i
-  # campioni dopo design.subset e il filtro (eco validate lo controlla).
+  # campioni dopo design.subset e il filtro (eco validate lo controlla, e
+  # respinge un valore troppo alto con E-ECO-42).
   # tsne_perplexity:
 
   # [CONDIZIONALE: tsne] [STANDARD 1000] Iterazioni del t-SNE (Rtsne::Rtsne).
@@ -242,7 +248,10 @@ constrained:
   # variabilita' che le variabili spiegano; la PERMANOVA resta il test fra
   # gruppi. Il test e' vegan::anova.cca per il modello e per i termini (by =
   # "margin"), con stat.permanova_permutations permutazioni, gli strati di
-  # stat.permanova_strata e il seme. Uscite in vincolata/.
+  # stat.permanova_strata e il seme. Uscite in vincolata/. Una dichiarazione
+  # non coerente con il disegno e' respinta con E-ECO-43; un termine con un
+  # solo valore fra i campioni del modello esce, e un modello che non si stima
+  # non e' eseguito, con l'avviso E-ECO-45.
   # method: null
 
   # [CONDIZIONALE: method] Variabili esplicative: categoriche, gruppi derivati o
@@ -275,7 +284,8 @@ plot:
   # colorato i gruppi). Ammette un nome di grDevices::hcl.pals(), "Okabe-Ito"
   # (grDevices::palette.colors, adatta ai daltonici), un nome di RColorBrewer
   # (per i nomi che ha anche hcl.pals vale RColorBrewer) o di viridisLite, oppure
-  # un elenco di colori esadecimali ["#RRGGBB", ...]. Con piu' gruppi che
+  # un elenco di colori esadecimali ["#RRGGBB", ...]; un nome sconosciuto o un
+  # colore non esadecimale e' respinto con E-ECO-41. Con piu' gruppi che
   # colori la palette si estende per interpolazione (grDevices::colorRampPalette),
   # con l'avviso E-ECO-46: i colori aggiunti non sono garantiti per chi non
   # distingue i colori. Le palette HCL e viridisLite non si estendono.

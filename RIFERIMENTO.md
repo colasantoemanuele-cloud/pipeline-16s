@@ -1172,7 +1172,7 @@ legge, è in [RAZIONALE.md](RAZIONALE.md), sezione 4.
 | `ordinazione/` | `<metodo>_<distanza>_colore_NN_<colonna>.png` | con `ord.color_by`: le stesse ordinazioni colorate per una colonna o un gruppo derivato, descrittive, senza test (NN è la posizione in `ord.color_by`) |
 | `vincolata/` | `varianza.tsv`, `test.tsv` | con `constrained.method` (sezione 4.6): inerzia condizionata, vincolata e non vincolata, quota vincolata, R² e R² corretto per ogni modello; i test per permutazione del modello e dei termini |
 | `vincolata/` | `<modello>_coordinate.tsv`, `<modello>_NN_<variabile>.png` | i punteggi dei campioni sui primi due assi e il triplot per ogni variabile del disegno, con i centroidi delle variabili categoriche (pieni del colore del gruppo, etichette su fondo bianco che non si sovrappongono) e le frecce delle continue; `<modello>` è `rda_<trasformazione>` o `dbrda_<distanza>` |
-| `test/` | `alfa_diversita.tsv` | Wilcoxon o Kruskal-Wallis sui quattro indici, per variabile, con la p corretta sulla famiglia di tutti gli indici e i confronti |
+| `test/` | `alfa_diversita.tsv` | Wilcoxon o Kruskal-Wallis sui quattro indici, per variabile, con la p corretta sulla famiglia di tutti gli indici e i confronti; con Chao1 la famiglia ha un test in più per confronto, e le `p_bh` delle righe degli altri indici non sono quelle della versione v0.1.0 (RAZIONALE.md, 4.6) |
 | `test/` | `permanova.tsv` | la PERMANOVA per variabile e distanza, con accanto il test delle dispersioni |
 | `test/` | `alfa_continua.tsv`, `permanova_continua.tsv` | con le variabili continue (sezione 4.1) |
 | `test/` | `alfa_appaiata.tsv`, `permanova_appaiata.tsv`, `soggetti.tsv` | con le misure ripetute (sezione 4.2) |
