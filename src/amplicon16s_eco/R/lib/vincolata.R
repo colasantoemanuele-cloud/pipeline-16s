@@ -256,14 +256,17 @@ ordinazione_vincolata <- function(piano, risposta, metodo, etichetta, valori_str
                    title = v$nome)
 }
 
-# I nomi dei centroidi come «variabile: livello»: vegan li chiama con il nome
-# neutro della colonna seguito dal livello (v1NOD1).
+# I nomi dei centroidi: il livello, preceduto dalla variabile («variabile:
+# livello») solo se il modello ha piu' di un termine categorico. vegan li chiama
+# con il nome neutro della colonna seguito dal livello (v1NOD1).
 .etichette_centroidi <- function(nomi, piano) {
+  categorici <- sum(vapply(piano$dati, is.factor, logical(1)))
   vapply(nomi, function(n) {
     colonna <- names(piano$nomi)[startsWith(n, names(piano$nomi))]
     colonna <- colonna[which.max(nchar(colonna))]
     if (!length(colonna)) return(n)
-    paste0(piano$nomi[[colonna]], ": ", substring(n, nchar(colonna) + 1L))
+    livello <- substring(n, nchar(colonna) + 1L)
+    if (categorici > 1L) paste0(piano$nomi[[colonna]], ": ", livello) else livello
   }, character(1))
 }
 

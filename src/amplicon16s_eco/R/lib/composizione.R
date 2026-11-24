@@ -316,10 +316,15 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
 # rimanenti; sotto ogni barra il gruppo con il numero dei suoi campioni.
 grafico_composizione <- function(mostrati, nomi, gruppi, v, rango, percorso) {
   colori <- c(colori_gruppi(length(nomi) - 1L), "grey70")
+  # Il margine destro ospita la legenda: con nomi di taxa lunghi cresce, e
+  # l'immagine con lui, perche' nessun nome resti tagliato; fino a circa sedici
+  # caratteri resta quello di sempre.
+  margine <- max(16, ceiling(0.8 * max(nchar(nomi))) + 4)
   # Con molti gruppi l'immagine si allarga: le barre non si stringono.
-  apri_png(percorso, larghezza = larghezza_per_gruppi(length(gruppi)))
+  apri_png(percorso, larghezza = larghezza_per_gruppi(length(gruppi)) +
+             as.integer(round((margine - 16) * 28)))
   on.exit(grDevices::dev.off(), add = TRUE)
-  graphics::par(mar = c(9, 4.5, 3, 16), xpd = NA, cex = 0.7)
+  graphics::par(mar = c(9, 4.5, 3, margine), xpd = NA, cex = 0.7)
   posizioni <- graphics::barplot(
     mostrati, col = colori, border = NA, names.arg = rep("", length(gruppi)),
     ylim = c(0, 1), ylab = "abbondanza relativa media",
