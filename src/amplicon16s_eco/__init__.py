@@ -5,6 +5,6 @@ dell'oggetto phyloseq prodotto da ``amplicon16s`` (``ps_final.rds``), mai
 sull'originale.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = ["__version__"]

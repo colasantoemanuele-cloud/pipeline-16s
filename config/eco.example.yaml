@@ -68,7 +68,7 @@ design:
   #     groups:
   #       bagno: ["<valore>", "<valore>"]
   #       cucina: ["<valore>"]
-  #   modulo_da_posizione:
+  #   prefisso_della_posizione:
   #     from: <colonna>
   #     pattern: "^([A-Z]+[0-9]?)"
 

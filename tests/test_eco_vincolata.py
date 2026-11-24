@@ -164,7 +164,9 @@ def test_la_rda_di_hellinger_i_campioni_esclusi_e_gli_avvisi_del_modello(eco_r, 
     conteggi = [[20 + (3 * i + 5 * j) % 11 + (25 if (j % 2 and i < 2) else 0) for j in range(10)]
                 for i in range(5)]
     metadati = {"gruppo": ["a", "b"] * 5, "sito": [f"s{j // 2}" for j in range(10)],
-                "costante": ["k"] * 10, "lotto": ["x"] * 9 + [None]}
+                "costante": ["k"] * 10, "lotto": ["x"] * 9 + [None],
+                # Un valore solo nel campione che esce dal modello: nessun triplot.
+                "esterno": [None] * 9 + ["e"]}
     oggetto = costruisci(tmp_path, conteggi, metadati)
     rda = {"method": "rda", "variables": ["gruppo"], "transform": "hellinger",
            "max_df_fraction": 0.5, "conditions": ["costante"]}
@@ -173,7 +175,7 @@ def test_la_rda_di_hellinger_i_campioni_esclusi_e_gli_avvisi_del_modello(eco_r, 
     assert "E-ECO-45" in avvisi and "'costante'" in avvisi["E-ECO-45"]
     uscita = tmp_path / "rda"
     esito = esegui(oggetto, schema.valida(configurazione(
-        design={"other_variables": ["sito"]},
+        design={"other_variables": ["sito", "esterno"]},
         constrained={**rda, "conditions": ["lotto"], "max_df_fraction": 0.1})), uscita)
     _, campioni = leggi_tsv(uscita / "campioni.tsv")
     assert {r["campione"]: r["vincolata"] for r in campioni}["c10"] == (
@@ -183,6 +185,7 @@ def test_la_rda_di_hellinger_i_campioni_esclusi_e_gli_avvisi_del_modello(eco_r, 
                  "rda_hellinger_01_gruppo.png", "rda_hellinger_02_sito.png"):
         assert (uscita / "vincolata" / nome).is_file(), nome
     assert esito.riepilogo["vincolata"]["campioni"] == 9
+    assert not (uscita / "vincolata" / "rda_hellinger_03_esterno.png").exists()
     commenti, _ = leggi_tsv(uscita / "vincolata" / "varianza.tsv")
     assert any("modello: gruppo" in c for c in commenti)
 

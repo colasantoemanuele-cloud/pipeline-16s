@@ -18,11 +18,12 @@
 #       comp: {rank: [Family], ...}
 
 design:
-  # Il modulo della stazione, ricavato dalla posizione con la proposta di
+  # Il modulo della stazione (la colonna modulo dell'oggetto e' vuota: il
+  # gruppo derivato ha un altro nome), ricavato dalla posizione con la proposta di
   # eco init (lettere iniziali seguite da cifre: NOD1D4 -> NOD1). Le posizioni
   # che non sono superfici di un modulo (aria, airlock, tubi mai aperti) restano
   # senza modulo ed escono dalle analisi di questa variabile.
-  variable: modulo
+  variable: modulo_da_posizione
   # Le posizioni senza modulo, divise per tipo con un elenco di valori: un
   # confronto descrittivo fra i soli 55 campioni che non sono superfici.
   other_variables: [fuori_modulo]
@@ -31,7 +32,7 @@ design:
   technical_variables: []
   subset: {}
   groupings:
-    modulo:
+    modulo_da_posizione:
       from: factor_value_sample_location
       pattern: "^([A-Za-z]+[0-9]+)"
     fuori_modulo:
@@ -54,9 +55,9 @@ comp:
   # Famiglia e genere: una sottocartella per rango.
   rank: [Family, Genus]
   top_n: 10
-  group_by: [modulo, fuori_modulo]
+  group_by: [modulo_da_posizione, fuori_modulo]
   # Una barra per campione, un pannello per modulo.
-  facet_wrap: modulo
+  facet_wrap: modulo_da_posizione
 
 beta:
   distances: [bray, jaccard, aitchison, unifrac_weighted, unifrac_unweighted]
@@ -85,7 +86,7 @@ constrained:
   # db-RDA su Bray-Curtis con il modulo come variabile. Le condizioni
   # previste (corsa e piastra) sono vuote in questo oggetto: nessuna.
   method: dbrda
-  variables: [modulo]
+  variables: [modulo_da_posizione]
   distances: [bray]
   # Il modulo usa 7 gradi di liberta' su 705 campioni; la posizione ne
   # userebbe 101: un decimo dei campioni e' la soglia dell'avviso.

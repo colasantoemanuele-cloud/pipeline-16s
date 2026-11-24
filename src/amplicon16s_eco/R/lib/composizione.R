@@ -139,11 +139,14 @@ scrivi_composizione <- function(agglomerato, disegno, rango, top_n, cartella,
                     1 - colSums(relative[primi, , drop = FALSE]))
   rownames(mostrate) <- c(etichette[primi], ALTRI)
   wrap <- disegno$pannelli_wrap
-  if (!is.null(wrap)) {
+  # Una colonna senza valori fra i campioni analizzati non ha pannelli.
+  if (!is.null(wrap) && length(wrap$dimensioni)) {
     prodotti <- c(prodotti, .pannelli_per_campione(mostrate, wrap, rango, cartella, relativa))
   }
   griglia <- disegno$pannelli_griglia
-  if (!is.null(griglia)) {
+  if (!is.null(griglia) && length(Reduce(intersect, lapply(griglia, function(v) {
+    names(v$valori)[!is.na(v$valori)]
+  })))) {
     prodotti <- c(prodotti, .griglia_per_gruppo(mostrate, griglia, rango, cartella, relativa))
   }
   prodotti

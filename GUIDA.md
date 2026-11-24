@@ -306,9 +306,9 @@ varianti sotto lo 0,1% di ogni campione e aggiungere il t-SNE:
 
 ```yaml
 design:
-  variable: modulo                       # il gruppo derivato qui sotto
+  variable: modulo_da_posizione          # il gruppo derivato qui sotto
   groupings:
-    modulo:
+    modulo_da_posizione:                 # non il nome di una colonna esistente
       from: factor_value_sample_location
       pattern: "^([A-Za-z]+[0-9]+)"      # la proposta di eco init: NOD1D4 -> NOD1
 filter:

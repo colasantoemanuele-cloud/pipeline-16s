@@ -5,7 +5,8 @@
 # run), quando constrained.method e' dichiarato. Scrive, nella cartella
 # vincolata/ delle uscite, varianza.tsv (quote di varianza e R2 corretto),
 # test.tsv (modello e termini), <modello>_coordinate.tsv e un triplot
-# <modello>_NN_<variabile>.png per ogni variabile del disegno.
+# <modello>_NN_<variabile>.png per ogni variabile del disegno con un valore fra
+# i campioni del modello.
 #
 # Richiede uscite.R, campioni.R, alfa.R (fissa_seme), beta.R (clr) e test.R
 # (.rango, .fattori). Interfaccia:
@@ -332,7 +333,10 @@ scrivi_vincolata <- function(piano, ps, matrici, d, parametri, seme, cartella) {
     indice <- 0L
     for (v in d$variabili) {
       indice <- indice + 1L
-      if (!length(v$dimensioni)) next
+      # Una variabile senza valore fra i campioni del modello non colora nulla:
+      # nessun triplot.
+      con_valore <- names(v$valori)[!is.na(v$valori)]
+      if (!length(v$dimensioni) || !length(intersect(con_valore, piano$campioni))) next
       nome <- paste0(m$base, "_", nome_file(indice, v$nome), ".png")
       .triplot(esito, piano, v, sprintf("%s, %s", if (piano$metodo == "rda") "RDA" else "db-RDA",
                                         if (is.null(m$distanza)) piano$trasformazione else
