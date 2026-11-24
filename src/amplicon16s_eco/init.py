@@ -46,7 +46,14 @@ from amplicon16s.metadata.crosswalk import _VALORI_ASSENTI
 from amplicon16s.metadata.tabelle import COLONNE_INVENTARIO
 from amplicon16s.soglie.tabella import LETTURE_FINALI_POCHE
 
-from amplicon16s_eco.config import CONDIZIONALI, FACOLTATIVI, STANDARD_DEL_METODO, ConfigEco
+from amplicon16s_eco.config import (
+    CONDIZIONALI,
+    FACOLTATIVI,
+    STANDARD_DEI_CONDIZIONALI,
+    STANDARD_DEL_METODO,
+    ConfigEco,
+    condizione,
+)
 from amplicon16s_eco.esecuzione import _copia, _impronta_oggetto
 from amplicon16s_eco.ponte import esegui_r
 
@@ -66,6 +73,21 @@ _TECNICHE: Final = COLONNE_INVENTARIO[-2:]
 _NON_VARIABILI: Final = COLONNE_INVENTARIO[:3]
 
 PROPOSTO, SCELTA = Specie.PROPOSTO, Specie.DA_SCEGLIERE
+
+#: Note fisse dei parametri che init non propone (facoltativi e standard): le
+#: alternative e le fonti per sceglierli, scritte sopra la riga in commento.
+NOTE_DEI_PARAMETRI: Final[dict[str, tuple[str, ...]]] = {
+    "filter.min_relative_abundance": (
+        "le varianti rare: un'alternativa o un complemento alla rarefazione. Nullo (il "
+        "predefinito): nessun filtro. La soglia fissa e' una scelta dello studio: "
+        "Bokulich et al. 2013 (Nat Methods 10:57) propongono lo 0,005% delle letture "
+        "totali (filter.scope total), pensato per le OTU; Cao et al. 2021 (Front "
+        "Microbiol 11:607325) e Nikodemova et al. 2023 (Front Cell Infect Microbiol "
+        "13:1165295) misurano l'effetto del filtro: forte su ricchezza e Chao1, piccolo "
+        "su Shannon e Bray-Curtis. Si applica dopo design.subset e prima di ogni "
+        "analisi (RAZIONALE.md, sezione 4.2)",
+    ),
+}
 
 #: Sotto questa quota della mediana delle letture per campione la profondita'
 #: di rarefazione (la minima fra i campioni) e' molto piu' bassa del resto: e'
@@ -395,6 +417,19 @@ def prepara(
               "l'albero dell'oggetto e' gia' radicato; serve solo se beta.distances "
               "comprende una UniFrac, ed e' respinto altrimenti")
 
+    metti("alpha.method", PROPOSTO, "rarefy",
+          "la rarefazione e' il modo di controllare la profondita' che Schloss 2024 "
+          "(mSphere 9:e00354-23) trova piu' affidabile per alfa e beta diversita'",
+          "le due strade: rarefy rarefa i conteggi (alpha.rarefy_depth, "
+          "alpha.rarefy_iterations: con piu' rarefazioni ogni indice e' la media); none "
+          "calcola gli indici sui conteggi non rarefatti, di norma con un filtro delle "
+          "varianti rare (filter.min_relative_abundance), e riporta in "
+          "alfa/profondita.tsv se gli indici dipendono ancora dalle letture. McMurdie e "
+          "Holmes 2014 (PLoS Comput Biol 10:e1003531) giudicano la rarefazione "
+          "inammissibile per l'abbondanza differenziale; Weiss et al. 2017 (Microbiome "
+          "5:27) concludono che dipende dai dati",
+          "con none, se la profondita' e' molto diversa fra i campioni, controlla "
+          "l'avviso E-ECO-39")
     metti("run.seed", SCELTA, SENZA_VALORE,
           "un intero qualunque, da dichiarare: fissa la rarefazione e le permutazioni")
     metti("comp.top_n", SCELTA, SENZA_VALORE,
@@ -431,11 +466,10 @@ def accetta(voci: dict[str, Voce]) -> dict[str, Voce]:
         if voce.valore is SENZA_VALORE:
             pass
         elif chiave in CONDIZIONALI:
-            elenco, metodi = CONDIZIONALI[chiave]
             voce = replace(voce, note=(
                 *voce.note,
-                f"non attivato da --accetta-proposte: va dichiarato solo se {elenco} "
-                f"comprende {' o '.join(metodi)}, ed e' respinto altrimenti"))
+                f"non attivato da --accetta-proposte: va dichiarato solo se "
+                f"{condizione(chiave)}, ed e' respinto altrimenti"))
         elif voce.specie is PROPOSTO:
             voce = replace(voce, accettata=True,
                            origine=voce.origine + "; accettato con --accetta-proposte")
@@ -508,9 +542,11 @@ def testo_yaml(
             righe += commento(campo.description or "")
             voce = voci.get(chiave)
             if chiave in CONDIZIONALI:
-                elenco, metodi = CONDIZIONALI[chiave]
-                righe += commento(f"[CONDIZIONALE] solo se {elenco} comprende "
-                                  + " o ".join(metodi))
+                righe += commento(f"[CONDIZIONALE] solo se {condizione(chiave)}")
+                if chiave in STANDARD_DEI_CONDIZIONALI:
+                    valore, fonte = STANDARD_DEI_CONDIZIONALI[chiave]
+                    righe += commento(f"[STANDARD {valore_yaml(valore)}] {fonte}; "
+                                      "vale se il parametro e' omesso")
             if voce is None and chiave in CONDIZIONALI:
                 # Senza una proposta il condizionale non ha un valore da
                 # mostrare: il nullo dello schema e' la sua assenza, e scritto
@@ -523,6 +559,8 @@ def testo_yaml(
                     righe += commento(f"[STANDARD] {STANDARD_DEL_METODO[chiave][1]}")
                 elif chiave in FACOLTATIVI:
                     righe += commento("[FACOLTATIVO] il predefinito e' l'assenza")
+                for nota in NOTE_DEI_PARAMETRI.get(chiave, ()):
+                    righe += commento(nota)
                 valore = {} if isinstance(predefinito, dict) else (
                     list(predefinito) if isinstance(predefinito, tuple) else predefinito)
                 scritto = "{}" if valore == {} else valore_yaml(valore)

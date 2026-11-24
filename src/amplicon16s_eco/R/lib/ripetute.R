@@ -351,8 +351,8 @@ scrivi_appaiati <- function(alfa, multivariati, piani, parametri, profondita, ca
     if (is.null(alfa)) vuota_alfa else alfa, file.path(cartella, "alfa_appaiata.tsv"),
     intestazione = c(
       "Confronto dell'alfa diversita' entro soggetto, fra i livelli di ogni variabile.",
-      sprintf("indici calcolati sui conteggi rarefatti a %d letture; soli soggetti con un campione rarefatto in ogni livello (test/soggetti.tsv)",
-              profondita),
+      sprintf("indici calcolati sui %s; soli soggetti con un campione %sin ogni livello (test/soggetti.tsv)",
+              testo_alfa(profondita), if (is.na(profondita)) "" else "rarefatto "),
       "due livelli: Wilcoxon dei ranghi con segno; piu' di due: Friedman (confronto 'globale', p dall'approssimazione chi quadrato) e Wilcoxon dei ranghi con segno per ogni coppia di livelli",
       "Wilcoxon esatto con meno di 50 soggetti, senza differenze nulle e senza valori assoluti ripetuti, altrimenti approssimazione normale con correzione di continuita'",
       "p_bh: p corretta con Benjamini-Hochberg sulla famiglia di tutti i test della variabile (ogni indice per ogni confronto)",

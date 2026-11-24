@@ -238,7 +238,7 @@ grafico_continua <- function(indici, piano, profondita, percorso) {
   graphics::mtext(sprintf("Alfa diversità contro %s (%d campioni)", piano$nome,
                           length(a$campioni)),
                   side = 3, outer = TRUE, line = 0.8, cex = 0.9, font = 2)
-  graphics::mtext(sprintf("conteggi rarefatti a %d letture", profondita),
+  graphics::mtext(testo_alfa(profondita),
                   side = 1, outer = TRUE, line = 1, cex = 0.7)
 }
 
@@ -344,8 +344,8 @@ scrivi_continue <- function(alfa, multivariati, parametri, profondita, cartella)
     if (is.null(alfa)) vuota_alfa else alfa, file.path(cartella, "alfa_continua.tsv"),
     intestazione = c(
       "Correlazione dell'alfa diversita' con ogni variabile continua (design.continuous_variables).",
-      sprintf("indici calcolati sui conteggi rarefatti a %d letture; campioni rarefatti con un valore della variabile",
-              profondita),
+      sprintf("indici calcolati sui %s; campioni %scon un valore della variabile",
+              testo_alfa(profondita), if (is.na(profondita)) "" else "rarefatti "),
       "correlazione per ranghi di Spearman, a due code; rho: coefficiente di correlazione",
       sprintf("senza valori ripetuti nell'indice e nella variabile il p e' esatto fino a %d campioni e dalla serie di Edgeworth oltre (algoritmo AS 89 di stats::cor.test), mai sotto il minimo esatto 2/n!; con valori ripetuti approssimazione t",
               CAMPIONI_ENUMERATI_SPEARMAN),

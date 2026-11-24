@@ -683,7 +683,7 @@ ESEMPI = sorted((RADICE / "dati").glob("*/eco_*.yaml"))
 
 #: Parametri il cui valore e' una voce di un vocabolario chiuso dello schema.
 _VOCABOLARI = ("beta.distances", "beta.unifrac_root", "ord.methods", "ord.distances",
-               "ord.pcoa_correction")
+               "ord.pcoa_correction", "alpha.method", "filter.scope")
 
 
 def _stringhe_dei_dataset() -> set[str]:
@@ -732,9 +732,14 @@ def test_gli_esempi_dei_dataset_sono_configurazioni_valide():
             f"{g}.{n}" for g, modello in schema.ConfigEco.model_fields.items()
             for n in modello.annotation.model_fields
         }
+        risolta = schema.risolta(config)
+        # Un condizionale con un predefinito si dichiara quando il suo metodo
+        # e' richiesto, come ogni parametro con un predefinito.
         usati = {c for c in campi
                  if c not in (*schema.CONDIZIONALI, *schema.ASSENTI_SE_NON_DICHIARATI)
-                 or getattr(getattr(config, c.split(".")[0]), c.split(".")[1])}
+                 or getattr(getattr(config, c.split(".")[0]), c.split(".")[1])
+                 or (c in schema.STANDARD_DEI_CONDIZIONALI
+                     and c.split(".")[1] in risolta.get(c.split(".")[0], {}))}
         assert dichiarati == usati, esempio.name
 
 
@@ -963,6 +968,8 @@ def test_eco_init_rileva_propone_e_lascia_da_scegliere(eco_r, tmp_path, capsys):
     assert righe["design.technical_variables"] == (False, '["corsa", "piastra"]')
     assert QUOTA_MINIMA_ASSEGNATA == 0.5 and righe["comp.rank"] == (False, '"Famiglia"')
     assert righe["beta.unifrac_root"] == (False, '"existing"')
+    assert righe["alpha.method"] == (False, '"rarefy"') and "Schloss 2024" in testo
+    assert "Bokulich et al. 2013" in testo
     for chiave in ("run.seed", "beta.distances", "ord.methods", "ord.distances",
                    "stat.min_group_size", "stat.significance_level", "comp.top_n"):
         assert righe[chiave] == (False, ""), chiave
@@ -980,7 +987,7 @@ def test_eco_init_rileva_propone_e_lascia_da_scegliere(eco_r, tmp_path, capsys):
         {"run.seed": 3, "comp.top_n": 3, "beta.distances": ["bray", "unifrac_weighted"],
          "ord.methods": ["pcoa"], "ord.distances": ["bray"], "stat.min_group_size": 2,
          "stat.significance_level": 0.05, "design.variable": "trattamento"},
-        accetta={"design.technical_variables", "comp.rank",
+        accetta={"design.technical_variables", "comp.rank", "alpha.method",
                  "beta.unifrac_root", "ord.pcoa_correction"},
         modello=schema.ConfigEco), encoding="utf-8")
     config = schema.carica(completo)
@@ -1043,7 +1050,8 @@ def test_eco_init_accetta_proposte_attiva_proposte_e_partenze_non_i_condizionali
     testo = init.testo_yaml(init.accetta(voci), fatti, "ps.rds", True)
     righe = righe_dei_parametri(testo, schema.ConfigEco)
     attive = {c for c, (attiva, _) in righe.items() if attiva}
-    assert attive == {"design.variable", "design.technical_variables", "comp.rank"}
+    assert attive == {"design.variable", "design.technical_variables", "comp.rank",
+                      "alpha.method"}
     assert righe["design.variable"] == (True, '"trattamento"')
     assert righe["comp.rank"] == (True, '"Famiglia"')
     for chiave, valore in (("beta.unifrac_root", '"existing"'), ("ord.pcoa_correction", '"none"'),

@@ -11,8 +11,10 @@
 #   conteggi_di(ps)                  matrice varianti x campioni
 #   tabella_campioni(ps)             data.frame di testo, una riga per campione
 #   e_mancante(x, marcatori)         valori mancanti di una colonna
+#   filtra_abbondanza(conteggi, soglia, ambito)   il filtro delle varianti rare
 #   esamina(ps, parametri)           errori, avvisi e disegno dell'analisi
 #   tabella_dei_campioni(disegno)    la tabella campioni.tsv
+#   scrivi_filtro(d, cartella)       la tabella delle varianti filtrate
 #
 # Razionale biologico: le quantita' per campione (indici, abbondanze relative,
 # distanze) non dipendono da una variabile e si calcolano su tutti i campioni
@@ -136,14 +138,48 @@ gruppi_di <- function(valori, minimo) {
   )
 }
 
+# Il filtro delle varianti rare per abbondanza relativa (filter.*), sui
+# conteggi dei campioni analizzati (varianti x campioni). soglia e' in
+# percentuale; ambito dice su che cosa si misura: in ogni campione (sample: si
+# azzerano nel campione le varianti sotto la soglia delle sue letture), sul
+# totale (total: si tolgono da tutti i campioni le varianti la cui somma e'
+# sotto la soglia delle letture totali, Bokulich et al. 2013) o sulla media
+# (mean: si tolgono le varianti la cui abbondanza relativa media fra i campioni
+# e' sotto la soglia). Il confronto e' fra interi e prodotti esatti
+# (conteggio * 100 < soglia * letture), non fra quozienti arrotondati: una
+# variante esattamente alla soglia resta. Restituisce list(conteggi, tolte,
+# campioni_toccati, tolte_per_campione): la matrice filtrata con le stesse
+# righe e colonne, le letture tolte per variante, in quanti campioni ciascuna e'
+# stata tolta e le letture tolte per campione.
+filtra_abbondanza <- function(conteggi, soglia, ambito) {
+  letture <- colSums(conteggi)
+  togli <- switch(
+    ambito,
+    sample = conteggi * 100 < soglia * rep(letture, each = nrow(conteggi)),
+    total = matrix(rowSums(conteggi) * 100 < soglia * sum(letture),
+                   nrow(conteggi), ncol(conteggi)),
+    mean = matrix(rowMeans(sweep(conteggi, 2L, letture, "/")) * 100 < soglia,
+                  nrow(conteggi), ncol(conteggi)),
+    stop("ambito del filtro non realizzato: ", ambito)
+  )
+  togli <- togli & conteggi > 0
+  tolti <- conteggi * togli
+  filtrati <- conteggi - tolti
+  dimnames(filtrati) <- dimnames(conteggi)
+  list(conteggi = filtrati, tolte = rowSums(tolti), campioni_toccati = rowSums(togli),
+       tolte_per_campione = colSums(tolti))
+}
+
 # L'esame dell'oggetto rispetto alla configurazione, prima di ogni calcolo.
 # Restituisce list(errori, avvisi, disegno): il disegno e' nullo se c'e' un
 # errore che rende impossibile proseguire, altrimenti porta cio' che ogni
 # analisi usa (campioni analizzati, letture, profondita' di rarefazione con la
 # sua origine, variabili con valori e gruppi, variabili tecniche, continue,
-# soggetto). Passi, nell'ordine: colonne dichiarate, rango e albero (gli errori
-# di questo passo si raccolgono tutti, poi ci si ferma); sottoinsieme e
-# campioni senza letture; profondita' di rarefazione; valori mancanti e gruppi
+# soggetto; con il filtro, l'oggetto filtrato e cio' che il filtro ha tolto).
+# Passi, nell'ordine: colonne dichiarate, rango e albero (gli errori di questo
+# passo si raccolgono tutti, poi ci si ferma); sottoinsieme e campioni senza
+# letture; filtro di abbondanza e campioni che svuota; singleton per Chao1;
+# profondita' di rarefazione (solo con alpha.method rarefy); valori mancanti e gruppi
 # di ogni variabile; variabili continue, che devono essere numeri decimali;
 # soggetto del disegno a misure ripetute. Non calcola alcuna analisi: serve
 # tale e quale alla validazione e all'esecuzione, che cosi' giudicano allo
@@ -158,6 +194,9 @@ esamina <- function(ps, parametri) {
     avvisi[[length(avvisi) + 1L]] <<- .avviso(codice, dettaglio)
   }
   design <- parametri$design
+  metodo_alfa <- parametri$alpha$method
+  # Il gruppo del filtro c'e' solo se il filtro e' dichiarato.
+  del_filtro <- facoltativo(parametri, "filter", list())
   marcatori <- unlist(parametri$valori_mancanti)
   biologiche <- c(design$variable, unlist(design$other_variables))
   tecniche <- as.character(unlist(design$technical_variables))
@@ -233,16 +272,64 @@ esamina <- function(ps, parametri) {
   }
   if (length(errori)) return(list(errori = errori, avvisi = avvisi, disegno = NULL))
 
+  # --- Filtro delle varianti rare, prima di ogni analisi. --------------------
+  # Senza filtro l'oggetto resta quello letto, e ogni analisi lo usa come
+  # sempre: ps_analisi e' nullo.
+  ps_analisi <- NULL
+  filtro <- NULL
+  svuotati <- character()
+  letture_analisi <- letture
+  soglia <- del_filtro$min_relative_abundance
+  if (!is.null(soglia)) {
+    ambito <- del_filtro$scope
+    f <- filtra_abbondanza(conteggi[, campioni, drop = FALSE], soglia, ambito)
+    svuotati <- campioni[colSums(f$conteggi) == 0]
+    if (length(svuotati)) {
+      avviso("E-ECO-37", sprintf(
+        "Filtro allo %s%% (%s): %d campioni senza letture dopo il filtro (%s).",
+        format(soglia), ambito, length(svuotati), .elenco(svuotati)))
+    }
+    rimasti <- setdiff(campioni, svuotati)
+    if (length(rimasti) < 2L) {
+      errore("E-ECO-38", sprintf(
+        "Con filter.min_relative_abundance %s (scope %s) restano %d campioni con letture su %d.",
+        format(soglia), ambito, length(rimasti), length(campioni)))
+      return(list(errori = errori, avvisi = avvisi, disegno = NULL))
+    }
+    # L'oggetto delle analisi: i soli campioni rimasti, i conteggi filtrati, le
+    # sole varianti con almeno una lettura (l'albero si pota con loro).
+    filtrati <- f$conteggi[, rimasti, drop = FALSE]
+    presenti <- rownames(filtrati)[rowSums(filtrati) > 0]
+    ps_analisi <- phyloseq::prune_samples(rimasti, ps)
+    phyloseq::otu_table(ps_analisi) <- phyloseq::otu_table(
+      filtrati, taxa_are_rows = TRUE)
+    ps_analisi <- phyloseq::prune_taxa(presenti, ps_analisi)
+    filtro <- list(soglia = soglia, ambito = ambito, campioni = campioni,
+                   prima = rowSums(conteggi[, campioni, drop = FALSE]),
+                   tolte = f$tolte, campioni_toccati = f$campioni_toccati,
+                   tolte_per_campione = f$tolte_per_campione,
+                   varianti_prima = sum(rowSums(conteggi[, campioni, drop = FALSE]) > 0),
+                   varianti_dopo = length(presenti))
+    campioni <- rimasti
+    conteggi <- conteggi_di(ps_analisi)
+    letture_analisi <- colSums(conteggi)
+  }
+
   # --- Profondita' di rarefazione. -------------------------------------------
   dichiarata <- parametri$alpha$rarefy_depth
-  if (is.null(dichiarata)) {
-    profondita <- as.integer(min(letture[campioni]))
+  if (identical(metodo_alfa, "none")) {
+    # Nessuna rarefazione: l'alfa diversita' usa tutti i campioni analizzati.
+    profondita <- NA_integer_
+    origine <- "nessuna rarefazione (alpha.method none)"
+    sotto <- character()
+  } else if (is.null(dichiarata)) {
+    profondita <- as.integer(min(letture_analisi[campioni]))
     origine <- "minima fra i campioni analizzati"
     sotto <- character()
   } else {
     profondita <- as.integer(dichiarata)
     origine <- "dichiarata (alpha.rarefy_depth)"
-    sotto <- campioni[letture[campioni] < profondita]
+    sotto <- campioni[letture_analisi[campioni] < profondita]
     if (length(sotto)) {
       avviso("E-ECO-14", sprintf(
         "Campioni sotto la profondita' %d: %d (%s).", profondita, length(sotto),
@@ -252,7 +339,7 @@ esamina <- function(ps, parametri) {
       errore("E-ECO-10", sprintf(
         "Con alpha.rarefy_depth %d restano %d campioni su %d; la profondita' massima e' %d.",
         profondita, length(campioni) - length(sotto), length(campioni),
-        as.integer(max(letture[campioni]))))
+        as.integer(max(letture_analisi[campioni]))))
     }
   }
 
@@ -354,8 +441,15 @@ esamina <- function(ps, parametri) {
       nell_oggetto = rownames(tabella),
       fuori_sottoinsieme = fuori_sottoinsieme,
       senza_letture = senza_letture,
+      svuotati = svuotati,
       campioni = campioni,
       letture = letture,
+      letture_analisi = letture_analisi,
+      ps = ps_analisi,
+      filtro = filtro,
+      metodo_alfa = if (is.null(metodo_alfa)) "rarefy" else metodo_alfa,
+      ripetizioni = if (is.null(parametri$alpha$rarefy_iterations)) 1L else
+        as.integer(parametri$alpha$rarefy_iterations),
       profondita = profondita,
       origine_profondita = origine,
       sotto_profondita = sotto,
@@ -401,6 +495,7 @@ tabella_dei_campioni <- function(d, piani = list()) {
   names(generale) <- tutti
   generale[d$fuori_sottoinsieme] <- "escluso: fuori dal sottoinsieme"
   generale[d$senza_letture] <- "escluso: senza letture"
+  generale[d$svuotati] <- "escluso: senza letture dopo il filtro di abbondanza"
   alfa <- generale
   alfa[d$sotto_profondita] <- "escluso: sotto la profondita' di rarefazione"
   tabella <- data.frame(
@@ -410,6 +505,14 @@ tabella_dei_campioni <- function(d, piani = list()) {
     stato_alfa = alfa,
     stringsAsFactors = FALSE, check.names = FALSE
   )
+  # Con il filtro, le letture che ha tolto a ogni campione analizzato.
+  if (!is.null(d$filtro)) {
+    tolte <- rep(NA_integer_, length(tutti))
+    names(tolte) <- tutti
+    tolte[d$filtro$campioni] <- as.integer(d$filtro$tolte_per_campione[d$filtro$campioni])
+    tabella <- cbind(tabella[, 1:2], letture_tolte_dal_filtro = tolte,
+                     tabella[, -(1:2)], stringsAsFactors = FALSE)
+  }
   for (v in d$variabili) {
     valori <- rep(NA_character_, length(tutti))
     names(valori) <- tutti
@@ -455,6 +558,42 @@ tabella_dei_campioni <- function(d, piani = list()) {
   tabella
 }
 
+# Scrive nella cartella del filtro la tabella delle varianti a cui il filtro di
+# abbondanza ha tolto letture: le letture prima e quelle tolte, in quanti
+# campioni, e se la variante e' uscita da tutti. Restituisce il nome del file,
+# relativo alla cartella di uscita.
+scrivi_filtro <- function(d, cartella) {
+  dir.create(cartella, showWarnings = FALSE)
+  f <- d$filtro
+  toccate <- names(f$tolte)[f$tolte > 0]
+  toccate <- toccate[ordine_radix(toccate)]
+  scrivi_tsv(
+    data.frame(
+      variante = toccate,
+      letture_prima = as.integer(f$prima[toccate]),
+      letture_tolte = as.integer(f$tolte[toccate]),
+      campioni_con_letture_tolte = as.integer(f$campioni_toccati[toccate]),
+      tolta_da_tutti_i_campioni = ifelse(f$tolte[toccate] == f$prima[toccate], "si", "no"),
+      stringsAsFactors = FALSE),
+    file.path(cartella, "varianti_filtrate.tsv"),
+    intestazione = c(
+      sprintf("Varianti a cui il filtro di abbondanza relativa ha tolto letture: soglia %s%% (filter.min_relative_abundance), ambito %s (filter.scope).",
+              format(f$soglia), f$ambito),
+      switch(f$ambito,
+             sample = "sample: in ogni campione si azzerano le varianti con conteggio * 100 < soglia * letture del campione",
+             total = "total: si tolgono da tutti i campioni le varianti con letture totali * 100 < soglia * letture totali dei campioni analizzati (Bokulich et al. 2013)",
+             mean = "mean: si tolgono le varianti la cui abbondanza relativa media fra i campioni, in percentuale, e' sotto la soglia"),
+      sprintf("campioni su cui si misura: %d (dopo design.subset, con letture); varianti con letture prima del filtro: %d, dopo: %d",
+              length(f$campioni), f$varianti_prima, f$varianti_dopo),
+      sprintf("letture tolte: %d su %d (%s%%); le letture tolte per campione sono in campioni.tsv (letture_tolte_dal_filtro)",
+              as.integer(sum(f$tolte)), as.integer(sum(f$prima)),
+              formatC(100 * sum(f$tolte) / sum(f$prima), format = "f", digits = 4)),
+      "letture_prima: letture della variante nei campioni analizzati prima del filtro; tolta_da_tutti_i_campioni: si se il filtro le ha tolto ogni lettura",
+      sprintf("campioni rimasti senza letture, esclusi da tutte le analisi (avviso E-ECO-37): %d", length(d$svuotati))
+    ))
+  "filtro/varianti_filtrate.tsv"
+}
+
 # Il disegno in forma di riepilogo: numeri e nomi, senza i vettori per campione.
 riepilogo_del_disegno <- function(d) {
   riepilogo <- list(
@@ -483,8 +622,23 @@ riepilogo_del_disegno <- function(d) {
     ))),
     variabili_tecniche = I(d$tecniche)
   )
-  # Le voci delle variabili continue e del soggetto ci sono solo se dichiarate:
-  # senza, il riepilogo e' quello di sempre.
+  # Le voci del filtro, del metodo dell'alfa diversita', delle variabili
+  # continue e del soggetto ci sono solo se dichiarate: senza, il riepilogo e'
+  # quello di sempre.
+  if (!is.null(d$filtro)) {
+    riepilogo$campioni$esclusi$svuotati_dal_filtro <- length(d$svuotati)
+    riepilogo$filtro <- list(
+      soglia_percentuale = d$filtro$soglia, ambito = d$filtro$ambito,
+      varianti_prima = d$filtro$varianti_prima, varianti_dopo = d$filtro$varianti_dopo,
+      varianti_toccate = sum(d$filtro$tolte > 0),
+      letture_tolte = sum(d$filtro$tolte),
+      letture_prima = sum(d$filtro$prima))
+  }
+  if (identical(d$metodo_alfa, "none")) {
+    riepilogo$alfa <- list(metodo = "none", campioni = length(d$campioni))
+  } else if (d$ripetizioni > 1L) {
+    riepilogo$alfa$rarefazioni <- d$ripetizioni
+  }
   if (length(d$continue)) {
     riepilogo$variabili_continue <- unname(lapply(d$continue, function(v) list(
       nome = v$nome,

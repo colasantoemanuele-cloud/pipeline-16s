@@ -1,8 +1,8 @@
 """Configurazione delle analisi ecologiche: schema, caricamento e digest.
 
 Il file e' proprio del pacchetto, distinto da quello della pipeline, e ha
-gruppi ``design``, ``run``, ``alpha``, ``comp``, ``beta``, ``ord`` e ``stat``. Le regole
-sono quelle della pipeline:
+gruppi ``design``, ``run``, ``filter``, ``alpha``, ``comp``, ``beta``, ``ord`` e
+``stat``. Le regole sono quelle della pipeline:
 
 * cio' che dipende dallo studio e' **obbligatorio** e non ha un valore
   predefinito (:data:`OBBLIGATORI`), a cominciare dalla variabile biologica;
@@ -11,7 +11,9 @@ sono quelle della pipeline:
 * i parametri facoltativi hanno per predefinito l'assenza (:data:`FACOLTATIVI`);
 * un parametro che serve a un solo metodo e' obbligatorio quando quel metodo e'
   richiesto e respinto quando non lo e' (:data:`CONDIZIONALI`): un valore
-  dichiarato e mai usato entrerebbe nel digest senza effetto;
+  dichiarato e mai usato entrerebbe nel digest senza effetto. Un condizionale
+  puo' avere un predefinito, quello del pacchetto R del metodo
+  (:data:`STANDARD_DEI_CONDIZIONALI`): vale solo quando il metodo e' richiesto;
 * le chiavi sconosciute sono respinte.
 
 La validazione qui riguarda il solo file. Cio' che dipende dall'oggetto
@@ -38,7 +40,9 @@ from amplicon16s_eco.catalogo import ErroreEco
 
 __all__ = [
     "ASSENTI_SE_NON_DICHIARATI",
+    "AMBITI_DEL_FILTRO",
     "CONDIZIONALI",
+    "CONDIZIONALI_ANCHE",
     "CORREZIONI_PCOA",
     "DISTANZE",
     "FACOLTATIVI",
@@ -46,8 +50,11 @@ __all__ = [
     "OBBLIGATORI",
     "RADICI_UNIFRAC",
     "STANDARD_DEL_METODO",
+    "STANDARD_DEI_CONDIZIONALI",
     "ConfigEco",
+    "attivo",
     "carica",
+    "condizione",
     "digest",
     "risolta",
     "valida",
@@ -70,10 +77,20 @@ Ordinazione = Literal["pcoa", "nmds"]
 #: Le correzioni degli autovalori negativi della PCoA (ape::pcoa).
 CORREZIONI_PCOA: Final = ("none", "cailliez", "lingoes")
 
+#: Come si misura la soglia del filtro di abbondanza relativa: in ogni campione,
+#: sul totale delle letture dei campioni analizzati, o sulla media delle
+#: abbondanze relative fra i campioni.
+AMBITI_DEL_FILTRO: Final = ("sample", "total", "mean")
+
+#: Come si calcola l'alfa diversita': sui conteggi rarefatti o su quelli non
+#: rarefatti (dopo l'eventuale filtro).
+METODI_ALFA: Final = ("rarefy", "none")
+
 #: Parametri senza predefinito: dipendono dallo studio o sono scelte di analisi.
 OBBLIGATORI: Final[tuple[str, ...]] = (
     "design.variable",
     "run.seed",
+    "alpha.method",
     "comp.rank",
     "comp.top_n",
     "beta.distances",
@@ -84,22 +101,41 @@ OBBLIGATORI: Final[tuple[str, ...]] = (
 )
 
 #: Parametri obbligatori quando uno dei metodi indicati e' richiesto, respinti
-#: altrimenti: chiave -> (parametro che elenca i metodi, metodi).
-CONDIZIONALI: Final[dict[str, tuple[str, tuple[str, ...]]]] = {
+#: altrimenti: chiave -> (parametro che indica i metodi, metodi). Il parametro
+#: dei metodi e' un elenco o un solo valore; metodi ``None`` vuol dire «quando
+#: il parametro e' dichiarato» (non nullo).
+CONDIZIONALI: Final[dict[str, tuple[str, tuple[str, ...] | None]]] = {
+    "alpha.rarefy_depth": ("alpha.method", ("rarefy",)),
+    "alpha.rarefy_iterations": ("alpha.method", ("rarefy",)),
+    "filter.scope": ("filter.min_relative_abundance", None),
     "beta.clr_pseudocount": ("beta.distances", ("aitchison",)),
     "beta.unifrac_root": ("beta.distances", ("unifrac_weighted", "unifrac_unweighted")),
     "ord.pcoa_correction": ("ord.methods", ("pcoa",)),
     "ord.nmds_trymax": ("ord.methods", ("nmds",)),
 }
 
-#: Predefiniti che sono il valore del pacchetto R che realizza il metodo:
+#: Altri parametri che rendono obbligatorio un condizionale: chiave ->
+#: condizioni (parametro, metodi) nella forma di :data:`CONDIZIONALI`. Il
+#: condizionale e' richiesto se almeno una condizione e' vera, respinto se
+#: nessuna lo e'.
+CONDIZIONALI_ANCHE: Final[dict[str, tuple[tuple[str, tuple[str, ...] | None], ...]]] = {}
+
+#: Condizionali con un predefinito, il valore del pacchetto R del metodo: vale
+#: quando il metodo e' richiesto, e il parametro puo' allora essere omesso.
 #: chiave -> (valore, fonte).
-STANDARD_DEL_METODO: Final[dict[str, tuple[Any, str]]] = {
+STANDARD_DEI_CONDIZIONALI: Final[dict[str, tuple[Any, str]]] = {
     "alpha.rarefy_depth": (
         None,
         "phyloseq::rarefy_even_depth, sample.size = min(sample_sums(physeq)): "
         "nullo significa la minima profondita' fra i campioni analizzati",
     ),
+    "alpha.rarefy_iterations": (
+        1, "phyloseq::rarefy_even_depth: una sola rarefazione per campione"),
+}
+
+#: Predefiniti che sono il valore del pacchetto R che realizza il metodo:
+#: chiave -> (valore, fonte).
+STANDARD_DEL_METODO: Final[dict[str, tuple[Any, str]]] = {
     "stat.permanova_permutations": (999, "vegan::adonis2, permutations = 999"),
 }
 
@@ -110,6 +146,7 @@ FACOLTATIVI: Final[tuple[str, ...]] = (
     "design.subset",
     "design.continuous_variables",
     "design.subject",
+    "filter.min_relative_abundance",
     "stat.permanova_strata",
 )
 
@@ -121,7 +158,13 @@ FACOLTATIVI: Final[tuple[str, ...]] = (
 ASSENTI_SE_NON_DICHIARATI: Final[tuple[str, ...]] = (
     "design.continuous_variables",
     "design.subject",
+    "filter.min_relative_abundance",
+    "filter.scope",
 )
+
+#: I gruppi che, senza alcun parametro dichiarato, non compaiono nella
+#: configurazione risolta.
+_GRUPPI_FACOLTATIVI: Final = ("filter",)
 
 _Nome = Annotated[str, Field(min_length=1, strict=True)]
 
@@ -222,14 +265,42 @@ class Run(_Gruppo):
         "Seme della rarefazione e di ogni altra operazione casuale."))
 
 
+class Filter(_Gruppo):
+    """Filtro delle varianti rare per abbondanza relativa."""
+
+    #: Soglia in percentuale; nullo: nessun filtro.
+    min_relative_abundance: Annotated[
+        float, Field(gt=0, lt=100, strict=True, allow_inf_nan=False)] | None = Field(
+        None, description=(
+            "Soglia di abbondanza relativa, in percentuale (0.1 = 0,1%). Nullo: nessun "
+            "filtro. Si applica dopo design.subset e prima di ogni analisi."))
+    #: Su che cosa si misura la soglia.
+    scope: Literal["sample", "total", "mean"] | None = Field(None, description=(
+        "Su che cosa si misura la soglia: sample azzera in ogni campione le varianti "
+        "sotto la soglia delle sue letture; total toglie le varianti la cui somma e' "
+        "sotto la soglia delle letture totali (Bokulich 2013); mean toglie le varianti "
+        "la cui abbondanza relativa media fra i campioni e' sotto la soglia. "
+        "Obbligatorio con min_relative_abundance, respinto altrimenti."))
+
+
 class Alpha(_Gruppo):
     """Alfa diversita'."""
 
+    #: Rarefazione o conteggi non rarefatti: senza predefinito.
+    method: Literal["rarefy", "none"] = Field(description=(
+        "rarefy: alfa diversita' su conteggi rarefatti; none: sui conteggi non "
+        "rarefatti, dopo l'eventuale filtro, con la correlazione fra letture e indici "
+        "in alfa/profondita.tsv."))
     #: Profondita' di rarefazione. Nullo: la minima fra i campioni analizzati
     #: (phyloseq::rarefy_even_depth, sample.size = min(sample_sums(physeq))).
     rarefy_depth: _Positivo | None = Field(None, description=(
         "Profondita' di rarefazione. Nullo: la minima fra i campioni analizzati. Se "
-        "dichiarata, i campioni con meno letture escono dall'alfa diversita'."))
+        "dichiarata, i campioni con meno letture escono dall'alfa diversita'. Solo con "
+        "alpha.method rarefy."))
+    #: Rarefazioni ripetute: con piu' di una, ogni indice e' la media.
+    rarefy_iterations: _Positivo | None = Field(None, description=(
+        "Numero di rarefazioni (predefinito 1): con piu' di una, ogni indice e' la media "
+        "sulle ripetizioni (rarefazione ripetuta). Solo con alpha.method rarefy."))
 
 
 class Comp(_Gruppo):
@@ -324,7 +395,8 @@ class ConfigEco(_Gruppo):
 
     design: Design
     run: Run
-    alpha: Alpha = Field(default_factory=Alpha)
+    filter: Filter = Field(default_factory=Filter)
+    alpha: Alpha
     comp: Comp
     beta: Beta
     ord: Ord
@@ -349,8 +421,8 @@ class ConfigEco(_Gruppo):
 #: Parametri il cui valore e' il nome di un metodo: un valore non ammesso e' un
 #: metodo non supportato (E-ECO-03), non un errore generico.
 _PARAMETRI_DI_METODO: Final = (
-    "beta.distances", "beta.unifrac_root", "ord.methods", "ord.distances",
-    "ord.pcoa_correction",
+    "alpha.method", "filter.scope", "beta.distances", "beta.unifrac_root", "ord.methods",
+    "ord.distances", "ord.pcoa_correction",
 )
 
 _MESSAGGI: Final[dict[str, str]] = {
@@ -399,38 +471,85 @@ def _rifiuto(problema: dict[str, Any]) -> tuple[str, str]:
     return "E-ECO-01", f"{dove}{testo}."
 
 
+def condizioni(chiave: str) -> tuple[tuple[str, tuple[str, ...] | None], ...]:
+    """Le condizioni che rendono richiesto il condizionale ``chiave``."""
+    return (CONDIZIONALI[chiave], *CONDIZIONALI_ANCHE.get(chiave, ()))
+
+
+def condizione(chiave: str) -> str:
+    """Quando il condizionale ``chiave`` e' richiesto, in parole: per i commenti
+    di ``eco init`` e per i messaggi."""
+    parti = []
+    for parametro, metodi in condizioni(chiave):
+        if metodi is None:
+            parti.append(f"{parametro} e' dichiarato")
+        else:
+            parti.append(f"{parametro} comprende {' o '.join(metodi)}")
+    return " oppure ".join(parti)
+
+
+def _richiesti(parametro_metodi: tuple[str, tuple[str, ...] | None], dichiarati: Any) -> list[str] | None:
+    """I metodi della condizione presenti fra quelli dichiarati; ``None`` se la
+    dichiarazione non si puo' giudicare (assente o di un tipo che lo schema
+    respinge)."""
+    _, metodi = parametro_metodi
+    if metodi is None:
+        if dichiarati is None or dichiarati == [] or dichiarati == ():
+            return []
+        return ["(dichiarato)"]
+    if isinstance(dichiarati, str):
+        dichiarati = [dichiarati]
+    if dichiarati is None:
+        return []
+    if not isinstance(dichiarati, (list, tuple)):
+        return None
+    return [m for m in metodi if m in dichiarati]
+
+
+def attivo(chiave: str, valore_di: Callable[[str], Any]) -> bool:
+    """Vero se almeno una condizione del condizionale ``chiave`` e' vera."""
+    return any(_richiesti(c, valore_di(c[0])) for c in condizioni(chiave))
+
+
+def _dichiarato(valore: Any) -> bool:
+    """Un valore conta come dichiarato se non e' nullo ne' un elenco vuoto."""
+    return valore is not None and valore != [] and valore != ()
+
+
 def _condizionali(
     valore_di: Callable[[str], Any], esclusi: frozenset[str] = frozenset()
 ) -> list[tuple[str, str]]:
     """I rifiuti dei parametri condizionali: mancanti con il metodo richiesto,
     oppure dichiarati senza il metodo che li usa.
 
-    ``valore_di`` da' il valore di un parametro ``gruppo.nome``. Un elenco di
-    metodi non dichiarato, o non leggibile come elenco, non richiede nulla: il
-    suo rifiuto viene dallo schema. Un condizionale non si giudica se lui o il
-    suo elenco di metodi sono fra gli ``esclusi``.
+    ``valore_di`` da' il valore di un parametro ``gruppo.nome``. Un parametro
+    dei metodi non dichiarato, o non leggibile, non richiede nulla: il suo
+    rifiuto viene dallo schema. Un condizionale non si giudica se lui o uno dei
+    parametri delle sue condizioni sono fra gli ``esclusi``. Un condizionale
+    con un predefinito (:data:`STANDARD_DEI_CONDIZIONALI`) non e' mai mancante.
     """
     rifiuti: list[tuple[str, str]] = []
-    for chiave, (elenco, metodi) in CONDIZIONALI.items():
-        if chiave in esclusi or elenco in esclusi:
+    for chiave in CONDIZIONALI:
+        if chiave in esclusi or any(c[0] in esclusi for c in condizioni(chiave)):
             continue
         valore = valore_di(chiave)
-        dichiarati = valore_di(elenco)
-        if not isinstance(dichiarati, (list, tuple)):
+        giudizi = [(c, _richiesti(c, valore_di(c[0]))) for c in condizioni(chiave)]
+        if any(r is None for _, r in giudizi):
             continue
-        richiesti = [m for m in metodi if m in dichiarati]
-        if richiesti and valore is None:
+        veri = [(c, r) for c, r in giudizi if r]
+        if veri and not _dichiarato(valore) and chiave not in STANDARD_DEI_CONDIZIONALI:
+            (parametro, metodi), richiesti = veri[0]
+            motivo = (f"{parametro} e' dichiarato" if metodi is None
+                      else f"{parametro} comprende {richiesti[0]}")
             rifiuti.append((
                 "E-ECO-02",
-                f"Parametro mancante: {chiave}, obbligatorio perche' {elenco} "
-                f"comprende {richiesti[0]}.",
+                f"Parametro mancante: {chiave}, obbligatorio perche' {motivo}.",
             ))
-        if not richiesti and valore is not None:
-            alternative = " o ".join(metodi)
+        if not veri and _dichiarato(valore):
             rifiuti.append((
                 "E-ECO-01",
-                f"{chiave}: dichiarato, ma {elenco} non comprende {alternative}; "
-                f"toglilo, oppure richiedi {alternative}.",
+                f"{chiave}: dichiarato, ma non serve: e' ammesso solo se "
+                f"{condizione(chiave)}; toglilo, oppure richiedi il metodo che lo usa.",
             ))
     return rifiuti
 
@@ -519,13 +638,31 @@ def carica(percorso: Path | str) -> ConfigEco:
 def risolta(config: ConfigEco) -> dict[str, Any]:
     """La configurazione risolta: ogni parametro con il valore che vale,
     predefiniti compresi, in tipi JSON. I facoltativi di
-    :data:`ASSENTI_SE_NON_DICHIARATI` vi compaiono solo se dichiarati.
+    :data:`ASSENTI_SE_NON_DICHIARATI` vi compaiono solo se dichiarati; un
+    condizionale con un predefinito vi compare, con il predefinito, solo se il
+    metodo che lo usa e' richiesto; un gruppo facoltativo senza parametri non vi
+    compare.
     """
-    dati = config.model_dump(mode="json")
+    dati = config.model_dump(mode="json", by_alias=True)
+
+    def valore_di(chiave: str) -> Any:
+        """Il valore della chiave ``gruppo.parametro`` nella configurazione."""
+        gruppo, nome = chiave.split(".")
+        return dati.get(gruppo, {}).get(nome)
+
+    for chiave, (predefinito, _) in STANDARD_DEI_CONDIZIONALI.items():
+        gruppo, nome = chiave.split(".")
+        if not attivo(chiave, valore_di):
+            del dati[gruppo][nome]
+        elif dati[gruppo][nome] is None:
+            dati[gruppo][nome] = predefinito
     for chiave in ASSENTI_SE_NON_DICHIARATI:
         gruppo, nome = chiave.split(".")
-        if not dati[gruppo][nome]:
+        if nome in dati[gruppo] and not _dichiarato(dati[gruppo][nome]):
             del dati[gruppo][nome]
+    for gruppo in _GRUPPI_FACOLTATIVI:
+        if not dati[gruppo]:
+            del dati[gruppo]
     return dati
 
 

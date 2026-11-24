@@ -9,9 +9,15 @@
 #   1. esame dell'oggetto e piani dei test (lib/campioni.R, lib/test.R,
 #      lib/continua.R, lib/ripetute.R): nessun calcolo; un rifiuto ferma qui
 #        campioni.tsv
-#   2. alfa diversita' sui conteggi rarefatti: ricchezza, Shannon,
-#      Gini-Simpson, Chao1 (lib/alfa.R)
+#      con il filtro di abbondanza (filter.*), le varianti che ha tolto
+#        filtro/varianti_filtrate.tsv
+#   2. alfa diversita': ricchezza, Shannon, Gini-Simpson, Chao1 (lib/alfa.R),
+#      sui conteggi rarefatti (alpha.method rarefy, una o piu' rarefazioni)
 #        alfa/alfa_diversita.tsv, alfa/conteggi_rarefatti.tsv
+#        alfa/alfa_per_rarefazione.tsv, con piu' rarefazioni
+#      oppure su quelli non rarefatti (alpha.method none), con la correlazione
+#      fra letture e indici
+#        alfa/alfa_diversita.tsv, alfa/profondita.tsv
 #   3. composizione al rango dichiarato (lib/composizione.R)
 #        composizione/abbondanze_relative.tsv
 #        composizione/gruppi_NN_<variabile>.tsv e .png
@@ -58,6 +64,10 @@ esegui_fase(function(parametri, cartella) {
     errore_catalogo(primo$codice, primo$dettaglio)
   }
   d <- esame$disegno
+  # L'oggetto delle analisi: quello letto, oppure, con il filtro di abbondanza,
+  # quello filtrato (lib/campioni.R).
+  if (!is.null(d$ps)) ps <- d$ps
+  assign("RIPETIZIONI_ALFA", d$ripetizioni, envir = globalenv())
   piano <- disegno_dei_test(d, parametri)
   # Variabili continue e misure ripetute: piani vuoti se non dichiarate.
   continue <- piano_continue(d, parametri)
@@ -90,14 +100,30 @@ esegui_fase(function(parametri, cartella) {
       "valore:<variabile>: il valore del campione, NA se mancante o se il campione e' escluso"
     ))
     file <- c(file, "campioni.tsv")
+    if (!is.null(d$filtro)) file <- c(file, scrivi_filtro(d, file.path(uscita, "filtro")))
 
-    # Alfa diversita'.
-    rarefatti_campioni <- setdiff(d$campioni, d$sotto_profondita)
-    rarefatti <- rarefai(ps, rarefatti_campioni, d$profondita, seme)
-    indici <- indici_alfa(rarefatti)
-    file <- c(file, scrivi_alfa(indici, rarefatti, d$letture, d$profondita,
-                                d$origine_profondita, seme, file.path(uscita, "alfa"),
-                                senza_singleton = d$singleton == 0))
+    # Alfa diversita': sui conteggi rarefatti (una o piu' rarefazioni), o su
+    # quelli non rarefatti con la correlazione fra letture e indici.
+    if (identical(d$metodo_alfa, "none")) {
+      indici <- indici_alfa(conteggi_di(ps)[, d$campioni, drop = FALSE])
+      file <- c(file, scrivi_alfa(indici, NULL, d$letture_analisi, NA_integer_,
+                                  d$origine_profondita, seme, file.path(uscita, "alfa"),
+                                  senza_singleton = d$singleton == 0))
+      profondita <- profondita_e_indici(indici, d$letture_analisi,
+                                        parametri$stat$significance_level,
+                                        file.path(uscita, "alfa"))
+      file <- c(file, profondita$file)
+      avvisi <- c(avvisi, profondita$avvisi)
+    } else {
+      rarefatti_campioni <- setdiff(d$campioni, d$sotto_profondita)
+      rarefatti <- rarefai(ps, rarefatti_campioni, d$profondita, seme, d$ripetizioni)
+      per_rarefazione <- lapply(rarefatti, indici_alfa)
+      indici <- media_degli_indici(per_rarefazione)
+      file <- c(file, scrivi_alfa(indici, rarefatti, d$letture_analisi, d$profondita,
+                                  d$origine_profondita, seme, file.path(uscita, "alfa"),
+                                  senza_singleton = d$singleton == 0,
+                                  per_rarefazione = per_rarefazione))
+    }
 
     # Composizione.
     agglomerato <- agglomera(ps, d$campioni, parametri$comp$rank)

@@ -171,8 +171,19 @@ def _stampa_esito(esito: Esito) -> None:
     print(f"configurazione: digest {esito.digest_configurazione}")
     print(f"campioni: {campioni.get('analizzati')} analizzati su "
           f"{campioni.get('nell_oggetto')} dell'oggetto")
-    print(f"profondita' di rarefazione: {alfa.get('profondita_di_rarefazione')} "
-          f"({alfa.get('origine')}), {alfa.get('campioni_rarefatti')} campioni")
+    if alfa.get("metodo") == "none":
+        print(f"alfa diversita': conteggi non rarefatti (alpha.method none), "
+              f"{alfa.get('campioni')} campioni")
+    else:
+        ripetute = alfa.get("rarefazioni")
+        print(f"profondita' di rarefazione: {alfa.get('profondita_di_rarefazione')} "
+              f"({alfa.get('origine')}), {alfa.get('campioni_rarefatti')} campioni"
+              + (f", {ripetute} rarefazioni" if ripetute else ""))
+    filtro = esito.riepilogo.get("filtro")
+    if filtro:
+        print(f"filtro di abbondanza: {filtro.get('soglia_percentuale')}% "
+              f"({filtro.get('ambito')}), varianti {filtro.get('varianti_prima')} -> "
+              f"{filtro.get('varianti_dopo')}, letture tolte {filtro.get('letture_tolte')}")
     for avviso in esito.avvisi:
         print(f"avviso: {descrivi(avviso.codice, avviso.dettaglio)}")
 

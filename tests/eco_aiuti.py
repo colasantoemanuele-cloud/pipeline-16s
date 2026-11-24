@@ -60,6 +60,7 @@ def configurazione(**sovrascrivi: dict[str, Any]) -> dict[str, Any]:
     dati: dict[str, Any] = {
         "design": {"variable": "gruppo"},
         "run": {"seed": 7},
+        "alpha": {"method": "rarefy"},
         "comp": {"rank": "Genere", "top_n": 3},
         "beta": {"distances": ["bray", "jaccard", "aitchison"], "clr_pseudocount": 0.5},
         "ord": {"methods": [], "distances": []},

@@ -369,8 +369,8 @@ grafico_alfa <- function(indici, piano, profondita, minimo, percorso) {
                           length(a$campioni), length(gruppi)),
                   side = 3, outer = TRUE, line = 0.8, cex = 0.9, font = 2)
   graphics::mtext(sprintf(
-    "conteggi rarefatti a %d letture; gruppi con almeno %d campioni; esclusi dal confronto: %d gruppi (%d campioni)",
-    profondita, minimo, a$gruppi_esclusi, a$campioni_esclusi),
+    "%s; gruppi con almeno %d campioni; esclusi dal confronto: %d gruppi (%d campioni)",
+    testo_alfa(profondita), minimo, a$gruppi_esclusi, a$campioni_esclusi),
     side = 1, outer = TRUE, line = 1, cex = 0.7)
 }
 
@@ -583,8 +583,8 @@ scrivi_test <- function(alfa, multivariati, parametri, profondita, cartella) {
     if (is.null(alfa)) vuota_alfa else alfa, file.path(cartella, "alfa_diversita.tsv"),
     intestazione = c(
       "Confronto dell'alfa diversita' fra i gruppi di ogni variabile.",
-      sprintf("indici calcolati sui conteggi rarefatti a %d letture; gruppi con almeno %d campioni",
-              profondita, as.integer(parametri$stat$min_group_size)),
+      sprintf("indici calcolati sui %s; gruppi con almeno %d campioni",
+              testo_alfa(profondita), as.integer(parametri$stat$min_group_size)),
       "due gruppi: Wilcoxon della somma dei ranghi; piu' di due: Kruskal-Wallis (confronto 'globale') e Wilcoxon per ogni coppia",
       "Wilcoxon esatto con meno di 50 campioni per gruppo e senza valori ripetuti, altrimenti approssimazione normale con correzione di continuita'",
       "p_bh: p corretta con Benjamini-Hochberg sulla famiglia di tutti i test della variabile (ogni indice per ogni confronto)",

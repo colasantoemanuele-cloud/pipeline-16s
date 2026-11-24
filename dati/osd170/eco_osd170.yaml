@@ -12,7 +12,11 @@ design:
 run:
   seed: 100
 alpha:
+  # La rarefazione, come prima che lo strumento offrisse l'alternativa dei
+  # conteggi non rarefatti: una sola, alla profondita' del campione piu' povero.
+  method: rarefy
   rarefy_depth: null
+  rarefy_iterations: 1
 comp:
   rank: Genus
   top_n: 10

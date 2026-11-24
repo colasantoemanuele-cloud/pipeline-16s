@@ -56,12 +56,49 @@ run:
   # [OBBLIGATORIO] Seme della rarefazione e di ogni altra operazione casuale.
   # seed:
 
+filter:
+  # [FACOLTATIVO] Soglia di abbondanza relativa, in percentuale (0.1 = 0,1%);
+  # nullo vuol dire nessun filtro. Si applica dopo design.subset e prima di ogni analisi
+  # (alfa, composizione, distanze, ordinazioni, test). E' un'alternativa, o un
+  # complemento, alla rarefazione: la letteratura non e' concorde (RAZIONALE.md,
+  # sezione 4.2). Bokulich et al. 2013 (Nat Methods 10:57) propongono lo 0,005%
+  # delle letture totali, pensato per le OTU; Cao et al. 2021 (Front
+  # Microbiol 11:607325) e Nikodemova et al. 2023 (Front Cell Infect
+  # Microbiol 13:1165295) misurano l'effetto del filtro: forte su ricchezza e Chao1,
+  # piccolo su Shannon e Bray-Curtis. Le varianti tolte sono in
+  # filtro/varianti_filtrate.tsv, le letture tolte per campione in campioni.tsv.
+  # min_relative_abundance: null
+
+  # [CONDIZIONALE: min_relative_abundance] Su che cosa si misura la soglia:
+  #   sample  in ogni campione si azzerano le varianti sotto la soglia delle
+  #           letture di quel campione
+  #   total   si tolgono da tutti i campioni le varianti la cui somma e' sotto
+  #           la soglia delle letture totali dei campioni analizzati (Bokulich 2013)
+  #   mean    si tolgono le varianti la cui abbondanza relativa media fra i
+  #           campioni e' sotto la soglia
+  # scope:
+
 alpha:
-  # [STANDARD] Profondita' di rarefazione. Nullo: la minima fra i campioni
-  # analizzati (phyloseq::rarefy_even_depth, sample.size =
+  # [OBBLIGATORIO] rarefy: alfa diversita' su conteggi rarefatti, senza
+  # reinserimento; none: sui conteggi non rarefatti, dopo l'eventuale filtro,
+  # con la correlazione fra letture e ogni indice in alfa/profondita.tsv (avviso
+  # E-ECO-39 se un indice dipende dalla profondita'). McMurdie e Holmes 2014
+  # sconsigliano la rarefazione per l'abbondanza differenziale; Schloss 2024 la
+  # trova il modo piu' affidabile di controllare la profondita' per alfa e beta
+  # diversita'. Gli indici: ricchezza osservata, Shannon, Gini-Simpson, Chao1.
+  # method:
+
+  # [CONDIZIONALE: rarefy] [STANDARD null] Profondita' di rarefazione; nulla
+  # vuol dire la minima fra i campioni analizzati (phyloseq::rarefy_even_depth, sample.size =
   # min(sample_sums(physeq))). Se dichiarata, i campioni con meno letture
-  # escono dall'alfa diversita'. La rarefazione e' senza reinserimento.
-  rarefy_depth: null
+  # escono dall'alfa diversita'.
+  # rarefy_depth: null
+
+  # [CONDIZIONALE: rarefy] [STANDARD 1] Numero di rarefazioni: con piu' di una,
+  # ogni indice e' la media sulle ripetizioni (rarefazione ripetuta, Schloss
+  # 2024), e alfa/alfa_per_rarefazione.tsv riporta gli indici di ognuna. Tutte
+  # vengono dallo stesso seme.
+  # rarefy_iterations: 1
 
 comp:
   # [OBBLIGATORIO] Rango tassonomico a cui agglomerare, fra quelli dell'oggetto.

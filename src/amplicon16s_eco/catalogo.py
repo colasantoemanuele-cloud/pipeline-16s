@@ -315,6 +315,32 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "non osservata (RIFERIMENTO.md, sezione 4.3; RAZIONALE.md, sezione 4.2).",
     ),
     VoceEco(
+        "E-ECO-37", _A,
+        "Alcuni campioni restano senza letture dopo il filtro di abbondanza relativa.",
+        "Quei campioni escono da tutte le analisi e sono elencati in campioni.tsv con il "
+        "motivo. Tutte le loro varianti erano sotto la soglia di "
+        "filter.min_relative_abundance nell'ambito di filter.scope: se sono campioni "
+        "dello studio, abbassa la soglia o scegli un altro ambito (RIFERIMENTO.md, "
+        "sezione 4.4).",
+    ),
+    VoceEco(
+        "E-ECO-38", _R,
+        "Dopo il filtro di abbondanza relativa restano meno di due campioni con letture.",
+        "Abbassa filter.min_relative_abundance, oppure scegli un altro filter.scope: con "
+        "sample un campione perde le varianti sotto la soglia delle sue letture, con "
+        "total e mean le varianti si tolgono da tutti i campioni.",
+    ),
+    VoceEco(
+        "E-ECO-39", _A,
+        "L'indice dipende dalla profondita' di sequenziamento; i confronti fra gruppi "
+        "possono rifletterla.",
+        "Con alpha.method none gli indici sono calcolati sui conteggi non rarefatti: la "
+        "correlazione di Spearman fra letture e indice e' sotto stat.significance_level "
+        "(alfa/profondita.tsv). Se la profondita' differisce fra i gruppi, una "
+        "differenza dell'indice puo' venire da li'. Valuta alpha.method rarefy, o un "
+        "filtro diverso (RAZIONALE.md, sezione 4.2).",
+    ),
+    VoceEco(
         "E-ECO-90", _R,
         "Il calcolo in R non si e' concluso.",
         "Leggi il messaggio di R riportato nel dettaglio. Le analisi vanno "

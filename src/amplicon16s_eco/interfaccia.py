@@ -29,7 +29,14 @@ from amplicon16s.interfaccia import (
 
 from amplicon16s_eco import __version__
 from amplicon16s_eco.catalogo import CATALOGO
-from amplicon16s_eco.config import CONDIZIONALI, OBBLIGATORI, STANDARD_DEL_METODO, ConfigEco
+from amplicon16s_eco.config import (
+    CONDIZIONALI,
+    OBBLIGATORI,
+    STANDARD_DEI_CONDIZIONALI,
+    STANDARD_DEL_METODO,
+    ConfigEco,
+    condizioni,
+)
 
 __all__ = ["chiavi_dello_schema", "esito_validazione", "problema", "schema", "stato"]
 
@@ -40,8 +47,9 @@ def schema() -> dict[str, Any]:
     """Lo schema della configurazione delle analisi, per un programma esterno.
 
     La specie di un parametro e' ``obbligatorio``, ``condizionale``
-    (obbligatorio se uno dei metodi di ``richiesto_da`` e' dichiarato, respinto
-    altrimenti), ``standard`` (il predefinito e' quello del pacchetto R, con la
+    (obbligatorio se uno dei metodi di ``richiesto_da``, o di ``oppure_da``, e'
+    dichiarato, respinto altrimenti; con ``fonte`` ha il predefinito del
+    pacchetto quando e' richiesto), ``standard`` (il predefinito e' quello del pacchetto R, con la
     fonte) oppure ``facoltativo``.
     """
     parametri = descrivi_parametri(ConfigEco)
@@ -50,9 +58,16 @@ def schema() -> dict[str, Any]:
         if nome in OBBLIGATORI:
             voce["specie"] = "obbligatorio"
         elif nome in CONDIZIONALI:
-            elenco, metodi = CONDIZIONALI[nome]
+            prima, *altre = condizioni(nome)
             voce["specie"] = "condizionale"
-            voce["richiesto_da"] = {"parametro": elenco, "valori": list(metodi)}
+            # valori nullo: richiesto quando il parametro e' dichiarato.
+            voce["richiesto_da"] = {"parametro": prima[0],
+                                    "valori": None if prima[1] is None else list(prima[1])}
+            if altre:
+                voce["oppure_da"] = [{"parametro": p, "valori": None if v is None else list(v)}
+                                     for p, v in altre]
+            if nome in STANDARD_DEI_CONDIZIONALI:
+                voce["predefinito"], voce["fonte"] = STANDARD_DEI_CONDIZIONALI[nome]
         elif nome in STANDARD_DEL_METODO:
             voce["specie"] = "standard"
             voce["fonte"] = STANDARD_DEL_METODO[nome][1]

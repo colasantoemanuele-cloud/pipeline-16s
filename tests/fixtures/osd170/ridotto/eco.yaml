@@ -8,6 +8,7 @@ design:
 run:
   seed: 100
 alpha:
+  method: rarefy
   rarefy_depth: null
 comp:
   rank: Genus
