@@ -138,7 +138,8 @@ piano_vincolato <- function(d, parametri) {
 # Il modello vincolato su una risposta (la matrice trasformata per la RDA, la
 # distanza per la db-RDA), con i test per permutazione del modello e dei
 # termini (vegan::anova.cca, by = "margin") e i punteggi sui primi due assi.
-# Restituisce list(varianza, test, coordinate, centroidi, frecce, assi).
+# Restituisce list(varianza, test, coordinate, centroidi, frecce, assi), o
+# nulla se il modello ha meno di due assi con inerzia positiva.
 ordinazione_vincolata <- function(piano, risposta, metodo, etichetta, valori_strati,
                                   permutazioni, seme) {
   variabili <- names(piano$nomi)[startsWith(names(piano$nomi), "v")]
@@ -190,6 +191,8 @@ ordinazione_vincolata <- function(piano, risposta, metodo, etichetta, valori_str
   # Punteggi sui primi due assi (scaling 2): i campioni, i centroidi dei
   # livelli delle variabili categoriche e le frecce di quelle continue. Con un
   # solo asse vincolato il secondo e' il primo non vincolato.
+  # Servono due assi (vincolati o non vincolati) con inerzia positiva.
+  if (sum(vegan::eigenvals(modello) > 0) < 2L) return(NULL)
   coordinate <- vegan::scores(modello, display = "sites", choices = 1:2, scaling = 2)
   segni <- .segni(coordinate)
   coordinate <- sweep(coordinate, 2L, segni, "*")
@@ -264,8 +267,9 @@ ordinazione_vincolata <- function(piano, risposta, metodo, etichetta, valori_str
 }
 
 # Calcola e scrive l'ordinazione vincolata: per la RDA un modello sui conteggi
-# trasformati, per la db-RDA uno per distanza. Restituisce list(file,
-# riepilogo, avvisi).
+# trasformati, per la db-RDA uno per distanza; un modello senza variabilita'
+# (distanze tutte nulle, meno di due assi) si salta con l'avviso E-ECO-45.
+# Restituisce list(file, riepilogo, avvisi).
 scrivi_vincolata <- function(piano, ps, matrici, d, parametri, seme, cartella) {
   dir.create(cartella, showWarnings = FALSE)
   prodotti <- character()
@@ -295,13 +299,27 @@ scrivi_vincolata <- function(piano, ps, matrici, d, parametri, seme, cartella) {
   }
   varianze <- list()
   tutti_i_test <- list()
+  avvisi <- list()
   modello_testo <- sprintf("modello: %s%s", paste(unname(piano$nomi[startsWith(names(piano$nomi), "v")]),
                                                   collapse = " + "),
                            if (length(piano$condizioni))
                              sprintf(" + Condition(%s)", paste(piano$condizioni, collapse = " + ")) else "")
   for (m in modelli) {
+    # Con distanze tutte nulle non c'e' variabilita' da scomporre.
+    if (max(as.matrix(m$risposta)) <= 0 && !is.null(m$distanza)) {
+      avvisi[[length(avvisi) + 1L]] <- .avviso("E-ECO-45", sprintf(
+        "Ordinazione vincolata, distanza %s: tutte le distanze fra i campioni del modello sono nulle.",
+        m$distanza))
+      next
+    }
     esito <- ordinazione_vincolata(piano, m$risposta, piano$metodo, m$base, valori_strati,
                                    permutazioni, seme)
+    if (is.null(esito)) {
+      avvisi[[length(avvisi) + 1L]] <- .avviso("E-ECO-45", sprintf(
+        "Ordinazione vincolata, %s: meno di due assi con inerzia positiva, nessun grafico in due dimensioni.",
+        m$base))
+      next
+    }
     varianze[[m$base]] <- cbind(data.frame(modello = m$base, stringsAsFactors = FALSE), esito$varianza)
     tutti_i_test[[m$base]] <- cbind(data.frame(modello = m$base, stringsAsFactors = FALSE), esito$test)
     scrivi_tsv(affianca(list(campione = rownames(esito$coordinate)), esito$coordinate, reale),
@@ -327,6 +345,7 @@ scrivi_vincolata <- function(piano, ps, matrici, d, parametri, seme, cartella) {
       quota_vincolata = esito$varianza$quota_vincolata, r2_corretto = esito$varianza$r2_corretto,
       p_modello = esito$varianza$p_modello)
   }
+  if (!length(varianze)) return(list(file = character(), riepilogo = riepilogo, avvisi = avvisi))
   varianza <- do.call(rbind, varianze)
   for (colonna in c("inerzia_totale", "condizionata", "vincolata", "non_vincolata", "immaginaria",
                     "quota_vincolata", "r2", "r2_corretto", "p_modello")) {
@@ -349,5 +368,5 @@ scrivi_vincolata <- function(piano, ps, matrici, d, parametri, seme, cartella) {
             permutazioni, as.integer(seme), if (is.null(strati)) "nessuno" else strati),
     "la PERMANOVA (test/permanova.tsv) resta il test fra gruppi; questo misura quanta variabilita' le variabili spiegano insieme"))
   list(file = c("vincolata/varianza.tsv", "vincolata/test.tsv", prodotti),
-       riepilogo = riepilogo)
+       riepilogo = riepilogo, avvisi = avvisi)
 }

@@ -289,7 +289,9 @@ esegui_fase(function(parametri, cartella) {
       esiti <- scrivi_vincolata(vincolato, ps, matrici, d, parametri, seme,
                                 file.path(uscita, "vincolata"))
       file <- c(file, esiti$file)
+      if (!length(esiti$file)) unlink(file.path(uscita, "vincolata"), recursive = TRUE)
       esiti_vincolati <- esiti$riepilogo
+      avvisi <- c(avvisi, esiti$avvisi)
     }
 
     # Misure ripetute: i test entro soggetto di ogni variabile categorica.

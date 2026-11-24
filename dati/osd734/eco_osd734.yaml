@@ -32,13 +32,16 @@ comp:
   top_n: 10
 
 beta:
-  distances: [bray, jaccard, aitchison]
+  # L'oggetto ha l'albero della pipeline (phylo.enabled), gia' radicato al punto
+  # medio: le due UniFrac usano quella radice.
+  distances: [bray, jaccard, aitchison, unifrac_weighted, unifrac_unweighted]
   clr_pseudocount: 1.0
+  unifrac_root: existing
 
 ord:
   methods: [pcoa, nmds]
-  distances: [bray, jaccard, aitchison]
-  # Bray-Curtis e Jaccard non sono euclidee: autovalori negativi corretti.
+  distances: [bray, jaccard, aitchison, unifrac_weighted, unifrac_unweighted]
+  # Bray-Curtis, Jaccard e UniFrac non sono euclidee: autovalori negativi corretti.
   pcoa_correction: cailliez
   # Il predefinito di vegan::metaMDS: con 200 avvii non converge comunque (stress piu' basso di meno di 0,001).
   nmds_trymax: 20

@@ -185,3 +185,65 @@ def test_la_rda_di_hellinger_i_campioni_esclusi_e_gli_avvisi_del_modello(eco_r, 
     assert esito.riepilogo["vincolata"]["campioni"] == 9
     commenti, _ = leggi_tsv(uscita / "vincolata" / "varianza.tsv")
     assert any("modello: gruppo" in c for c in commenti)
+
+
+def test_le_due_unifrac_entrano_in_permanova_ordinazioni_tsne_e_db_rda(eco_r, tmp_path):
+    """
+    **Obiettivo**: con un albero nell'oggetto, UniFrac pesato e non pesato
+    dichiarati in ``beta.distances`` producono la loro matrice, la PERMANOVA,
+    la PCoA, il t-SNE e un modello di db-RDA ciascuno; ``eco init`` dice in una
+    riga che cosa misura ogni distanza.
+
+    **Razionale scientifico e sistemistico**: le UniFrac sono distanze come le
+    altre per ogni analisi che parte da una matrice; chi le sceglie deve sapere
+    che misurano la parentela filogenetica, con e senza abbondanze.
+    """
+    from amplicon16s_eco import init
+
+    # Il gruppo b ha meno varianti, e con poche letture la presenza cambia da
+    # un campione all'altro: UniFrac non pesato ha piu' di un asse.
+    oggetto = genera(tmp_path, [
+        {"n": 6, "gruppo": "a", "sigma": 1.0},
+        {"n": 6, "gruppo": "b", "sigma": 1.0, "scambia": True, "presenti": 6},
+    ], profondita=20, taxa=8)
+    # Un albero bilanciato sulle otto varianti del generatore.
+    foglie = [f"v{i:03d}" for i in range(1, 9)]
+    albero = "(((" + ",".join(f"{f}:1" for f in foglie[:2]) + "):1,(" + ",".join(
+        f"{f}:1" for f in foglie[2:4]) + "):1):1,((" + ",".join(
+        f"{f}:1" for f in foglie[4:6]) + "):1,(" + ",".join(
+        f"{f}:1" for f in foglie[6:]) + "):1):1);"
+    script = tmp_path / "albero.R"
+    con_albero = tmp_path / "dati" / "con_albero.rds"
+    script.write_text(f"""
+ps <- readRDS("{oggetto}")
+phyloseq::phy_tree(ps) <- phyloseq::phy_tree(ape::read.tree(text = "{albero}"))
+saveRDS(ps, "{con_albero}")
+""", encoding="utf-8")
+    esegui_rscript(script)
+    unifrac = ["unifrac_weighted", "unifrac_unweighted"]
+    uscita = tmp_path / "uscita"
+    esegui(con_albero, schema.valida(configurazione(
+        beta={"distances": ["bray", *unifrac], "clr_pseudocount": ..., "unifrac_root": "existing"},
+        ord={"methods": ["pcoa", "tsne"], "distances": unifrac, "pcoa_correction": "none",
+             "tsne_perplexity": 3.0},
+        constrained={**DBRDA, "distances": unifrac},
+        stat={"permanova_permutations": 99})), uscita)
+    _, permanova = leggi_tsv(uscita / "test" / "permanova.tsv")
+    assert {r["distanza"] for r in permanova} == {"bray", *unifrac}
+    for distanza in unifrac:
+        assert (uscita / "beta" / f"distanza_{distanza}.tsv").is_file()
+        for metodo in ("pcoa", "tsne"):
+            assert (uscita / "ordinazione" / f"{metodo}_{distanza}_coordinate.tsv").is_file()
+        assert (uscita / "vincolata" / f"dbrda_{distanza}_coordinate.tsv").is_file()
+    _, varianza = leggi_tsv(uscita / "vincolata" / "varianza.tsv")
+    assert [r["modello"] for r in varianza] == [f"dbrda_{d}" for d in unifrac]
+
+    descrizione = {"campioni": 24, "varianti": 8, "ranghi": [{"rango": "Regno",
+                                                              "quota_assegnata": 1.0}],
+                   "albero": {"presente": True, "radicato": True, "con_lunghezze": True},
+                   "colonne": []}
+    voci, _ = init.prepara(descrizione)
+    note = " ".join(voci["beta.distances"].note)
+    assert "parentela filogenetica dei taxa, con le loro abbondanze" in note
+    assert "presenti, senza abbondanze" in note and "presenza o assenza" in note
+    assert "log-rapporti" in note and "abbondanza relativa" in note

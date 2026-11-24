@@ -680,7 +680,17 @@ def prepara(
     metti("beta.distances", SCELTA, SENZA_VALORE,
           "fra bray, jaccard, aitchison" + (
               ", unifrac_weighted, unifrac_unweighted" if albero["presente"] else
-              " (le due UniFrac richiedono un albero, che l'oggetto non ha)"))
+              " (le due UniFrac richiedono un albero, che l'oggetto non ha)"),
+          "bray (Bray-Curtis): le differenze di abbondanza relativa, pesate dai taxa "
+          "abbondanti",
+          "jaccard: la sola presenza o assenza dei taxa",
+          "aitchison: la distanza euclidea dei log-rapporti (dati composizionali); chiede "
+          "beta.clr_pseudocount",
+          *(["unifrac_weighted (UniFrac pesato): la parentela filogenetica dei taxa, con le "
+             "loro abbondanze; chiede beta.unifrac_root",
+             "unifrac_unweighted (UniFrac non pesato): la parentela filogenetica dei taxa "
+             "presenti, senza abbondanze; chiede beta.unifrac_root"]
+            if albero["presente"] else []))
     metti("beta.clr_pseudocount", SCELTA, SENZA_VALORE,
           "solo con aitchison: lo pseudoconteggio sommato ai conteggi prima del CLR")
     metti("ord.methods", SCELTA, SENZA_VALORE,
