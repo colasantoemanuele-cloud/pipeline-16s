@@ -1171,7 +1171,7 @@ legge, è in [RAZIONALE.md](RAZIONALE.md), sezione 4.
 | `ordinazione/` | `<metodo>_<distanza>_NN_<variabile>.png` | i campioni sui primi due assi, colorati per gruppo |
 | `ordinazione/` | `<metodo>_<distanza>_colore_NN_<colonna>.png` | con `ord.color_by`: le stesse ordinazioni colorate per una colonna o un gruppo derivato, descrittive, senza test (NN è la posizione in `ord.color_by`) |
 | `vincolata/` | `varianza.tsv`, `test.tsv` | con `constrained.method` (sezione 4.6): inerzia condizionata, vincolata e non vincolata, quota vincolata, R² e R² corretto per ogni modello; i test per permutazione del modello e dei termini |
-| `vincolata/` | `<modello>_coordinate.tsv`, `<modello>_NN_<variabile>.png` | i punteggi dei campioni sui primi due assi e il triplot per ogni variabile del disegno, con i centroidi delle variabili categoriche e le frecce delle continue; `<modello>` è `rda_<trasformazione>` o `dbrda_<distanza>` |
+| `vincolata/` | `<modello>_coordinate.tsv`, `<modello>_NN_<variabile>.png` | i punteggi dei campioni sui primi due assi e il triplot per ogni variabile del disegno, con i centroidi delle variabili categoriche (pieni del colore del gruppo, etichette su fondo bianco che non si sovrappongono) e le frecce delle continue; `<modello>` è `rda_<trasformazione>` o `dbrda_<distanza>` |
 | `test/` | `alfa_diversita.tsv` | Wilcoxon o Kruskal-Wallis sui quattro indici, per variabile, con la p corretta sulla famiglia di tutti gli indici e i confronti |
 | `test/` | `permanova.tsv` | la PERMANOVA per variabile e distanza, con accanto il test delle dispersioni |
 | `test/` | `alfa_continua.tsv`, `permanova_continua.tsv` | con le variabili continue (sezione 4.1) |
@@ -1345,7 +1345,12 @@ constrained:
   R² e R² corretto con `vegan::RsquareAdj`), `test.tsv`, le coordinate dei campioni e un
   triplot per ogni variabile del disegno, con i centroidi dei livelli delle variabili
   categoriche e le frecce delle continue. Con un solo asse vincolato il secondo asse è il
-  primo non vincolato.
+  primo non vincolato. Nel triplot un centroide è un punto grande bordato di nero, pieno
+  del colore del suo gruppo se il termine è la variabile del grafico (bianco altrimenti);
+  la sua etichetta sta su un fondo bianco semitrasparente, nella prima di otto posizioni
+  attorno al centroide (sopra, sotto, ai lati, in diagonale) che non copre altre etichette
+  né centroidi, e se deve allontanarsi una linea la lega al centroide. Il calcolo è
+  deterministico (`ggrepel` non è nell'immagine).
 - **Molti livelli.** Una variabile con molti livelli (una posizione per pochi campioni)
   usa molti gradi di libertà, e il modello si avvicina a quello saturo, che spiega tutto
   per costruzione. `constrained.max_df_fraction`, senza predefinito, dice oltre quale

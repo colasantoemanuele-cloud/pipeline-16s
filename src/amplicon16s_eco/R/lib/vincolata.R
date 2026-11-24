@@ -216,7 +216,12 @@ ordinazione_vincolata <- function(piano, risposta, metodo, etichetta, valori_str
 
 # Il triplot di un modello vincolato colorato per una variabile del disegno: i
 # campioni (colore del gruppo), i centroidi dei livelli delle variabili
-# categoriche del modello (croci con il nome) e le frecce di quelle continue.
+# categoriche del modello e le frecce di quelle continue. Un centroide e' un
+# punto grande bordato di nero, pieno del colore del suo gruppo se il termine
+# e' la variabile del grafico (bianco altrimenti); la sua etichetta sta su un
+# fondo bianco semitrasparente, accanto al centroide dove non copre le altre
+# etichette ne' gli altri centroidi (.posa_etichette), con una linea verso il
+# centroide se ha dovuto allontanarsi.
 .triplot <- function(esito, piano, v, titolo, percorso) {
   coordinate <- esito$coordinate
   campioni <- intersect(rownames(coordinate), names(v$valori)[!is.na(v$valori)])
@@ -242,9 +247,28 @@ ordinazione_vincolata <- function(piano, risposta, metodo, etichetta, valori_str
   graphics::points(coordinate[campioni, 1L], coordinate[campioni, 2L], pch = 19,
                    col = colori[v$valori[campioni]])
   if (!is.null(esito$centroidi)) {
-    graphics::points(esito$centroidi, pch = 3, cex = 1.2, lwd = 2)
-    graphics::text(esito$centroidi, labels = .etichette_centroidi(rownames(esito$centroidi), piano),
-                   pos = 3, cex = 0.85)
+    centroidi <- esito$centroidi
+    riempimento <- .colori_centroidi(rownames(centroidi), piano, v, colori)
+    graphics::points(centroidi, pch = 21, cex = CEX_CENTROIDE, lwd = 1.5, col = "black",
+                     bg = riempimento)
+    testi <- .etichette_centroidi(rownames(centroidi), piano)
+    posa <- .posa_etichette(centroidi[, 1L], centroidi[, 2L], testi, CEX_ETICHETTA,
+                            CEX_CENTROIDE)
+    lontane <- posa$spostata
+    if (any(lontane)) {
+      # La linea va dal centroide al punto piu' vicino del riquadro.
+      vx <- pmin(pmax(centroidi[lontane, 1L], posa$x[lontane] - posa$larghezza[lontane] / 2),
+                 posa$x[lontane] + posa$larghezza[lontane] / 2)
+      vy <- pmin(pmax(centroidi[lontane, 2L], posa$y[lontane] - posa$altezza[lontane] / 2),
+                 posa$y[lontane] + posa$altezza[lontane] / 2)
+      graphics::segments(centroidi[lontane, 1L], centroidi[lontane, 2L], vx, vy,
+                         col = "grey30", lwd = 0.8)
+    }
+    graphics::rect(posa$x - posa$larghezza / 2, posa$y - posa$altezza / 2,
+                   posa$x + posa$larghezza / 2, posa$y + posa$altezza / 2,
+                   col = grDevices::adjustcolor("white", alpha.f = 0.8), border = "grey55",
+                   lwd = 0.6)
+    graphics::text(posa$x, posa$y, labels = testi, cex = CEX_ETICHETTA)
   }
   if (!is.null(esito$frecce)) {
     graphics::arrows(0, 0, frecce[, 1L], frecce[, 2L], length = 0.08, lwd = 1.5)
@@ -254,6 +278,74 @@ ordinazione_vincolata <- function(piano, risposta, metodo, etichetta, valori_str
   graphics::legend(x = limiti[2L] + 0.03 * (limiti[2L] - limiti[1L]), y = limiti[4L],
                    legend = voci, col = colori[gruppi], pch = 19, bty = "n", ncol = colonne,
                    title = v$nome)
+}
+
+# Le dimensioni dei centroidi e delle loro etichette nel triplot, rispetto al
+# testo del grafico.
+CEX_CENTROIDE <- 2.2
+CEX_ETICHETTA <- 0.85
+
+# Il colore di riempimento dei centroidi: quello del gruppo se il termine e' la
+# variabile v del grafico, bianco per i livelli degli altri termini.
+.colori_centroidi <- function(nomi, piano, v, colori) {
+  vapply(nomi, function(n) {
+    colonna <- names(piano$nomi)[startsWith(n, names(piano$nomi))]
+    colonna <- colonna[which.max(nchar(colonna))]
+    if (!length(colonna) || piano$nomi[[colonna]] != v$nome) return("white")
+    livello <- substring(n, nchar(colonna) + 1L)
+    if (livello %in% names(colori)) colori[[livello]] else "white"
+  }, character(1), USE.NAMES = FALSE)
+}
+
+# Le posizioni delle etichette dei centroidi, in coordinate del grafico (che
+# deve essere aperto: le misure del testo dipendono dal dispositivo). Le
+# etichette si posano una alla volta, nell'ordine dei centroidi: per ciascuna
+# si provano otto posizioni attorno al suo centroide (sopra, sotto, a destra,
+# a sinistra, poi in diagonale), prima accostate e poi via via piu' lontane,
+# e si tiene la prima il cui riquadro non copre ne' le etichette gia' posate
+# ne' alcun centroide. Se nessuna e' libera resta sopra il centroide. Nulla e'
+# casuale: gli stessi punti danno le stesse posizioni. Restituisce
+# data.frame(x, y, larghezza, altezza, spostata): spostata e' vero se
+# l'etichetta non e' accostata al suo centroide (serve una linea).
+.posa_etichette <- function(x, y, testi, cex, cex_punto) {
+  n <- length(testi)
+  larghezza <- graphics::strwidth(testi, cex = cex) + graphics::strwidth("M", cex = cex) * 0.8
+  altezza <- rep(graphics::strheight("Mg", cex = cex) * 1.7, n)
+  # Il raggio di un centroide, in unita' dell'asse y (con asp = 1 uguale in x).
+  raggio <- graphics::strheight("M", cex = cex_punto) * 0.55
+  margine <- altezza[1L] * 0.15
+  copre <- function(cx, cy, w, h, posate) {
+    sui_centroidi <- any(abs(cx - x) < w / 2 + raggio & abs(cy - y) < h / 2 + raggio)
+    sulle_etichette <- any(abs(cx - posate$x) < (w + posate$larghezza) / 2 + margine &
+                             abs(cy - posate$y) < (h + posate$altezza) / 2 + margine)
+    sui_centroidi || sulle_etichette
+  }
+  # Le direzioni, nell'ordine in cui si provano: sopra, sotto, destra,
+  # sinistra e le quattro diagonali.
+  dx <- c(0, 0, 1, -1, 1, -1, 1, -1)
+  dy <- c(1, -1, 0, 0, 1, 1, -1, -1)
+  posate <- data.frame(x = numeric(), y = numeric(), larghezza = numeric(), altezza = numeric(),
+                       spostata = logical())
+  for (i in seq_len(n)) {
+    w <- larghezza[i]
+    h <- altezza[i]
+    scelta <- NULL
+    for (anello in 0:6) {
+      distanza <- anello * h
+      for (k in seq_along(dx)) {
+        cx <- x[i] + dx[k] * (raggio + w / 2 + margine + distanza)
+        cy <- y[i] + dy[k] * (raggio + h / 2 + margine + distanza)
+        if (!copre(cx, cy, w, h, posate)) {
+          scelta <- c(cx, cy, anello > 0)
+          break
+        }
+      }
+      if (!is.null(scelta)) break
+    }
+    if (is.null(scelta)) scelta <- c(x[i], y[i] + raggio + h / 2 + margine, 0)
+    posate[i, ] <- list(scelta[1L], scelta[2L], w, h, scelta[3L] > 0)
+  }
+  posate
 }
 
 # I nomi dei centroidi: il livello, preceduto dalla variabile («variabile:

@@ -250,3 +250,72 @@ saveRDS(ps, "{con_albero}")
     assert "parentela filogenetica dei taxa, con le loro abbondanze" in note
     assert "presenti, senza abbondanze" in note and "presenza o assenza" in note
     assert "log-rapporti" in note and "abbondanza relativa" in note
+
+
+def test_le_etichette_dei_centroidi_non_si_sovrappongono_e_i_centroidi_hanno_il_colore_del_gruppo(
+        eco_r, tmp_path):
+    """
+    **Obiettivo**: nel triplot le etichette di centroidi vicini (qui otto
+    centroidi, cinque in un gruppo stretto come NOD1, NOD3, NOD2, JPM1 e COL1
+    nella dimostrazione su OSD-734) non si sovrappongono fra loro e non
+    coprono alcun centroide; ognuna resta accostata al suo centroide quando
+    c'e' posto; le posizioni sono le stesse a ogni esecuzione. Un centroide e'
+    pieno del colore del suo gruppo se il termine e' la variabile del grafico,
+    bianco altrimenti. Il triplot si disegna senza avvisi.
+
+    **Razionale scientifico e sistemistico**: un'etichetta sopra un'altra non
+    si legge, e un'etichetta lontana dal suo centroide si attribuisce al
+    centroide sbagliato; il colore lega il centroide ai campioni del gruppo.
+    ``ggrepel`` non e' nell'immagine: lo spostamento e' calcolato qui.
+    """
+    from eco_aiuti import RADICE
+
+    lib = RADICE / "src" / "amplicon16s_eco" / "R" / "lib"
+    script = tmp_path / "etichette.R"
+    script.write_text("\n".join([
+        f'source("{RADICE / "R" / "lib" / "io_json.R"}")',
+        f'source("{lib / "uscite.R"}")',
+        f'source("{lib / "vincolata.R"}")',
+        "x <- c(-0.55, -0.65, 0.18, 0.37, 0.67, 1.03, 1.33, -0.78)",
+        "y <- c(0.64, 0.43, -0.17, 0.03, -0.23, -0.30, 0.70, -1.77)",
+        "testi <- c('NOD1', 'NOD3', 'NOD2', 'LAB1', 'JPM1', 'COL1', 'JLP1', 'PMM1')",
+        f'grDevices::png("{tmp_path / "prova.png"}", width = 2400, height = 1500, res = 200, type = "cairo")',
+        "graphics::par(mar = c(4.5, 4.5, 3, 15), cex = 0.7)",
+        "graphics::plot(c(-2.7, 3.5), c(-2.6, 6.3), type = 'n', asp = 1)",
+        "posa <- .posa_etichette(x, y, testi, CEX_ETICHETTA, CEX_CENTROIDE)",
+        "stopifnot(identical(posa, .posa_etichette(x, y, testi, CEX_ETICHETTA, CEX_CENTROIDE)))",
+        "raggio <- graphics::strheight('M', cex = CEX_CENTROIDE) * 0.55",
+        "for (i in seq_along(x)) {",
+        "  for (j in seq_along(x)) if (i < j) {",
+        "    stopifnot(abs(posa$x[i] - posa$x[j]) >= (posa$larghezza[i] + posa$larghezza[j]) / 2 ||",
+        "              abs(posa$y[i] - posa$y[j]) >= (posa$altezza[i] + posa$altezza[j]) / 2)",
+        "  }",
+        "  stopifnot(all(abs(posa$x[i] - x) >= posa$larghezza[i] / 2 + raggio |",
+        "                abs(posa$y[i] - y) >= posa$altezza[i] / 2 + raggio))",
+        "}",
+        "stopifnot(!any(posa$spostata))",
+        "grDevices::dev.off()",
+        "piano <- list(nomi = c(v1 = 'modulo', v2 = 'lotto'),",
+        "              dati = data.frame(v1 = factor(c('A', 'B')), v2 = factor(c('x', 'y'))))",
+        "colori <- c(A = '#111111', B = '#222222')",
+        "stopifnot(identical(.colori_centroidi(c('v1A', 'v1B', 'v2x'), piano,",
+        "                                      list(nome = 'modulo'), colori),",
+        "                    c('#111111', '#222222', 'white')))",
+        "imposta_palette('Okabe-Ito')",
+        "set.seed(1)",
+        "coordinate <- cbind(rnorm(40), rnorm(40))",
+        "gruppi <- rep(c('A', 'B'), each = 20)",
+        "rownames(coordinate) <- sprintf('c%02d', 1:40)",
+        "centroidi <- rbind(v1A = colMeans(coordinate[1:20, ]), v1B = colMeans(coordinate[21:40, ]))",
+        "v <- list(nome = 'modulo', valori = stats::setNames(gruppi, rownames(coordinate)),",
+        "          dimensioni = c(A = 20L, B = 20L))",
+        "esito <- list(coordinate = coordinate, centroidi = centroidi, frecce = NULL,",
+        "              assi = c('dbRDA1', 'dbRDA2'))",
+        "avvisi <- NULL",
+        "withCallingHandlers(",
+        f"  .triplot(esito, list(nomi = c(v1 = 'modulo'), dati = data.frame(v1 = factor(gruppi))), v, 'prova', '{tmp_path / 'triplot.png'}'),",
+        "  warning = function(w) { avvisi <<- c(avvisi, conditionMessage(w)); invokeRestart('muffleWarning') })",
+        "stopifnot(is.null(avvisi))",
+    ]), encoding="utf-8")
+    esegui_rscript(script)
+    assert (tmp_path / "triplot.png").stat().st_size > 1000
