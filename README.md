@@ -310,6 +310,22 @@ Si apre una issue su GitHub, nel repository da cui viene il clone, allegando l'u
 Una versione dello strumento è un commit (o un tag) di questo repository insieme al digest
 della sua immagine: i due insieme identificano i risultati.
 
+- **`v0.1.0`**: commit `133ba16`, immagine
+  `ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`.
+- **Analisi ecologiche 0.2.0** (`amplicon16s_eco`), immagine
+  `ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:<NUOVO_DIGEST>`:
+  1. Chao1 come quarto indice dell'alfa diversità, con l'avviso se non ci sono singleton;
+  2. filtro delle varianti rare per abbondanza relativa, alfa diversità senza rarefazione
+     o con più rarefazioni, correlazione fra letture e indici;
+  3. gruppi derivati da una colonna, colori descrittivi delle ordinazioni, palette dei
+     grafici, proposte di raggruppamento di `eco init`;
+  4. barre della composizione per variabili scelte (`comp.group_by`);
+  5. composizione a più ranghi e rango dei calcoli (`run.analysis_rank`);
+  6. t-SNE accanto a PCoA e NMDS;
+  7. ordinazione vincolata: RDA e db-RDA con i test per permutazione;
+  8. UniFrac pesato e non pesato fra le scelte proposte;
+  9. grafici della composizione a pannelli (`facet_wrap`, `facet_grid`).
+
 ## Documenti
 
 - `README.md`: che cos'è lo strumento.
