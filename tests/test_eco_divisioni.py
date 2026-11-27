@@ -209,11 +209,20 @@ def test_le_regole_del_catalogo_dividono_i_valori_come_dichiarato():
                                                      "01-Nov-2017", "30-Oct-2017"])
     raccolta, _ = d.applica(per_nome["tempo di raccolta"], date)
     assert [g for g, _ in raccolta.gruppi] == ["1 30-Oct-2017", "2 01-Nov-2017", "3 02-Nov-2017"]
-    # Valori che non sono tempi: la colonna cosi' com'e', in ordine di nome.
-    testo = _tabella(factor_value_time=["Pre-flight", "Post-flight", "Pre-flight", "Post-flight"])
-    come_e, _ = d.applica(per_nome["tempo di raccolta"], testo)
-    assert come_e.espansione == {"colonna": "factor_value_time"}
-    assert come_e.gruppi == (("Post-flight", 2), ("Pre-flight", 2))
+    # Valori che non sono tutti tempi: la fonte non vale e si passa alla
+    # successiva, le date di raccolta; senza un'altra fonte la divisione non c'e'.
+    testo = ["Pre-flight", "Post-flight", "Pre-flight", "Post-flight"]
+    poi_date = _tabella(factor_value_time=testo, characteristics_collection_date=[
+        "31-Oct-2017", "02-Nov-2017", "30-Oct-2017", "02-Nov-2017"])
+    raccolta, motivi = d.applica(per_nome["tempo di raccolta"], poi_date)
+    assert raccolta.colonna == "characteristics_collection_date"
+    assert [g for g, _ in raccolta.gruppi] == ["1 30-Oct-2017", "2 31-Oct-2017", "3 02-Nov-2017"]
+    assert len(motivi) == 1 and "non sono tutti durate o date" in motivi[0]
+    assert "'Post-flight'" in motivi[0]
+    solo_testo, motivi = d.applica(per_nome["tempo di raccolta"], _tabella(factor_value_time=testo))
+    assert solo_testo is None and "non sono tutti durate o date" in motivi[0]
+    misti = _tabella(factor_value_time=["7 days", "14 days", "Pre-flight", "7 days"])
+    assert d.applica(per_nome["tempo di raccolta"], misti)[0] is None
 
 
 def test_volo_o_terra_riconosce_i_valori_documentati_e_ignora_gli_altri():
@@ -297,6 +306,13 @@ def test_le_proposte_tolgono_i_doppioni_e_sono_le_stesse_a_ogni_esecuzione():
     proposte = d.proponi(annidate, [])
     assert [p.nome for p in proposte.proposte] == ["fase", "quota"]
     assert any(n == "quota per fase" and "annidate" in m for n, m in proposte.scartate)
+    # Una colonna di tempi che non sono durate ne' date non e' «tempo di
+    # raccolta»: si propone la colonna stessa, come divisione generica.
+    tempi = ["Pre-flight", "Post-flight", "Cruise, in-flight", "Ascent/Descent, in-flight"] * 5
+    proposte = d.proponi(_tabella(factor_value_time=tempi), ["factor_value_time"])
+    assert [(p.nome, p.origine) for p in proposte.proposte] == [
+        ("fase", "catalogo"), ("factor_value_time", "generica")]
+    assert any(n == "tempo di raccolta" and "durate o date" in m for n, m in proposte.scartate)
     # Una colonna «soggetto» con valori vince sul nome: la divisione non si propone.
     con_colonna = _tabella(characteristics_subject=soggetti, soggetto=["x", "y"] * 9)
     proposte = d.proponi(con_colonna, ["soggetto"])
@@ -350,7 +366,10 @@ def test_una_divisione_per_nome_diventa_un_gruppo_derivato_o_una_colonna():
                                                            "factor_value_sample_location"]
     schema.valida(espansione.dati)
     scelte = {s["nome"]: s for s in espansione.scelte}
-    assert scelte["modulo"]["campi"] == ["design.variable", "comp.group_by"]
+    assert scelte["modulo"]["campi"] == ["design.variable", "comp.group_by",
+                                         "constrained.variables"]
+    assert scelte["posizione"]["campi"] == ["design.other_variables", "comp.facet_wrap",
+                                            "constrained.variables"]
     assert scelte["modulo"]["diventa"] == "il gruppo derivato modulo"
     assert scelte["posizione"]["diventa"] == "la colonna factor_value_sample_location"
 
@@ -440,6 +459,14 @@ def test_una_divisione_senza_gruppi_validi_e_respinta_con_il_motivo():
     assert "con almeno 5 campioni" in piccoli.rifiuti[0][1]
     assert d.traduci([("E-ECO-05", "Colonna 'modulo' non trovata. Colonne dell'oggetto: "
                                    "gruppo.")], piccoli) == []
+    # Una divisione in ordine di tempo su valori che non sono tempi: E-ECO-48
+    # con il motivo, e la colonna resta nominabile cosi' com'e'.
+    fasi = _tabella(gruppo=["a", "b"] * 4,
+                    factor_value_time=["Pre-flight", "Post-flight"] * 4)
+    tempo = d.espandi(_dati(design={"variable": "tempo di raccolta"}), fasi)
+    assert [c for c, _ in tempo.rifiuti] == ["E-ECO-48"]
+    assert "non sono tutti durate o date" in tempo.rifiuti[0][1]
+    assert "tempo di raccolta" in tempo.respinti
     for codice in ("E-ECO-47", "E-ECO-48"):
         assert CATALOGO[codice].specie is Specie.RIFIUTO
 

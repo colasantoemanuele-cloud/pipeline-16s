@@ -23,11 +23,11 @@
 #                           noti; con ordinata: vero i gruppi portano il numero
 #                           d'ordine davanti al nome (1 prima, 2 durante...),
 #                           perche' le analisi ordinano i gruppi per nome;
-#                ordine     i valori cosi' come sono, ma in ordine di tempo se
-#                           ognuno e' una durata (7 days, minus10 days, 520 days
-#                           plus 3 month) o una data (01-Nov-2017, 2017-11-01):
-#                           il numero d'ordine davanti al valore; altrimenti
-#                           come colonna;
+#                ordine     i valori in ordine di tempo, con il numero d'ordine
+#                           davanti al valore; vale solo se i valori sono tutti
+#                           durate (7 days, minus10 days, 520 days plus 3 month)
+#                           o tutte date (01-Nov-2017, 2017-11-01): altrimenti la
+#                           fonte non vale e si prova la successiva;
 #                fasce      un valore numerico, o una durata in giorni, diviso
 #                           in fasce dai limiti (ogni fascia comprende il suo
 #                           limite inferiore), con le etichette;

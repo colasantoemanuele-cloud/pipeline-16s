@@ -1385,7 +1385,7 @@ Le regole:
 | `colonna` | i valori della colonna così come sono | `soggetto` (`characteristics_subject`) |
 | `prefisso` | il primo gruppo di cattura di un'espressione regolare | `modulo`: `^([A-Za-z]+[0-9]+)` sulla posizione, NOD1D4 → NOD1 |
 | `mappatura` | valori riconosciuti da espressioni regolari (senza distinguere le maiuscole) riuniti in gruppi noti; ordinata: il numero d'ordine davanti al nome | `volo o terra`; `fase`: 1 prima, 2 durante, 3 dopo |
-| `ordine` | i valori in ordine di tempo, se sono tutti durate («7 days», «minus10 days», «520 days plus 3 month») o date («01-Nov-2017»), con il numero d'ordine davanti; altrimenti come `colonna` | `tempo di raccolta` |
+| `ordine` | i valori in ordine di tempo, con il numero d'ordine davanti; vale solo se sono tutti durate («7 days», «minus10 days», «520 days plus 3 month») o tutte date («01-Nov-2017»): altrimenti la fonte non vale e si prova la successiva | `tempo di raccolta` |
 | `fasce` | un valore numerico o una durata in giorni diviso ai limiti dichiarati (ogni fascia comprende il limite inferiore) | `fascia di tempo`: prima, 0-29, 30-89, 90-179, 180-364, da 365 giorni |
 | `incrocio` | due divisioni, per le righe e le colonne di `comp.facet_grid` | `soggetto per fase` |
 

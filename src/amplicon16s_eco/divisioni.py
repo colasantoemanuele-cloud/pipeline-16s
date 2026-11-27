@@ -423,6 +423,9 @@ class Applicazione:
     espansione: dict[str, Any]
     #: Per un incrocio, le applicazioni delle righe e delle colonne.
     componenti: tuple["Applicazione", "Applicazione"] | None = None
+    #: Perche' la regola non si applica a questa colonna (una regola «ordine»
+    #: su valori che non sono tempi), o ``None``.
+    non_applicabile: str | None = None
 
     @property
     def senza_gruppo(self) -> int:
@@ -476,25 +479,28 @@ def _applica_fonte(nome: str, fonte: Fonte, colonna: str,
             if x is not None:
                 mappa[v] = etichette[sum(x >= limite for limite in fonte.limiti)]
         espansione = {"gruppo": {"from": colonna, "groups": _gruppi_della_mappa(mappa)}}
-    else:
+    elif fonte.regola == "ordine":
+        # Solo valori che sono tutti durate, o tutti date: altrimenti l'ordine
+        # di tempo non c'e', e la fonte non vale (si prova la successiva).
         tempi = [durata_in_giorni(v) for v in presenti]
-        if fonte.regola == "ordine" and presenti and all(t is not None for t in tempi):
+        date = [_data(v) for v in presenti]
+        if all(t is not None for t in tempi):
             chiavi: list[Any] = tempi
-        elif fonte.regola == "ordine" and presenti and all(_data(v) for v in presenti):
-            chiavi = [_data(v) for v in presenti]
+        elif all(date):
+            chiavi = date
         else:
-            chiavi = []
-        if chiavi:
-            ordinati = [v for _, v in sorted(zip(chiavi, presenti))]
-            cifre = len(str(len(ordinati)))
-            mappa = {v: f"{i:0{cifre}d} {v}" for i, v in enumerate(ordinati, start=1)}
-            espansione = {"gruppo": {"from": colonna, "groups": _gruppi_della_mappa(mappa)}}
-        else:
-            # Una colonna cosi' com'e', o valori che non sono tempi: la colonna.
-            mappa = {v: v for v in presenti}
-            espansione = {"colonna": colonna}
-            if fonte.regola == "ordine":
-                descritta = f"colonna {colonna} cosi' com'e' (i valori non sono tempi)"
+            estranei = [v for v, t, g in zip(presenti, tempi, date) if t is None and g is None]
+            return Applicazione(
+                nome, descritta, colonna, (None,) * len(valori), (), {},
+                non_applicabile=("i valori non sono tutti durate o date (per esempio "
+                                 + ", ".join(repr(v) for v in estranei[:3]) + ")"))
+        ordinati = [v for _, v in sorted(zip(chiavi, presenti))]
+        cifre = len(str(len(ordinati)))
+        mappa = {v: f"{i:0{cifre}d} {v}" for i, v in enumerate(ordinati, start=1)}
+        espansione = {"gruppo": {"from": colonna, "groups": _gruppi_della_mappa(mappa)}}
+    else:
+        mappa = {v: v for v in presenti}
+        espansione = {"colonna": colonna}
     gruppi = tuple(mappa.get(v) if _presente(v) else None for v in valori)
     return Applicazione(nome, descritta, colonna, gruppi, _conta(gruppi), espansione)
 
@@ -502,6 +508,8 @@ def _applica_fonte(nome: str, fonte: Fonte, colonna: str,
 def _struttura(app: Applicazione, campioni: int) -> str | None:
     """Perche' i gruppi di un'applicazione non sono utilizzabili (numero di
     gruppi e campioni coperti), o ``None``."""
+    if app.non_applicabile:
+        return app.non_applicabile
     if len(app.gruppi) < MINIMO_GRUPPI:
         return f"{len(app.gruppi)} gruppi, ne servono almeno {MINIMO_GRUPPI}"
     if len(app.gruppi) > MASSIMO_GRUPPI:
@@ -880,6 +888,13 @@ def espandi(dati: dict[str, Any], tabella: Tabella) -> Espansione:
         registra(nome, app, origine)
         scelte[nome]["campi"].append(campo)
 
+    # I campi del modello vincolato nominano variabili del disegno: seguono la
+    # sostituzione, e si registrano fra i campi della divisione.
+    vincolata = dati.get("constrained") or {}
+    for campo in _CAMPI_CHE_SEGUONO:
+        for nome in vincolata.get(campo.split(".")[1]) or ():
+            if nome in scelte and campo not in scelte[nome]["campi"]:
+                scelte[nome]["campi"].append(campo)
     cambiata = bool(scelte) or togli_griglia
     espansi = dati
     if cambiata:
