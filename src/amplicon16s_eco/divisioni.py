@@ -25,12 +25,12 @@ Chi lo usa:
 1. un gruppo derivato dichiarato in ``design.groupings``;
 2. una colonna dell'oggetto con almeno un valore;
 3. una divisione del catalogo, o una divisione generica ``<colonna>_prefisso``;
-4. una colonna dell'oggetto senza valori (come nella versione 0.2.0: le
-   analisi la respingono piu' avanti);
+4. una colonna dell'oggetto senza valori (le analisi la trattano come una
+   variabile senza gruppi);
 5. altrimenti il nome e' sconosciuto (``E-ECO-47``).
 
 Una colonna con valori vince quindi sempre su una divisione con lo stesso nome,
-e una configurazione della versione 0.2.0 si legge come prima. La colonna
+e un nome di colonna indica sempre la stessa colonna. La colonna
 vuota dell'inventario della pipeline (``modulo`` quando la pipeline non ha
 derivato il modulo) non e' una variabile: il nome passa alla divisione.
 

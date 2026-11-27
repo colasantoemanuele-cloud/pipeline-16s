@@ -1180,8 +1180,7 @@ nella riga di una PERMANOVA il test delle dispersioni è significativo, la diffe
 i gruppi può essere di variabilità e non di composizione.
 
 Con `run.analysis_rank` o con il filtro di abbondanza ogni tabella aggiunge alla sua
-intestazione il livello dei calcoli e il filtro applicato. I codici introdotti con le
-migliorie:
+intestazione il livello dei calcoli e il filtro applicato. Codici dei metodi facoltativi:
 
 | Codice | Specie | Quando |
 |---|---|---|
@@ -1452,12 +1451,12 @@ Un nome si legge così, e vale la prima risposta:
 1. un gruppo derivato dichiarato in `design.groupings`;
 2. una colonna dell'oggetto con almeno un valore;
 3. una divisione del catalogo (maiuscole e spazi doppi non contano), o `<colonna>_prefisso`;
-4. una colonna dell'oggetto senza valori, come nella versione 0.2.0;
+4. una colonna dell'oggetto senza valori (le analisi la trattano come una variabile senza gruppi);
 5. altrimenti il nome è sconosciuto: `E-ECO-47`.
 
-Una colonna con valori vince quindi su una divisione con lo stesso nome, e una
-configurazione della versione 0.2.0, che nomina colonne e gruppi derivati, si legge come
-prima: stessi parametri, stesso digest, stessi file.
+Una colonna con valori vince quindi su una divisione con lo stesso nome: una
+configurazione che nomina solo colonne e gruppi derivati non si espande, e ha gli stessi
+parametri, lo stesso digest e gli stessi file di quella scritta senza divisioni.
 
 **Che cosa diventa.** Prima della validazione sull'oggetto `validate` e `run` descrivono
 l'oggetto (`R/descrivi.R`) ed espandono ogni divisione in ciò che le analisi conoscono già:

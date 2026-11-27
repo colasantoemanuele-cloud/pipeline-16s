@@ -400,10 +400,18 @@ def derivazioni_della_pipeline(oggetto: Path | str) -> dict[str, str] | None:
 
 def proposte_di(descrizione: dict[str, Any]) -> Proposte:
     """Le divisioni che funzionano sui metadati dell'oggetto: il catalogo e le
-    divisioni generiche delle colonne selezionabili (:func:`_non_selezionabile`)."""
+    divisioni generiche delle colonne selezionabili (:func:`_non_selezionabile`).
+
+    Fra le generiche le colonne dello studio vengono prima di quelle
+    dell'inventario della pipeline, ciascun gruppo nell'ordine dell'oggetto:
+    fra una colonna dello studio e una dell'inventario con gli stessi gruppi
+    (la colonna dei controlli copiata in ``materiale``) resta quella dello
+    studio, con il nome che ha nei metadati.
+    """
     tabella = Tabella.dalla_descrizione(descrizione)
     selezionabili = [c["nome"] for c in descrizione["colonne"]
                      if not _non_selezionabile(c) and c["nome"] in tabella.valori]
+    selezionabili.sort(key=lambda nome: nome in COLONNE_INVENTARIO)
     return proponi(tabella, selezionabili)
 
 

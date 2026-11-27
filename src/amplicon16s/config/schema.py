@@ -1165,31 +1165,31 @@ class Run(_Gruppo):
 # --------------------------------------------------------------------------- #
 # Gruppi delle analisi ecologiche a valle                                      #
 # --------------------------------------------------------------------------- #
-# I nomi dei gruppi sono riservati fin d'ora, ma le analisi ecologiche non sono
-# ancora realizzate e nessun parametro e' stato definito. I gruppi restano
-# quindi vuoti: essendo a chiave chiusa, qualunque parametro vi venga scritto
-# oggi verrebbe respinto, ed e' il comportamento corretto finche' non esiste
-# codice che sappia interpretarlo.
+# I nomi dei gruppi sono riservati nella configurazione della pipeline, ma
+# non hanno parametri: le analisi ecologiche sono un pacchetto a parte
+# (amplicon16s_eco) con il proprio file di configurazione
+# (config/eco.example.yaml). Essendo a chiave chiusa, questi gruppi respingono
+# qualunque parametro vi venga scritto.
 
 
 class Norm(_Gruppo):
-    """Normalizzazione delle abbondanze. Nessun parametro ancora definito."""
+    """Normalizzazione delle abbondanze. Nessun parametro nella configurazione della pipeline."""
 
 
 class Glom(_Gruppo):
-    """Aggregazione a un livello tassonomico. Nessun parametro ancora definito."""
+    """Aggregazione a un livello tassonomico. Nessun parametro nella configurazione della pipeline."""
 
 
 class Beta(_Gruppo):
-    """Misure di diversità beta. Nessun parametro ancora definito."""
+    """Misure di diversità beta. Nessun parametro nella configurazione della pipeline."""
 
 
 class Ord(_Gruppo):
-    """Ordinamento e riduzione dimensionale. Nessun parametro ancora definito."""
+    """Ordinamento e riduzione dimensionale. Nessun parametro nella configurazione della pipeline."""
 
 
 class Stat(_Gruppo):
-    """Test statistici. Nessun parametro ancora definito."""
+    """Test statistici. Nessun parametro nella configurazione della pipeline."""
 
 
 # --------------------------------------------------------------------------- #

@@ -60,9 +60,34 @@ def test_il_catalogo_del_pacchetto_e_valido_e_ogni_voce_ha_la_sua_origine():
     assert {"posizione", "modulo", "fase", "volo o terra", "soggetto", "tipo di materiale",
             "tempo di raccolta", "soggetto per fase"} <= set(nomi)
     assert d.impronta_del_catalogo().startswith("sha256:")
-    # Il pacchetto installato porta il file del catalogo.
-    pyproject = (RADICE / "pyproject.toml").read_text(encoding="utf-8")
-    assert '"divisioni.yaml"' in pyproject
+
+
+def test_le_package_data_portano_ogni_file_non_python_del_pacchetto():
+    """
+    **Obiettivo**: ogni file del pacchetto ``amplicon16s_eco`` che non e'
+    Python (gli script R, ``descrivi.R`` compreso, e il catalogo
+    ``divisioni.yaml``) e' coperto da uno dei motivi delle package-data di
+    ``pyproject.toml``; e i motivi non elencano file che non esistono.
+
+    **Razionale scientifico e sistemistico**: un'installazione non modificabile
+    (quella dell'immagine) copia solo i file dichiarati: senza il catalogo
+    ``eco init`` e ``eco validate`` si fermerebbero, senza uno script R il
+    calcolo.
+    """
+    import fnmatch
+    import tomllib
+
+    pyproject = tomllib.loads((RADICE / "pyproject.toml").read_text(encoding="utf-8"))
+    motivi = pyproject["tool"]["setuptools"]["package-data"]["amplicon16s_eco"]
+    pacchetto = RADICE / "src" / "amplicon16s_eco"
+    file = sorted(p.relative_to(pacchetto).as_posix() for p in pacchetto.rglob("*")
+                  if p.is_file() and p.suffix not in (".py", ".pyc")
+                  and "__pycache__" not in p.parts)
+    assert "divisioni.yaml" in file and "R/descrivi.R" in file
+    scoperti = [f for f in file if not any(fnmatch.fnmatchcase(f, m) for m in motivi)]
+    assert scoperti == []
+    for motivo in motivi:
+        assert any(fnmatch.fnmatchcase(f, motivo) for f in file), motivo
 
 
 @pytest.mark.parametrize("voce, errore", [
@@ -319,6 +344,52 @@ def test_le_proposte_tolgono_i_doppioni_e_sono_le_stesse_a_ogni_esecuzione():
     assert "soggetto" in [p.nome for p in proposte.proposte]
     assert next(p for p in proposte.proposte if p.nome == "soggetto").origine == "generica"
     assert any(n == "soggetto" and "vince" in m for n, m in proposte.scartate)
+
+
+def _descrizione(colonne: dict[str, list[str | None]]) -> dict:
+    """Una descrizione di ``descrivi.R`` con la tabella campione per campione."""
+    voci = []
+    for nome, valori in colonne.items():
+        presenti = [v for v in valori if v is not None]
+        conti = {v: presenti.count(v) for v in sorted(set(presenti))}
+        voci.append({"nome": nome, "con_valore": len(presenti), "distinti": len(conti),
+                     "gruppi_ripetuti": sum(n >= 2 for n in conti.values()), "numerica": False,
+                     "valori": [{"valore": v, "campioni": n} for v, n in conti.items()]})
+    n = len(next(iter(colonne.values())))
+    return {"campioni": n, "colonne": voci,
+            "tabella": {"campioni": [f"c{i:02d}" for i in range(n)], "valori": colonne}}
+
+
+def test_la_colonna_materiale_uguale_a_un_tempo_non_e_il_tipo_di_materiale():
+    """
+    **Obiettivo**: la colonna ``materiale`` dell'inventario, quando porta gli
+    stessi valori di una colonna di tempo (la pipeline vi copia la colonna dei
+    controlli, ``ctrl.column``), non diventa «tipo di materiale»: si propone la
+    colonna dello studio come divisione generica, accanto a «fase», e
+    ``materiale`` e' il suo doppione. Con una colonna ``Characteristics[Material
+    Type]`` il tipo di materiale viene da quella.
+
+    **Razionale scientifico e sistemistico**: ``materiale`` e' la colonna dei
+    controlli della pipeline, non sempre il tipo di materiale; e fra due
+    colonne con gli stessi gruppi resta quella dello studio, con il nome che
+    ha nei metadati.
+    """
+    from amplicon16s_eco import init
+
+    tempi = ["Pre-flight", "Post-flight", "Cruise, in-flight", "Ascent/Descent, in-flight"] * 5
+    descrizione = _descrizione({"accession": [f"a{i}" for i in range(20)], "materiale": tempi,
+                                "factor_value_time": tempi})
+    proposte = init.proposte_di(descrizione)
+    assert [(p.nome, p.origine) for p in proposte.proposte] == [
+        ("fase", "catalogo"), ("factor_value_time", "generica")]
+    assert ("materiale", "factor_value_time") in proposte.doppioni
+    assert "tipo di materiale" not in {n for n, _ in proposte.scartate}
+    tipi = ["Surface swab", "Air"] * 10
+    con_tipo = init.proposte_di(_descrizione({"accession": [f"a{i}" for i in range(20)],
+                                              "materiale": tempi,
+                                              "characteristics_material_type": tipi}))
+    tipo = next(p for p in con_tipo.proposte if p.nome == "tipo di materiale")
+    assert tipo.applicazione.colonna == "characteristics_material_type"
 
 
 # --------------------------------------------------------------------------- #

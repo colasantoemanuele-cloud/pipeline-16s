@@ -265,8 +265,8 @@ def _calcola(
             raise ErroreEco([("E-ECO-91", f"L'impronta di {oggetto} non e' piu' {impronta}.")])
 
         # Il campo divisioni e' descrittivo, fuori dal digest; c'e' solo se la
-        # configurazione nomina divisioni, e un'altra resta byte per byte quella
-        # della versione 0.2.0.
+        # configurazione nomina divisioni: una configurazione che nomina solo
+        # colonne e gruppi derivati ha il file dei soli digest e parametri.
         scrivi_atomico(prodotta / NOME_CONFIGURAZIONE, _json({
             "digest": digest(config),
             "parametri": risolta(config),

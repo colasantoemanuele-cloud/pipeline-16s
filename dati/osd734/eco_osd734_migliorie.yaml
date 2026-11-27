@@ -1,8 +1,8 @@
-# Analisi ecologiche su OSD-734 con le migliorie: configurazione dimostrativa.
+# Analisi ecologiche su OSD-734: configurazione dimostrativa delle funzioni facoltative.
 #
 # Oggetto di partenza: 12_final/ps_final.rds di un'esecuzione completa della
-# pipeline su OSD-734 (760 campioni biologici). Usa le novita' delle analisi
-# ecologiche: gruppi derivati (per espressione regolare e per elenco), filtro
+# pipeline su OSD-734 (760 campioni biologici). Usa le funzioni facoltative
+# delle analisi ecologiche: gruppi derivati (per espressione regolare e per elenco), filtro
 # delle varianti rare (nella seconda variante, sotto), rarefazione ripetuta,
 # Chao1, piu' ranghi, composizione a pannelli, t-SNE, UniFrac, db-RDA, colori
 # descrittivi e palette. Il significato di ogni parametro e' in

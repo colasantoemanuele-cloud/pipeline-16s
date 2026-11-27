@@ -219,14 +219,14 @@ divisioni:
   - nome: tipo di materiale
     spiegazione: il tipo di materiale campionato
     fonti:
-      - colonna: materiale
-        regola: colonna
       - colonna: material_type
         regola: colonna
     origine: >-
-      colonne: «materiale» dell'inventario della pipeline; Characteristics[Material Type] in
-      tutti i file s_ scaricati («Material Type» anche fra le caratteristiche d'esempio della
-      guida OSDR alla sottomissione).
+      colonna: Characteristics[Material Type] in tutti i file s_ scaricati («Material Type»
+      anche fra le caratteristiche d'esempio della guida OSDR alla sottomissione). La colonna
+      «materiale» dell'inventario della pipeline non e' una fonte: porta i valori della colonna
+      dei controlli (ctrl.column), che non sempre e' il tipo di materiale (in OSD-170 e'
+      Factor Value[Time]).
 
   - nome: dieta
     spiegazione: la dieta
