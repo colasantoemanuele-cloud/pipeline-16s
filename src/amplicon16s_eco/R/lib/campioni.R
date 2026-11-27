@@ -110,7 +110,8 @@ e_mancante <- function(x, marcatori) {
 
 # I gruppi derivati (design.groupings) come nuove colonne della tabella dei
 # campioni. Per ognuno: il nome non deve essere quello di una colonna
-# dell'oggetto; from deve esserlo; con groups ogni valore elencato deve
+# dell'oggetto con almeno un valore (una colonna tutta vuota e' sostituita);
+# from deve esserlo; con groups ogni valore elencato deve
 # comparire nella colonna, e ogni valore va al suo gruppo; con pattern il primo
 # gruppo di cattura dell'espressione (PCRE, come re di Python nella
 # validazione del file) e' il nome del gruppo. Un valore mancante, che non e'
@@ -125,7 +126,10 @@ deriva_raggruppamenti <- function(tabella, raggruppamenti, marcatori) {
   for (nome in names(raggruppamenti)) {
     g <- raggruppamenti[[nome]]
     da <- g[["from"]]
-    if (nome %in% colonne) {
+    # Una colonna dell'oggetto senza alcun valore (la colonna «modulo»
+    # dell'inventario quando la pipeline non l'ha derivata) non e' una
+    # variabile: il gruppo derivato con lo stesso nome la sostituisce.
+    if (nome %in% colonne && !all(e_mancante(tabella[[nome]], marcatori))) {
       errori[[length(errori) + 1L]] <- .avviso("E-ECO-40", sprintf(
         "design.groupings.%s: il nome e' quello di una colonna dell'oggetto; scegline un altro.",
         nome))

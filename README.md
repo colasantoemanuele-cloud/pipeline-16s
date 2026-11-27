@@ -235,7 +235,8 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
   python3 scripts/esegui.py eco run --object <ps_final.rds> --config <eco.yaml> --out <cartella>
 ```
 
-`eco init` scrive una configurazione di partenza con le proposte e le scelte da fare
+`eco init` scrive una configurazione di partenza con le proposte, le divisioni dei
+metadati che funzionano sul dataset (si scelgono per nome) e le scelte da fare
 (completate quelle, `eco validate` la controlla contro l'oggetto); `eco run` scrive
 tabelle, grafici, un riepilogo con gli avvisi (`E-ECO-`) e un manifesto con lo SHA-256
 di ogni file, identici byte per byte a parità di oggetto, configurazione e seme. Esempi
@@ -324,6 +325,19 @@ della sua immagine: i due insieme identificano i risultati.
   Chi aggiorna dalla v0.1.0 aggiunge `alpha.method` alle configurazioni delle analisi
   ecologiche, dove ora è obbligatorio: con `alpha.method: rarefy` i risultati sono gli
   stessi di prima.
+- **Analisi ecologiche 0.3.0** (`amplicon16s_eco`), immagine non ancora pubblicata:
+  1. catalogo delle divisioni dei metadati (`src/amplicon16s_eco/divisioni.yaml`): posizione,
+     modulo, fase rispetto al volo, volo o terra, soggetto, tipo di materiale, tempo di
+     raccolta e le altre colonne attese nei dataset OSDR, con l'origine di ogni nome;
+  2. `eco init` propone solo le divisioni che funzionano sul dataset, senza doppioni, e
+     scrive i loro gruppi in `<configurazione>_divisioni_proposte.tsv`;
+  3. una divisione si sceglie per nome nei campi che accettano una colonna, un incrocio
+     («soggetto per fase») in `comp.facet_grid`; codici nuovi `E-ECO-47` ed `E-ECO-48`.
+
+  Le configurazioni della 0.2.0 danno gli stessi risultati; un nome sconosciuto in
+  `design.variable`, `design.other_variables`, `comp.group_by`, `ord.color_by`,
+  `comp.facet_wrap` o `comp.facet_grid` ora è `E-ECO-47` invece di `E-ECO-05`
+  (RIFERIMENTO.md, 4.7).
 
 ## Documenti
 

@@ -114,15 +114,24 @@ def _cmd_init(args: argparse.Namespace) -> int:
     """Comando ``init``: scrive la configurazione di partenza e il riepilogo."""
     from amplicon16s.init.scrittura import SENZA_VALORE, Specie, valore_yaml
 
-    from amplicon16s_eco.init import scrivi
+    from amplicon16s_eco.init import nome_del_tsv, scrivi
 
-    if args.output.exists():
-        print(f"init: {args.output} esiste gia': init non scrive su una configurazione "
-              "esistente. Indica con --output un file nuovo", file=sys.stderr)
-        return USCITA_RIFIUTO
+    tsv = nome_del_tsv(args.output)
+    for percorso in (args.output, tsv):
+        if percorso.exists():
+            print(f"init: {percorso} esiste gia': init non scrive su un file esistente. "
+                  "Indica con --output un file nuovo", file=sys.stderr)
+            return USCITA_RIFIUTO
     accettate = bool(args.accetta_proposte)
-    voci, fatti = scrivi(args.oggetto, args.output, accettate)
+    voci, fatti, proposte = scrivi(args.oggetto, args.output, accettate)
     print(f"Configurazione di partenza scritta in {args.output}")
+    print(f"Gruppi delle divisioni proposte in {tsv}")
+    print(f"Divisioni suggerite dai metadati: {len(proposte.proposte)}")
+    for proposta in proposte.proposte:
+        print(f"  {proposta.nome}: {proposta.spiegazione}")
+    for nome, uguale in proposte.doppioni:
+        print(f"  (la colonna {nome} e' la divisione {uguale})" if nome == uguale else
+              f"  (non proposta {nome}: divide i campioni come {uguale})")
     print("Rilevato sull'oggetto:")
     for fatto in fatti:
         print(f"  {fatto}")
@@ -182,6 +191,10 @@ def _stampa_esito(esito: Esito) -> None:
         print(f"profondita' di rarefazione: {alfa.get('profondita_di_rarefazione')} "
               f"({alfa.get('origine')}), {alfa.get('campioni_rarefatti')} campioni"
               + (f", {ripetute} rarefazioni" if ripetute else ""))
+    for scelta in esito.divisioni:
+        # Che cosa e' diventato ogni nome di divisione della configurazione.
+        print(f"divisione {scelta['nome']} ({', '.join(scelta['campi'])}): {scelta['regola']}; "
+              f"diventa {scelta['diventa']}")
     for gruppo in esito.riepilogo.get("gruppi_derivati") or []:
         # I gruppi che la regola produce, perche' si controlli prima del calcolo.
         gruppi = ", ".join(f"{nome} {n}" for nome, n in (gruppo.get("gruppi") or {}).items())

@@ -249,37 +249,38 @@ p16s eco init --object /lavoro/esecuzione/12_final/ps_final.rds --output /lavoro
 p16s eco validate --object /lavoro/esecuzione/12_final/ps_final.rds --config /lavoro/eco.yaml
 ```
 
-`eco init` scrive `eco.yaml` e, sotto «Rilevato sull'oggetto», elenca le colonne dei campioni:
-quelle portate con `out.study_columns` hanno il nome in minuscolo con i trattini bassi (`Factor
-Value[Tempo]` diventa `factor_value_tempo`). Tre righe vanno lette:
+`eco init` scrive `eco.yaml` e, accanto, `eco_divisioni_proposte.tsv`. Sopra la riga
+`design:` il file elenca le **divisioni suggerite dai metadati**: i modi di dividere i
+campioni in gruppi che funzionano su questo dataset, una riga per ciascuna con il nome e
+una spiegazione. Su OSD-734, per esempio:
 
-- **«Gruppi delle colonne candidate»**: per ogni colonna, i gruppi e quanti campioni hanno. La
-  variabile da confrontare è una di queste: quella della domanda dello studio, che si legge in
-  `metadati/i_Investigation.txt` (righe «Study Title» e «Study Description») o sulla pagina
-  dello studio. Una colonna con più di otto gruppi non è elencata: i suoi gruppi si contano dal
-  file dei metadati accanto all'oggetto, sostituendo `COLONNA` con il nome della colonna:
+```text
+# Divisioni suggerite dai metadati: 1
+#   modulo  il modulo della stazione, dalla colonna della pipeline o dal prefisso della posizione (factor_value_sample_location)
+```
 
-  ```bash
-  awk -F'\t' 'NR==1{for(i=1;i<=NF;i++) if($i=="COLONNA") c=i; next} {print $c}' \
-    "$LAVORO"/esecuzione/12_final/metadati.tsv | sort | uniq -c | sort -rn
-  ```
+Per sceglierne una si scrive il suo **nome** dove va una colonna (`design.variable: modulo`,
+`comp.facet_wrap: modulo`...); un incrocio come «soggetto per fase» è il valore di
+`comp.facet_grid`. Lo strumento ricava la regola dal suo catalogo (RIFERIMENTO.md, 4.7).
+I gruppi di ogni divisione, con i campioni, sono in `eco_divisioni_proposte.tsv`, che si
+apre con un foglio di calcolo. La variabile da confrontare è quella della domanda dello
+studio, che si legge in `metadati/i_Investigation.txt` (righe «Study Title» e «Study
+Description») o sulla pagina dello studio; si può nominare anche una colonna dell'oggetto
+che non è fra le divisioni. Fra i gruppi possono comparire campioni che non sono
+dell'ambiente studiato (aria, materiale mai usato): se non sono stati dichiarati come
+bianchi al passo 5, si tengono fuori con `design.subset`, che elenca i valori da tenere.
 
-  Fra i gruppi possono comparire campioni che non sono dell'ambiente studiato (aria, materiale
-  mai usato): se non sono stati dichiarati come bianchi al passo 5, si tengono fuori con
-  `design.subset`, che elenca i valori da tenere.
-- **«Variabili confuse»**: compare se due colonne dividono i campioni quasi allo stesso modo (per
-  esempio tutti i campioni a terra sono radici). Un confronto sull'una misura anche l'altra: lo
-  si dichiara nei risultati, oppure si restringe l'analisi con `design.subset` ai campioni di un
-  solo gruppo dell'altra colonna (le sole radici), se ne restano almeno due per gruppo.
+Sotto «Rilevato sull'oggetto» le colonne dei campioni hanno i nomi dell'oggetto: quelle
+portate con `out.study_columns` sono in minuscolo con i trattini bassi (`Factor
+Value[Tempo]` diventa `factor_value_tempo`). Due righe vanno lette:
+
+- **«Variabili confuse»** e **«Divisioni confuse»**: compaiono se due colonne, o due
+  divisioni, dividono i campioni quasi allo stesso modo (per esempio tutti i campioni a terra
+  sono radici). Un confronto sull'una misura anche l'altra: lo si dichiara nei risultati,
+  oppure si restringe l'analisi con `design.subset` ai campioni di un solo gruppo dell'altra
+  colonna (le sole radici), se ne restano almeno due per gruppo.
 - **«Rarefazione»**: compare se il campione più povero ha meno di un decimo delle letture della
   mediana. La riga stessa dice che cosa fare: sopra 1.000 letture di solito nulla.
-
-Sopra la riga `design:` il file elenca le **colonne selezionabili come gruppi** (con il numero di
-gruppi e quanti hanno almeno 2, 5 e 10 campioni), quelle che non lo sono con il motivo, e quelle
-che la pipeline ha derivato (il modulo) con la regola. Se i valori di una colonna hanno un
-prefisso che li riunisce in pochi gruppi (le 102 posizioni di OSD-734 negli 8 moduli), sotto
-`design:` la riga `# groupings:` porta la **proposta di un gruppo derivato**, con i gruppi che
-produrrebbe: resta in commento anche con `--accetta-proposte`, e la si usa togliendo il commento.
 
 Dopo ogni `resume` si rilanciano `report` ed `eco init` (con un altro `--output`).
 `eco validate` nomina le scelte che mancano (`E-ECO-02`) e la riga del file di ciascuna: ogni
@@ -287,7 +288,7 @@ parametro è nel file sotto il suo gruppo (`design.variable` è `# variable:` so
 
 | Parametro | Che cosa decide | Regola semplice |
 |---|---|---|
-| `design.variable` | la colonna con i gruppi da confrontare | quella della domanda dello studio, fra le colonne elencate; se manca dall'oggetto si aggiunge a `out.study_columns` in `con_soglie.yaml` e si rilanciano `resume` ed `eco init` |
+| `design.variable` | la divisione o la colonna con i gruppi da confrontare | quella della domanda dello studio, fra le divisioni suggerite o le colonne elencate; se manca dall'oggetto si aggiunge a `out.study_columns` in `con_soglie.yaml` e si rilanciano `resume` ed `eco init` |
 | `run.seed` | il seme di rarefazione e permutazioni | un intero qualunque, per esempio `1` |
 | `alpha.method` | l'alfa diversità su conteggi rarefatti o no | `rarefy` (proposto); `none` con un filtro delle varianti rare, controllando l'avviso `E-ECO-39` |
 | `comp.rank`, `comp.top_n` | il rango della composizione e quanti taxa distinguere nei grafici | il rango è di solito proposto (`"Genus"`); `10` |
@@ -296,18 +297,14 @@ parametro è nel file sotto il suo gruppo (`design.variable` è `# variable:` so
 | `stat.min_group_size`, `stat.significance_level` | i campioni che un gruppo deve avere per entrare nei test, e il livello di significatività | `2` (`3` se ogni gruppo da confrontare ha almeno tre campioni) e `0.05` |
 | `design.subset` | facoltativo: quali campioni entrano nelle analisi | una colonna e i valori da tenere: `subset: {factor_value_tempo: ["Giorno 1", "Giorno 7"]}` |
 
-**Un esempio con i gruppi derivati, il filtro e il t-SNE.** Le righe che si aggiungono a
-`eco.yaml` per confrontare i moduli ricavati dalla posizione (con OSD-734 la colonna è
-`factor_value_sample_location`), colorare le ordinazioni per posizione senza test, filtrare le
-varianti sotto lo 0,1% di ogni campione e aggiungere il t-SNE:
+**Un esempio con una divisione, il filtro e il t-SNE.** Le righe che si aggiungono a
+`eco.yaml` per confrontare i moduli ricavati dalla posizione, colorare le ordinazioni per
+posizione senza test, filtrare le varianti sotto lo 0,1% di ogni campione e aggiungere il
+t-SNE:
 
 ```yaml
 design:
-  variable: modulo_da_posizione          # il gruppo derivato qui sotto
-  groupings:
-    modulo_da_posizione:                 # non il nome di una colonna esistente
-      from: factor_value_sample_location
-      pattern: "^([A-Za-z]+[0-9]+)"      # la proposta di eco init: NOD1D4 -> NOD1
+  variable: modulo                       # la divisione suggerita: NOD1D4 -> NOD1
 filter:
   min_relative_abundance: 0.1            # percentuale: 0,1%
   scope: sample
@@ -323,7 +320,10 @@ plot:
   palette: "Okabe-Ito"                   # leggibile anche da chi non distingue rosso e verde
 ```
 
-`eco validate` stampa i gruppi del modulo con i loro campioni: si controllano prima del calcolo.
+`eco validate` stampa che cosa è diventata la divisione (il gruppo derivato `modulo`, dal
+prefisso di `factor_value_sample_location`) e i suoi gruppi con i campioni: si controllano
+prima del calcolo. Un raggruppamento che il catalogo non conosce (le aree fuori dai moduli,
+per esempio) si scrive a mano in `design.groupings`.
 Un esempio completo, con più ranghi, la db-RDA e le UniFrac, è
 `dati/osd734/eco_osd734_migliorie.yaml`; ogni parametro è in RIFERIMENTO.md, 4.
 

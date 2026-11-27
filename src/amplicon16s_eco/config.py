@@ -274,10 +274,12 @@ class Design(_Gruppo):
     #: La variabile biologica: una sola colonna, senza predefinito.
     variable: _Nome = Field(description=(
         "La variabile biologica: una colonna della tabella dei campioni "
-        "dell'oggetto, trattata come categorica."))
+        "dell'oggetto, un gruppo derivato o una divisione dei metadati (per nome), "
+        "trattata come categorica."))
     #: Altre variabili biologiche, analizzate una alla volta.
     other_variables: tuple[_Nome, ...] = Field((), description=(
-        "Altre variabili biologiche, analizzate una alla volta."))
+        "Altre variabili biologiche (colonne, gruppi derivati o divisioni), analizzate "
+        "una alla volta."))
     #: Variabili tecniche (lotto): primi termini dei modelli.
     technical_variables: tuple[_Nome, ...] = Field((), description=(
         "Variabili tecniche (per esempio il lotto di estrazione), nell'ordine in cui "
@@ -465,8 +467,10 @@ class Alpha(_Gruppo):
 class Griglia(_Gruppo):
     """Le due colonne di una griglia di pannelli: righe e colonne."""
 
-    rows: _Nome = Field(description="Colonna o gruppo derivato delle righe della griglia.")
-    cols: _Nome = Field(description="Colonna o gruppo derivato delle colonne della griglia.")
+    rows: _Nome = Field(description=(
+        "Colonna, gruppo derivato o divisione delle righe della griglia."))
+    cols: _Nome = Field(description=(
+        "Colonna, gruppo derivato o divisione delle colonne della griglia."))
 
     @model_validator(mode="after")
     def _distinte(self) -> "Griglia":
@@ -487,16 +491,19 @@ class Comp(_Gruppo):
         "Numero di taxa mostrati nei grafici; i rimanenti in «altri»."))
     #: Variabili delle barre della composizione; vuoto: quelle del disegno.
     group_by: tuple[_Nome, ...] = Field((), description=(
-        "Colonne o gruppi derivati per cui disegnare le barre della composizione (media "
+        "Colonne, gruppi derivati o divisioni per cui disegnare le barre della composizione (media "
         "per gruppo). Vuoto: le variabili del disegno."))
     #: Barre per campione, un pannello per gruppo.
     facet_wrap: _Nome | None = Field(None, description=(
-        "Colonna o gruppo derivato: barre per campione, un pannello per gruppo "
+        "Colonna, gruppo derivato o divisione: barre per campione, un pannello per gruppo "
         "(ggplot2::facet_wrap, scale libere sull'asse x)."))
-    #: Barre medie per gruppo della variabile, in una griglia.
-    facet_grid: Griglia | None = Field(None, description=(
+    #: Barre medie per gruppo della variabile, in una griglia: {rows, cols} o il
+    #: nome di un incrocio del catalogo delle divisioni.
+    facet_grid: Griglia | _Nome | None = Field(None, description=(
         "Barre medie per gruppo della variabile del disegno in una griglia di pannelli: "
-        "righe e colonne sono due colonne o gruppi derivati (ggplot2::facet_grid)."))
+        "righe e colonne sono due colonne, gruppi derivati o divisioni (ggplot2::facet_grid), "
+        "oppure il nome di un incrocio del catalogo delle divisioni, come \"soggetto per "
+        "fase\"."))
 
     @model_validator(mode="after")
     def _senza_ripetizioni(self) -> "Comp":
@@ -568,7 +575,7 @@ class Ord(_Gruppo):
             "Rtsne::Rtsne); 0 per il t-SNE esatto. Solo con tsne."))
     #: Colonne o gruppi derivati per cui disegnare le ordinazioni senza test.
     color_by: tuple[_Nome, ...] = Field((), description=(
-        "Colonne o gruppi derivati per cui disegnare le ordinazioni colorate, senza "
+        "Colonne, gruppi derivati o divisioni per cui disegnare le ordinazioni colorate, senza "
         "alcun test: figure descrittive."))
 
     @model_validator(mode="after")
@@ -739,6 +746,30 @@ def _rifiuto(problema: dict[str, Any]) -> tuple[str, str]:
     return "E-ECO-01", f"{dove}{testo}."
 
 
+def _una_forma(problemi: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """I problemi di comp.facet_grid, che ammette due forme (una griglia
+    ``{rows, cols}`` o il nome di un incrocio), detti per la forma scritta.
+
+    Lo schema prova le due forme e riporta il rifiuto di ognuna, con
+    l'etichetta della forma nella posizione: si tiene quello della forma che
+    il valore ha (una mappa: la griglia; un testo: il nome; altrimenti la
+    griglia), e la posizione senza l'etichetta.
+    """
+    tenuti = []
+    for p in problemi:
+        loc = p["loc"]
+        forma = loc[2] if len(loc) > 2 and loc[:2] == ("comp", "facet_grid") else None
+        if not isinstance(forma, str) or not (forma.endswith("Griglia]") or forma.endswith("str")):
+            tenuti.append(p)
+            continue
+        valore = p.get("input")
+        della_griglia = forma.endswith("Griglia]")
+        if della_griglia != (not isinstance(valore, str)):
+            continue
+        tenuti.append({**p, "loc": (*loc[:2], *loc[3:])})
+    return tenuti
+
+
 def condizioni(chiave: str) -> tuple[tuple[str, tuple[str, ...] | None], ...]:
     """Le condizioni che rendono richiesto il condizionale ``chiave``."""
     return (CONDIZIONALI[chiave], *CONDIZIONALI_ANCHE.get(chiave, ()))
@@ -837,7 +868,7 @@ def valida(dati: Any) -> ConfigEco:
     try:
         config = ConfigEco.model_validate(dati)
     except ValidationError as e:
-        problemi = e.errors()
+        problemi = _una_forma(e.errors())
         # Un elenco i cui elementi sono tutti respinti risulta anche vuoto: il
         # secondo problema e' una conseguenza del primo e non si riporta.
         respinti = {_chiave(p["loc"]) for p in problemi if p["type"] != "too_short"}

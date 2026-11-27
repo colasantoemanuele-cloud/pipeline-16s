@@ -354,74 +354,92 @@ def _colonna(nome, valori: dict[str, int], numerica=False):
             "valori": [{"valore": v, "campioni": n} for v, n in sorted(valori.items())]}
 
 
-def test_eco_init_elenca_le_colonne_e_propone_in_commento_il_gruppo_per_prefisso():
+def _descrizione_con_tabella(colonne: dict[str, list[str]]) -> dict:
+    """Una descrizione di ``descrivi.R`` con la tabella campione per campione."""
+    campioni = len(next(iter(colonne.values())))
+    return {
+        "campioni": campioni, "varianti": 10,
+        "ranghi": [{"rango": "Regno", "quota_assegnata": 1.0}],
+        "albero": {"presente": False, "radicato": None, "con_lunghezze": None},
+        "colonne": [_colonna(nome, {v: valori.count(v) for v in set(valori)})
+                    if len(set(valori)) < len(valori) else
+                    {"nome": nome, "distinti": len(valori), "con_valore": len(valori),
+                     "gruppi_ripetuti": 0, "numerica": False, "valori": []}
+                    for nome, valori in colonne.items()],
+        "tabella": {"campioni": [f"c{i:02d}" for i in range(campioni)], "valori": colonne},
+    }
+
+
+def test_eco_init_elenca_le_divisioni_suggerite_e_scrive_i_gruppi_a_parte():
     """
-    **Obiettivo**: sopra ``design`` il file elenca ogni colonna
-    selezionabile con il numero di gruppi, quanti hanno almeno 2, 5 e 10
-    campioni e, se sono pochi, i valori; le altre con il motivo (tecnica, un
-    solo valore, tutti diversi, identificativo). Per una colonna con molti
-    valori il cui prefisso (lettere seguite da cifre) li divide in pochi gruppi
-    ripetuti, ``design.groupings`` porta la proposta in commento con i gruppi e
-    i campioni che produrrebbe; ``--accetta-proposte`` non la attiva; tolto il
-    commento, e' una configurazione valida. Una colonna senza un prefisso
-    comune non riceve proposte.
+    **Obiettivo**: sopra ``design`` il file porta solo il numero delle
+    divisioni suggerite, una riga per ciascuna con il nome e la spiegazione,
+    come sceglierne una e una riga con i ranghi tassonomici; i gruppi di ogni
+    divisione, con i campioni, stanno nel file a parte, una riga per gruppo.
+    Sono suggerite le divisioni generiche che funzionano (la colonna con due
+    gruppi grandi, il prefisso di una colonna con molti valori), non quelle con
+    troppi gruppi; ``design.groupings`` non porta proposte. Con il nome della
+    divisione per prefisso in ``design.variable`` il file completato e' una
+    configurazione valida.
 
     **Razionale scientifico e sistemistico**: i gruppi li sceglie chi conduce
-    lo studio; init mostra che cosa i dati permettono, e la regola la decide
-    l'utente.
+    lo studio; il file di configurazione resta leggibile, e il dettaglio dei
+    gruppi e' in una tabella che si apre accanto.
     """
     from init_aiuti import completa, righe_dei_parametri
 
     from amplicon16s_eco import init
 
-    posizioni = {f"{m}{s}{i}": 3 for m in ("NOD1", "NOD2", "LAB1") for s in "AB"
-                 for i in range(1, 4)}
-    posizioni.update({"Aria": 4, "Tubo": 2})
-    descrizione = {
-        "campioni": sum(posizioni.values()), "varianti": 10,
-        "ranghi": [{"rango": "Regno", "quota_assegnata": 1.0}],
-        "albero": {"presente": False, "radicato": None, "con_lunghezze": None},
-        "colonne": [
-            {"nome": "accession", "distinti": 60, "con_valore": 60, "gruppi_ripetuti": 0,
-             "numerica": False, "valori": []},
-            _colonna("posizione_prelievo", posizioni),
-            _colonna("stagione", {"estate": 30, "inverno": 30}),
-            _colonna("piastra", {"p1": 30, "p2": 30}),
-            _colonna("costante", {"x": 60}),
-            _colonna("codice", {f"Z{i}": 2 for i in range(30)}),
-        ],
+    posizioni = [f"{m}{s}{i}" for m in ("NOD1", "NOD2", "LAB1") for s in "AB"
+                 for i in range(1, 4) for _ in range(3)] + ["Aria"] * 4 + ["Tubo"] * 2
+    colonne = {
+        "accession": [f"a{i}" for i in range(60)],
+        "posizione_prelievo": posizioni,
+        "stagione": ["estate", "inverno"] * 30,
+        "piastra": ["p1", "p2"] * 30,
+        "costante": ["x"] * 60,
+        "codice": [f"Z{i % 30}" for i in range(60)],
     }
+    descrizione = _descrizione_con_tabella(colonne)
     voci, fatti = init.prepara(descrizione)
-    colonne = init.colonne_per_gruppi(descrizione, None)
-    testo = init.testo_yaml(voci, fatti, "ps.rds", False, colonne)
-    intestazione = " ".join(testo.split("design:")[0].replace("#", " ").split())
-    assert ("- posizione_prelievo: 20 gruppi; con almeno 2, 5, 10 campioni: 20, 0, 0"
-            in intestazione)
-    assert "- stagione: 2 gruppi" in intestazione and "'estate' 30, 'inverno' 30" in intestazione
-    assert "- piastra: variabile tecnica" in intestazione
-    assert "- costante: un solo valore" in intestazione
-    assert "- accession: identifica il campione" in intestazione
-    assert "Colonne derivate dalla pipeline: non note" in intestazione
+    proposte = init.proposte_di(descrizione)
+    assert [p.nome for p in proposte.proposte] == ["posizione_prelievo_prefisso", "stagione"]
+    blocco = init.blocco_delle_divisioni(proposte, descrizione["ranghi"], "eco_divisioni.tsv")
+    testo = init.testo_yaml(voci, fatti, "ps.rds", False, blocco)
+    intestazione = testo.split("\ndesign:")[0]
+    assert "# Divisioni suggerite dai metadati: 2\n" in intestazione
+    assert ("#   posizione_prelievo_prefisso  il prefisso dei valori di posizione_prelievo "
+            "(lettere iniziali seguite da cifre)\n") in intestazione
+    assert "#   stagione                     la colonna dell'oggetto cosi' com'e'\n" in intestazione
+    piatta = " ".join(intestazione.replace("#", " ").split())
+    assert "scrivi il suo nome dove va una colonna" in piatta
+    assert "eco_divisioni.tsv" in piatta and "Ranghi tassonomici" in piatta and "Regno" in piatta
+    # Nessun elenco di gruppi nel file di configurazione.
+    for gruppo in ("NOD1 18", "LAB1", "'estate' 30", "senza gruppo"):
+        assert gruppo not in testo, gruppo
     righe = righe_dei_parametri(testo, schema.ConfigEco)
-    attiva, valore = righe["design.groupings"]
-    assert not attiva and "posizione_prelievo_prefisso" in valore
-    assert "codice_prefisso" not in valore
-    spiegazioni = " ".join(testo.replace("#", " ").split())
-    assert "LAB1 18, NOD1 18, NOD2 18; senza gruppo: 6 campioni" in spiegazioni
-    assert init.PREFISSO in spiegazioni
+    assert righe["design.groupings"] == (False, "{}")
 
-    accettato = init.testo_yaml(init.accetta(voci), fatti, "ps.rds", True, colonne)
-    assert righe_dei_parametri(accettato, schema.ConfigEco)["design.groupings"][0] is False
+    tsv = init.tsv_delle_divisioni(proposte).splitlines()
+    assert tsv[0] == "divisione\tregola\tgruppo\tcampioni\tcampioni_senza_gruppo"
+    assert tsv[1:4] == [
+        f"posizione_prelievo_prefisso\tprefisso {init.PREFISSO} dei valori di "
+        f"posizione_prelievo\t{g}\t18\t6" for g in ("LAB1", "NOD1", "NOD2")]
+    assert tsv[4:] == ["stagione\tcolonna stagione cosi' com'e'\testate\t30\t0",
+                       "stagione\tcolonna stagione cosi' com'e'\tinverno\t30\t0"]
+    assert init.nome_del_tsv("cartella/eco.yaml").as_posix() == (
+        "cartella/eco_divisioni_proposte.tsv")
+
     completo = completa(testo, {"run.seed": 1, "comp.top_n": 3, "beta.distances": ["bray"],
                                 "ord.methods": [], "ord.distances": [],
                                 "stat.min_group_size": 2, "stat.significance_level": 0.05,
                                 "design.variable": "posizione_prelievo_prefisso",
                                 "comp.rank": "Regno"},
-                        accetta={"design.groupings", "alpha.method"}, modello=schema.ConfigEco)
+                        accetta={"alpha.method"}, modello=schema.ConfigEco)
     import yaml
     config = schema.valida(yaml.safe_load(completo))
-    regola = config.design.groupings["posizione_prelievo_prefisso"]
-    assert (regola.da, regola.pattern) == ("posizione_prelievo", init.PREFISSO)
+    assert config.design.variable == "posizione_prelievo_prefisso"
+    assert config.design.groupings == {}
 
 
 # --------------------------------------------------------------------------- #
@@ -575,7 +593,7 @@ def test_i_grafici_a_pannelli_disegnano_i_valori_della_loro_tabella(eco_r, tmp_p
             assert float(riga["abbondanza_relativa_media"]) == pytest.approx(atteso, abs=1e-9)
     with pytest.raises(ErroreEco) as rifiuto:
         valida_sull_oggetto(oggetto, schema.valida(configurazione(comp={"facet_wrap": "stanza"})))
-    assert rifiuto.value.codici == ["E-ECO-05"]
+    assert rifiuto.value.codici == ["E-ECO-47"]
     assert _codici(configurazione(comp={"facet_grid": {"rows": "luogo", "cols": "luogo"}})) == [
         "E-ECO-01"]
 

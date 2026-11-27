@@ -20,10 +20,26 @@
 #
 # Le chiavi sconosciute sono respinte. I nomi di colonna sono quelli della
 # tabella dei campioni dell'oggetto; i valori si confrontano come testo.
+#
+# Divisioni dei metadati. Dove va una colonna (design.variable,
+# design.other_variables, comp.group_by, ord.color_by, comp.facet_wrap, rows e
+# cols di comp.facet_grid) si puo' scrivere il nome di una divisione del
+# catalogo dello strumento (src/amplicon16s_eco/divisioni.yaml): «fase»,
+# «volo o terra», «soggetto», «tipo di materiale», «tempo di raccolta»...
+# oppure <colonna>_prefisso. Lo strumento ne ricava la regola sui
+# metadati dell'oggetto; un incrocio («soggetto per fase») e' il valore di
+# comp.facet_grid. eco init elenca le divisioni che funzionano sul dataset, e
+# ne scrive i gruppi in <configurazione>_divisioni_proposte.tsv. Un nome si
+# legge, nell'ordine: gruppo derivato dichiarato, colonna con valori,
+# divisione, colonna vuota. Un nome sconosciuto in quei campi e' respinto con
+# E-ECO-47; una divisione che sull'oggetto non da' da 2 a 12 gruppi, almeno due
+# con stat.min_group_size campioni, per almeno meta' dei campioni, con E-ECO-48
+# (RIFERIMENTO.md, sezione 4.7).
 
 design:
   # [OBBLIGATORIO] La variabile biologica: una colonna della tabella dei
-  # campioni, trattata come categorica.
+  # campioni, un gruppo derivato o una divisione dei metadati (per nome),
+  # trattata come categorica.
   # variable:
 
   # [FACOLTATIVO] Altre variabili biologiche, analizzate una alla volta.
@@ -59,9 +75,10 @@ design:
   # other_variables, ord.color_by, comp.group_by, comp.facet_wrap e
   # comp.facet_grid. I valori che non rientrano restano senza gruppo (NA) e il
   # campione esce dalle analisi di quella variabile, con il motivo in
-  # campioni.tsv. eco validate stampa i gruppi ottenuti, con i campioni; eco
-  # init propone in commento un gruppo per prefisso quando i valori lo
-  # permettono. Il nome non puo' essere quello di una colonna. Una regola
+  # campioni.tsv. eco validate stampa i gruppi ottenuti, con i campioni. Le
+  # divisioni del catalogo non serve scriverle qui: si nominano; i gruppi
+  # derivati sono per le divisioni personalizzate. Il nome non puo' essere
+  # quello di una colonna con valori (una colonna vuota e' sostituita). Una regola
   # sbagliata o ambigua (entrambe le regole o nessuna, un valore in due gruppi,
   # un'espressione senza gruppo di cattura) e' respinta con E-ECO-40.
   # groupings: {}
@@ -166,9 +183,10 @@ comp:
 
   # [FACOLTATIVO] Barre medie per gruppo della variabile del disegno
   # (design.variable) in una griglia di pannelli: righe e colonne sono due
-  # colonne o gruppi derivati (ggplot2::facet_grid). Ogni pannello porta il
+  # colonne, gruppi derivati o divisioni (ggplot2::facet_grid), oppure il nome
+  # di un incrocio del catalogo («soggetto per fase»). Ogni pannello porta il
   # numero dei suoi campioni; accanto composizione/griglia_<righe>_<colonne>.tsv.
-  # facet_grid: null   # {rows: <colonna>, cols: <colonna>}
+  # facet_grid: null   # {rows: <nome>, cols: <nome>} oppure "<incrocio>"
 
 beta:
   # [OBBLIGATORIO] Distanze da calcolare, fra: bray, jaccard, aitchison,

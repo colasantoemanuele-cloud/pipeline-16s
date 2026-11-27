@@ -12,9 +12,16 @@ esecuzione: a parita' di oggetto, configurazione e seme i file sono identici
 byte per byte. I file del contratto con R, che portano l'identificativo
 dell'invocazione, restano nella cartella temporanea.
 
+Prima della validazione l'oggetto si descrive (``R/descrivi.R``) e i nomi di
+divisione della configurazione si espandono in colonne, gruppi derivati e
+griglie (:func:`amplicon16s_eco.divisioni.espandi`): R riceve, e il digest
+riguarda, la configurazione espansa. Che cosa e' diventata ogni divisione sta
+in ``configurazione.json``, campo ``divisioni``, fuori dai parametri.
+
 **Chi lo usa.** I sottocomandi ``validate`` e ``run``; ``eco init`` ne riusa
-la copia dell'oggetto e il calcolo della sua impronta. Lancia ``R/valida.R``
-e ``R/analisi.R`` attraverso :mod:`amplicon16s_eco.ponte`.
+la copia dell'oggetto, il calcolo della sua impronta e la descrizione. Lancia
+``R/descrivi.R``, ``R/valida.R`` e ``R/analisi.R`` attraverso
+:mod:`amplicon16s_eco.ponte`.
 """
 
 from __future__ import annotations
@@ -33,7 +40,8 @@ from amplicon16s.metadata.crosswalk import _VALORI_ASSENTI
 
 from amplicon16s_eco import __version__
 from amplicon16s_eco.catalogo import ErroreEco
-from amplicon16s_eco.config import ConfigEco, digest, risolta
+from amplicon16s_eco.config import ConfigEco, digest, risolta, valida
+from amplicon16s_eco.divisioni import Tabella, espandi, impronta_del_catalogo, traduci
 from amplicon16s_eco.ponte import esegui_r
 
 __all__ = ["Avviso", "Esito", "NOME_MANIFESTO", "esegui", "valida_sull_oggetto"]
@@ -64,6 +72,8 @@ class Esito:
     riepilogo: dict[str, Any]
     #: I file prodotti, relativi alla cartella di uscita; vuoto per la validazione.
     file: tuple[str, ...] = ()
+    #: Che cosa e' diventata ogni divisione nominata nella configurazione.
+    divisioni: tuple[dict[str, Any], ...] = ()
 
 
 def _json(documento: Any) -> str:
@@ -140,6 +150,45 @@ def _valida(config: ConfigEco, copia: Path, lavoro: Path) -> tuple[tuple[Avviso,
     return avvisi, esito.get("disegno") or {}
 
 
+def descrizione_della_copia(copia: Path, lavoro: Path) -> dict[str, Any]:
+    """Che cosa contiene la copia dell'oggetto (``R/descrivi.R``)."""
+    esegui_r("descrivi.R", {"oggetto": str(copia), "valori_mancanti": sorted(_VALORI_ASSENTI)},
+             lavoro, "descrizione")
+    return json.loads((lavoro / "descrizione.json").read_text(encoding="utf-8"))
+
+
+def _espandi_e_valida(
+    config: ConfigEco, copia: Path, lavoro: Path
+) -> tuple[ConfigEco, tuple[dict[str, Any], ...], tuple[Avviso, ...], dict[str, Any]]:
+    """Espande le divisioni nominate sull'oggetto e valida la configurazione
+    espansa contro di esso.
+
+    Restituisce la configurazione espansa (quella di partenza se non nomina
+    divisioni), che cosa e' diventata ogni divisione, gli avvisi e il disegno.
+    I rifiuti dell'espansione e quelli delle analisi si dicono insieme, in un
+    solo :class:`ErroreEco`.
+    """
+    tabella = Tabella.dalla_descrizione(descrizione_della_copia(copia, lavoro))
+    espansione = espandi(config.model_dump(mode="json", by_alias=True), tabella)
+    if espansione.cambiata:
+        try:
+            config = valida(espansione.dati)
+        except ErroreEco as e:
+            raise ErroreEco([*espansione.rifiuti, *e.rifiuti]) from None
+    try:
+        avvisi, disegno = _valida(config, copia, lavoro)
+    except ErroreEco as e:
+        raise ErroreEco([*espansione.rifiuti, *traduci(e.rifiuti, espansione)]) from None
+    if espansione.rifiuti:
+        raise ErroreEco(list(espansione.rifiuti))
+    return config, espansione.scelte, avvisi, disegno
+
+
+def _divisioni_scelte(scelte: tuple[dict[str, Any], ...]) -> dict[str, Any]:
+    """Il campo descrittivo ``divisioni`` di ``configurazione.json``."""
+    return {"catalogo": {"sha256": impronta_del_catalogo()}, "scelte": list(scelte)}
+
+
 def _copia(oggetto: Path, lavoro: Path, atteso: str) -> Path:
     """Copia l'oggetto nella cartella di lavoro e verifica che sia identica."""
     copia = lavoro / "oggetto.rds"
@@ -159,8 +208,9 @@ def valida_sull_oggetto(oggetto: Path | str, config: ConfigEco) -> Esito:
     impronta = _impronta_oggetto(oggetto)
     with tempfile.TemporaryDirectory(prefix="amplicon16s-eco-") as temporanea:
         lavoro = Path(temporanea)
-        avvisi, disegno = _valida(config, _copia(oggetto, lavoro, impronta), lavoro)
-    return Esito(impronta, digest(config), avvisi, disegno)
+        copia = _copia(oggetto, lavoro, impronta)
+        config, scelte, avvisi, disegno = _espandi_e_valida(config, copia, lavoro)
+    return Esito(impronta, digest(config), avvisi, disegno, divisioni=scelte)
 
 
 def esegui(oggetto: Path | str, config: ConfigEco, uscita: Path | str) -> Esito:
@@ -202,7 +252,7 @@ def _calcola(
         lavoro = Path(temporanea)
         copia = _copia(oggetto, lavoro, impronta)
         in_corso.fase("validazione")
-        _valida(config, copia, lavoro)
+        config, scelte, _, _ = _espandi_e_valida(config, copia, lavoro)
 
         prodotta = lavoro / "uscita"
         prodotta.mkdir()
@@ -214,9 +264,13 @@ def _calcola(
         if _impronta_oggetto(oggetto) != impronta:
             raise ErroreEco([("E-ECO-91", f"L'impronta di {oggetto} non e' piu' {impronta}.")])
 
+        # Il campo divisioni e' descrittivo, fuori dal digest; c'e' solo se la
+        # configurazione nomina divisioni, e un'altra resta byte per byte quella
+        # della versione 0.2.0.
         scrivi_atomico(prodotta / NOME_CONFIGURAZIONE, _json({
             "digest": digest(config),
             "parametri": risolta(config),
+            **({"divisioni": _divisioni_scelte(scelte)} if scelte else {}),
         }))
         elencati = sorted(
             p.relative_to(prodotta).as_posix() for p in prodotta.rglob("*") if p.is_file()
@@ -238,4 +292,4 @@ def _calcola(
 
     avvisi = tuple(Avviso(a["codice"], a["dettaglio"]) for a in riepilogo.get("avvisi") or [])
     return Esito(impronta, digest(config), avvisi, riepilogo,
-                 tuple([*elencati, NOME_MANIFESTO]))
+                 tuple([*elencati, NOME_MANIFESTO]), scelte)

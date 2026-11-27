@@ -44,6 +44,7 @@ lanciano dalla radice di un clone del repository.
   - [4.4 Parametri con un predefinito](#44-parametri-con-un-predefinito)
   - [4.5 Gruppi derivati, colori e palette](#45-gruppi-derivati-colori-e-palette)
   - [4.6 Ordinazione vincolata](#46-ordinazione-vincolata)
+  - [4.7 Divisioni dei metadati](#47-divisioni-dei-metadati)
 - [5. Integrazione con altri programmi](#5-integrazione-con-altri-programmi)
   - [5.1 `schema`](#51-schema)
   - [5.2 `validate --json`](#52-validate---json)
@@ -858,24 +859,15 @@ uno:
   ha meno di 1.000 letture il rimedio è alzare `qc.min_reads_final` a 1.000 nella
   configurazione della pipeline e rilanciare `resume`, o tenere fuori quei campioni con
   `design.subset`; con almeno 1.000 letture di solito si lascia così.
-- **Gruppi delle colonne candidate.** Per ogni colonna candidata a variabile biologica
-  (fino a otto gruppi), i gruppi con il numero dei campioni: servono a scegliere
-  `design.variable` e `stat.min_group_size`.
-- **Colonne per i gruppi.** Sopra il gruppo `design` il file elenca le colonne
-  selezionabili come gruppi (in `design.variable`, `design.other_variables`,
-  `ord.color_by`, `comp.group_by`, `comp.facet_wrap`, `comp.facet_grid` e come `from` di un
-  gruppo derivato): per ciascuna il numero di gruppi, quanti hanno almeno 2, 5 e 10
-  campioni (i valori di `stat.min_group_size` di solito considerati) e, se i gruppi sono al
-  massimo otto, i valori con i loro campioni. Le colonne non selezionabili sono elencate
-  con il motivo: identificano il campione o ne dicono la classe, sono tecniche, hanno un
-  solo valore o nessuno, sono continue, hanno tutti i valori diversi. Le colonne che la
-  pipeline ha derivato da una regola (il modulo, con `meta.derive_module` e
-  `meta.module_regex`) sono indicate come tali, con la regola letta da
+- **Divisioni suggerite dai metadati.** Sopra il gruppo `design` il file elenca le
+  divisioni che funzionano sul dataset, una riga per ciascuna con il nome e la
+  spiegazione, come sceglierne una (il nome nei campi che accettano una colonna) e i ranghi
+  tassonomici; i gruppi di ogni divisione, con i campioni, sono nel file
+  `<configurazione>_divisioni_proposte.tsv` accanto alla configurazione (sezione 4.7).
+  Fra i fatti, le colonne che la pipeline ha derivato da una regola (il modulo, con
+  `meta.derive_module` e `meta.module_regex`), con la regola letta da
   `10_phyloseq/colonne_metadati.tsv` (verificato sul manifesto di S10) e da
-  `00_config/resolved.yaml` dell'esecuzione. Per una colonna con molti valori il cui
-  prefisso li divide in pochi gruppi ripetuti, `design.groupings` porta in commento la
-  proposta di un gruppo derivato con i gruppi e i campioni che produrrebbe (sezione 4.5):
-  non e' mai attivata da sola, nemmeno con `--accetta-proposte`.
+  `00_config/resolved.yaml` dell'esecuzione, e se nell'oggetto sono vuote.
 - **Variabili confuse.** Fra le colonne candidate a variabile biologica `eco init`
   segnala: due colonne che dividono i campioni negli stessi gruppi (la stessa variabile);
   una colonna i cui gruppi cadono ciascuno in un solo gruppo dell'altra (confuse); e il
@@ -883,7 +875,9 @@ uno:
   i campioni di una condizione sono di un solo tessuto). Contano i gruppi di almeno due
   campioni. Un confronto sull'una misura anche la differenza dell'altra: si sceglie la
   variabile sapendolo, o si restringe con `design.subset` ai campioni di un solo gruppo
-  dell'altra. L'avviso è anche nel commento di `design.variable`.
+  dell'altra. L'avviso è anche nel commento di `design.variable`. Lo stesso controllo,
+  sulla tabella dei campioni che `R/descrivi.R` riporta, segnala le divisioni suggerite
+  confuse fra loro («Divisioni confuse»), salvo le coppie di due colonne così come sono.
 
 I dati per campione vengono dagli export in testo che la pipeline consegna accanto
 all'oggetto (`conteggi.tsv`, `metadati.tsv`), usati solo se `checksum.sha256` della
@@ -891,8 +885,9 @@ stessa cartella li dichiara, con l'oggetto, alle impronte che hanno ora. Con un 
 spostato senza quei file, o non prodotto dalla pipeline, i due avvisi non si valutano e
 il riepilogo lo dichiara. Le righe della configurazione:
 
-- **proposti**: `design.variable`, solo se una sola colonna ha almeno due gruppi di
-  almeno due campioni (con più candidate la riga resta da scegliere e le elenca: quale
+- **proposti**: `design.variable`, la sola divisione suggerita se ce n'è una sola
+  ricavata dalla sola colonna candidata (sezione 4.7), altrimenti solo se una sola colonna
+  ha almeno due gruppi di almeno due campioni (con più candidate la riga resta da scegliere e le elenca: quale
   variabile lo studio confronta lo sa chi lo conduce; senza candidate i test fra gruppi
   non si potranno eseguire); `design.technical_variables`, piastra e corsa se hanno più
   di un valore, dalla più grossolana alla più annidata; `comp.rank`, il rango più fine con almeno
@@ -1201,6 +1196,8 @@ migliorie:
 | `E-ECO-44` | avviso | il modello vincolato usa più gradi di libertà di `constrained.max_df_fraction` dei campioni |
 | `E-ECO-45` | avviso | un termine dell'ordinazione vincolata esce (un solo valore), o un modello non si stima |
 | `E-ECO-46` | avviso | la palette è estesa per interpolazione: i colori aggiunti non sono garantiti per chi non distingue i colori (sezione 4.5) |
+| `E-ECO-47` | rifiuto | un nome in un campo che accetta una divisione non è una colonna, un gruppo derivato né una divisione del catalogo; oppure un incrocio fuori da `comp.facet_grid` (sezione 4.7) |
+| `E-ECO-48` | rifiuto | una divisione nominata non dà gruppi validi su questo oggetto (sezione 4.7) |
 
 ### 4.4 Parametri con un predefinito
 
@@ -1282,16 +1279,14 @@ stampa per ogni gruppo derivato i gruppi ottenuti con il numero di campioni, per
 regola si controlli prima del calcolo, e respinge con `E-ECO-40`: `from` che non è una
 colonna dell'oggetto (o è un altro gruppo derivato); `groups` e `pattern` insieme, o
 nessuno dei due; un valore di `groups` che la colonna non ha, o che sta in due gruppi; un
-`pattern` non valido o senza gruppo di cattura; un nome che è già una colonna.
+`pattern` non valido o senza gruppo di cattura; un nome che è già una colonna con almeno
+un valore. Una colonna tutta vuota (come `modulo` quando la pipeline non ha derivato il
+modulo) non è una variabile: il gruppo derivato con lo stesso nome la sostituisce.
 
-**La proposta di `eco init`.** Per ogni colonna selezionabile con più di otto valori,
-`eco init` prova il criterio del prefisso: l'espressione `^([A-Za-z]+[0-9]+)`, cioè le
-lettere iniziali seguite dalle cifre che le seguono (il modulo di una posizione come
-«NOD1D4» è «NOD1»). La proposta si scrive, in commento, se il prefisso copre almeno metà
-dei campioni con un valore, dà da 2 a 12 gruppi e riunisce in media almeno due valori per
-gruppo; il commento elenca i gruppi con i loro campioni e i valori che resterebbero senza
-gruppo. Non è mai attivata da `--accetta-proposte`: è una regola sui dati, e la decide chi
-conduce lo studio togliendo il commento.
+**Gruppi derivati e divisioni.** I raggruppamenti noti (il modulo dal prefisso della
+posizione, la fase rispetto al volo, il soggetto...) non serve scriverli qui: si nominano
+come divisioni del catalogo (sezione 4.7), e `eco init` elenca quelli che funzionano sul
+dataset. `design.groupings` resta per le divisioni personalizzate.
 
 **Colori descrittivi.** `ord.color_by` elenca colonne o gruppi derivati per cui disegnare
 le ordinazioni (PCoA, NMDS, t-SNE) colorate, senza alcun test: il caso tipico è un
@@ -1370,6 +1365,126 @@ constrained:
   per costruzione. `constrained.max_df_fraction`, senza predefinito, dice oltre quale
   frazione dei campioni i gradi di libertà del modello danno l'avviso `E-ECO-44` (già in
   `validate`); un modello saturo non si stima (`E-ECO-45`).
+
+### 4.7 Divisioni dei metadati
+
+Una **divisione** è un modo di dividere i campioni in gruppi a partire dalla tabella dei
+campioni. Lo strumento porta un **catalogo** delle divisioni note
+(`src/amplicon16s_eco/divisioni.yaml`, versionato con il pacchetto): per ognuna il nome
+breve, una riga di spiegazione, le colonne a cui si applica e da dove vengono i loro nomi
+(un dataset OSDR scaricato o una fonte pubblica: RAZIONALE.md, 4.12). Le colonne si
+riconoscono dalla **chiave**: il nome in minuscolo, ogni segno diverso da lettere e cifre
+come un trattino basso, senza il prefisso `factor_value_`, `characteristics_`, `comment_`
+o `parameter_value_`. `Factor Value[Sample Location]` e `factor_value_sample_location`
+hanno la stessa chiave, `sample_location`.
+
+Le regole:
+
+| Regola | Che cosa fa | Esempio del catalogo |
+|---|---|---|
+| `colonna` | i valori della colonna così come sono | `soggetto` (`characteristics_subject`) |
+| `prefisso` | il primo gruppo di cattura di un'espressione regolare | `modulo`: `^([A-Za-z]+[0-9]+)` sulla posizione, NOD1D4 → NOD1 |
+| `mappatura` | valori riconosciuti da espressioni regolari (senza distinguere le maiuscole) riuniti in gruppi noti; ordinata: il numero d'ordine davanti al nome | `volo o terra`; `fase`: 1 prima, 2 durante, 3 dopo |
+| `ordine` | i valori in ordine di tempo, se sono tutti durate («7 days», «minus10 days», «520 days plus 3 month») o date («01-Nov-2017»), con il numero d'ordine davanti; altrimenti come `colonna` | `tempo di raccolta` |
+| `fasce` | un valore numerico o una durata in giorni diviso ai limiti dichiarati (ogni fascia comprende il limite inferiore) | `fascia di tempo`: prima, 0-29, 30-89, 90-179, 180-364, da 365 giorni |
+| `incrocio` | due divisioni, per le righe e le colonne di `comp.facet_grid` | `soggetto per fase` |
+
+Il numero d'ordine sta nel nome del gruppo perché le analisi ordinano i gruppi per nome:
+«1 prima» viene prima di «2 durante» in ogni grafico e tabella.
+
+Una divisione può avere più fonti: si provano nell'ordine del catalogo e, per ciascuna,
+nelle colonne dell'oggetto con quella chiave e almeno un valore, nell'ordine
+dell'oggetto; vale la prima su cui la regola dà da 2 a 12 gruppi coprendo almeno metà dei
+campioni. Il modulo, per esempio, è la colonna `modulo` della pipeline se l'ha derivata,
+altrimenti il prefisso di `posizione`, altrimenti quello di `factor_value_sample_location`.
+
+**Quando funziona.** Sulla colonna scelta la divisione deve dare da 2 a 12 gruppi, un
+gruppo per almeno metà dei campioni dell'oggetto e almeno due gruppi con abbastanza
+campioni per i test: `stat.min_group_size` in `validate` e `run`, 5 per le proposte di
+`eco init` (la dimensione non è ancora scelta). I gruppi si contano su tutti i campioni
+dell'oggetto, prima di `design.subset`.
+
+**Le proposte di `eco init`.** `eco init` applica il catalogo alla tabella dei campioni e
+aggiunge le divisioni **generiche**: ogni colonna selezionabile così com'è (il nome della
+divisione è quello della colonna) e, per una colonna con più di otto valori, il prefisso
+dei valori (`<colonna>_prefisso`, con lo stesso criterio del modulo, se riunisce in media
+almeno due valori per gruppo). Propone solo quelle che funzionano, nell'ordine: il
+catalogo, poi le generiche nell'ordine delle colonne, poi gli incroci del catalogo fra le
+divisioni proposte, se non sono annidate (un incrocio in cui ogni gruppo di una delle due
+cade in un solo gruppo dell'altra non incrocia nulla; chiesto per nome, `validate` lo
+accetta). Fra due divisioni che dividono i campioni negli stessi gruppi
+(qualunque sia il nome dei gruppi) resta la prima; le divisioni confuse fra loro sono
+segnalate fra i fatti rilevati («Divisioni confuse»), come le colonne («Variabili
+confuse»). Le proposte sono le stesse, nello stesso ordine, a ogni esecuzione.
+
+Sopra `design` il file di configurazione porta solo:
+
+```yaml
+# Divisioni suggerite dai metadati: 2
+#   soggetto           il soggetto campionato (characteristics_subject)
+#   soggetto per fase  la griglia soggetto per fase (righe e colonne di comp.facet_grid)
+# Per sceglierne una scrivi il suo nome dove va una colonna: ...
+# I gruppi di ogni divisione, con i campioni: eco_divisioni_proposte.tsv.
+# Ranghi tassonomici (comp.rank, run.analysis_rank; il livello tassonomico non
+# e' una divisione dei metadati): Kingdom, Phylum, Class, Order, Family, Genus.
+```
+
+I gruppi stanno nel file `<configurazione>_divisioni_proposte.tsv`, scritto accanto alla
+configurazione (`eco.yaml` → `eco_divisioni_proposte.tsv`), una riga per gruppo con le
+colonne `divisione`, `regola`, `gruppo`, `campioni` e `campioni_senza_gruppo`. `eco init`
+non scrive se uno dei due file esiste già. Con una sola divisione suggerita (gli incroci
+non contano), ricavata dalla sola colonna candidata, `design.variable` la propone.
+
+**Sceglierne una.** Si scrive il **nome** della divisione dove va una colonna:
+`design.variable`, `design.other_variables`, `comp.group_by`, `ord.color_by`,
+`comp.facet_wrap`, `rows` e `cols` di `comp.facet_grid`; un incrocio è il valore di
+`comp.facet_grid`:
+
+```yaml
+design:
+  variable: fase
+comp:
+  facet_grid: soggetto per fase
+```
+
+Un nome si legge così, e vale la prima risposta:
+
+1. un gruppo derivato dichiarato in `design.groupings`;
+2. una colonna dell'oggetto con almeno un valore;
+3. una divisione del catalogo (maiuscole e spazi doppi non contano), o `<colonna>_prefisso`;
+4. una colonna dell'oggetto senza valori, come nella versione 0.2.0;
+5. altrimenti il nome è sconosciuto: `E-ECO-47`.
+
+Una colonna con valori vince quindi su una divisione con lo stesso nome, e una
+configurazione della versione 0.2.0, che nomina colonne e gruppi derivati, si legge come
+prima: stessi parametri, stesso digest, stessi file.
+
+**Che cosa diventa.** Prima della validazione sull'oggetto `validate` e `run` descrivono
+l'oggetto (`R/descrivi.R`) ed espandono ogni divisione in ciò che le analisi conoscono già:
+una divisione `colonna` diventa la colonna dell'oggetto, in ogni campo in cui è nominata
+(anche `constrained.variables` e `constrained.conditions`); ogni altra diventa un gruppo
+derivato con il suo nome, aggiunto in fondo a `design.groupings` (`groups` con i valori
+presenti, o `pattern` per il prefisso); un incrocio diventa `{rows, cols}`. R riceve la
+configurazione espansa, e il digest è il suo: la stessa divisione scelta per nome o scritta
+a mano in `design.groupings`, con la stessa regola e lo stesso ordine dei gruppi derivati,
+dà lo stesso digest e gli stessi file. `validate` stampa che cosa è diventata ogni
+divisione; `configurazione.json` lo registra nel campo descrittivo `divisioni` (l'impronta
+del catalogo e, per ogni divisione, campi, regola, colonna, gruppi con i campioni),
+fuori da `parametri` e dal digest, e presente solo se la configurazione nomina divisioni.
+
+**Rifiuti.** `E-ECO-47`: un nome sconosciuto in uno di quei campi (le analisi lo trovano
+mancante fra le colonne; il messaggio elenca colonne e divisioni), un incrocio fuori da
+`comp.facet_grid`, un nome in `comp.facet_grid` che non è un incrocio. `E-ECO-48`: una
+divisione che sull'oggetto non funziona, con il motivo per ogni colonna provata. Una colonna
+mancante in un campo che non accetta divisioni (`design.technical_variables`,
+`design.subset`, `design.subject`, `design.continuous_variables`,
+`stat.permanova_strata`) resta `E-ECO-05`. Tutti i rifiuti si dicono insieme.
+
+**Limiti.** Il catalogo riconosce i nomi di colonna che conosce: una colonna con un nome
+diverso per lo stesso metadato non è riconosciuta, ma resta proposta come divisione
+generica. Le mappature riconoscono i valori dei dataset e della documentazione citati,
+non tutti i modi di scriverli. I limiti delle fasce di tempo sono una scelta dello
+strumento. I gruppi si contano prima di `design.subset`.
 
 ## 5. Integrazione con altri programmi
 

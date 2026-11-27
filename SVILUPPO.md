@@ -112,7 +112,7 @@ Ogni file Python e R comincia con un commento che dice che cosa fa la fase, che 
 
 **Aggiungere una fase.** `Passo` e `Nodo` in `runner/graph.py`; la cartella in `Fase` (`io_layer/artifacts.py`); la classe in `steps/`, registrata in `passi_realizzati()` (`runner/project.py`); lo script R; i codici nel catalogo e nel test; il registro del sorgente; `ORDINE` e `CARTELLE` in `dati/osd734/confronta_risultati.py` (un test li tiene allineati al grafo).
 
-**Cambiare le analisi ecologiche.** Tutto sta in `src/amplicon16s_eco/`: parametri in `config.py` (e in `config/eco.example.yaml`, `RIFERIMENTO.md` sezione 4; un file di uscita nuovo va nella tabella della 4.3), comandi in `cli.py`, codici in `catalogo.py`, calcoli in `R/` (`valida.R`, `analisi.R`, `descrivi.R` e `R/lib/`). Test in `tests/test_eco_*.py`, dati in `tests/fixtures/eco/`. Le uscite della pipeline non si toccano.
+**Cambiare le analisi ecologiche.** Tutto sta in `src/amplicon16s_eco/`: parametri in `config.py` (e in `config/eco.example.yaml`, `RIFERIMENTO.md` sezione 4; un file di uscita nuovo va nella tabella della 4.3), comandi in `cli.py`, codici in `catalogo.py`, divisioni dei metadati in `divisioni.yaml` (dati) e `divisioni.py`, calcoli in `R/` (`valida.R`, `analisi.R`, `descrivi.R` e `R/lib/`). Test in `tests/test_eco_*.py`, dati in `tests/fixtures/eco/`. Le uscite della pipeline non si toccano.
 
 **Aggiornare l'ambiente** (un pacchetto R, la data dell'istantanea CRAN, l'immagine di base). Otto passi:
 
@@ -274,9 +274,10 @@ Una riga per file; il commento in testa a ciascuno dice il resto. I file `__init
 | `catalogo.py` | i codici `E-ECO-`: rifiuti e avvisi |
 | `esecuzione.py` | l'orchestrazione: copia dell'oggetto, validazione, calcolo, manifesto |
 | `ponte.py` | il lancio degli script R del pacchetto attraverso il ponte della pipeline |
-| `init.py` | `eco init`: proposte e avvisi dalla descrizione dell'oggetto; colonne selezionabili come gruppi, colonne derivate dalla pipeline, proposta di un gruppo derivato per prefisso |
+| `init.py` | `eco init`: proposte e avvisi dalla descrizione dell'oggetto; il blocco delle divisioni suggerite e il file dei loro gruppi, colonne derivate dalla pipeline |
+| `divisioni.py`, `divisioni.yaml` | il catalogo delle divisioni dei metadati (dati, con l'origine di ogni voce), la sua verifica, le regole, i criteri, le proposte di `eco init` e l'espansione dei nomi della configurazione in colonne, gruppi derivati e griglie |
 | `interfaccia.py` | i documenti JSON di `eco schema`, `eco validate --json` ed `eco status --json` |
-| `R/descrivi.R` | la descrizione dell'oggetto (colonne con i loro valori, ranghi, albero) per `eco init` |
+| `R/descrivi.R` | la descrizione dell'oggetto (colonne con i loro valori, la tabella dei campioni, ranghi, albero) per `eco init` e per l'espansione delle divisioni in `validate` e `run` |
 | `R/valida.R` | la validazione dell'analisi sull'oggetto, prima di ogni calcolo |
 | `R/analisi.R` | le analisi, nell'ordine: campioni (e filtro), alfa, composizione, distanze, ordinazione, test, variabili continue, ordinazione vincolata, misure ripetute |
 | `R/lib/uscite.R` | la scrittura di tabelle e grafici, identici byte per byte; la palette dei gruppi (`plot.palette`); le righe dell'intestazione sul livello dei calcoli e sul filtro |

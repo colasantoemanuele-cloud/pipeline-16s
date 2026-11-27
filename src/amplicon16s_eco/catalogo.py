@@ -403,6 +403,29 @@ _VOCI: Final[tuple[VoceEco, ...]] = (
         "(comp.top_n).",
     ),
     VoceEco(
+        "E-ECO-47", _R,
+        "Un nome in un campo che accetta una colonna non e' una colonna dell'oggetto, ne' un "
+        "gruppo derivato, ne' una divisione del catalogo, oppure e' una divisione usata "
+        "dove non vale.",
+        "Correggi il nome: in design.variable, design.other_variables, comp.group_by, "
+        "ord.color_by, comp.facet_wrap e nelle righe e colonne di comp.facet_grid vale una "
+        "colonna dell'oggetto, un gruppo derivato di design.groupings, una divisione del "
+        "catalogo per nome (eco init elenca quelle che funzionano sul dataset) o "
+        "<colonna>_prefisso; un incrocio («soggetto per fase») vale solo come valore di "
+        "comp.facet_grid. Il messaggio elenca le colonne e le divisioni (RIFERIMENTO.md, "
+        "sezione 4.7).",
+    ),
+    VoceEco(
+        "E-ECO-48", _R,
+        "Una divisione nominata nella configurazione non da' gruppi validi su questo "
+        "oggetto.",
+        "Il messaggio dice perche' su ogni colonna provata: servono da 2 a 12 gruppi, "
+        "almeno due con stat.min_group_size campioni, e un gruppo per almeno meta' dei "
+        "campioni. Scegli un'altra divisione fra quelle che eco init propone, nomina una "
+        "colonna dell'oggetto, o dichiara un gruppo derivato in design.groupings "
+        "(RIFERIMENTO.md, sezione 4.7).",
+    ),
+    VoceEco(
         "E-ECO-90", _R,
         "Il calcolo in R non si e' concluso.",
         "Leggi il messaggio di R riportato nel dettaglio. Le analisi vanno "

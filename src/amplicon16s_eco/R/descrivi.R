@@ -16,6 +16,10 @@
 #                       campioni, se i valori sono tutti numerici e, se non
 #                       sono tutti diversi, ogni valore con i suoi campioni
 #                       (servono alle proposte di raggruppamento)
+#   tabella             i nomi dei campioni e, per ogni colonna, il valore di
+#                       ogni campione nello stesso ordine (nullo se mancante):
+#                       servono al catalogo delle divisioni (divisioni.py), che
+#                       ne ricava i gruppi campione per campione
 
 for (f in c("io_json.R", "errors.R")) source(file.path(Sys.getenv("AMPLICON16S_R_LIB"), f))
 for (f in c("uscite.R", "campioni.R")) source(file.path(Sys.getenv("AMPLICON16S_ECO_R_LIB"), f))
@@ -70,7 +74,16 @@ esegui_fase(function(parametri, cartella) {
       radicato = if (!is.null(albero)) ape::is.rooted(albero) else NULL,
       con_lunghezze = if (!is.null(albero)) length(albero$edge.length) == nrow(albero$edge) else NULL
     ),
-    colonne = colonne
+    colonne = colonne,
+    # Liste e non vettori: anche con un solo campione restano elenchi JSON.
+    tabella = list(
+      campioni = as.list(rownames(tabella)),
+      valori = stats::setNames(lapply(names(tabella), function(nome) {
+        valori <- tabella[[nome]]
+        valori[e_mancante(valori, marcatori)] <- NA_character_
+        as.list(valori)
+      }), names(tabella))
+    )
   ), file.path(cartella, "descrizione.json"))
   "descrizione.json"
 })

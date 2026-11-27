@@ -355,8 +355,10 @@ def _rifiuto(oggetto, **modifica) -> ErroreEco:
 def test_una_colonna_inesistente_e_respinta_con_le_colonne_disponibili(eco_r, tmp_path):
     """
     **Obiettivo**: una colonna assente dalla tabella dei campioni (variabile
-    biologica, tecnica o del sottoinsieme) e' respinta con ``E-ECO-05``, una
-    volta per colonna, con l'elenco di quelle esistenti.
+    tecnica o del sottoinsieme) e' respinta con ``E-ECO-05``, una volta per
+    colonna, con l'elenco di quelle esistenti; un nome sconosciuto in un campo
+    che accetta anche una divisione (la variabile biologica) e' respinto con
+    ``E-ECO-47``, che elenca anche le divisioni del catalogo, nello stesso giro.
 
     **Razionale scientifico e sistemistico**: il nome di una colonna e' il
     punto in cui la configurazione incontra i metadati dello studio, e un
@@ -365,8 +367,9 @@ def test_una_colonna_inesistente_e_respinta_con_le_colonne_disponibili(eco_r, tm
     oggetto = costruisci(tmp_path, CONTEGGI, METADATI)
     rifiuto = _rifiuto(oggetto, design={"variable": "grupo", "technical_variables": ["loto"],
                                         "subset": {"assente": ["x"]}})
-    assert rifiuto.codici == ["E-ECO-05"] * 3
+    assert rifiuto.codici == ["E-ECO-47", "E-ECO-05", "E-ECO-05"]
     assert "gruppo, lotto" in str(rifiuto)
+    assert "design.variable: 'grupo'" in str(rifiuto) and "volo o terra" in str(rifiuto)
 
 
 def test_un_gruppo_troppo_piccolo_e_dichiarato_prima_dell_esecuzione(eco_r, tmp_path):
@@ -859,7 +862,7 @@ def test_le_colonne_con_nomi_non_sintattici_si_dichiarano_con_il_loro_nome(eco_r
     assert variabile["nome"] == "Factor Value[Sito n°1]"
     assert variabile["gruppi"] == {"a": 3, "b": 3}
     rifiuto = _rifiuto(oggetto, design={"variable": "Factor.Value.Sito.n.1."})
-    assert rifiuto.codici == ["E-ECO-05"] and "Factor Value[Sito n°1], 1" in str(rifiuto)
+    assert rifiuto.codici == ["E-ECO-47"] and "Factor Value[Sito n°1], 1" in str(rifiuto)
 
 
 def test_una_variabile_senza_valori_non_ferma_l_analisi(eco_r, tmp_path):
@@ -1292,8 +1295,9 @@ def test_eco_init_avvisa_se_la_rarefazione_scende_molto_sotto_la_mediana(tmp_pat
     assert "alzare qc.min_reads_final a 1000" in avviso
     assert "design.subset" in avviso and "resume" in avviso
     assert "non siano un intero gruppo dello studio" in avviso
-    assert any(f.startswith("Gruppi delle colonne candidate") and "gruppo: 'a' 3, 'b' 4" in f
-               for f in fatti)
+    # I gruppi delle colonne non stanno fra i fatti: sono nel file dei gruppi
+    # delle divisioni proposte.
+    assert not any(f.startswith("Gruppi delle colonne candidate") for f in fatti)
     # Con almeno mille letture nel campione piu' povero il consiglio e' tenerlo.
     profondi = init.rarefazione_bassa({"c1": 9000, "c2": 150000, "c3": 160000, "c4": 170000})
     assert "di solito si lascia cosi'" in profondi and "qc.min_reads_final" not in profondi

@@ -1,0 +1,318 @@
+# Catalogo delle divisioni dei metadati: i modi noti di dividere i campioni in
+# gruppi, applicati da eco init (che propone quelli che funzionano sul
+# dataset) e da eco validate e run (che ricavano la regola dal nome scritto
+# nella configurazione). Lo legge amplicon16s_eco/divisioni.py.
+#
+# Ogni divisione ha:
+#   nome         il nome breve, in italiano, che si scrive nella configurazione
+#                (design.variable, design.other_variables, comp.group_by,
+#                ord.color_by, comp.facet_wrap; un incrocio in comp.facet_grid);
+#   spiegazione  una riga per il file di configurazione;
+#   fonti        le colonne a cui si applica, nell'ordine in cui si provano:
+#                vale la prima su cui la regola da' gruppi utilizzabili. Una
+#                colonna si indica con la sua chiave: il nome con le minuscole,
+#                ogni segno diverso da lettere e cifre come trattino basso e
+#                senza il prefisso factor_value_, characteristics_, comment_ o
+#                parameter_value_ (Factor Value[Sample Location] e
+#                factor_value_sample_location hanno la chiave sample_location);
+#   regola       colonna    i valori della colonna cosi' come sono;
+#                prefisso   il primo gruppo di cattura di un'espressione
+#                           regolare sul valore (espressione);
+#                mappatura  i valori riconosciuti da espressioni regolari
+#                           (senza distinguere le maiuscole) riuniti in gruppi
+#                           noti; con ordinata: vero i gruppi portano il numero
+#                           d'ordine davanti al nome (1 prima, 2 durante...),
+#                           perche' le analisi ordinano i gruppi per nome;
+#                ordine     i valori cosi' come sono, ma in ordine di tempo se
+#                           ognuno e' una durata (7 days, minus10 days, 520 days
+#                           plus 3 month) o una data (01-Nov-2017, 2017-11-01):
+#                           il numero d'ordine davanti al valore; altrimenti
+#                           come colonna;
+#                fasce      un valore numerico, o una durata in giorni, diviso
+#                           in fasce dai limiti (ogni fascia comprende il suo
+#                           limite inferiore), con le etichette;
+#                incrocio   due divisioni, per righe e colonne di
+#                           comp.facet_grid;
+#   origine      da dove vengono i nomi delle colonne (e dei valori, per le
+#                mappature): un dataset scaricato, con il file ISA e la colonna,
+#                o una fonte pubblica (RAZIONALE.md, sezioni 4.12 e 6). Nessun nome
+#                e' inventato.
+#
+# L'ordine delle divisioni e' quello delle proposte di eco init: fra due
+# divisioni che dividono i campioni negli stessi gruppi si tiene la prima.
+
+versione: 1
+
+divisioni:
+
+  - nome: volo o terra
+    spiegazione: i campioni in volo e quelli dei controlli a terra
+    fonti:
+      - colonna: spaceflight
+        regola: mappatura
+        gruppi:
+          volo: ['^space ?flight$', '^flight$', '^in-?flight$']
+          terra: ['^ground control$', '^basal control$']
+    origine: >-
+      colonna: Factor Value[Spaceflight] in s_OSD-734.txt e s_OSD-276.txt; «Spaceflight»
+      fra i fattori d'esempio della guida OSDR alla sottomissione. Valori: «Space Flight»
+      (OSD-734, OSD-276); «Flight» e «Ground Control» dalla guida OSDR alla pagina di uno
+      studio; «in-flight» e «basal control» dagli esempi dell'API OSDR
+      (study.factor value.spaceflight).
+
+  - nome: fase
+    spiegazione: prima, durante o dopo il volo o la permanenza nel modulo
+    fonti:
+      - colonna: time
+        regola: mappatura
+        ordinata: true
+        gruppi: &fasi
+          prima: ['\bpre-?flight\b', '\bbefore entering\b']
+          durante: ['\bin-?flight\b', '\bwhile inside\b']
+          dopo: ['\bpost-?flight\b', '\bafter exiting\b']
+      - colonna: sample_description
+        regola: mappatura
+        ordinata: true
+        gruppi: *fasi
+    origine: >-
+      colonne: Factor Value[Time] in s_OSD-170.txt e s_OSD-191.txt; Comment[Sample
+      Description] in s_OSD-170.txt e s_OSD-191.txt. Valori: «Pre-flight», «Ascent/Descent,
+      in-flight», «Cruise, in-flight», «Post-flight» (OSD-170, Factor Value[Time]);
+      «samples collected before entering / while inside / after exiting the module»
+      (OSD-191, Comment[Sample Description]).
+
+  - nome: tempo di raccolta
+    spiegazione: il tempo della raccolta, in ordine di tempo
+    fonti:
+      - colonna: time
+        regola: ordine
+      - colonna: collection_date
+        regola: ordine
+    origine: >-
+      colonne: Factor Value[Time] in s_OSD-170.txt e s_OSD-191.txt («Time» fra i fattori
+      d'esempio della guida OSDR alla sottomissione); Characteristics[Collection Date] in
+      s_OSD-170.txt. Forme dei valori: «7 days», «minus10 days», «520 days plus 3 month»
+      (OSD-191), «01-Nov-2017» (OSD-170).
+
+  - nome: fascia di tempo
+    spiegazione: il tempo della raccolta in fasce di giorni (prima, 0-29, 30-89, 90-179, 180-364, da 365)
+    fonti:
+      - colonna: time
+        regola: fasce
+        limiti: [0, 30, 90, 180, 365]
+        etichette: [prima, 0-29 giorni, 30-89 giorni, 90-179 giorni, 180-364 giorni, da 365 giorni]
+    origine: >-
+      colonna: Factor Value[Time] in s_OSD-191.txt, durate in giorni da «minus10 days» a
+      «520 days plus 6 months». I limiti (un mese, tre, sei, un anno) sono una scelta dello
+      strumento, non di una fonte.
+
+  - nome: durata
+    spiegazione: la durata dell'esposizione o del trattamento, in ordine di tempo
+    fonti:
+      - colonna: duration
+        regola: ordine
+    origine: >-
+      colonna: «Duration» fra i parametri d'esempio della guida OSDR alla sottomissione
+      (nessun dataset scaricato la ha).
+
+  - nome: posizione
+    spiegazione: la posizione del prelievo
+    fonti:
+      - colonna: posizione
+        regola: colonna
+      - colonna: sample_location
+        regola: colonna
+    origine: >-
+      colonne: «posizione» dell'inventario della pipeline; Factor Value[Sample Location] in
+      s_OSD-734.txt, s_OSD-276.txt e s_OSD-170.txt.
+
+  - nome: modulo
+    spiegazione: il modulo della stazione, dalla colonna della pipeline o dal prefisso della posizione
+    fonti:
+      - colonna: modulo
+        regola: colonna
+      - colonna: posizione
+        regola: prefisso
+        espressione: '^([A-Za-z]+[0-9]+)'
+      - colonna: sample_location
+        regola: prefisso
+        espressione: '^([A-Za-z]+[0-9]+)'
+    origine: >-
+      colonne: «modulo» e «posizione» dell'inventario della pipeline (la regola e' quella di
+      meta.module_regex); Factor Value[Sample Location] in s_OSD-734.txt, con valori come
+      «NOD1D4», «LAB1O3», «JPM1A1».
+
+  - nome: quota
+    spiegazione: in quota o a terra
+    fonti:
+      - colonna: altitude
+        regola: colonna
+    origine: >-
+      colonna: Factor Value[Altitude] in s_OSD-170.txt («Atmosphere», «Ground»).
+
+  - nome: soggetto
+    spiegazione: il soggetto campionato
+    fonti:
+      - colonna: subject
+        regola: colonna
+    origine: >-
+      colonna: Characteristics[Subject] in s_OSD-191.txt.
+
+  - nome: sesso
+    spiegazione: il sesso del soggetto
+    fonti:
+      - colonna: sex
+        regola: colonna
+    origine: >-
+      colonna: Characteristics[Sex] in s_OSD-191.txt; «Sex» fra i fattori d'esempio della
+      guida OSDR alla sottomissione e fra le informazioni della pagina di uno studio OSDR.
+
+  - nome: età
+    spiegazione: l'età del soggetto
+    fonti:
+      - colonna: age
+        regola: colonna
+    origine: >-
+      colonna: «Age» fra le caratteristiche d'esempio della guida OSDR alla sottomissione e
+      fra le informazioni della pagina di uno studio OSDR (nessun dataset scaricato la ha).
+
+  - nome: ceppo
+    spiegazione: il ceppo o il genotipo
+    fonti:
+      - colonna: strain
+        regola: colonna
+      - colonna: genotype
+        regola: colonna
+    origine: >-
+      colonne: «Strain» e «Genotype» fra le caratteristiche d'esempio della guida OSDR alla
+      sottomissione (nessun dataset scaricato le ha).
+
+  - nome: ecotipo
+    spiegazione: l'ecotipo
+    fonti:
+      - colonna: ecotype
+        regola: colonna
+    origine: >-
+      colonna: «Ecotype» fra i fattori d'esempio della guida OSDR alla sottomissione (nessun
+      dataset scaricato la ha).
+
+  - nome: organismo
+    spiegazione: l'organismo o l'ospite
+    fonti:
+      - colonna: organism
+        regola: colonna
+      - colonna: host_organism
+        regola: colonna
+    origine: >-
+      colonne: Characteristics[Organism] in tutti i file s_ scaricati (OSD-170, OSD-191,
+      OSD-276, OSD-734); Characteristics[Host Organism] in s_OSD-191.txt.
+
+  - nome: parte dell'organismo
+    spiegazione: l'organo o la parte dell'organismo campionata
+    fonti:
+      - colonna: organism_part
+        regola: colonna
+    origine: >-
+      colonna: «Organism Part» fra le caratteristiche d'esempio della guida OSDR alla
+      sottomissione (nessun dataset scaricato la ha).
+
+  - nome: tipo di materiale
+    spiegazione: il tipo di materiale campionato
+    fonti:
+      - colonna: materiale
+        regola: colonna
+      - colonna: material_type
+        regola: colonna
+    origine: >-
+      colonne: «materiale» dell'inventario della pipeline; Characteristics[Material Type] in
+      tutti i file s_ scaricati («Material Type» anche fra le caratteristiche d'esempio della
+      guida OSDR alla sottomissione).
+
+  - nome: dieta
+    spiegazione: la dieta
+    fonti:
+      - colonna: diet
+        regola: colonna
+    origine: >-
+      colonna: «Diet» fra i parametri d'esempio della guida OSDR alla sottomissione (nessun
+      dataset scaricato la ha).
+
+  - nome: trattamento
+    spiegazione: il trattamento (farmaco, dose di radiazione...)
+    fonti:
+      - colonna: treatment
+        regola: colonna
+    origine: >-
+      colonna: «Treatment (e.g. drug dose, radiation dose, etc.)» fra i fattori d'esempio
+      della guida OSDR alla sottomissione (nessun dataset scaricato la ha).
+
+  - nome: habitat
+    spiegazione: l'habitat
+    fonti:
+      - colonna: habitat
+        regola: colonna
+    origine: >-
+      colonna: «Habitat» fra i parametri d'esempio della guida OSDR alla sottomissione
+      (nessun dataset scaricato la ha).
+
+  - nome: ambiente di crescita
+    spiegazione: l'ambiente di crescita
+    fonti:
+      - colonna: growth_environment
+        regola: colonna
+    origine: >-
+      colonna: «Growth Environment» fra i parametri d'esempio della guida OSDR alla
+      sottomissione (nessun dataset scaricato la ha).
+
+  - nome: volo di campionamento
+    spiegazione: il volo (aereo o missione) in cui e' stato raccolto il campione
+    fonti:
+      - colonna: flight_name
+        regola: colonna
+    origine: >-
+      colonna: Characteristics[Flight Name] in s_OSD-170.txt.
+
+  - nome: conservazione
+    spiegazione: il metodo di conservazione del campione
+    fonti:
+      - colonna: sample_preservation_method
+        regola: colonna
+    origine: >-
+      colonna: Parameter Value[Sample Preservation Method] in s_OSD-734.txt; «Sample
+      Preservation Method» fra i parametri d'esempio della guida OSDR alla sottomissione.
+
+  - nome: descrizione del campione
+    spiegazione: la descrizione del campione, cosi' com'e'
+    fonti:
+      - colonna: sample_description
+        regola: colonna
+    origine: >-
+      colonna: Comment[Sample Description] in s_OSD-170.txt e s_OSD-191.txt.
+
+  - nome: soggetto per fase
+    spiegazione: la griglia soggetto per fase (righe e colonne di comp.facet_grid)
+    regola: incrocio
+    righe: soggetto
+    colonne: fase
+    origine: incrocio di due divisioni del catalogo.
+
+  - nome: soggetto per fascia di tempo
+    spiegazione: la griglia soggetto per fascia di tempo (comp.facet_grid)
+    regola: incrocio
+    righe: soggetto
+    colonne: fascia di tempo
+    origine: incrocio di due divisioni del catalogo.
+
+  - nome: quota per fase
+    spiegazione: la griglia quota per fase (comp.facet_grid)
+    regola: incrocio
+    righe: quota
+    colonne: fase
+    origine: incrocio di due divisioni del catalogo.
+
+  - nome: volo o terra per tipo di materiale
+    spiegazione: la griglia volo o terra per tipo di materiale (comp.facet_grid)
+    regola: incrocio
+    righe: volo o terra
+    colonne: tipo di materiale
+    origine: incrocio di due divisioni del catalogo.

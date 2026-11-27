@@ -21,19 +21,20 @@ si leggono dagli export in testo che la pipeline consegna accanto all'oggetto
 checksum che siano quelli di questo oggetto; senza, i due avvisi non si
 valutano e il riepilogo lo dice.
 
-Sopra il gruppo ``design`` il file elenca le colonne selezionabili come
-gruppi (numero di gruppi, gruppi con abbastanza campioni, i valori quando sono
-pochi), quelle che non lo sono con il motivo, e quelle che la pipeline ha
-derivato con la regola che le ha prodotte. Per una colonna con molti valori il
-cui prefisso li divide in pochi gruppi ripetuti, ``design.groupings`` porta in
-commento la proposta di un gruppo derivato, con i gruppi che produrrebbe: la
-decide sempre l'utente (:data:`PREFISSO`).
+Sopra il gruppo ``design`` il file elenca le **divisioni suggerite dai
+metadati**: il catalogo delle divisioni (:mod:`amplicon16s_eco.divisioni`)
+applicato alla tabella dei campioni, piu' le divisioni generiche (una colonna
+con gruppi ripetuti, il prefisso dei valori di una colonna), senza doppioni e
+solo quelle che funzionano sul dataset. Per ciascuna una riga, con il nome e
+una spiegazione; poi come sceglierne una (il nome nei campi che accettano una
+colonna) e una riga con i ranghi tassonomici, che non sono divisioni. I gruppi
+di ogni divisione, con i campioni, non stanno nel file di configurazione ma in
+un file a parte accanto a esso (:func:`nome_del_tsv`), una riga per gruppo.
 
 Con ``--accetta-proposte`` le proposte e i valori di partenza sono righe
 attive, con la loro origine nel commento. Restano in commento, con il loro
 valore, i parametri condizionali: sono richiesti da un metodo e respinti senza,
-e quali metodi usare e' una scelta che ``init`` non fa; e la proposta di un
-gruppo derivato, che e' una regola sui dati da controllare.
+e quali metodi usare e' una scelta che ``init`` non fa.
 """
 
 from __future__ import annotations
@@ -41,7 +42,6 @@ from __future__ import annotations
 import csv
 import json
 import math
-import re
 import statistics
 import tempfile
 from dataclasses import dataclass, replace
@@ -66,13 +66,14 @@ from amplicon16s_eco.config import (
     ConfigEco,
     condizione,
 )
-from amplicon16s_eco.esecuzione import _copia, _impronta_oggetto
-from amplicon16s_eco.ponte import esegui_r
+from amplicon16s_eco.divisioni import (DIMENSIONE_DELLE_PROPOSTE, PREFISSO, Proposte, Tabella,
+                                       proponi)
+from amplicon16s_eco.esecuzione import _copia, _impronta_oggetto, descrizione_della_copia
 
 __all__ = ["PREFISSO", "QUOTA_DELLA_MEDIANA", "QUOTA_MINIMA_ASSEGNATA", "Esportati", "accetta",
-           "colonne_per_gruppi", "confuse", "derivazioni_della_pipeline", "descrivi",
-           "esportati", "prepara", "proposte_per_prefisso", "rarefazione_bassa", "scrivi",
-           "testo_yaml"]
+           "blocco_delle_divisioni", "confuse", "derivazioni_della_pipeline", "descrivi",
+           "divisioni_confuse", "esportati", "nome_del_tsv", "prepara", "proposte_di",
+           "rarefazione_bassa", "scrivi", "testo_yaml", "tsv_delle_divisioni"]
 
 #: La quota di varianti assegnate sotto la quale un rango non si propone: sotto
 #: la meta', la categoria «non assegnato» sarebbe la piu' grande del grafico.
@@ -88,16 +89,6 @@ _NON_VARIABILI: Final = COLONNE_INVENTARIO[:3]
 
 PROPOSTO, SCELTA = Specie.PROPOSTO, Specie.DA_SCEGLIERE
 
-#: Il criterio con cui init riconosce un prefisso che divide i valori di una
-#: colonna in pochi gruppi ripetuti: lettere iniziali seguite da cifre (il
-#: modulo di una posizione come «NOD1D4» o «LAB1O3»), primo gruppo di cattura.
-#: La proposta si fa solo per una colonna selezionabile con piu' di
-#: :data:`_NOMINATI` valori, quando il prefisso copre almeno meta' dei campioni
-#: con un valore, da' da 2 a :data:`MASSIMO_GRUPPI_PROPOSTI` gruppi, e riunisce
-#: in media almeno due valori per gruppo. Resta sempre in commento.
-PREFISSO: Final = r"^([A-Za-z]+[0-9]+)"
-MASSIMO_GRUPPI_PROPOSTI: Final = 12
-
 #: Le dimensioni minime dei gruppi per cui init conta i gruppi di ogni colonna:
 #: stat.min_group_size non e' ancora scelto, e questi sono i valori di solito
 #: considerati.
@@ -108,12 +99,9 @@ SOGLIE_DEI_GRUPPI: Final = (2, 5, 10)
 #: dell'oggetto.
 _DERIVATE: Final = (COLONNE_INVENTARIO[5],)
 
-#: I parametri in cui si sceglie fra le colonne elencate sopra design.
-_SCELTE_FRA_LE_COLONNE: Final = (
-    "design.variable", "design.other_variables", "ord.color_by", "comp.group_by",
-    "comp.facet_wrap", "comp.facet_grid")
-_RIMANDO: Final = ("si sceglie fra le colonne selezionabili elencate in testa al file, sopra "
-                   "design, e i gruppi derivati di design.groupings")
+_RIMANDO: Final = ("si sceglie per nome fra le divisioni suggerite elencate in testa al file, "
+                   "sopra design; oppure una colonna dell'oggetto o un gruppo derivato di "
+                   "design.groupings")
 
 #: Le proposte che --accetta-proposte non attiva mai: una regola sui dati da
 #: controllare prima di usarla.
@@ -136,8 +124,14 @@ NOTE_DEI_PARAMETRI: Final[dict[str, tuple[str, ...]]] = {
     "comp.facet_wrap": (
         "barre per campione, un pannello per gruppo; " + _RIMANDO,),
     "comp.facet_grid": (
-        "barre medie per gruppo di design.variable in una griglia {rows: <colonna>, cols: "
-        "<colonna>}; " + _RIMANDO,),
+        "barre medie per gruppo di design.variable in una griglia {rows: <nome>, cols: "
+        "<nome>}, oppure il nome di un incrocio fra le divisioni suggerite (\"A per B\"); "
+        + _RIMANDO,),
+    "design.groupings": (
+        "per una divisione personalizzata, che il catalogo non conosce: {<nome>: {from: "
+        "<colonna>, groups: {<gruppo>: [<valori>]}}} oppure {<nome>: {from: <colonna>, "
+        "pattern: <espressione con un gruppo di cattura>}}; le divisioni suggerite non "
+        "servono qui, si nominano direttamente",),
     "constrained.method": (
         "ordinazione vincolata: rda sui conteggi trasformati, dbrda sulle distanze; "
         "le variabili si scelgono fra quelle del disegno e i gruppi derivati, le "
@@ -361,43 +355,6 @@ def _non_selezionabile(colonna: dict[str, Any]) -> str | None:
     return None
 
 
-def proposte_per_prefisso(descrizione: dict[str, Any]) -> list[tuple[str, dict[str, Any], list[str]]]:
-    """Le proposte di gruppi derivati per prefisso: per ogni colonna che il
-    criterio di :data:`PREFISSO` divide in pochi gruppi ripetuti, il nome
-    proposto, la regola e le note con i gruppi che produrrebbe.
-    """
-    proposte = []
-    for colonna in descrizione["colonne"]:
-        valori = _gruppi_della_colonna(colonna)
-        if _non_selezionabile(colonna) or len(valori) <= _NOMINATI:
-            continue
-        per_gruppo: dict[str, int] = {}
-        distinti: dict[str, int] = {}
-        senza: dict[str, int] = {}
-        for valore, n in valori.items():
-            trovato = re.match(PREFISSO, valore)
-            if trovato:
-                per_gruppo[trovato.group(1)] = per_gruppo.get(trovato.group(1), 0) + n
-                distinti[trovato.group(1)] = distinti.get(trovato.group(1), 0) + 1
-            else:
-                senza[valore] = n
-        coperti = sum(per_gruppo.values())
-        if (2 * coperti < sum(valori.values()) or not 2 <= len(per_gruppo) <= MASSIMO_GRUPPI_PROPOSTI
-                or 2 * len(per_gruppo) > sum(distinti.values())):
-            continue
-        nome = f"{colonna['nome']}_prefisso"
-        note = [
-            f"gruppi che produrrebbe (campioni): " + ", ".join(
-                f"{g} {n}" for g, n in sorted(per_gruppo.items())),
-            f"senza gruppo: {sum(senza.values())} campioni"
-            + (" (valori: " + ", ".join(f"{v!r} {n}" for v, n in sorted(senza.items())[:_NOMINATI])
-               + (f" e altri {len(senza) - _NOMINATI}" if len(senza) > _NOMINATI else "") + ")"
-               if senza else ""),
-        ]
-        proposte.append((nome, {"from": colonna["nome"], "pattern": PREFISSO}, note))
-    return proposte
-
-
 def derivazioni_della_pipeline(oggetto: Path | str) -> dict[str, str] | None:
     """Le colonne che la pipeline ha derivato da una regola, con la regola.
 
@@ -441,54 +398,94 @@ def derivazioni_della_pipeline(oggetto: Path | str) -> dict[str, str] | None:
     return derivazioni
 
 
-def colonne_per_gruppi(descrizione: dict[str, Any],
-                       derivazioni: dict[str, str] | None = None) -> list[str]:
-    """Il blocco che sta sopra ``design``: le colonne selezionabili come gruppi,
-    quelle che non lo sono con il motivo, quelle derivate dalla pipeline con la
-    regola, e il rimando alle proposte di gruppi derivati.
+def proposte_di(descrizione: dict[str, Any]) -> Proposte:
+    """Le divisioni che funzionano sui metadati dell'oggetto: il catalogo e le
+    divisioni generiche delle colonne selezionabili (:func:`_non_selezionabile`)."""
+    tabella = Tabella.dalla_descrizione(descrizione)
+    selezionabili = [c["nome"] for c in descrizione["colonne"]
+                     if not _non_selezionabile(c) and c["nome"] in tabella.valori]
+    return proponi(tabella, selezionabili)
+
+
+def divisioni_confuse(proposte: Proposte) -> list[str]:
+    """Gli avvisi sulle divisioni proposte confuse fra loro (:func:`confuse`),
+    coppia per coppia nell'ordine delle proposte.
+
+    Gli incroci non contano, e nemmeno le coppie di due colonne cosi' come
+    sono: quelle le avvisa gia' il controllo delle colonne candidate.
     """
-    selezionabili, escluse = [], []
-    for colonna in descrizione["colonne"]:
-        motivo = _non_selezionabile(colonna)
-        if motivo:
-            escluse.append(f"- {colonna['nome']}: {motivo}")
-            continue
-        valori = _gruppi_della_colonna(colonna)
-        testo = f"- {colonna['nome']}: {colonna['distinti']} gruppi"
-        if valori:
-            testo += "; con almeno " + ", ".join(str(s) for s in SOGLIE_DEI_GRUPPI) + \
-                " campioni: " + ", ".join(
-                    str(sum(n >= s for n in valori.values())) for s in SOGLIE_DEI_GRUPPI)
-            if len(valori) <= _NOMINATI:
-                testo += "; valori: " + ", ".join(f"{v!r} {n}" for v, n in valori.items())
-        else:
-            testo += f"; con almeno 2 campioni: {colonna['gruppi_ripetuti']}"
-        selezionabili.append(testo)
-    righe = [
-        "Colonne selezionabili come gruppi (design.variable, design.other_variables, "
-        "ord.color_by, comp.group_by, comp.facet_wrap, comp.facet_grid, e from di un "
-        "gruppo derivato): numero di gruppi; quanti hanno almeno "
-        + ", ".join(str(s) for s in SOGLIE_DEI_GRUPPI) + " campioni (per scegliere "
-        "stat.min_group_size); i valori con i loro campioni, se sono al massimo "
-        f"{_NOMINATI}.",
-        *(selezionabili or ["- nessuna"]),
-        "Colonne non selezionabili, con il motivo:",
-        *(escluse or ["- nessuna"]),
-    ]
-    if derivazioni is None:
-        righe.append("Colonne derivate dalla pipeline: non note (accanto all'oggetto non ci sono "
-                     "i file dell'esecuzione: 10_phyloseq/colonne_metadati.tsv).")
+    semplici = [p for p in proposte.proposte if p.applicazione.componenti is None]
+    righe = [{p.nome: g or "" for p, g in zip(semplici, gruppi)}
+             for gruppi in zip(*(p.applicazione.gruppi_dei_campioni for p in semplici))]
+
+    def colonna(p) -> bool:
+        return p.origine == "generica" and p.applicazione.espansione == {"colonna": p.nome}
+
+    avvisi = []
+    for i, a in enumerate(semplici):
+        for b in semplici[i + 1:]:
+            if not (colonna(a) and colonna(b)):
+                avvisi += confuse(righe, [a.nome, b.nome])
+    return avvisi
+
+
+def nome_del_tsv(uscita: Path | str) -> Path:
+    """Il file dei gruppi delle divisioni proposte, accanto alla configurazione:
+    ``<nome della configurazione>_divisioni_proposte.tsv``."""
+    uscita = Path(uscita)
+    return uscita.with_name(f"{uscita.stem}_divisioni_proposte.tsv")
+
+
+#: Le colonne del file dei gruppi delle divisioni proposte.
+COLONNE_DEL_TSV: Final = ("divisione", "regola", "gruppo", "campioni", "campioni_senza_gruppo")
+
+
+def tsv_delle_divisioni(proposte: Proposte) -> str:
+    """Il file dei gruppi delle divisioni proposte: una riga per gruppo, con la
+    divisione, la regola, il gruppo, i suoi campioni e i campioni che la
+    divisione lascia senza gruppo; nell'ordine delle proposte e dei gruppi."""
+    righe = ["\t".join(COLONNE_DEL_TSV)]
+    for proposta in proposte.proposte:
+        app = proposta.applicazione
+        for gruppo, campioni in app.gruppi:
+            righe.append("\t".join(
+                " ".join(str(x).split()) for x in
+                (app.nome, app.regola, gruppo, campioni, app.senza_gruppo)))
+    return "\n".join(righe) + "\n"
+
+
+def blocco_delle_divisioni(proposte: Proposte, ranghi: list[dict[str, Any]],
+                           tsv: str | None) -> list[str]:
+    """Le righe di commento che stanno sopra ``design``: quante divisioni sono
+    suggerite, una riga per ciascuna (nome e spiegazione), come sceglierne una,
+    dove sono i gruppi (``tsv``), e i ranghi tassonomici."""
+    def paragrafo(testo: str) -> list[str]:
+        return [f"# {r}" for r in textwrap.wrap(testo, 76, break_long_words=False,
+                                                 break_on_hyphens=False)]
+
+    elenco = proposte.proposte
+    larghezza = max((len(p.nome) for p in elenco), default=0)
+    righe = [f"# Divisioni suggerite dai metadati: {len(elenco)}"]
+    righe += [f"#   {p.nome.ljust(larghezza)}  {p.spiegazione}" for p in elenco]
+    if elenco:
+        righe += paragrafo(
+            "Per sceglierne una scrivi il suo nome dove va una colonna: design.variable, "
+            "design.other_variables, comp.group_by, ord.color_by, comp.facet_wrap, le righe "
+            "e le colonne di comp.facet_grid; un incrocio («A per B») e' il valore di "
+            "comp.facet_grid. Lo strumento ricava la regola dal suo catalogo delle divisioni. "
+            "Una colonna dell'oggetto con valori vince su una divisione con lo stesso nome; "
+            "una divisione personalizzata si dichiara in design.groupings.")
+        if tsv:
+            righe += paragrafo(f"I gruppi di ogni divisione, con i campioni: {tsv}.")
     else:
-        righe.append("Colonne derivate dalla pipeline, con la regola che le ha prodotte:")
-        for nome, regola in derivazioni.items():
-            vuota = next((c["con_valore"] == 0 for c in descrizione["colonne"]
-                          if c["nome"] == nome), False)
-            righe.append(f"- {nome}: {regola}" + ("; vuota in questo oggetto" if vuota else ""))
-    righe.append(
-        "Un gruppo derivato (design.groupings) riunisce i valori di una colonna in gruppi, "
-        "con un elenco o con un'espressione regolare. Le proposte per prefisso (criterio: "
-        f"{PREFISSO}, lettere iniziali seguite da cifre) sono in design.groupings, in "
-        "commento: decidi tu se usarle.")
+        righe += paragrafo(
+            "Nessuna divisione da' da 2 a 12 gruppi, almeno due con "
+            f"{DIMENSIONE_DELLE_PROPOSTE} campioni, per almeno meta' dei campioni: si nomina una "
+            "colonna dell'oggetto, o si dichiara un gruppo derivato in design.groupings.")
+    righe += paragrafo(
+        "Ranghi tassonomici (comp.rank, run.analysis_rank; il livello tassonomico non e' "
+        "una divisione dei metadati): " + (", ".join(r["rango"] for r in ranghi) or "nessuno")
+        + ".")
     return righe
 
 
@@ -502,10 +499,7 @@ def descrivi(oggetto: Path | str) -> dict[str, Any]:
     impronta = _impronta_oggetto(oggetto)
     with tempfile.TemporaryDirectory(prefix="amplicon16s-eco-") as temporanea:
         lavoro = Path(temporanea)
-        copia = _copia(oggetto, lavoro, impronta)
-        esegui_r("descrivi.R", {"oggetto": str(copia),
-                                "valori_mancanti": sorted(_VALORI_ASSENTI)}, lavoro, "descrizione")
-        return json.loads((lavoro / "descrizione.json").read_text(encoding="utf-8"))
+        return descrizione_della_copia(_copia(oggetto, lavoro, impronta), lavoro)
 
 
 def prepara(
@@ -560,7 +554,20 @@ def prepara(
               "almeno l'80% dei campioni con un valore: misure, non gruppi. Per ciascuna "
               "l'analisi calcola la correlazione con l'alfa diversita' e una PERMANOVA con "
               "un termine numerico")
-    if len(candidate) == 1:
+    # Una sola divisione suggerita (gli incroci non contano), ricavata dalla
+    # sola colonna candidata, e' la proposta: e' la sola divisione dei metadati
+    # che funziona sul dataset, e nessun'altra colonna e' in gioco. Altrimenti
+    # vale la regola sulle colonne.
+    delle_divisioni = proposte_di(descrizione)
+    semplici = [p for p in delle_divisioni.proposte if p.applicazione.componenti is None]
+    if len(semplici) == 1 and all(c["nome"] == semplici[0].applicazione.colonna
+                                  for c in candidate):
+        metti("design.variable", PROPOSTO, semplici[0].nome,
+              f"la sola divisione suggerita dai metadati ({semplici[0].spiegazione})",
+              *(["colonne con gruppi ripetuti (numero di gruppi): " + ", ".join(
+                  f"{c['nome']} ({c['gruppi_ripetuti']})" for c in candidate)]
+                if candidate else []))
+    elif len(candidate) == 1:
         sola = candidate[0]
         metti("design.variable", PROPOSTO, sola["nome"],
               f"la sola colonna con almeno due gruppi di almeno due campioni "
@@ -594,20 +601,8 @@ def prepara(
         bassa = rarefazione_bassa(dei_campioni.letture, nomi)
         if bassa is not None:
             fatti.append(bassa)
-        # I gruppi di ogni candidata con quanti campioni hanno: servono a
-        # scegliere la variabile e la dimensione minima dei gruppi.
-        dei_gruppi = []
-        for c in candidate:
-            quanti: dict[str, int] = {}
-            for riga in dei_campioni.campioni:
-                if _presente(riga.get(c["nome"])):
-                    quanti[riga[c["nome"]]] = quanti.get(riga[c["nome"]], 0) + 1
-            if 0 < len(quanti) <= _NOMINATI:
-                dei_gruppi.append(c["nome"] + ": " + ", ".join(
-                    f"{valore!r} {n}" for valore, n in sorted(quanti.items())))
-        if dei_gruppi:
-            fatti.append("Gruppi delle colonne candidate a variabile da confrontare "
-                         "(campioni per gruppo): " + "; ".join(dei_gruppi) + ".")
+        # I gruppi di ogni divisione, con i loro campioni, sono nel file dei
+        # gruppi delle divisioni proposte, non qui.
         delle_confuse = confuse(dei_campioni.campioni, [c["nome"] for c in candidate])
         for avviso in delle_confuse:
             fatti.append("Variabili confuse: " + avviso)
@@ -653,15 +648,11 @@ def prepara(
               "l'albero dell'oggetto e' gia' radicato; serve solo se beta.distances "
               "comprende una UniFrac, ed e' respinto altrimenti")
 
-    proposte = proposte_per_prefisso(descrizione)
-    if proposte:
-        metti("design.groupings", PROPOSTO, {nome: regola for nome, regola, _ in proposte},
-              f"il prefisso dei valori (criterio {PREFISSO}: lettere iniziali seguite da "
-              "cifre) li divide in pochi gruppi ripetuti",
-              *[f"{nome}: " + "; ".join(note) for nome, _, note in proposte],
-              "e' una regola sui dati: controlla i gruppi e, se la usi, togli il commento e "
-              "nomina il gruppo derivato in design.variable, design.other_variables o "
-              "ord.color_by; --accetta-proposte non la attiva")
+    # Le divisioni confuse fra loro: si guardano sulla tabella della
+    # descrizione, che c'e' sempre; le coppie di colonne le ha gia' viste il
+    # controllo delle colonne candidate.
+    for avviso in divisioni_confuse(delle_divisioni):
+        fatti.append("Divisioni confuse: " + avviso)
     if "design.variable" in voci:
         voce = voci["design.variable"]
         voci["design.variable"] = replace(voce, note=(*voce.note, _RIMANDO))
@@ -759,11 +750,11 @@ def _sembra_continua(colonna: dict[str, Any]) -> bool:
 
 def testo_yaml(
     voci: dict[str, Voce], fatti: list[str], oggetto: str, accettate: bool = False,
-    colonne: list[str] | None = None,
+    divisioni: list[str] | None = None,
 ) -> str:
-    """Il testo del file di configurazione delle analisi; ``colonne`` e' il
-    blocco delle colonne selezionabili come gruppi (:func:`colonne_per_gruppi`),
-    scritto sopra ``design``."""
+    """Il testo del file di configurazione delle analisi; ``divisioni`` e' il
+    blocco delle divisioni suggerite (:func:`blocco_delle_divisioni`), righe di
+    commento gia' composte, scritto sopra ``design``."""
     da_scegliere = [v for v in voci.values() if v.specie is SCELTA]
     proposti = [v for v in voci.values() if v.specie is PROPOSTO]
     attive = [v for v in voci.values() if v.attiva]
@@ -807,10 +798,8 @@ def testo_yaml(
         "# Le spiegazioni cominciano con ##, le righe dei parametri in commento con #.",
         "",
     ]
-    if colonne:
-        righe += ["# " + "-" * 76]
-        righe += [riga for testo in colonne for riga in commento(testo, "#")]
-        righe += ["# " + "-" * 76, ""]
+    if divisioni:
+        righe += ["# " + "-" * 76, *divisioni, "# " + "-" * 76, ""]
     for gruppo, campo_gruppo in ConfigEco.model_fields.items():
         modello = campo_gruppo.annotation
         righe.append(f"# {(modello.__doc__ or '').strip().splitlines()[0]}")
@@ -859,23 +848,43 @@ def testo_yaml(
     return "\n".join(righe)
 
 
+def _fatto_delle_derivate(descrizione: dict[str, Any],
+                          derivazioni: dict[str, str] | None) -> str:
+    """Il fatto sulle colonne che la pipeline ha derivato da una regola."""
+    if derivazioni is None:
+        return ("Colonne derivate dalla pipeline: non note (accanto all'oggetto non ci sono i "
+                "file dell'esecuzione: 10_phyloseq/colonne_metadati.tsv).")
+    parti = []
+    for nome, regola in derivazioni.items():
+        vuota = next((c["con_valore"] == 0 for c in descrizione["colonne"]
+                      if c["nome"] == nome), False)
+        parti.append(f"{nome}: {regola}" + ("; vuota in questo oggetto" if vuota else ""))
+    return "Colonne derivate dalla pipeline, con la regola: " + ("; ".join(parti) or "nessuna") + "."
+
+
 def scrivi(
     oggetto: Path | str, uscita: Path | str, accettate: bool = False
-) -> tuple[dict[str, Voce], list[str]]:
-    """Esamina l'oggetto e scrive la configurazione di partenza.
+) -> tuple[dict[str, Voce], list[str], Proposte]:
+    """Esamina l'oggetto e scrive la configurazione di partenza e, accanto, il
+    file dei gruppi delle divisioni proposte (:func:`nome_del_tsv`).
 
     Con ``accettate`` le proposte e i valori di partenza sono righe attive
-    (:func:`accetta`). Solleva ``FileExistsError`` se il file esiste gia': non
-    lo sovrascrive.
+    (:func:`accetta`). Solleva ``FileExistsError`` se uno dei due file esiste
+    gia': non li sovrascrive.
     """
     uscita = Path(uscita)
-    if uscita.exists():
-        raise FileExistsError(uscita)
+    tsv = nome_del_tsv(uscita)
+    for percorso in (uscita, tsv):
+        if percorso.exists():
+            raise FileExistsError(percorso)
     descrizione = descrivi(oggetto)
     voci, fatti = prepara(descrizione, esportati(oggetto))
+    fatti.append(_fatto_delle_derivate(descrizione, derivazioni_della_pipeline(oggetto)))
     if accettate:
         voci = accetta(voci)
-    colonne = colonne_per_gruppi(descrizione, derivazioni_della_pipeline(oggetto))
-    scrivi_atomico(uscita, testo_yaml(voci, fatti, Path(oggetto).name, accettate, colonne)
+    proposte = proposte_di(descrizione)
+    blocco = blocco_delle_divisioni(proposte, descrizione["ranghi"], tsv.name)
+    scrivi_atomico(tsv, tsv_delle_divisioni(proposte))
+    scrivi_atomico(uscita, testo_yaml(voci, fatti, Path(oggetto).name, accettate, blocco)
                    + "\n")
-    return voci, fatti
+    return voci, fatti, proposte
