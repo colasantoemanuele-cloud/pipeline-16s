@@ -3,7 +3,7 @@
 # Oggetto di partenza: 12_final/ps_final.rds di un'esecuzione completa della
 # pipeline su OSD-734 (760 campioni biologici). Usa le funzioni facoltative
 # delle analisi ecologiche: gruppi derivati (per espressione regolare e per elenco), filtro
-# delle varianti rare (nella seconda variante, sotto), rarefazione ripetuta,
+# delle varianti rare (in una delle varianti, sotto), rarefazione ripetuta,
 # Chao1, piu' ranghi, composizione a pannelli, t-SNE, UniFrac, db-RDA, colori
 # descrittivi e palette. Il significato di ogni parametro e' in
 # config/eco.example.yaml e in RIFERIMENTO.md, sezione 4.
@@ -18,11 +18,13 @@
 #       comp: {rank: [Family], ...}
 
 design:
-  # Il modulo della stazione (la colonna modulo dell'oggetto e' vuota: il
-  # gruppo derivato ha un altro nome), ricavato dalla posizione con la proposta di
-  # eco init (lettere iniziali seguite da cifre: NOD1D4 -> NOD1). Le posizioni
-  # che non sono superfici di un modulo (aria, airlock, tubi mai aperti) restano
-  # senza modulo ed escono dalle analisi di questa variabile.
+  # Il modulo della stazione, ricavato dalla posizione con un gruppo derivato
+  # scritto a mano (lettere iniziali seguite da cifre: NOD1D4 -> NOD1). E' la
+  # regola della divisione «modulo» del catalogo, che eco init propone su questo
+  # oggetto e che si puo' nominare al suo posto (variable: modulo, senza il
+  # gruppo derivato). Le posizioni che non sono superfici di un modulo (aria,
+  # airlock, tubi mai aperti) restano senza modulo ed escono dalle analisi di
+  # questa variabile.
   variable: modulo_da_posizione
   # Le posizioni senza modulo, divise per tipo con un elenco di valori: un
   # confronto descrittivo fra i soli 55 campioni che non sono superfici.

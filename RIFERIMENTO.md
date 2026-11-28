@@ -909,6 +909,26 @@ il riepilogo lo dichiara. Le righe della configurazione:
   abbondanze, Jaccard presenza e assenza, Aitchison i log-rapporti, UniFrac pesato e non
   pesato (con l'albero) la parentela filogenetica, con e senza abbondanze.
 
+**Colonne, gruppi derivati e divisioni.** Ogni campo che accetta una colonna
+(`design.variable`, `design.other_variables`, `comp.group_by`, `ord.color_by`,
+`comp.facet_wrap`, `rows` e `cols` di `comp.facet_grid`) accetta anche un gruppo derivato
+di `design.groupings` (un elenco di valori per gruppo o un'espressione regolare, sezione
+4.5) e il nome di una divisione dei metadati del catalogo dello strumento, che `eco init`
+elenca fra quelle che funzionano sul dataset; `comp.facet_grid` accetta anche il nome di
+un incrocio. L'operatore può comunque nominare qualunque colonna dell'oggetto. La regola
+con cui si legge un nome e che cosa diventa una divisione: sezione 4.7.
+
+**Distanze.** `beta.distances` (obbligatorio) ammette `bray` (Bray-Curtis sulle
+abbondanze relative dei conteggi non rarefatti, `vegan::vegdist`), `jaccard` (presenza e
+assenza, `vegan::vegdist`, `binary = TRUE`), `aitchison` (distanza euclidea sul CLR dei
+conteggi più `beta.clr_pseudocount`, obbligatorio con questa distanza),
+`unifrac_weighted` (UniFrac pesata e normalizzata, `phyloseq::UniFrac`, `weighted = TRUE`,
+`normalized = TRUE`) e `unifrac_unweighted` (UniFrac non pesata, `weighted = FALSE`). Le
+due UniFrac chiedono l'albero dell'oggetto e `beta.unifrac_root` (`existing` o
+`midpoint`): senza albero, o con un albero senza radice dichiarato `existing`, sono
+respinte con `E-ECO-06`. Ogni distanza dichiarata entra nella PERMANOVA, nel test delle
+dispersioni e, se è in `ord.distances`, nelle ordinazioni.
+
 **Togliere campioni dalle analisi.** `design.subset` (facoltativo) dichiara, per una o più
 colonne dell'oggetto, i valori dei campioni da tenere; si applica prima di tutto il
 resto, e i campioni che non li portano non entrano in alcuna tabella né in alcun test.
@@ -963,8 +983,8 @@ FALSE` le varianti senza nome al rango restano separate secondo il loro lignaggi
 ranghi superiori; `tax_glom` pota anche l'albero, e UniFrac usa l'albero potato. Ogni
 tabella lo dichiara nell'intestazione, e `riepilogo.json` in `livello_dei_calcoli`.
 Nessun rango di `comp.rank` può essere più fine di `run.analysis_rank` (`E-ECO-07`).
-`comp.group_by` sceglie le variabili delle barre della composizione (vuoto: quelle del
-disegno); `comp.facet_wrap` e `comp.facet_grid` aggiungono i grafici a pannelli (sezione
+`comp.group_by` sceglie le variabili delle barre della composizione (colonne, gruppi
+derivati o divisioni; vuoto: quelle del disegno); `comp.facet_wrap` e `comp.facet_grid` aggiungono i grafici a pannelli (sezione
 4.3).
 
 **Ordinazioni.** `ord.methods` ammette `pcoa`, `nmds` e `tsne`. Il t-SNE (`Rtsne::Rtsne`
@@ -976,7 +996,7 @@ perplessità <= campioni - 1`, contando i campioni dopo `design.subset` e il fil
 disposizione iniziale si estrae dal seme (`fissa_seme`): due esecuzioni danno gli stessi
 byte. Nel t-SNE le distanze fra gruppi lontani e le dimensioni dei gruppi non hanno
 significato: è una figura descrittiva, e i test restano la PERMANOVA. `ord.color_by`
-aggiunge ordinazioni colorate per colonne o gruppi derivati senza alcun test (sezione 4.5).
+aggiunge ordinazioni colorate per colonne, gruppi derivati o divisioni, senza alcun test (sezione 4.5).
 
 Con `--accetta-proposte` le proposte sono righe attive (la variabile biologica, le
 variabili tecniche, il rango, le variabili continue, `alpha.method`). La proposta di un
@@ -1207,9 +1227,9 @@ con il metodo che li richiede e sono respinti senza.
 | Parametro | Predefinito | Fonte o motivo | Effetto |
 |---|---|---|---|
 | `stat.permanova_permutations` | 999 | `vegan::adonis2`, `permutations = 999` | le permutazioni della PERMANOVA, del test delle dispersioni e dei test dell'ordinazione vincolata: fissano la p più piccola ottenibile (0,001 con 999) |
-| `plot.palette` | `"Dark 3"` | `grDevices::hcl.colors(n, palette = "Dark 3")`: la palette con cui lo strumento ha sempre colorato i gruppi | la palette di tutti i grafici (sezione 4.5) |
+| `plot.palette` | `"Dark 3"` | `grDevices::hcl.colors(n, palette = "Dark 3")`: la palette predefinita dei gruppi | la palette di tutti i grafici (sezione 4.5) |
 | `stat.permanova_strata` | nullo | facoltativo: nessuno strato | la colonna entro i cui valori si permuta, nella PERMANOVA e nel test delle dispersioni; non entra nell'analisi entro soggetto (sezione 4.2) |
-| `design.other_variables` | `[]` | facoltativo: nessuna | altre variabili categoriche, analizzate una alla volta come `design.variable` |
+| `design.other_variables` | `[]` | facoltativo: nessuna | altre variabili categoriche (colonne, gruppi derivati o divisioni per nome), analizzate una alla volta come `design.variable` |
 | `design.technical_variables` | `[]` | facoltativo: nessuna | le variabili tecniche (piastra, corsa), primi termini della PERMANOVA nell'ordine dichiarato, prima la più grossolana |
 | `design.subset` | `{}` | facoltativo: tutti i campioni | per ogni colonna i valori dei campioni da tenere; si applica prima di tutto il resto |
 | `design.continuous_variables` | `[]` | facoltativo: nessuna | le variabili continue (sezione 4.1) |
@@ -1217,10 +1237,10 @@ con il metodo che li richiede e sono respinti senza.
 | `design.groupings` | `{}` | facoltativo: nessuno | i gruppi derivati, nuove variabili categoriche ricavate da una colonna (sezione 4.5) |
 | `filter.min_relative_abundance` | nullo | facoltativo: nessun filtro | la soglia, in percentuale, del filtro delle varianti rare (sopra, «Filtro delle varianti rare») |
 | `run.analysis_rank` | nullo | facoltativo: le varianti | il rango dei calcoli (sopra, «Rango dei grafici e livello dei calcoli») |
-| `comp.group_by` | `[]` | facoltativo: le variabili del disegno | le variabili delle barre della composizione |
-| `comp.facet_wrap` | nullo | facoltativo: nessun grafico | barre per campione, un pannello per gruppo della colonna (`ggplot2::facet_wrap`) |
-| `comp.facet_grid` | nullo | facoltativo: nessun grafico | `{rows: <colonna>, cols: <colonna>}`: barre medie per gruppo di `design.variable` in una griglia (`ggplot2::facet_grid`) |
-| `ord.color_by` | `[]` | facoltativo: nessun grafico | ordinazioni colorate per colonne o gruppi derivati, senza test (sezione 4.5) |
+| `comp.group_by` | `[]` | facoltativo: le variabili del disegno | le variabili delle barre della composizione (colonne, gruppi derivati o divisioni per nome) |
+| `comp.facet_wrap` | nullo | facoltativo: nessun grafico | barre per campione, un pannello per gruppo della colonna, del gruppo derivato o della divisione (`ggplot2::facet_wrap`) |
+| `comp.facet_grid` | nullo | facoltativo: nessun grafico | `{rows: <nome>, cols: <nome>}` (colonne, gruppi derivati o divisioni) oppure il nome di un incrocio del catalogo: barre medie per gruppo di `design.variable` in una griglia (`ggplot2::facet_grid`) |
+| `ord.color_by` | `[]` | facoltativo: nessun grafico | ordinazioni colorate per colonne, gruppi derivati o divisioni, senza test (sezione 4.5) |
 | `constrained.method` | nullo | facoltativo: nessuna ordinazione vincolata | `rda` o `dbrda` (sezione 4.6) |
 | `constrained.conditions` | `[]` | facoltativo: nessuna | le variabili tolte prima nel modello vincolato (`Condition()`); solo con un metodo |
 
@@ -1287,7 +1307,7 @@ posizione, la fase rispetto al volo, il soggetto...) non serve scriverli qui: si
 come divisioni del catalogo (sezione 4.7), e `eco init` elenca quelli che funzionano sul
 dataset. `design.groupings` resta per le divisioni personalizzate.
 
-**Colori descrittivi.** `ord.color_by` elenca colonne o gruppi derivati per cui disegnare
+**Colori descrittivi.** `ord.color_by` elenca colonne, gruppi derivati o divisioni per cui disegnare
 le ordinazioni (PCoA, NMDS, t-SNE) colorate, senza alcun test: il caso tipico è un
 raggruppamento scelto dopo aver guardato i dati, che non va testato sugli stessi dati. I
 grafici sono `ordinazione/<metodo>_<distanza>_colore_NN_<colonna>.png` e il titolo dice
@@ -1295,7 +1315,7 @@ grafici sono `ordinazione/<metodo>_<distanza>_colore_NN_<colonna>.png` e il tito
 grafici.
 
 **Palette.** `plot.palette` sceglie i colori di tutti i grafici: un nome di
-`grDevices::hcl.pals()` (il predefinito «Dark 3» è quello di sempre), `"Okabe-Ito"`
+`grDevices::hcl.pals()` (il predefinito è «Dark 3»), `"Okabe-Ito"`
 (`grDevices::palette.colors`, adatta ai daltonici, senza il grigio, riservato alla voce
 «altri»), un nome di RColorBrewer (per i 26 nomi che `hcl.pals()` ha anche come
 approssimazione HCL valgono i colori originali di RColorBrewer) o di viridisLite (magma,

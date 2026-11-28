@@ -347,7 +347,7 @@ esegui_fase(function(parametri, cartella) {
   }
 
   riepilogo <- riepilogo_del_disegno(d)
-  # Con un rango solo la voce e' quella di sempre; con piu' ranghi, una per rango.
+  # Con un rango solo una voce; con piu' ranghi, una per rango.
   riepilogo$composizione <- if (length(composizioni) == 1L) composizioni[[1L]] else
     unname(composizioni)
   riepilogo$beta <- list(distanze = I(metodi))

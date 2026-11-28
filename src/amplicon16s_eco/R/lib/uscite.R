@@ -68,7 +68,7 @@ ordine_radix <- function(x) order(as.character(x), method = "radix")
 # Le righe che ogni tabella aggiunge alla sua intestazione quando i dati su cui
 # si calcola non sono le varianti dell'oggetto: il livello dei calcoli
 # (run.analysis_rank) e il filtro di abbondanza. Le imposta R/analisi.R; vuote,
-# le tabelle sono quelle di sempre.
+# le intestazioni non hanno quelle righe.
 NOTE_DEI_DATI <- character()
 
 scrivi_tsv <- function(tabella, percorso, intestazione = character()) {
@@ -164,11 +164,11 @@ larghezza_per_gruppi <- function(n) {
 # adatta ai daltonici, senza il grigio, riservato alla voce «altri»); un nome di RColorBrewer (i colori originali di
 # ColorBrewer: per i 26 nomi che hcl.pals() ha anche come approssimazione HCL
 # vale RColorBrewer); un nome di grDevices::hcl.pals() (hcl.colors genera tanti
-# colori quanti gruppi, come ha sempre fatto lo strumento con "Dark 3"); un
+# colori quanti gruppi, come fa il predefinito "Dark 3"); un
 # nome di viridisLite. Un elenco di colori esadecimali vale cosi' com'e'.
 
 # La palette in uso: la imposta R/analisi.R con imposta_palette; il predefinito
-# e' quella con cui lo strumento ha sempre disegnato.
+# e' "Dark 3" (plot.palette).
 PALETTE_GRAFICI <- "Dark 3"
 OKABE_ITO <- "Okabe-Ito"
 OPZIONI_VIRIDIS <- c("magma", "inferno", "plasma", "viridis", "cividis", "rocket",

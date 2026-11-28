@@ -16,6 +16,7 @@ ogni file sono in `FONTI.tsv`. Il riferimento tassonomico, comune ai dataset, st
 | `letture_ena.tsv` | si' | le 960 corse: accession, nome del file locale, indirizzo, MD5 e dimensione dichiarati da ENA |
 | `config_osd734.yaml` | si' | la configurazione per OSD-734, con i percorsi relativi alla radice del repository |
 | `eco_osd734.yaml` | si' | la configurazione d'esempio delle analisi ecologiche di base sull'oggetto finale |
+| `eco_osd734_migliorie.yaml` | si' | la configurazione dimostrativa delle funzioni facoltative delle analisi ecologiche sull'oggetto finale |
 | `FONTI.tsv` | si' | fonte, licenza e controllo di ogni file; per il file del lotto anche l'identificativo dell'archivio Software Heritage |
 | `scarica_letture.py` | si' | scarica le letture in `fastq/` |
 | `ricostruisci_lotto.py` | si' | ricostruisce il file del lotto in `lotto/` dalla fonte pubblica |
@@ -260,6 +261,33 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
 
 La cartella di uscita deve essere assente o vuota. Un'esecuzione dura circa un minuto e
 mezzo; due esecuzioni danno gli stessi byte in ogni file.
+
+`eco_osd734_migliorie.yaml` usa le funzioni facoltative sullo stesso oggetto (760
+campioni biologici):
+- il modulo dal prefisso della posizione, come gruppo derivato scritto a mano: è la
+  regola della divisione «modulo», che si può nominare al suo posto;
+- un secondo gruppo derivato per elenco, per le posizioni fuori dai moduli (aria,
+  airlock, tubi mai aperti);
+- 10 rarefazioni, con Chao1 fra gli indici;
+- composizione a Family e Genus, per gruppi (`comp.group_by`) e a pannelli per modulo
+  (`comp.facet_wrap`);
+- le cinque distanze, UniFrac pesata e non pesata comprese;
+- PCoA con la correzione di Cailliez e t-SNE (perplessità 30), con le ordinazioni
+  colorate per posizione (`ord.color_by`);
+- db-RDA del modulo, su Bray-Curtis;
+- la palette Okabe-Ito.
+
+L'intestazione del file dice come ottenere due varianti: senza rarefazione con il filtro
+allo 0,1%, e con i calcoli al rango di famiglia.
+
+```bash
+docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
+  python3 scripts/esegui.py eco run --object output/osd734/12_final/ps_final.rds \
+    --config dati/osd734/eco_osd734_migliorie.yaml --out output/eco_osd734_migliorie
+```
+
+Produce 79 file, identici byte per byte fra due esecuzioni. Su 12 processori dura una
+decina di minuti, per lo più per il t-SNE e la db-RDA sulle cinque distanze.
 
 ## Il file del lotto
 

@@ -103,10 +103,6 @@ _RIMANDO: Final = ("si sceglie per nome fra le divisioni suggerite elencate in t
                    "sopra design; oppure una colonna dell'oggetto o un gruppo derivato di "
                    "design.groupings")
 
-#: Le proposte che --accetta-proposte non attiva mai: una regola sui dati da
-#: controllare prima di usarla.
-_MAI_ACCETTATE: Final = ("design.groupings",)
-
 #: Note fisse dei parametri che init non propone (facoltativi e standard): le
 #: alternative e le fonti per sceglierli, scritte sopra la riga in commento.
 NOTE_DEI_PARAMETRI: Final[dict[str, tuple[str, ...]]] = {
@@ -140,7 +136,7 @@ NOTE_DEI_PARAMETRI: Final[dict[str, tuple[str, ...]]] = {
         "le barre della composizione per gruppo; vuoto: le variabili del disegno; "
         + _RIMANDO,),
     "plot.palette": (
-        "un nome di grDevices::hcl.pals() (\"Dark 3\" e' quella di sempre), \"Okabe-Ito\" "
+        "un nome di grDevices::hcl.pals() (\"Dark 3\" e' la predefinita), \"Okabe-Ito\" "
         "(adatta ai daltonici), un nome di RColorBrewer (\"Set2\", \"Dark2\"...) o di "
         "viridisLite (\"viridis\", \"cividis\"...), oppure un elenco di colori "
         "esadecimali; con piu' gruppi che colori la palette si estende per "
@@ -733,7 +729,7 @@ def accetta(voci: dict[str, Voce]) -> dict[str, Voce]:
     """
     accettate = {}
     for chiave, voce in voci.items():
-        if voce.valore is SENZA_VALORE or chiave in _MAI_ACCETTATE:
+        if voce.valore is SENZA_VALORE:
             pass
         elif chiave in CONDIZIONALI:
             voce = replace(voce, note=(

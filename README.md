@@ -306,38 +306,31 @@ Si apre una issue su GitHub, nel repository da cui viene il clone, allegando l'u
 Una versione dello strumento è un commit (o un tag) di questo repository insieme al digest
 della sua immagine: i due insieme identificano i risultati.
 
-- **`v0.1.0`**: commit `133ba16`, immagine
+- **`v0.1.0`** (`amplicon16s`, la pipeline): commit `133ba16`, immagine
   `ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`.
-- **Analisi ecologiche 0.2.0** (`amplicon16s_eco`), immagine
-  `ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76`:
-  1. Chao1 come quarto indice dell'alfa diversità, con l'avviso se non ci sono singleton;
-  2. filtro delle varianti rare per abbondanza relativa, alfa diversità senza rarefazione
-     o con più rarefazioni, correlazione fra letture e indici;
-  3. gruppi derivati da una colonna, colori descrittivi delle ordinazioni, palette dei
-     grafici, proposte di raggruppamento di `eco init`;
-  4. barre della composizione per variabili scelte (`comp.group_by`);
-  5. composizione a più ranghi e rango dei calcoli (`run.analysis_rank`);
-  6. t-SNE accanto a PCoA e NMDS;
-  7. ordinazione vincolata: RDA e db-RDA con i test per permutazione;
-  8. UniFrac pesato e non pesato fra le scelte proposte;
-  9. grafici della composizione a pannelli (`facet_wrap`, `facet_grid`).
-
-  Chi aggiorna dalla v0.1.0 aggiunge `alpha.method` alle configurazioni delle analisi
-  ecologiche, dove ora è obbligatorio: con `alpha.method: rarefy` i risultati sono gli
-  stessi di prima.
-- **Analisi ecologiche 0.3.0** (`amplicon16s_eco`), immagine non ancora pubblicata:
-  1. catalogo delle divisioni dei metadati (`src/amplicon16s_eco/divisioni.yaml`): posizione,
-     modulo, fase rispetto al volo, volo o terra, soggetto, tipo di materiale, tempo di
-     raccolta e le altre colonne attese nei dataset OSDR, con l'origine di ogni nome;
-  2. `eco init` propone solo le divisioni che funzionano sul dataset, senza doppioni, e
-     scrive i loro gruppi in `<configurazione>_divisioni_proposte.tsv`;
-  3. una divisione si sceglie per nome nei campi che accettano una colonna, un incrocio
-     («soggetto per fase») in `comp.facet_grid`; codici nuovi `E-ECO-47` ed `E-ECO-48`.
-
-  Le configurazioni della 0.2.0 danno gli stessi risultati; un nome sconosciuto in
-  `design.variable`, `design.other_variables`, `comp.group_by`, `ord.color_by`,
-  `comp.facet_wrap` o `comp.facet_grid` ora è `E-ECO-47` invece di `E-ECO-05`
-  (RIFERIMENTO.md, 4.7).
+- **Analisi ecologiche 0.3.0** (`amplicon16s_eco`): immagine da pubblicare; il suo digest
+  va scritto qui, nella sezione «Esecuzione» e nelle chiavi `run.container` delle
+  configurazioni in `dati/` (SVILUPPO.md, sezione 7, «Aggiornare l'ambiente»). Contiene:
+  1. alfa diversità con quattro indici (ricchezza osservata, Shannon, Gini-Simpson, Chao1;
+     `E-ECO-36` se mancano i singleton) e `alpha.method` obbligatorio: `rarefy` (una o più
+     rarefazioni) o `none` (conteggi non rarefatti, con la correlazione fra letture e indici,
+     `E-ECO-39`);
+  2. filtro delle varianti rare per abbondanza relativa: soglia in percentuale
+     (`filter.min_relative_abundance`) e ambito (`filter.scope`: `sample`, `total`, `mean`);
+  3. divisioni dei metadati: il catalogo (`src/amplicon16s_eco/divisioni.yaml`), le divisioni
+     suggerite da `eco init` con i gruppi in `<configurazione>_divisioni_proposte.tsv`, la
+     scelta per nome in ogni campo che accetta una colonna (`E-ECO-47`, `E-ECO-48`); i gruppi
+     propri in `design.groupings` (elenco di valori o espressione regolare, `E-ECO-40`); i
+     colori descrittivi (`ord.color_by`) e la palette (`plot.palette`, `E-ECO-41`, `E-ECO-46`);
+     PERMANOVA e test dell'alfa diversità sui gruppi scelti;
+  4. barre della composizione per gruppi, dopo `tax_glom` (`comp.group_by`);
+  5. livello tassonomico a scelta: uno o più ranghi dei grafici (`comp.rank`) e rango dei
+     calcoli (`run.analysis_rank`);
+  6. ordinazioni PCoA, NMDS e t-SNE (`ord.methods`, `E-ECO-42`);
+  7. ordinazione vincolata RDA e db-RDA con i test per permutazione (`constrained.*`,
+     `E-ECO-43`, `E-ECO-44`, `E-ECO-45`);
+  8. distanze Bray-Curtis, Jaccard, Aitchison, UniFrac pesata e non pesata (`beta.distances`);
+  9. composizione a pannelli (`comp.facet_wrap`, `comp.facet_grid`).
 
 ## Documenti
 

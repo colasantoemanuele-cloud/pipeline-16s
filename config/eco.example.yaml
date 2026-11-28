@@ -298,8 +298,7 @@ constrained:
 
 plot:
   # [STANDARD] Palette dei gruppi in tutti i grafici (predefinito "Dark 3"
-  # della funzione grDevices::hcl.colors, quella con cui lo strumento ha sempre
-  # colorato i gruppi). Ammette un nome di grDevices::hcl.pals(), "Okabe-Ito"
+  # della funzione grDevices::hcl.colors). Ammette un nome di grDevices::hcl.pals(), "Okabe-Ito"
   # (grDevices::palette.colors, adatta ai daltonici), un nome di RColorBrewer
   # (per i nomi che ha anche hcl.pals vale RColorBrewer) o di viridisLite, oppure
   # un elenco di colori esadecimali ["#RRGGBB", ...]; un nome sconosciuto o un

@@ -112,7 +112,11 @@ Ogni file Python e R comincia con un commento che dice che cosa fa la fase, che 
 
 **Aggiungere una fase.** `Passo` e `Nodo` in `runner/graph.py`; la cartella in `Fase` (`io_layer/artifacts.py`); la classe in `steps/`, registrata in `passi_realizzati()` (`runner/project.py`); lo script R; i codici nel catalogo e nel test; il registro del sorgente; `ORDINE` e `CARTELLE` in `dati/osd734/confronta_risultati.py` (un test li tiene allineati al grafo).
 
-**Cambiare le analisi ecologiche.** Tutto sta in `src/amplicon16s_eco/`: parametri in `config.py` (e in `config/eco.example.yaml`, `RIFERIMENTO.md` sezione 4; un file di uscita nuovo va nella tabella della 4.3), comandi in `cli.py`, codici in `catalogo.py`, divisioni dei metadati in `divisioni.yaml` (dati) e `divisioni.py`, calcoli in `R/` (`valida.R`, `analisi.R`, `descrivi.R` e `R/lib/`). Test in `tests/test_eco_*.py`, dati in `tests/fixtures/eco/`. Le uscite della pipeline non si toccano.
+**Cambiare le analisi ecologiche.** Tutto sta in `src/amplicon16s_eco/`: parametri in `config.py` (e in `config/eco.example.yaml`, `RIFERIMENTO.md` sezione 4; un file di uscita va nella tabella della 4.3), comandi in `cli.py`, codici in `catalogo.py`, divisioni dei metadati in `divisioni.yaml` (dati) e `divisioni.py`, calcoli in `R/` (`valida.R`, `analisi.R`, `descrivi.R` e `R/lib/`). Test in `tests/test_eco_*.py`, dati in `tests/fixtures/eco/`. Le uscite della pipeline non si toccano.
+
+**Aggiungere una voce al catalogo delle divisioni.** Una voce di `src/amplicon16s_eco/divisioni.yaml` con `nome` (in italiano, unico, senza il suffisso `_prefisso`), `spiegazione` (una riga), `fonti` (per ciascuna la chiave della colonna, cioè il nome in minuscolo con `_` e senza `factor_value_`, `characteristics_`, `comment_`, `parameter_value_`, e la regola con i suoi parametri) e `origine` (il file ISA di un dataset o la fonte pubblica da cui viene il nome: nessun nome inventato); un incrocio ha `regola: incrocio`, `righe` e `colonne`, che nominano due divisioni precedenti. L'ordine delle voci è quello delle proposte di `eco init`. Il caricamento (`carica_catalogo`) respinge una voce malformata; poi si aggiorna la tabella del catalogo in RIFERIMENTO.md 4.7 se cambia una regola, la fonte in RAZIONALE.md 4.12, e si aggiunge in `tests/test_eco_divisioni.py` il caso che la voce deve riconoscere. Un tipo di regola in più va in `REGOLE` e in `_applica_fonte` di `divisioni.py`.
+
+**Aggiungere un codice delle analisi ecologiche.** Una `VoceEco` in `catalogo.py` (codice, rifiuto o avviso, sintesi, azione); il codice sollevato nel sorgente Python (`ErroreEco`) o R (`.avviso`); una riga nella tabella dei codici di `RIFERIMENTO.md` (sezione 4.3) e il codice accanto al parametro in `config/eco.example.yaml`. `test_i_codici_usati_e_quelli_del_catalogo_coincidono` respinge un codice usato senza voce e una voce senza uso.
 
 **Aggiornare l'ambiente** (un pacchetto R, la data dell'istantanea CRAN, l'immagine di base). Otto passi:
 
@@ -120,7 +124,7 @@ Ogni file Python e R comincia con un commento che dice che cosa fa la fase, che 
 2. sposti `renv.lock` fuori dal clone: la build confronta i pacchetti con il file e fallirebbe, mentre senza file la verifica si salta;
 3. costruisci: `docker build -f container/Dockerfile -t amplicon16s:nuova .`;
 4. `scripts/genera_renv_lock.sh amplicon16s:nuova` rigenera `renv.lock` dall'immagine appena costruita;
-5. ricostruisci l'immagine, che ora si verifica contro il file nuovo;
+5. ricostruisci l'immagine, che si verifica contro il file rigenerato;
 6. esegui la suite nell'immagine e il confronto sul riferimento (sezione 8); se i risultati cambiano per scelta, `confronta_risultati.py --aggiorna` riscrive le impronte attese;
 7. pubblichi l'immagine nel registro (`docker push`) e ne annoti il digest;
 8. sostituisci il digest vecchio con il nuovo ovunque compaia: README, GUIDA, `dati/osd734/README.md` e la chiave `run.container` delle configurazioni in `dati/` (`grep -rl <digest vecchio> .` li elenca).
@@ -129,7 +133,7 @@ Ogni file Python e R comincia con un commento che dice che cosa fa la fase, che 
 
 - **La suite:** `pytest` (sezione 2) gira su 4 processi. I test che richiedono il dataset completo sono marcati `dati_reali` e `riferimento` e si attivano con `AMPLICON16S_CONFIG_DATI_REALI=<configurazione>`; quelli lunghi sono marcati `lenta` e si attivano con `AMPLICON16S_PROVE_LENTE=1`. I moduli di test per area sono nella tabella qui sotto; per un modulo del codice si cercano i test che lo nominano (`grep -l s04_dada tests/`).
 - **I dati di prova** (`tests/fixtures/`): `osd734/ridotto/` (versione piccola di OSD-734, ricostruibile con `scripts/build_test_subset.py`, su cui gira la catena in CI), `osd276/` (letture appaiate), `osd170/`, `riferimento_sintetico/`, `idtaxa/`, `eco/`.
-- **La CI** (`.github/workflows/ci.yml`): un job rapido con la suite Python e R con il solo `jsonlite` (senza Bioconductor, quindi i test di calcolo si saltano) e un job dentro l'immagine, diviso in due parti; un nuovo modulo di test lungo va aggiunto a `MODULI_DI_CALCOLO`.
+- **La CI** (`.github/workflows/ci.yml`): un job rapido con la suite Python e R con il solo `jsonlite` (senza Bioconductor, quindi i test di calcolo si saltano) e un job dentro l'immagine, diviso in due parti: un modulo di test lungo sta in `MODULI_DI_CALCOLO`, ogni altro cade da solo nella parte «resto».
 - **Il confronto con il riferimento:** `dati/osd734/confronta_risultati.py` confronta un'esecuzione completa di OSD-734 con le impronte pubblicate (`checksum_artefatti.tsv`, `checksum_finali.sha256`) e, se qualcosa differisce, indica la prima fase in cui compare la differenza. Servono i dati completi (README, «Riprodurre il riferimento») e un clone senza modifiche non salvate in un commit, perché la configurazione di riferimento usa `strict_provenance`. Se un cambiamento è voluto, `--aggiorna` riscrive le impronte attese.
 
 **I moduli di test per area:**
@@ -145,7 +149,7 @@ Ogni file Python e R comincia con un commento che dice che cosa fa la fase, che 
 | S13, S14, S9, report | `test_w21_finale`, `test_w23_filogenesi`, `test_w22_report`, `test_w28_calcolo` |
 | catene su sottoinsiemi | `test_catena_appaiata`, `test_catena_osd170_ridotto` |
 | `init`, `soglie`, JSON | `test_init`, `test_soglie`, `test_interfaccia_json` |
-| analisi ecologiche | `test_eco_configurazione`, `test_eco_diversita`, `test_eco_ordinazione`, `test_eco_statistica`, `test_eco_filtro` (filtro, alfa senza rarefazione, rarefazione ripetuta, ranghi), `test_eco_gruppi` (gruppi derivati, colori, palette, composizione per gruppi e a pannelli, proposte di `eco init`), `test_eco_vincolata` (RDA, db-RDA, UniFrac) |
+| analisi ecologiche | `test_eco_configurazione`, `test_eco_diversita`, `test_eco_ordinazione`, `test_eco_statistica`, `test_eco_filtro` (filtro, alfa senza rarefazione, rarefazione ripetuta, ranghi), `test_eco_gruppi` (gruppi derivati, colori, palette, composizione per gruppi e a pannelli, blocco delle divisioni di `eco init`), `test_eco_vincolata` (RDA, db-RDA, UniFrac), `test_eco_divisioni` (catalogo delle divisioni, regole, criteri, doppioni, nomi della configurazione, `E-ECO-47` ed `E-ECO-48`, divisione per nome e gruppo scritto a mano, package-data) |
 | dati e script | `test_dati_dei_dataset`, `test_w21_dati_osd734`, `test_scarica_osdr`, `test_letture_forward`, `test_comunita_nota`, `test_confronto_genelab` |
 | ambiente, riproducibilità, dataset completo | `test_w01_w02_import`, `test_w25_immagine`, `test_w30_ambiente`, `test_w30_correzioni`, `test_w30_indipendenza`, `test_w24_riproduzione`, `test_w07_dati_reali` |
 
@@ -290,9 +294,11 @@ Una riga per file; il commento in testa a ciascuno dice il resto. I file `__init
 Il flusso di `eco run`:
 
 1. `cli.py` legge gli argomenti, carica la configurazione con `config.py` e chiama `esecuzione.py`;
-2. `esecuzione.py` copia l'oggetto in una cartella di lavoro, prepara la richiesta e lancia, attraverso `ponte.py`, prima `R/valida.R` e poi `R/analisi.R`;
-3. `ponte.py` usa il ponte della pipeline (`amplicon16s.rbridge`): stesso contratto a file JSON, stessi processi R isolati;
-4. `R/analisi.R` carica le librerie di `R/lib/` e scrive tabelle, grafici e `riepilogo.json` in una cartella provvisoria; solo ad analisi conclusa `esecuzione.py` vi aggiunge `configurazione.json` e `manifest.json` e sposta tutto nella cartella indicata.
+2. `esecuzione.py` copia l'oggetto in una cartella di lavoro e, attraverso `ponte.py`, lancia `R/descrivi.R`, che riporta la tabella dei campioni;
+3. `divisioni.espandi` legge i nomi dei campi che accettano una colonna (regola dei nomi: gruppo derivato dichiarato, colonna con valori, divisione del catalogo o `<colonna>_prefisso`, colonna vuota) ed espande ogni divisione in una colonna, un gruppo derivato in fondo a `design.groupings` o una griglia `{rows, cols}`; la configurazione espansa si valida di nuovo con `config.py`, e da qui in poi è quella che R riceve e di cui si calcola il digest;
+4. `esecuzione.py` lancia `R/valida.R` e poi `R/analisi.R`; i rifiuti dell'espansione (`E-ECO-47`, `E-ECO-48`) si dicono insieme a quelli di `valida.R`, e la colonna mancante (`E-ECO-05`) di un nome scritto in un campo delle divisioni diventa `E-ECO-47`;
+5. `ponte.py` usa il ponte della pipeline (`amplicon16s.rbridge`): stesso contratto a file JSON, stessi processi R isolati;
+6. `R/analisi.R` carica le librerie di `R/lib/` e scrive tabelle, grafici e `riepilogo.json` in una cartella provvisoria; solo ad analisi conclusa `esecuzione.py` vi aggiunge `configurazione.json` (digest e parametri della configurazione espansa e, se la configurazione nomina divisioni, il campo descrittivo `divisioni`) e `manifest.json`, e sposta tutto nella cartella indicata.
 
 **`scripts/`, `container/`**
 

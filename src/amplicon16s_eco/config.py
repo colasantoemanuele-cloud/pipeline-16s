@@ -146,8 +146,7 @@ STANDARD_DEI_CONDIZIONALI: Final[dict[str, tuple[Any, str]]] = {
     "ord.tsne_theta": (0.5, "Rtsne::Rtsne, theta = 0.5 (0: t-SNE esatto)"),
 }
 
-#: La palette di partenza dei grafici: quella con cui lo strumento li ha sempre
-#: disegnati (colori_gruppi in R/lib/uscite.R).
+#: La palette predefinita dei grafici (colori_gruppi in R/lib/uscite.R).
 PALETTE_PREDEFINITA: Final = "Dark 3"
 
 #: Predefiniti che sono il valore del pacchetto R che realizza il metodo:
@@ -156,8 +155,8 @@ STANDARD_DEL_METODO: Final[dict[str, tuple[Any, str]]] = {
     "stat.permanova_permutations": (999, "vegan::adonis2, permutations = 999"),
     "plot.palette": (
         PALETTE_PREDEFINITA,
-        "grDevices::hcl.colors(n, palette = \"Dark 3\"): la palette con cui lo strumento "
-        "ha sempre colorato i gruppi (colori_gruppi, R/lib/uscite.R)"),
+        "grDevices::hcl.colors(n, palette = \"Dark 3\"): la palette predefinita dei "
+        "gruppi (colori_gruppi, R/lib/uscite.R)"),
 }
 
 #: Parametri facoltativi il cui predefinito e' l'assenza.

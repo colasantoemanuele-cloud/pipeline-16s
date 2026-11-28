@@ -579,7 +579,8 @@ run:
 # =========================================================================== #
 # Analisi ecologiche a valle                                                  #
 # =========================================================================== #
-# Gruppi riservati, senza parametri: qualunque chiave vi venga scritta e'
+# Gruppi riservati, senza parametri: le analisi ecologiche si configurano nel
+# loro file (config/eco.example.yaml). Qualunque chiave vi venga scritta e'
 # respinta.
 
 norm: {}    # normalizzazione delle abbondanze

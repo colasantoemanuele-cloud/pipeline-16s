@@ -376,7 +376,7 @@ grafico_composizione <- function(mostrati, nomi, gruppi, v, rango, percorso) {
   colori <- c(colori_gruppi(length(nomi) - 1L), "grey70")
   # Il margine destro ospita la legenda: con nomi di taxa lunghi cresce, e
   # l'immagine con lui, perche' nessun nome resti tagliato; fino a circa sedici
-  # caratteri resta quello di sempre.
+  # caratteri il margine resta al minimo, 16.
   margine <- max(16, ceiling(0.8 * max(nchar(nomi))) + 4)
   # Con molti gruppi l'immagine si allarga: le barre non si stringono.
   apri_png(percorso, larghezza = larghezza_per_gruppi(length(gruppi)) +

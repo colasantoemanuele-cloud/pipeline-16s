@@ -53,5 +53,5 @@ stat:
   permanova_strata: null
 
 plot:
-  # La palette di sempre (grDevices::hcl.colors, "Dark 3").
+  # La palette predefinita (grDevices::hcl.colors, "Dark 3").
   palette: "Dark 3"

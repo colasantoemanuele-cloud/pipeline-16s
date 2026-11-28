@@ -15,7 +15,7 @@
 #                       presenti, valori distinti, gruppi con almeno due
 #                       campioni, se i valori sono tutti numerici e, se non
 #                       sono tutti diversi, ogni valore con i suoi campioni
-#                       (servono alle proposte di raggruppamento)
+#                       (servono alle divisioni proposte da eco init)
 #   tabella             i nomi dei campioni e, per ogni colonna, il valore di
 #                       ogni campione nello stesso ordine (nullo se mancante):
 #                       servono al catalogo delle divisioni (divisioni.py), che

@@ -857,8 +857,8 @@ riepilogo_del_disegno <- function(d) {
     variabili_tecniche = I(d$tecniche)
   )
   # Le voci del filtro, del metodo dell'alfa diversita', delle variabili
-  # continue e del soggetto ci sono solo se dichiarate: senza, il riepilogo e'
-  # quello di sempre.
+  # continue e del soggetto ci sono solo se dichiarate: senza, il riepilogo non
+  # ha quelle voci.
   if (!is.null(d$filtro)) {
     riepilogo$campioni$esclusi$svuotati_dal_filtro <- length(d$svuotati)
     riepilogo$filtro <- list(
