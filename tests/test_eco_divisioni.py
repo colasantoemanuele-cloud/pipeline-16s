@@ -5,8 +5,8 @@ propone quelle che funzionano sul dataset, e ``eco validate`` e ``eco run``
 ricavano la regola dal nome scritto nella configurazione. I test coprono il
 catalogo e la sua verifica, il riconoscimento delle colonne, le regole, i
 criteri, i doppioni, la lettura dei nomi nella configurazione (con i rifiuti
-E-ECO-47 ed E-ECO-48) e la compatibilita' con le configurazioni della
-versione 0.2.0; quelli con R confrontano un'esecuzione con la divisione scelta
+E-ECO-47 ed E-ECO-48) e le configurazioni che nominano solo colonne e gruppi
+derivati, che non si espandono; quelli con R confrontano un'esecuzione con la divisione scelta
 per nome e una con il gruppo derivato scritto a mano.
 """
 
@@ -483,8 +483,8 @@ def test_la_lettura_dei_nomi_segue_una_regola_univoca():
     ``E-ECO-47`` con le colonne e le divisioni.
 
     **Razionale scientifico e sistemistico**: un nome deve indicare una cosa
-    sola, e una configurazione della versione 0.2.0, che nomina colonne,
-    deve leggersi come prima.
+    sola, e un nome di colonna indica sempre la colonna, in qualunque
+    configurazione.
     """
     tabella = _tabella(gruppo=["a", "b"] * 4, factor_value_sample_location=_POSIZIONI,
                        modulo=[None] * 8, posizione=["p", "q"] * 4)
@@ -544,8 +544,8 @@ def test_una_divisione_senza_gruppi_validi_e_respinta_con_il_motivo():
 
 def test_le_configurazioni_dei_dataset_non_cambiano_con_l_espansione():
     """
-    **Obiettivo**: ogni ``dati/*/eco_*.yaml`` (configurazioni della versione
-    0.2.0) letto su una tabella che ha le sue colonne resta identico: nessun
+    **Obiettivo**: ogni ``dati/*/eco_*.yaml`` (configurazioni che nominano solo
+    colonne e gruppi derivati) letto su una tabella che ha le sue colonne resta identico: nessun
     nome e' una divisione, e le analisi ricevono gli stessi parametri e lo
     stesso digest.
 

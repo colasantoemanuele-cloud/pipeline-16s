@@ -650,7 +650,7 @@ def test_esegui_py_porta_alle_analisi_senza_cambiare_la_pipeline(tmp_path):
     """
     **Obiettivo**: ``scripts/esegui.py eco`` esegue la riga di comando delle
     analisi ecologiche del clone; senza ``eco`` gli argomenti vanno alla
-    pipeline come prima, con gli stessi sottocomandi e lo stesso rifiuto di un
+    pipeline, con i suoi sottocomandi e lo stesso rifiuto di un
     sottocomando sconosciuto.
 
     **Razionale scientifico e sistemistico**: il comando con cui si esegue la

@@ -1097,7 +1097,7 @@ def test_sotto_le_venti_letture_le_seconde_non_cedono_a_un_record(tmp_path):
     **Obiettivo**: Verificare che un file di quindici seconde letture resti
     respinto anche con una sola prima lettura, o con una sola lettura senza
     marcatore; che con due letture diverse passi; e che un file di quindici
-    forward con una sola seconda lettura passi, come prima.
+    forward con una sola seconda lettura passi.
 
     **Razionale scientifico e sistemistico**: Sotto le venti letture il 5%
     vale meno di una lettura: senza un minimo assoluto la tolleranza al

@@ -921,7 +921,7 @@ def test_la_catena_arriva_in_fondo_con_un_riferimento_nel_formato_di_gtdb(
     sintetico riscritto nel formato dei training set GTDB per dada2 (sei
     ranghi dal dominio al genere, nessun prefisso, nomi con suffisso, i domini
     Bacteria e Archaea), la catena arrivi all'oggetto finale; che la
-    tassonomia abbia le colonne di sempre, nominate per posizione; che un
+    tassonomia abbia le sue colonne, nominate per posizione; che un
     taxon escluso scritto come lo scrive il riferimento (``Firmicutes_A``)
     tolga le varianti di quel phylum e solo quelle; e che i nomi dei
     cloroplasti e dei mitocondri di un altro riferimento, che questo non ha,

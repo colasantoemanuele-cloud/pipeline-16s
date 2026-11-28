@@ -255,7 +255,7 @@ def test_i_file_con_il_suffisso_raw_dopo_il_marcatore_si_abbinano():
     **Razionale scientifico e sistemistico**: alcuni archivi pubblici
     distribuiscono le letture grezze con ``_raw`` dopo il marcatore della
     lettura. E' una forma in piu' della stessa regola, ancorata alla fine del
-    nome: i nomi gia' riconosciuti si abbinano come prima, e le forme che la
+    nome: i nomi senza ``_raw`` si abbinano con la regola di base, e le forme che la
     regola non nomina non diventano coppie per somiglianza.
     """
     nomi = ["a_R1_raw.fastq.gz", "a_R2_raw.fastq.gz", "b_R1_raw.fastq.gz", "b_R2_raw.fastq.gz"]
@@ -274,7 +274,7 @@ def test_i_file_con_il_suffisso_raw_dopo_il_marcatore_si_abbinano():
         assert not reads.abbina_file(coppia, ("_R1", "_R2")).coppie, dopo
         assert reads.compagni_per_nome(coppia) is None, dopo
         assert not reads.nome_da_seconda_lettura(coppia[1], coppia), dopo
-    # I nomi senza suffisso e con il numero di blocco si abbinano come prima.
+    # I nomi senza suffisso e con il numero di blocco si abbinano con la regola di base.
     assert reads.compagni_per_nome(["s_R1.fq", "s_R2.fq"]) == ("_R1", "_R2")
     assert reads.compagni_per_nome(["s_R1_001.fq", "s_R2_001.fq"]) == ("_R1", "_R2")
 
@@ -820,7 +820,7 @@ def test_la_lunghezza_attesa_sta_nell_intervallo_e_la_tolleranza_non_entra_nel_f
     lunghezza dichiari il solo intervallo, cosi' che cambiare ``asv.len_tol`` o
     il troncamento non ne cambi l'impronta dei parametri, mentre la cambia
     l'intervallo; e che in modalita' single-end la fase dipenda dalla
-    tolleranza come prima.
+    tolleranza.
 
     **Razionale scientifico e sistemistico**: Una lunghezza attesa fuori
     dall'intervallo ammesso dichiara due cose che non possono valere insieme:
@@ -1191,7 +1191,7 @@ def test_init_non_allunga_i_troncamenti_dentro_basi_di_qualita_bassa(
     fondere basta allungare una lettura dentro posizioni in cui la qualita'
     mediana e' almeno 20, i due troncamenti sono proposti e il commento dice
     di quante basi e fino a quale qualita'; una base oltre, no; e quando la
-    qualita' regge senza allungare la proposta e' quella di sempre.
+    qualita' regge senza allungare la proposta e' il solo troncamento per qualita'.
 
     **Razionale scientifico e sistemistico**: il vincolo della fusione si puo'
     sempre rispettare allungando i troncamenti, ma una sovrapposizione fatta di
@@ -1250,7 +1250,7 @@ def test_init_non_allunga_i_troncamenti_dentro_basi_di_qualita_bassa(
         "oltre.yaml", _profilo_finto(120, 120, 90, 99), _profilo_finto(120, 120, reverse_buona))
     assert righe["filter.truncLen"] == (False, "") and "non si fondono" in stampato
 
-    # La qualita' regge: proposti dove regge, senza allungare, come prima.
+    # La qualita' regge: proposti dove regge, senza allungare.
     righe, stampato, testo = lancia(
         "buone.yaml", _profilo_finto(120, 120, 115), _profilo_finto(120, 120, 108))
     assert righe["filter.truncLen"] == (True, "115")

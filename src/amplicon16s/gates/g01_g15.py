@@ -371,7 +371,7 @@ def _codice_per_problema(problema: str) -> str:
     # gli altri: lo stesso controllo.
     if problema.startswith("meta:") and "assay_keep_" in problema:
         return "E-G15-14"
-    # Un parametro rimosso da una versione precedente: e' un problema di
+    # Un parametro che lo schema dichiara rimosso («non esiste piu'»): e' un problema di
     # schema, non il controllo sulle soglie delle chimere che vigila sul gruppo.
     if "non esiste piu'" in problema:
         return "E-G15-99"

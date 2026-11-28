@@ -385,7 +385,7 @@ def test_senza_un_segnale_il_controllo_dichiara_di_non_applicarsi(tmp_path, capl
 def test_un_dataset_buono_passa_e_il_controllo_non_lascia_traccia_negli_artefatti(tmp_path, con_r):
     """
     **Obiettivo**: Verificare che su un dataset sintetico buono, con il motivo
-    dichiarato, S1 si concluda; che ``coppie.tsv`` abbia le colonne di sempre;
+    dichiarato, S1 si concluda; che ``coppie.tsv`` abbia le sue colonne;
     che ne' il riepilogo ne' le metriche del manifesto portino un campo del
     nuovo controllo; e che il manifesto dichiari fra i parametri della fase
     primer, motivo e taglio, da cui il giudizio dipende.

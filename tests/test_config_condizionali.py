@@ -12,7 +12,8 @@ delle varianti. Il modulo verifica, per ogni condizione:
   calcolo usa il parametro e la catena arriva in fondo con gli stessi conteggi,
   tassonomia, campioni e varianti;
 * condizione falsa e parametro dichiarato: la configurazione e' accettata
-  senza effetto sui risultati, con il digest di sempre.
+  senza effetto sui risultati, con lo stesso digest della configurazione che
+  non lo dichiara.
 
 Alcuni condizionali una fase li riporta in un riepilogo anche con la
 condizione falsa (``defaults.CONDIZIONALI_RIPORTATI``): dichiarati, il
@@ -274,7 +275,7 @@ def test_i_campioni_riclassificati_sono_i_negativi_che_le_fasi_vedono(tmp_path):
     assert avviso.dettaglio == (
         "il dataset ha 0 controlli negativi (ctrl.column e' nullo): i contaminanti non "
         "sono stimabili dai controlli")
-    # Dichiarato il minimo, il messaggio e' quello di sempre e lo cita.
+    # Dichiarato il minimo, il messaggio e' quello dei controlli insufficienti e lo cita.
     chiudi()
     esito = esegui_s0(valida(sintetico.configurazione(dataset, tmp_path / "dichiarato")))
     (avviso,) = [a for a in esito.avvisi if "controlli negativi" in a.dettaglio]

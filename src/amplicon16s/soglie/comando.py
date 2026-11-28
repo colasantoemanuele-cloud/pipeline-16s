@@ -766,7 +766,7 @@ def _documento(args: argparse.Namespace, cartella: Path | None, esiti: list[Esit
     proposta non esistesse.
     """
     return {
-        # Solo se c'e' una proposta: senza, il documento e' quello di sempre.
+        # Solo se c'e' una proposta: senza, il documento non ha la voce.
         **({"letture_minime": minime.documento()} if minime is not None else {}),
         "versione_formato": interfaccia.VERSIONE_FORMATO,
         "comando": "soglie",

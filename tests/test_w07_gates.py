@@ -495,7 +495,7 @@ def test_g09_non_valuta_il_troncamento_molto_sotto_il_minimo(tmp_path):
     **Razionale scientifico e sistemistico**: Lo scarto in difetto si valuta sul
     minimo vero delle lunghezze, che solo S1 conosce leggendo tutte le letture:
     su una stima dalle prime ``qc.head_reads`` letture sarebbe sbagliato nei
-    due versi. ``E-S1-01`` e' registrato da S1, non piu' da S0.
+    due versi. ``E-S1-01`` e' registrato da S1, non da S0.
     """
     scenario = _scenario(tmp_path, sovrascrivi={"filter": {"truncLen": 100}})
     esito = _esegui(scenario)["G09"]

@@ -233,8 +233,8 @@ def test_la_palette_si_estende_per_interpolazione_e_un_nome_sconosciuto_e_respin
     eco_r, tmp_path
 ):
     """
-    **Obiettivo**: in R, con ``"Dark 3"`` i colori sono quelli di sempre
-    (``hcl.colors``); con ``"Okabe-Ito"`` i primi otto sono quelli di
+    **Obiettivo**: in R, con ``"Dark 3"`` i colori sono quelli di
+    ``hcl.colors``; con ``"Okabe-Ito"`` i primi otto sono quelli di
     ``palette.colors`` senza il grigio (riservato ad «altri»), e con dodici gruppi la palette si estende per
     interpolazione; un elenco esadecimale vale cosi' com'e'; un nome di
     RColorBrewer da' i colori di ColorBrewer. Un nome che nessun pacchetto

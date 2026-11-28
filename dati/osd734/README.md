@@ -16,7 +16,7 @@ ogni file sono in `FONTI.tsv`. Il riferimento tassonomico, comune ai dataset, st
 | `letture_ena.tsv` | si' | le 960 corse: accession, nome del file locale, indirizzo, MD5 e dimensione dichiarati da ENA |
 | `config_osd734.yaml` | si' | la configurazione per OSD-734, con i percorsi relativi alla radice del repository |
 | `eco_osd734.yaml` | si' | la configurazione d'esempio delle analisi ecologiche di base sull'oggetto finale |
-| `eco_osd734_migliorie.yaml` | si' | la configurazione dimostrativa delle funzioni facoltative delle analisi ecologiche sull'oggetto finale |
+| `eco_osd734_completa.yaml` | si' | la configurazione dimostrativa delle funzioni facoltative delle analisi ecologiche sull'oggetto finale |
 | `FONTI.tsv` | si' | fonte, licenza e controllo di ogni file; per il file del lotto anche l'identificativo dell'archivio Software Heritage |
 | `scarica_letture.py` | si' | scarica le letture in `fastq/` |
 | `ricostruisci_lotto.py` | si' | ricostruisce il file del lotto in `lotto/` dalla fonte pubblica |
@@ -262,7 +262,7 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
 La cartella di uscita deve essere assente o vuota. Un'esecuzione dura circa un minuto e
 mezzo; due esecuzioni danno gli stessi byte in ogni file.
 
-`eco_osd734_migliorie.yaml` usa le funzioni facoltative sullo stesso oggetto (760
+`eco_osd734_completa.yaml` usa le funzioni facoltative sullo stesso oggetto (760
 campioni biologici):
 - il modulo dal prefisso della posizione, come gruppo derivato scritto a mano: è la
   regola della divisione «modulo», che si può nominare al suo posto;
@@ -283,7 +283,7 @@ allo 0,1%, e con i calcoli al rango di famiglia.
 ```bash
 docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)":/app -w /app <immagine> \
   python3 scripts/esegui.py eco run --object output/osd734/12_final/ps_final.rds \
-    --config dati/osd734/eco_osd734_migliorie.yaml --out output/eco_osd734_migliorie
+    --config dati/osd734/eco_osd734_completa.yaml --out output/eco_osd734_completa
 ```
 
 Produce 79 file, identici byte per byte fra due esecuzioni. Su 12 processori dura una

@@ -325,7 +325,7 @@ prefisso di `factor_value_sample_location`) e i suoi gruppi con i campioni: si c
 prima del calcolo. Un raggruppamento che il catalogo non conosce (le aree fuori dai moduli,
 per esempio) si scrive a mano in `design.groupings`.
 Un esempio completo, con più ranghi, la db-RDA e le UniFrac, è
-`dati/osd734/eco_osd734_migliorie.yaml`; ogni parametro è in RIFERIMENTO.md, 4.
+`dati/osd734/eco_osd734_completa.yaml`; ogni parametro è in RIFERIMENTO.md, 4.
 
 ```bash
 p16s eco run --object /lavoro/esecuzione/12_final/ps_final.rds --config /lavoro/eco.yaml --out /lavoro/analisi

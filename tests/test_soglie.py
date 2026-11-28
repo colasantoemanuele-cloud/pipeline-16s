@@ -434,7 +434,7 @@ def test_con_il_motivo_nullo_la_frazione_del_motivo_non_e_zero_ma_assente(tmp_pa
     assert riga_con["frazione_motivo"] == "0.750000" and riga_senza["frazione_motivo"] == ""
     assert {c: v for c, v in riga_con.items() if c != "frazione_motivo"} == {
         c: v for c, v in riga_senza.items() if c != "frazione_motivo"}
-    # Il predefinito e' la forma di sempre: la frazione, anche se zero.
+    # Il predefinito e' la frazione, anche se zero.
     assert _letture_tsv(scansione, 500) == "\n".join(con) + "\n"
 
 
@@ -811,7 +811,7 @@ def test_soglie_propone_le_letture_minime_se_alcuni_campioni_ne_hanno_poche(tmp_
     parametro; che la riga non cambi, nemmeno con ``--accetta-proposte``; che
     un campione gia' escluso non conti; che un secondo passaggio non accumuli
     commenti; e che senza campioni poveri, o senza le tabelle dei filtri
-    finali, file e documento siano quelli di sempre. La regola, sui casi
+    finali, file e documento non portino la proposta. La regola, sui casi
     limite: se sotto mille letture cadrebbe almeno meta' dei campioni vale il
     solo decimo della mediana, e se anche cosi' sono almeno la meta' non c'e'
     proposta; campioni sotto un decimo della mediana ma con almeno mille

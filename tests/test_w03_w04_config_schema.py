@@ -1502,7 +1502,7 @@ def test_true_e_false_non_sono_numeri(gruppo, campo, valore, dati_esempio):
     **Obiettivo**: Verificare che ``true`` e ``false`` scritti dove serve un
     numero reale siano respinti, con il nome del parametro nel messaggio e il
     codice dei problemi di schema, e che lo stesso parametro accetti 0, 1 e i
-    numeri interi come prima.
+    numeri interi.
 
     **Razionale scientifico e sistemistico**: YAML legge ``true`` come un
     booleano, che per Python vale 1: una soglia scritta cosi' per errore
