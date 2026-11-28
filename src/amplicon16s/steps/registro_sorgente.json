@@ -18,7 +18,7 @@
       "python/amplicon16s.rbridge.runner",
       "python/amplicon16s.steps.s00_validate"
     ],
-    "sorgente": "sha256:4136ef2db69e7e1103985facbde0cc268889a4edb44f8213af33c19753137522",
+    "sorgente": "sha256:f79bbaaa7e7333a15e9d78dca97ca7fc620b600ec6d81a7e16e39c9a73fef6a5",
     "versione": 17
   },
   "S1": {
