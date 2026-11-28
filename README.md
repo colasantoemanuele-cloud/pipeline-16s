@@ -90,7 +90,7 @@ Nel repository ci sono i dataset su cui la pipeline è eseguita, tutti da Illumi
 L'immagine si scarica per digest: il digest identifica i byte dell'immagine, un nome no.
 
 ```bash
-docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76
+docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:1804fc57d76d0223773da610046cb74ad49c9358461c92dcd08c6762af5f5938
 ```
 
 I comandi si lanciano dalla radice del clone, montato nel container. Nei comandi che
@@ -308,9 +308,9 @@ della sua immagine: i due insieme identificano i risultati.
 
 - **`v0.1.0`** (`amplicon16s`, la pipeline): commit `133ba16`, immagine
   `ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:930dda008581b24cc3a3fea718c0fed3690b011958bf1716c643f92056970154`.
-- **Analisi ecologiche 0.3.0** (`amplicon16s_eco`): immagine da pubblicare; il suo digest
-  va scritto qui, nella sezione «Esecuzione» e nelle chiavi `run.container` delle
-  configurazioni in `dati/` (SVILUPPO.md, sezione 7, «Aggiornare l'ambiente»). Contiene:
+- **Analisi ecologiche 0.3.0** (`amplicon16s_eco`): tag `eco-0.3.0`, immagine
+  `ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:1804fc57d76d0223773da610046cb74ad49c9358461c92dcd08c6762af5f5938`.
+  Contiene:
   1. alfa diversità con quattro indici (ricchezza osservata, Shannon, Gini-Simpson, Chao1;
      `E-ECO-36` se mancano i singleton) e `alpha.method` obbligatorio: `rarefy` (una o più
      rarefazioni) o `none` (conteggi non rarefatti, con la correlazione fra letture e indici,

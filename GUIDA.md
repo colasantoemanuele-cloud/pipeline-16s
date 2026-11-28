@@ -16,7 +16,7 @@ o un titolo fra virgolette è una sezione del riferimento.
 - **L'immagine pubblicata**, scaricata per digest (1,86 GB da scaricare, 7,6 GB su disco):
 
   ```bash
-  docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76
+  docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:1804fc57d76d0223773da610046cb74ad49c9358461c92dcd08c6762af5f5938
   ```
 
 - **Un clone di questo repository**: ogni comando si lancia dalla sua radice.
@@ -86,7 +86,7 @@ di lavoro, per la configurazione e i risultati; il clone, che contiene il codice
 Nel terminale, dalla radice del clone:
 
 ```bash
-IMMAGINE=ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76
+IMMAGINE=ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:1804fc57d76d0223773da610046cb74ad49c9358461c92dcd08c6762af5f5938
 DATI=/percorso/dei/dati        # la cartella dei dati del passo 2
 LAVORO=/percorso/di/lavoro     # una cartella nuova, per configurazione e uscite
 mkdir -p "$LAVORO"

@@ -65,10 +65,10 @@ repository montato.
 identificata per digest:
 
 ```bash
-docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76
+docker pull ghcr.io/colasantoemanuele-cloud/amplicon16s@sha256:1804fc57d76d0223773da610046cb74ad49c9358461c92dcd08c6762af5f5938
 ```
 
-Il digest (`sha256:367f5934f0a121a1e31a715deafbd64bf8e438f3673eb039370895a63c84fb76`) identifica i byte dell'immagine: il nome con cui e' pubblicata potra'
+Il digest (`sha256:1804fc57d76d0223773da610046cb74ad49c9358461c92dcd08c6762af5f5938`) identifica i byte dell'immagine: il nome con cui e' pubblicata potra'
 cambiare, il digest no, e chi la scarica con quel digest ottiene la stessa immagine. Lo
 scarico e' di 1,86 GB compressi; su disco l'immagine occupa 7,6 GB. Nei comandi che
 seguono `<immagine>` e' quel riferimento completo.
